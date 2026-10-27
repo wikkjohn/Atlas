@@ -41,6 +41,17 @@ IdempotencyKey = Annotated[
 ]
 
 
+RequiredIdempotencyKey = Annotated[
+    str,
+    Header(
+        alias=IDEMPOTENCY_HEADER,
+        min_length=1,
+        max_length=255,
+        description="Required for money movements: retries with the same key never post twice.",
+    ),
+]
+
+
 class IdempotencyRecord(Base):
     __tablename__ = "idempotency_keys"
 

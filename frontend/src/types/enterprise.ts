@@ -10,7 +10,17 @@ export type Permission =
   | "employees:read_compensation"
   | "users:read"
   | "users:manage"
-  | "audit:read";
+  | "audit:read"
+  | "customers:read"
+  | "customers:manage"
+  | "customers:review"
+  | "accounts:read"
+  | "accounts:request"
+  | "accounts:approve"
+  | "accounts:transact"
+  | "accounts:manage"
+  | "ledger:read"
+  | "ledger:post";
 
 export interface Page<T> {
   items: T[];

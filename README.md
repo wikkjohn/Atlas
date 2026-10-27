@@ -9,9 +9,10 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–2 are complete** — the platform foundation plus the shared
+**Current state: Phases 1–3 are complete** — the platform foundation, the shared
 enterprise foundation (sign-in and role-based permissions, countries, the organization
-hierarchy, the employee registry and an append-only audit log). See
+hierarchy, the employee registry and an append-only audit log), and the first banking
+modules (synthetic customers with KYC, approval-gated accounts and a double-entry ledger). See
 [docs/implementation-status.md](docs/implementation-status.md) for what exists today and
 what is planned.
 
@@ -65,7 +66,7 @@ optionally Redis.
    cp .env.example .env    # set ATLAS_REDIS_URL= (empty) if you are not running Redis
    make setup
    make migrate
-   make seed               # demo bank: 64 organizations, 120 synthetic employees, 8 sign-ins
+   make seed               # demo bank: 64 orgs, 120 employees, 8 sign-ins, 150 customers, accounts
    ```
 
 3. **Run** (two terminals):
@@ -83,16 +84,19 @@ Run `make help` to see every command.
 the password `atlas-demo-password` (override with `ATLAS_DEMO_PASSWORD`). These exist for
 local development only; the seed refuses to run in staging or production.
 
-| Username     | Role                   | Can                                                        |
-| ------------ | ---------------------- | ---------------------------------------------------------- |
-| `admin`      | Platform Administrator | Everything, including creating users, countries, units, staff |
-| `executive`  | Global Executive       | Read everything incl. compensation; list users             |
-| `regional`   | Regional Executive     | Read the directory incl. compensation                      |
-| `manager`    | Department Manager     | Read the directory                                         |
-| `employee`   | Banking Employee       | Read the directory (no compensation)                       |
-| `compliance` | Compliance Officer     | Read the directory and the audit log                       |
-| `researcher` | AI Researcher          | Read the directory                                         |
-| `auditor`    | Auditor                | Read everything incl. compensation and the audit log       |
+| Username     | Role                   | Can (beyond reading the directory, customers and accounts)          |
+| ------------ | ---------------------- | ------------------------------------------------------------------ |
+| `admin`      | Platform Administrator | Everything, including manual journal entries and reversals          |
+| `executive`  | Global Executive       | Compensation, users list, ledger                                    |
+| `regional`   | Regional Executive     | Compensation                                                        |
+| `manager`    | Department Manager     | Onboard customers, request/**approve** accounts, transact, freeze/close |
+| `employee`   | Banking Employee       | Onboard customers, request accounts, deposits and withdrawals       |
+| `compliance` | Compliance Officer     | KYC decisions and risk ratings, approve (incl. high-risk), ledger, audit log |
+| `researcher` | AI Researcher          | Read-only                                                           |
+| `auditor`    | Auditor                | Compensation, users list, ledger and reconciliation, audit log      |
+
+Account opening needs two people: the requester can never approve their own request,
+and high-risk customers need an approver who holds the compliance review permission.
 
 Permissions are enforced by the backend on every request; the UI only hides what a role
 cannot use. To create a real administrator for a non-demo environment:
@@ -106,7 +110,7 @@ cannot use. To create a real administrator for a non-demo environment:
 | `make test-frontend`| TypeScript typecheck + Vitest unit/component tests                 |
 | `make test-e2e`     | Playwright in Chromium against the real backend and frontend       |
 | `make lint`         | Ruff lint and format check (backend)                               |
-| `make validate`     | Live checks against a running stack (`scripts/validate_system.py`) |
+| `make validate`     | Live checks against a running stack (`scripts/validate_system.py`; add `--login auditor` to also reconcile the ledger) |
 | `make seed`         | Create the demo bank and demo sign-ins (idempotent)                |
 
 The backend suite **drops and recreates the schema of the test database**. Point
@@ -129,11 +133,16 @@ endpoint are described in [docs/api.md](docs/api.md).
 | Countries | `/api/v1/countries` |
 | Organizations | `/api/v1/organizations` (+ `/{id}/ancestors`) |
 | Employees | `/api/v1/employees` (+ `/{id}/direct-reports`, `/{id}/reporting-chain`) |
+| Customers | `/api/v1/customers` (+ `/{id}/review`, `/{id}/eligibility`) |
+| Account opening | `/api/v1/account-requests` (+ `/{id}/approve`, `/{id}/reject`) |
+| Accounts | `/api/v1/accounts` (+ `/deposits`, `/withdrawals`, `/transactions`, `/freeze`, `/unfreeze`, `/close`) |
+| Ledger | `/api/v1/ledger/accounts`, `/journal-entries` (+ `/reverse`), `/reconciliation` |
 | Audit | `GET /api/v1/audit-events` (read-only) |
 
 Every response carries an `X-Correlation-ID` header. Errors use one envelope:
 `{"error": {"code", "message", "details", "correlation_id"}}`. Create requests accept an
-`Idempotency-Key` header so retries never create duplicates.
+`Idempotency-Key` header so retries never create duplicates; money movements and journal
+postings require one.
 
 ## Repository layout
 

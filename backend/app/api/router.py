@@ -8,10 +8,13 @@ as they are implemented.
 from fastapi import APIRouter
 
 from app.api import system
+from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.audit.router import router as audit_router
 from app.modules.countries.router import router as countries_router
+from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
 from app.modules.identity.router import auth_router, roles_router, users_router
+from app.modules.ledger.router import router as ledger_router
 from app.modules.organizations.router import router as organizations_router
 
 api_router = APIRouter(prefix="/api")
@@ -25,6 +28,10 @@ for module_router in (
     countries_router,
     organizations_router,
     employees_router,
+    customers_router,
+    requests_router,
+    accounts_router,
+    ledger_router,
     audit_router,
 ):
     v1_router.include_router(module_router)

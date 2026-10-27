@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -28,8 +29,21 @@ class Check:
     detail: str
 
 
-def fetch(url: str, timeout: float) -> tuple[int, dict[str, str], Any]:
-    request = urllib.request.Request(url, headers={"X-Correlation-ID": "validate-system"})
+def fetch(
+    url: str,
+    timeout: float,
+    *,
+    body: dict[str, Any] | None = None,
+    token: str | None = None,
+) -> tuple[int, dict[str, str], Any]:
+    headers = {"X-Correlation-ID": "validate-system"}
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, data=data, headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             status, headers, raw = response.status, dict(response.headers), response.read()
@@ -40,6 +54,34 @@ def fetch(url: str, timeout: float) -> tuple[int, dict[str, str], Any]:
     except ValueError:
         body = raw.decode("utf-8", errors="replace")
     return status, headers, body
+
+
+def ledger_checks(api: str, username: str, password: str, timeout: float) -> list[Check]:
+    """Sign in and run the ledger reconciliation (needs a role with ledger:read)."""
+    status, _, login = fetch(
+        f"{api}/api/v1/auth/login",
+        timeout,
+        body={"username": username, "password": password},
+    )
+    if status != 200:
+        return [Check("Sign-in", False, f"login as {username} answered HTTP {status}")]
+    checks = [Check("Sign-in", True, f"signed in as {username} ({login['user']['role']})")]
+    status, _, report = fetch(
+        f"{api}/api/v1/ledger/reconciliation", timeout, body={}, token=login["access_token"]
+    )
+    if status != 200:
+        checks.append(Check("Ledger reconciliation", False, f"HTTP {status}: {report}"))
+        return checks
+    failed = [c["name"] for c in report["checks"] if not c["passed"]]
+    checks.append(
+        Check(
+            "Ledger reconciliation",
+            report["ok"],
+            f"{report['entries_checked']} entries, {report['lines_checked']} lines; "
+            + (f"failed: {', '.join(failed)}" if failed else "all checks passed"),
+        )
+    )
+    return checks
 
 
 def run_checks(api: str, frontend: str | None, timeout: float) -> list[Check]:
@@ -142,6 +184,12 @@ def main() -> int:
     parser.add_argument("--frontend", default="http://localhost:5173")
     parser.add_argument("--skip-frontend", action="store_true")
     parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument(
+        "--login",
+        metavar="USERNAME",
+        help="Also sign in (password from ATLAS_DEMO_PASSWORD) and reconcile the ledger, "
+        "e.g. --login auditor",
+    )
     args = parser.parse_args()
 
     checks = run_checks(
@@ -149,6 +197,9 @@ def main() -> int:
         None if args.skip_frontend else args.frontend.rstrip("/"),
         args.timeout,
     )
+    if args.login:
+        password = os.environ.get("ATLAS_DEMO_PASSWORD", "atlas-demo-password")
+        checks += ledger_checks(args.api.rstrip("/"), args.login, password, args.timeout)
     width = max(len(c.name) for c in checks)
     for check in checks:
         mark = "PASS" if check.passed else "FAIL"

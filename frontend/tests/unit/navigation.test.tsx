@@ -16,7 +16,15 @@ describe("Application shell", () => {
       expect(within(nav).getByText(item.label)).toBeInTheDocument();
     }
     const links = within(nav).getAllByRole("link").map((link) => link.textContent);
-    expect(links).toEqual(["Overview", "Organization", "Countries", "Employees", "Audit Center"]);
+    expect(links).toEqual([
+      "Overview",
+      "Organization",
+      "Countries",
+      "Employees",
+      "Customers",
+      "Accounts",
+      "Audit Center",
+    ]);
 
     const workflows = within(nav).getByText("Workflow Explorer").closest("[aria-disabled]");
     expect(workflows).toHaveAttribute("aria-disabled", "true");

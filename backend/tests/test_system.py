@@ -20,16 +20,11 @@ def test_system_info_describes_platform_and_module_roadmap(client: TestClient) -
     assert body["uptime_seconds"] >= 0
     assert "Synthetic" in body["data_policy"]
 
-    modules = {m["key"]: m for m in body["modules"]}
-    assert len(modules) == len(MODULE_REGISTRY)
-    assert modules["platform"]["status"] == "available"
-    assert modules["ledger"] == {
-        "key": "ledger",
-        "name": "Ledger",
-        "phase": 3,
-        "status": "planned",
-        "description": modules["ledger"]["description"],
-    }
+    # The endpoint publishes the registry exactly, in order.
+    assert body["modules"] == [m.as_dict() for m in MODULE_REGISTRY]
+    statuses = {m["key"]: m["status"] for m in body["modules"]}
+    assert statuses["platform"] == "available"
+    assert set(statuses.values()) <= {"available", "planned"}
 
 
 def test_system_status_is_operational_after_migrations(client: TestClient) -> None:

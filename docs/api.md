@@ -84,6 +84,65 @@ an active employee and the reporting line may not form a cycle. An employee with
 direct reports cannot be terminated. `annual_compensation` and `compensation_currency`
 are `null` unless the caller has `employees:read_compensation`.
 
+### Customers
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/customers` | `customers:read` | Filters: `q`, `customer_type`, `country_id`, `risk_rating`, `kyc_status` |
+| POST | `/api/v1/customers` | `customers:manage` | Individual or business; active country; date not in the future; idempotent |
+| GET | `/api/v1/customers/{id}` | `customers:read` | Includes the country's currency |
+| PATCH | `/api/v1/customers/{id}` | `customers:manage` | `name` |
+| POST | `/api/v1/customers/{id}/review` | `customers:review` | `kyc_status` and/or `risk_rating`, optional `note`. KYC moves not_started → pending → verified/rejected (and back to pending for re-review); verifying requires a risk rating. |
+| GET | `/api/v1/customers/{id}/eligibility?account_type=` | `accounts:read` | `{eligible, reasons[]}` |
+
+### Account opening
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/account-requests` | `accounts:read` | Filters: `status`, `customer_id` |
+| POST | `/api/v1/account-requests` | `accounts:request` | `{customer_id, account_type, currency?}`; eligibility checked; one pending request per customer/type/currency; idempotent |
+| GET | `/api/v1/account-requests/{id}` | `accounts:read` | |
+| POST | `/api/v1/account-requests/{id}/approve` | `accounts:approve` | Opens the account. Not by the requester (four-eyes, also a DB constraint); high-risk customers need `customers:review`; eligibility re-checked; a second approval returns 409. |
+| POST | `/api/v1/account-requests/{id}/reject` | `accounts:approve` | `{reason}`; four-eyes applies |
+
+Eligibility: KYC verified; a risk rating assigned; account type matches the customer type
+(individuals: current, savings; businesses: business_current); individuals aged 18+; the
+customer's country is active; domestic currency only; no live account of the same type
+and currency.
+
+### Accounts
+
+There is no endpoint that creates an account directly.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/accounts` | `accounts:read` | Filters: `q`, `customer_id`, `status`, `currency`. `balance` is derived from the ledger. |
+| GET | `/api/v1/accounts/{id}` | `accounts:read` | |
+| GET | `/api/v1/accounts/{id}/transactions` | `accounts:read` | Posted ledger lines, newest first |
+| POST | `/api/v1/accounts/{id}/deposits` | `accounts:transact` | `{amount, memo?}` in minor units; **Idempotency-Key required**; account must be open |
+| POST | `/api/v1/accounts/{id}/withdrawals` | `accounts:transact` | Same; no overdrafts (the account row is locked while the balance is checked) |
+| POST | `/api/v1/accounts/{id}/freeze` · `/unfreeze` · `/close` | `accounts:manage` | `{reason}`; closing requires a zero balance |
+
+Account numbers: two-letter country code, ten digits and two ISO 7064 MOD 97-10 check
+digits (e.g. `US000000004257`). They are synthetic, not IBANs.
+
+### Ledger
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/ledger/accounts` | `ledger:read` | Chart of accounts with derived balances. Filters: `currency`, `account_type`, `q` |
+| POST | `/api/v1/ledger/accounts` | `ledger:post` | `{code, name, account_type, currency}` |
+| GET | `/api/v1/ledger/accounts/{id}` · `/statement` | `ledger:read` | |
+| GET | `/api/v1/ledger/journal-entries` | `ledger:read` | Filters: `currency`, `source`, `ledger_account_id` |
+| POST | `/api/v1/ledger/journal-entries` | `ledger:post` | Manual balanced entry; **Idempotency-Key required**; same key + same body replays (200), different body 409 |
+| GET | `/api/v1/ledger/journal-entries/{id}` | `ledger:read` | Lines, `reversal_of_id`, `reversed_by_id` |
+| POST | `/api/v1/ledger/journal-entries/{id}/reverse` | `ledger:post` | `{reason}`; posts the opposite entry; **Idempotency-Key required** |
+| POST | `/api/v1/ledger/reconciliation` | `ledger:read` | Runs the checks below; the run is audited |
+
+Reconciliation checks: every entry has ≥ 2 lines and balances; every line uses a ledger
+account in the entry's currency; debits equal credits per currency (trial balance); every
+reversed entry has a reversing entry; every customer account matches its ledger currency.
+
 ### Audit
 
 | Method | Path | Permission | Notes |
@@ -94,6 +153,5 @@ There are no write endpoints for audit events.
 
 ### Planned
 
-`/api/v1/customers`, `/accounts`, `/ledger` (Phase 3); `/workflows`,
-`/workflow-executions` (Phase 4); `/simulations` (Phase 5); `/ai-tools` (Phase 6);
+`/workflows`, `/workflow-executions` (Phase 4); `/simulations` (Phase 5); `/ai-tools` (Phase 6);
 `/experiments`, `/benchmarks` (Phase 7); `/analytics` (Phase 8).

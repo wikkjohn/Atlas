@@ -18,6 +18,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | --- | --- | --- |
 | `0001_platform_baseline` | 1 | Creates `system_properties`; records `platform.initialized_at` |
 | `0002_enterprise_foundation` | 2 | Countries, organizations, roles, users, employees, audit events (with append-only triggers), idempotency keys, `employee_number_seq`; seeds the 8 roles and 5 initial countries |
+| `0003_banking_core` | 3 | Customers, account requests, accounts, ledger accounts, journal entries and lines; customer/account/journal number sequences; ledger balance and immutability triggers |
 
 Common commands (from `backend/`):
 
@@ -116,6 +117,57 @@ action. Triggers `audit_events_no_update_delete` and `audit_events_no_truncate` 
 
 PK (`actor_id`, `key`); `method`, `path`, `request_hash` (SHA-256 of method, path and body),
 `status_code`, `response_body` (jsonb), `created_at`. Expired keys are not yet pruned.
+
+### `customers` (Phase 3)
+
+`id`, `customer_number` (unique, `CUS-` + sequence), `customer_type` (individual,
+business), `name`, `date_of_birth_or_incorporation` (date), `country_id` → countries,
+`risk_rating` (unrated, low, medium, high), `kyc_status` (not_started, pending, verified,
+rejected), timestamps. KYC transitions are enforced by the service.
+
+### `account_requests` (Phase 3)
+
+`id`, `customer_id`, `account_type`, `currency`, `status` (pending, approved, rejected),
+`requested_by` / `decided_by` → users, `decided_at`, `decision_note`, `account_id` →
+accounts (unique), timestamps. CHECKs: `decided_by <> requested_by` (four-eyes);
+approved ⇔ `account_id` set. Partial unique index: one pending request per customer,
+type and currency.
+
+### `accounts` (Phase 3)
+
+`id`, `account_number` (unique; country + 10 digits + MOD 97-10 check digits),
+`customer_id`, `account_type` (current, savings, business_current), `currency`, `status`
+(open, frozen, closed), `ledger_account_id` → ledger_accounts (unique), `opened_at`,
+`closed_at` (set iff closed). Partial unique index: one non-closed account per customer,
+type and currency. **No balance column** — balances come from the ledger.
+
+### `ledger_accounts` (Phase 3)
+
+`id`, `code` (unique, e.g. `1000-USD` cash, `2100-<account number>` customer deposits),
+`name`, `account_type` (asset, liability, equity, income, expense), `currency`,
+`created_at`. Assets and expenses are debit-normal; the rest credit-normal.
+
+### `journal_entries` (Phase 3)
+
+`id`, `entry_number` (unique, `JE-` + sequence), `idempotency_key` (unique), `request_hash`,
+`currency`, `description`, `source` (manual, deposit, withdrawal, reversal), `status`
+(posted, reversed), `effective_date`, `posted_at`, `posted_by` → users, `correlation_id`,
+`reversal_of_id` → journal_entries (unique).
+
+### `journal_lines` (Phase 3)
+
+`id`, `journal_entry_id`, `line_number` (unique per entry), `ledger_account_id`,
+`direction` (debit, credit), `amount` (bigint minor units, CHECK `0 < amount ≤ 10^15`),
+`memo`.
+
+Ledger triggers (migration 0003):
+
+| Trigger | Rule |
+| --- | --- |
+| `journal_lines_balanced`, `journal_entries_balanced` (deferred constraint triggers) | An entry has ≥ 2 lines, debits = credits, and every line's account is in the entry's currency |
+| `journal_lines_no_update_delete`, `journal_lines_no_truncate` | Lines are immutable |
+| `journal_lines_insert_with_entry` | Lines can only be added in the transaction that posted the entry |
+| `journal_entries_guard`, `journal_entries_no_truncate` | Entries cannot be deleted; the only permitted update is status posted → reversed |
 
 ### `alembic_version`
 

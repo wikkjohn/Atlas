@@ -1,1 +1,1 @@
-"""customers module — scheduled for Phase 3; no functionality is implemented yet."""
+"""Synthetic customers (individuals and businesses) with KYC status and risk rating."""

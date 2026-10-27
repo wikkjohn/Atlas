@@ -38,6 +38,14 @@ def _seed_demo(args: argparse.Namespace) -> int:
         )
     if report.users:
         print(f"Created demo users: {', '.join(report.users)}")
+    if report.skipped_banking:
+        print("Customers already exist (or demo users are missing); banking data unchanged.")
+    else:
+        print(
+            f"Created {report.customers} synthetic customers, {report.accounts} accounts, "
+            f"{report.pending_requests} pending account requests and "
+            f"{report.journal_entries} ledger postings."
+        )
     print("\nDemo sign-ins (local development only):")
     for username, _, label in DEMO_USERS:
         print(f"  {username:<12} {label}")

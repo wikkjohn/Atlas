@@ -6,19 +6,30 @@ users are added. Refuses to run in staging or production.
 """
 
 from dataclasses import dataclass, field
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.money import to_minor_units
-from app.core.permissions import RoleCode
+from app.core.permissions import RoleCode, permissions_for
+from app.modules.accounts.models import AccountType
+from app.modules.accounts.service import (
+    approve_request,
+    deposit,
+    submit_request,
+    withdraw,
+)
 from app.modules.countries.models import Country, Region
+from app.modules.customers.models import Customer, CustomerType, KycStatus, RiskRating
+from app.modules.customers.schemas import CustomerCreate, CustomerReview
+from app.modules.customers.service import create_customer, review_customer
 from app.modules.employees.models import Employee
 from app.modules.employees.schemas import EmployeeCreate
 from app.modules.employees.service import create_employee
 from app.modules.identity.models import User
 from app.modules.identity.schemas import UserCreate
-from app.modules.identity.service import create_user
+from app.modules.identity.service import AuthenticatedUser, create_user
 from app.modules.organizations.models import Organization, OrganizationType
 from app.modules.organizations.schemas import OrganizationCreate
 from app.modules.organizations.service import create_organization
@@ -71,12 +82,55 @@ DEMO_USERS = [
 ]
 
 
+CUSTOMERS_PER_COUNTRY = 30
+BUSINESS_SHARE = 0.2
+BUSINESS_WORDS = (
+    "Northwind",
+    "Bluehaven",
+    "Crescent",
+    "Summit",
+    "Harbor",
+    "Lumen",
+    "Meridian",
+    "Pinecrest",
+    "Silverline",
+    "Orion",
+    "Cobalt",
+    "Juniper",
+    "Redwood",
+    "Halcyon",
+)
+BUSINESS_SECTORS = (
+    "Logistics",
+    "Foods",
+    "Analytics",
+    "Textiles",
+    "Energy",
+    "Robotics",
+    "Partners",
+    "Pharma",
+    "Holdings",
+    "Studios",
+    "Engineering",
+    "Trading",
+)
+BUSINESS_SUFFIX = {"US": "Inc.", "GB": "Ltd", "DE": "GmbH", "SG": "Pte. Ltd.", "JP": "K.K."}
+# Whole-unit deposit range per currency (synthetic).
+DEPOSIT_RANGE = {"JPY": (10_000, 2_500_000)}
+DEFAULT_DEPOSIT_RANGE = (100, 25_000)
+
+
 @dataclass
 class SeedReport:
     organizations: int = 0
     employees: int = 0
     users: list[str] = field(default_factory=list)
     skipped_structure: bool = False
+    customers: int = 0
+    accounts: int = 0
+    pending_requests: int = 0
+    journal_entries: int = 0
+    skipped_banking: bool = False
 
 
 def _org(
@@ -175,6 +229,140 @@ def _build_structure(db: Session, names: SyntheticNameGenerator, report: SeedRep
                             _hire(db, names, team, country, f"{team_name} Analyst", lead, report)
 
 
+def _principal(db: Session, username: str) -> AuthenticatedUser | None:
+    user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+    if user is None:
+        return None
+    return AuthenticatedUser(
+        id=user.id,
+        username=user.username,
+        role=user.role.code,
+        permissions=permissions_for(user.role.code),
+    )
+
+
+def _kyc_outcome(names: SyntheticNameGenerator) -> tuple[KycStatus | None, RiskRating]:
+    roll = names.integer(1, 100)
+    risk_roll = names.integer(1, 100)
+    risk = (
+        RiskRating.LOW
+        if risk_roll <= 60
+        else RiskRating.MEDIUM
+        if risk_roll <= 90
+        else RiskRating.HIGH
+    )
+    if roll <= 70:
+        return KycStatus.VERIFIED, risk
+    if roll <= 82:
+        return KycStatus.PENDING, risk
+    if roll <= 92:
+        return None, risk  # not started
+    return KycStatus.REJECTED, risk
+
+
+def _build_banking(db: Session, names: SyntheticNameGenerator, report: SeedReport) -> None:
+    teller = _principal(db, "employee")
+    manager = _principal(db, "manager")
+    compliance = _principal(db, "compliance")
+    if not (teller and manager and compliance):
+        report.skipped_banking = True
+        return
+    countries = {c.iso_country_code: c for c in db.execute(select(Country)).scalars()}
+    for code in SUBSIDIARY_NAMES:
+        country = countries[code]
+        for index in range(CUSTOMERS_PER_COUNTRY):
+            business = index < CUSTOMERS_PER_COUNTRY * BUSINESS_SHARE
+            if business:
+                word = BUSINESS_WORDS[names.integer(0, len(BUSINESS_WORDS) - 1)]
+                sector = BUSINESS_SECTORS[names.integer(0, len(BUSINESS_SECTORS) - 1)]
+                name = f"{word} {sector} {BUSINESS_SUFFIX[code]}"
+                founded = date(
+                    names.integer(1980, 2023), names.integer(1, 12), names.integer(1, 28)
+                )
+            else:
+                first, last = names.name()
+                name = f"{first} {last}"
+                founded = date(
+                    names.integer(1950, 2004), names.integer(1, 12), names.integer(1, 28)
+                )
+            customer = create_customer(
+                db,
+                CustomerCreate(
+                    customer_type=CustomerType.BUSINESS if business else CustomerType.INDIVIDUAL,
+                    name=name,
+                    date_of_birth_or_incorporation=founded,
+                    country_id=country.id,
+                ),
+                actor_id=teller.id,
+            )
+            report.customers += 1
+            kyc, risk = _kyc_outcome(names)
+            if kyc is not None:
+                review_customer(
+                    db, customer, CustomerReview(kyc_status=KycStatus.PENDING), compliance.id
+                )
+            if kyc in (KycStatus.VERIFIED, KycStatus.REJECTED):
+                review_customer(
+                    db, customer, CustomerReview(kyc_status=kyc, risk_rating=risk), compliance.id
+                )
+            if kyc == KycStatus.VERIFIED:
+                _open_and_fund(db, names, customer, teller, manager, compliance, report)
+
+
+def _open_and_fund(
+    db: Session,
+    names: SyntheticNameGenerator,
+    customer: Customer,
+    teller: AuthenticatedUser,
+    manager: AuthenticatedUser,
+    compliance: AuthenticatedUser,
+    report: SeedReport,
+) -> None:
+    if customer.customer_type == CustomerType.BUSINESS:
+        types = [AccountType.BUSINESS_CURRENT]
+    else:
+        types = [AccountType.CURRENT]
+        if names.integer(1, 100) <= 40:
+            types.append(AccountType.SAVINGS)
+    approver = compliance if customer.risk_rating == RiskRating.HIGH else manager
+    currency = customer.country.default_currency
+    low, high = DEPOSIT_RANGE.get(currency, DEFAULT_DEPOSIT_RANGE)
+    for account_type in types:
+        request = submit_request(
+            db,
+            customer_id=customer.id,
+            account_type=account_type,
+            currency=None,
+            requested_by=teller.id,
+        )
+        # Leave some requests waiting so the approvals queue has work in it.
+        if names.integer(1, 100) <= 12:
+            report.pending_requests += 1
+            continue
+        account = approve_request(db, request.id, approver)
+        report.accounts += 1
+        for n in range(names.integer(1, 3)):
+            deposit(
+                db,
+                account.id,
+                amount=to_minor_units(names.integer(low, high), currency),
+                memo="Synthetic cash deposit",
+                idempotency_key=f"seed:{account.account_number}:d{n}",
+                actor_id=teller.id,
+            )
+            report.journal_entries += 1
+        if names.integer(1, 100) <= 50:
+            withdraw(
+                db,
+                account.id,
+                amount=to_minor_units(low, currency),
+                memo="Synthetic cash withdrawal",
+                idempotency_key=f"seed:{account.account_number}:w",
+                actor_id=teller.id,
+            )
+            report.journal_entries += 1
+
+
 def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedReport:
     report = SeedReport()
     names = SyntheticNameGenerator(seed)
@@ -221,4 +409,10 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
             actor_id=None,
         )
         report.users.append(username)
+
+    # Banking activity uses its own generator so the workforce stays identical per seed.
+    if db.execute(select(Customer.id).limit(1)).first():
+        report.skipped_banking = True
+    else:
+        _build_banking(db, SyntheticNameGenerator(seed + 1), report)
     return report

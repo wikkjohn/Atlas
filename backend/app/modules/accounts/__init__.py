@@ -1,1 +1,1 @@
-"""accounts module — scheduled for Phase 3; no functionality is implemented yet."""
+"""Customer bank accounts. Accounts are opened only by approving an opening request."""

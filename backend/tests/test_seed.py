@@ -2,8 +2,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.money import minor_unit_exponent, to_minor_units
+from app.modules.accounts.models import Account, AccountRequest
+from app.modules.customers.models import Customer
 from app.modules.employees.models import Employee
 from app.modules.identity.models import User
+from app.modules.ledger import service as ledger
 from app.modules.organizations.models import Organization
 from app.seed import DEMO_USERS, seed_demo
 from app.simulation.generators import SyntheticNameGenerator
@@ -40,7 +43,24 @@ def test_demo_seed_builds_a_consistent_bank_and_is_rerunnable(db: Session) -> No
     manager_user = db.execute(select(User).where(User.username == "manager")).scalar_one()
     assert manager_user.employee_id is not None
 
+    # Banking activity: every account came from an approved request and the books balance.
+    assert report.customers == 150
+    assert report.accounts > 0 and report.pending_requests > 0
+    accounts = db.execute(select(Account)).scalars().all()
+    assert len(accounts) == report.accounts
+    for account in accounts:
+        assert account.customer.kyc_status == "verified"
+        assert account.currency == account.customer.country.default_currency
+        assert ledger.balance(db, ledger.get_ledger_account(db, account.ledger_account_id)) >= 0
+    approved = db.execute(
+        select(func.count()).where(AccountRequest.status == "approved")
+    ).scalar_one()
+    assert approved == report.accounts
+    assert ledger.reconcile(db, None).ok
+
     again = seed_demo(db, "demo-password-123", seed=99)
 
     assert again.skipped_structure and again.users == [] and again.employees == 0
+    assert again.skipped_banking and again.customers == 0
     assert db.execute(select(func.count()).select_from(Organization)).scalar_one() == 64
+    assert db.execute(select(func.count()).select_from(Customer)).scalar_one() == 150

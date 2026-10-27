@@ -122,6 +122,16 @@ const ALL_PERMISSIONS: Permission[] = [
   "users:read",
   "users:manage",
   "audit:read",
+  "customers:read",
+  "customers:manage",
+  "customers:review",
+  "accounts:read",
+  "accounts:request",
+  "accounts:approve",
+  "accounts:transact",
+  "accounts:manage",
+  "ledger:read",
+  "ledger:post",
 ];
 
 function user(role: string, roleName: string, permissions: Permission[]): CurrentUser {

@@ -39,3 +39,9 @@ transition emits an audit event carrying the execution's correlation ID.
 10. Send a simulated customer notification
 
 Test scenarios: normal approval, rejection, high-risk human review.
+
+Phase 3 already provides the banking services these steps will call: customer KYC review
+(`customers.service.review_customer`), eligibility (`accounts.service.eligibility`), the
+approval-gated account opening (`submit_request` → `approve_request` / `reject_request`)
+with its four-eyes and high-risk rules, and the ledger. The workflow engine will
+orchestrate those calls and persist each step; it will not re-implement their rules.

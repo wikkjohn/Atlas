@@ -119,14 +119,43 @@ The API client separates *backend unreachable* (network failure or proxy 502/503
 right failure state. Navigation entries for unbuilt screens are visibly disabled and
 labelled with the phase that delivers them, never linked to placeholder pages.
 
+## Banking core (Phase 3)
+
+**Account opening is approval-gated.** `accounts.service.approve_request` is the only code
+path that creates an `Account`; no endpoint creates one directly. Approval requires a
+pending request, an approver holding `accounts:approve` who is not the requester (also a
+database CHECK), a compliance reviewer for high-risk customers, and eligibility re-checked
+at that moment. The request row is locked during approval and records the account it
+opened, so one request yields exactly one account. Phase 4's WF-0001 workflow will drive
+these same service calls rather than duplicating the rules.
+
+**Account metadata and balances are separate.** `accounts` holds number, type, currency
+and status; each account points at its own liability ledger account (`2100-<number>`).
+Balances are always computed from posted journal lines; no balance column exists.
+
+**The ledger is the only writer of money.** `ledger.service.post_entry` validates that an
+entry has two or more lines in one currency and that debits equal credits, then inserts
+it. PostgreSQL re-checks the same rules with deferred constraint triggers (forced to run
+immediately after each posting), forbids updating or deleting lines, forbids adding lines
+to an entry from an earlier transaction, and only lets an entry change from `posted` to
+`reversed`. Corrections are opposite reversing entries.
+
+**Duplicates and races.** Every posting carries an idempotency key (unique column); a
+replay returns the original entry and a different payload under the same key is a 409.
+Concurrent duplicates are resolved by the unique index. Withdrawals lock the account row
+(`SELECT … FOR UPDATE`) before checking the balance, so parallel withdrawals cannot
+overdraw; a test races six withdrawals and fails if the lock is removed.
+
+**Reconciliation** re-verifies the invariants over all posted data (per-entry balance,
+currency consistency, trial balance per currency, reversal links, account/ledger currency)
+and records each run in the audit log.
+
 ## Planned design for later phases
 
 - **Events (Phase 4):** an in-process event dispatcher in `app/core/events.py` for
   cross-module side effects, introduced with the workflow engine that first needs it.
 - **Scoped access (later):** Phase 2 permissions are role-wide. Restricting a regional
   executive or department manager to *their* part of the hierarchy is a planned refinement.
-- **Ledger (Phase 3):** integer minor units, balanced-per-currency journal entries, an
-  idempotency key unique constraint, balances derived from posted lines.
 - **Workflow engine (Phase 4):** see [workflows.md](workflows.md).
 - **Simulation (Phase 5):** seeded generators (`random.Random(seed)`, never global random)
   with every run's scenario version, seed, configuration and software version stored. The

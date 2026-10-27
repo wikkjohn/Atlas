@@ -66,14 +66,14 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "customers",
         "Customers",
         3,
-        "planned",
+        "available",
         "Synthetic individual and business customers with KYC status.",
     ),
     ModuleInfo(
-        "accounts", "Accounts", 3, "planned", "Bank accounts opened only after workflow approval."
+        "accounts", "Accounts", 3, "available", "Bank accounts opened only by an approved request."
     ),
     ModuleInfo(
-        "ledger", "Ledger", 3, "planned", "Double-entry general ledger in integer minor units."
+        "ledger", "Ledger", 3, "available", "Double-entry general ledger in integer minor units."
     ),
     ModuleInfo(
         "workflows",

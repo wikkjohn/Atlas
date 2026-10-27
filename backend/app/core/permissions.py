@@ -19,6 +19,16 @@ class Permission(StrEnum):
     USERS_READ = "users:read"
     USERS_MANAGE = "users:manage"
     AUDIT_READ = "audit:read"
+    CUSTOMERS_READ = "customers:read"
+    CUSTOMERS_MANAGE = "customers:manage"  # create customers, edit their details
+    CUSTOMERS_REVIEW = "customers:review"  # KYC status and risk rating decisions
+    ACCOUNTS_READ = "accounts:read"
+    ACCOUNTS_REQUEST = "accounts:request"  # submit an account-opening request
+    ACCOUNTS_APPROVE = "accounts:approve"  # approve/reject requests (never one's own)
+    ACCOUNTS_TRANSACT = "accounts:transact"  # synthetic deposits and withdrawals
+    ACCOUNTS_MANAGE = "accounts:manage"  # freeze, unfreeze, close
+    LEDGER_READ = "ledger:read"
+    LEDGER_POST = "ledger:post"  # manual journal entries and reversals
 
 
 class RoleCode(StrEnum):
@@ -43,21 +53,49 @@ ROLE_NAMES: dict[RoleCode, str] = {
     RoleCode.AUDITOR: "Auditor",
 }
 
-_DIRECTORY = frozenset(
-    {Permission.COUNTRIES_READ, Permission.ORGANIZATIONS_READ, Permission.EMPLOYEES_READ}
+# Read access every role has: the enterprise directory and the banking books.
+_BASE = frozenset(
+    {
+        Permission.COUNTRIES_READ,
+        Permission.ORGANIZATIONS_READ,
+        Permission.EMPLOYEES_READ,
+        Permission.CUSTOMERS_READ,
+        Permission.ACCOUNTS_READ,
+    }
+)
+_FRONT_OFFICE = frozenset(
+    {
+        Permission.CUSTOMERS_MANAGE,
+        Permission.ACCOUNTS_REQUEST,
+        Permission.ACCOUNTS_TRANSACT,
+    }
 )
 
 ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     RoleCode.PLATFORM_ADMINISTRATOR: frozenset(Permission),
-    RoleCode.GLOBAL_EXECUTIVE: _DIRECTORY
-    | {Permission.EMPLOYEES_READ_COMPENSATION, Permission.USERS_READ},
-    RoleCode.REGIONAL_EXECUTIVE: _DIRECTORY | {Permission.EMPLOYEES_READ_COMPENSATION},
-    RoleCode.DEPARTMENT_MANAGER: _DIRECTORY,
-    RoleCode.BANKING_EMPLOYEE: _DIRECTORY,
-    RoleCode.COMPLIANCE_OFFICER: _DIRECTORY | {Permission.AUDIT_READ},
-    RoleCode.AI_RESEARCHER: _DIRECTORY,
-    RoleCode.AUDITOR: _DIRECTORY
-    | {Permission.EMPLOYEES_READ_COMPENSATION, Permission.USERS_READ, Permission.AUDIT_READ},
+    RoleCode.GLOBAL_EXECUTIVE: _BASE
+    | {Permission.EMPLOYEES_READ_COMPENSATION, Permission.USERS_READ, Permission.LEDGER_READ},
+    RoleCode.REGIONAL_EXECUTIVE: _BASE | {Permission.EMPLOYEES_READ_COMPENSATION},
+    RoleCode.DEPARTMENT_MANAGER: _BASE
+    | _FRONT_OFFICE
+    | {Permission.ACCOUNTS_APPROVE, Permission.ACCOUNTS_MANAGE},
+    RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
+    RoleCode.COMPLIANCE_OFFICER: _BASE
+    | {
+        Permission.AUDIT_READ,
+        Permission.CUSTOMERS_REVIEW,
+        Permission.ACCOUNTS_APPROVE,
+        Permission.ACCOUNTS_MANAGE,
+        Permission.LEDGER_READ,
+    },
+    RoleCode.AI_RESEARCHER: _BASE,
+    RoleCode.AUDITOR: _BASE
+    | {
+        Permission.EMPLOYEES_READ_COMPENSATION,
+        Permission.USERS_READ,
+        Permission.AUDIT_READ,
+        Permission.LEDGER_READ,
+    },
 }
 
 

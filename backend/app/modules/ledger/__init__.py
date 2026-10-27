@@ -1,1 +1,1 @@
-"""ledger module — scheduled for Phase 3; no functionality is implemented yet."""
+"""Double-entry general ledger: ledger accounts, journal entries and derived balances."""

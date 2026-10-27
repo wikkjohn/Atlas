@@ -161,3 +161,87 @@ def unique_surname() -> str:
         if n == 0:
             break
     return f"Sample{letters}"
+
+
+# --- Phase 3: customers, accounts, ledger -------------------------------------------------
+
+from datetime import date  # noqa: E402
+
+from app.core.permissions import permissions_for  # noqa: E402
+from app.modules.accounts.models import Account, AccountType  # noqa: E402
+from app.modules.accounts.service import approve_request, submit_request  # noqa: E402
+from app.modules.customers.models import Customer, CustomerType, KycStatus, RiskRating  # noqa: E402
+from app.modules.customers.schemas import CustomerCreate, CustomerReview  # noqa: E402
+from app.modules.customers.service import create_customer, review_customer  # noqa: E402
+from app.modules.identity.service import AuthenticatedUser  # noqa: E402
+
+
+def principal(user: User) -> AuthenticatedUser:
+    """The service-layer identity of a user (what the API builds from a token)."""
+    return AuthenticatedUser(
+        id=user.id,
+        username=user.username,
+        role=user.role.code,
+        permissions=permissions_for(user.role.code),
+    )
+
+
+def make_customer(
+    db: Session,
+    *,
+    country_code: str = "US",
+    customer_type: CustomerType = CustomerType.INDIVIDUAL,
+    name: str | None = None,
+    born: date = date(1985, 6, 15),
+    kyc: KycStatus | None = KycStatus.VERIFIED,
+    risk: RiskRating = RiskRating.LOW,
+) -> Customer:
+    """A customer, by default KYC-verified with a low risk rating."""
+    customer = create_customer(
+        db,
+        CustomerCreate(
+            customer_type=customer_type,
+            name=name or f"Customer {unique_surname()}",
+            date_of_birth_or_incorporation=born,
+            country_id=country(db, country_code).id,
+        ),
+        actor_id=None,
+    )
+    if kyc in (KycStatus.PENDING, KycStatus.VERIFIED, KycStatus.REJECTED):
+        review_customer(db, customer, CustomerReview(kyc_status=KycStatus.PENDING), None)
+    if kyc in (KycStatus.VERIFIED, KycStatus.REJECTED):
+        review_customer(db, customer, CustomerReview(kyc_status=kyc, risk_rating=risk), None)
+    return customer
+
+
+@dataclass
+class Staff:
+    employee: User  # requests accounts, transacts
+    manager: User  # approves (not high risk)
+    compliance: User  # approves high risk, reviews KYC
+    admin: User
+
+
+def make_staff(db: Session) -> Staff:
+    return Staff(
+        employee=make_user(db, RoleCode.BANKING_EMPLOYEE),
+        manager=make_user(db, RoleCode.DEPARTMENT_MANAGER),
+        compliance=make_user(db, RoleCode.COMPLIANCE_OFFICER),
+        admin=make_user(db, RoleCode.PLATFORM_ADMINISTRATOR),
+    )
+
+
+def open_account(
+    db: Session,
+    staff: Staff,
+    customer: Customer,
+    account_type: AccountType = AccountType.CURRENT,
+) -> Account:
+    request = submit_request(
+        db,
+        customer_id=customer.id,
+        account_type=account_type,
+        currency=None,
+        requested_by=staff.employee.id,
+    )
+    return approve_request(db, request.id, principal(staff.manager))

@@ -1,1 +1,1 @@
-"""countries module — scheduled for Phase 2; no functionality is implemented yet."""
+"""Country configuration registry: currency, timezone, languages and operational status."""

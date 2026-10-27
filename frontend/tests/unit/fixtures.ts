@@ -1,3 +1,4 @@
+import type { CurrentUser, Permission } from "@/types/enterprise";
 import type { HealthResponse, SystemInfo, SystemStatus } from "@/types/system";
 
 export const healthyHealth: HealthResponse = {
@@ -74,20 +75,88 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-type Routes = Record<string, () => Response | Promise<Response>>;
+export interface RecordedRequest {
+  method: string;
+  path: string;
+  search: URLSearchParams;
+  headers: Record<string, string>;
+  body: unknown;
+}
 
-/** Replaces global fetch with a router keyed by request path. */
+type Handler = (request: RecordedRequest) => Response | Promise<Response>;
+type Routes = Record<string, Handler>;
+
+/**
+ * Replaces global fetch with a router. Keys are "METHOD /path" or just "/path" (any method).
+ * Every request is recorded in the returned `requests` array.
+ */
 export function mockApi(routes: Routes) {
-  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+  const requests: RecordedRequest[] = [];
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const path = new URL(url, "http://localhost").pathname;
-    const handler = routes[path];
-    if (!handler) throw new Error(`Unexpected request to ${path}`);
-    return handler();
+    const parsed = new URL(url, "http://localhost");
+    const method = (init?.method ?? "GET").toUpperCase();
+    const request: RecordedRequest = {
+      method,
+      path: parsed.pathname,
+      search: parsed.searchParams,
+      headers: (init?.headers as Record<string, string>) ?? {},
+      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+    };
+    requests.push(request);
+    const handler = routes[`${method} ${parsed.pathname}`] ?? routes[parsed.pathname];
+    if (!handler) throw new Error(`Unexpected request to ${method} ${parsed.pathname}`);
+    return handler(request);
   });
+  return Object.assign(spy, { requests });
+}
+
+const ALL_PERMISSIONS: Permission[] = [
+  "countries:read",
+  "countries:manage",
+  "organizations:read",
+  "organizations:manage",
+  "employees:read",
+  "employees:manage",
+  "employees:read_compensation",
+  "users:read",
+  "users:manage",
+  "audit:read",
+];
+
+function user(role: string, roleName: string, permissions: Permission[]): CurrentUser {
+  return {
+    id: `user-${role}`,
+    username: role,
+    email: `${role}@atlasbank.example`,
+    display_name: `Demo ${roleName}`,
+    role,
+    role_name: roleName,
+    employee_id: null,
+    is_active: true,
+    last_login_at: null,
+    created_at: "2026-10-27T00:00:00Z",
+    permissions,
+  };
+}
+
+export const adminUser = user("platform_administrator", "Platform Administrator", ALL_PERMISSIONS);
+export const employeeUser = user("banking_employee", "Banking Employee", [
+  "countries:read",
+  "organizations:read",
+  "employees:read",
+]);
+
+export function authRoutes(current: CurrentUser): Routes {
+  return { "GET /api/v1/auth/me": () => jsonResponse(current) };
+}
+
+export function page<T>(items: T[], total = items.length, limit = 50, offset = 0) {
+  return { items, total, limit, offset };
 }
 
 export const healthyRoutes: Routes = {
+  ...authRoutes(adminUser),
   "/api/health": () => jsonResponse(healthyHealth),
   "/api/system/info": () => jsonResponse(systemInfo),
   "/api/system/status": () => jsonResponse(systemStatus),

@@ -1,7 +1,8 @@
-import { Menu, X } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
+import { useAuth } from "@/app/auth";
 import { IMPLEMENTED_PHASE, NAV_ITEMS } from "@/app/navigation";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
@@ -22,10 +23,12 @@ function Brand() {
 }
 
 function Navigation({ onNavigate }: { onNavigate?: () => void }) {
+  const { can } = useAuth();
+  const items = NAV_ITEMS.filter((item) => !item.permission || can(item.permission));
   return (
     <nav aria-label="Primary" className="flex-1 overflow-y-auto px-3 pb-4">
       <ul className="space-y-0.5">
-        {NAV_ITEMS.map(({ label, path, icon: Icon, phase }) => {
+        {items.map(({ label, path, icon: Icon, phase }) => {
           const available = phase <= IMPLEMENTED_PHASE;
           if (!available) {
             return (
@@ -48,7 +51,7 @@ function Navigation({ onNavigate }: { onNavigate?: () => void }) {
             <li key={path}>
               <NavLink
                 to={path}
-                end
+                end={path === "/"}
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
@@ -91,7 +94,29 @@ function ConnectionIndicator() {
   }
   return (
     <div data-testid="connection-indicator">
-      <StatusPill tone={tone} label={label} />
+      <StatusPill tone={tone} label={label} compact />
+    </div>
+  );
+}
+
+function UserMenu() {
+  const { user, logout } = useAuth();
+  if (!user) return null;
+  return (
+    <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+      <div className="hidden text-right leading-tight md:block">
+        <div className="text-xs font-medium text-slate-800">{user.display_name}</div>
+        <div className="text-[11px] text-slate-500">{user.role_name}</div>
+      </div>
+      <button
+        type="button"
+        onClick={() => logout()}
+        aria-label="Sign out"
+        title="Sign out"
+        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
     </div>
   );
 }
@@ -156,6 +181,7 @@ export function AppShell() {
               </span>
             )}
             <ConnectionIndicator />
+            <UserMenu />
           </div>
         </header>
         <main className="flex-1 overflow-y-auto px-4 py-6 lg:px-8">

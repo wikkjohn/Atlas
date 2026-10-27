@@ -8,6 +8,7 @@ const backendCommand =
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: true,
   retries: 0,
   reporter: [["list"]],

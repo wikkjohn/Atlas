@@ -14,13 +14,20 @@ const DOTS: Record<Tone, string> = {
   neutral: "bg-slate-400",
 };
 
-export function StatusPill({ tone, label }: { tone: Tone; label: string }) {
+interface StatusPillProps {
+  tone: Tone;
+  label: string;
+  /** Show only the dot on small screens (the label stays available to screen readers). */
+  compact?: boolean;
+}
+
+export function StatusPill({ tone, label, compact = false }: StatusPillProps) {
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full whitespace-nowrap px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${TONES[tone]}`}
     >
       <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${DOTS[tone]}`} />
-      {label}
+      {compact ? <span className="sr-only sm:not-sr-only">{label}</span> : label}
     </span>
   );
 }

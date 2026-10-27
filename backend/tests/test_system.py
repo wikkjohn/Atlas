@@ -1,7 +1,9 @@
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 
 from app import __version__
 from app.core.database import get_engine
+from app.core.system import alembic_config
 from app.modules import MODULE_REGISTRY
 from tests.conftest import migrate
 
@@ -40,12 +42,12 @@ def test_system_status_is_operational_after_migrations(client: TestClient) -> No
     assert database["connected"] is True
     assert database["database_name"] == "atlas_test"
     assert database["server_version"]
-    # alembic_version + system_properties
     assert database["table_count"] >= 2
     assert database["initialized_at"].endswith("Z")
+    heads = sorted(ScriptDirectory.from_config(alembic_config()).get_heads())
     assert database["migrations"] == {
-        "current_revisions": ["0001_platform_baseline"],
-        "head_revisions": ["0001_platform_baseline"],
+        "current_revisions": heads,
+        "head_revisions": heads,
         "up_to_date": True,
     }
 

@@ -1,1 +1,1 @@
-"""organizations module — scheduled for Phase 2; no functionality is implemented yet."""
+"""Organization hierarchy: global bank → region → country → division → department → team."""

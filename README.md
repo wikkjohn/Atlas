@@ -9,14 +9,16 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phase 1 (platform foundation) is complete.** See
+**Current state: Phases 1–2 are complete** — the platform foundation plus the shared
+enterprise foundation (sign-in and role-based permissions, countries, the organization
+hierarchy, the employee registry and an append-only audit log). See
 [docs/implementation-status.md](docs/implementation-status.md) for what exists today and
 what is planned.
 
 | Layer    | Technology                                                                |
 | -------- | ------------------------------------------------------------------------- |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, React Router, TanStack Query  |
-| Backend  | Python 3.11+, FastAPI, Pydantic 2, SQLAlchemy 2, Alembic                  |
+| Backend  | Python 3.12+, FastAPI, Pydantic 2, SQLAlchemy 2, Alembic                  |
 | Data     | PostgreSQL 16, Redis 7 (optional)                                         |
 | Tests    | pytest, Vitest + Testing Library, Playwright                              |
 | Local    | Docker Compose                                                            |
@@ -37,15 +39,16 @@ Open:
 - Health check: <http://localhost:8000/api/health>
 
 The backend container applies database migrations automatically before it starts.
-Then confirm everything is wired together:
+Create the demo bank and demo sign-ins, then confirm everything is wired together:
 
 ```bash
+docker compose exec backend python -m app.cli seed-demo
 python3 scripts/validate_system.py
 ```
 
 ## Quick start (without Docker)
 
-Requirements: Python 3.11+, Node.js 20.19+ (22 recommended), PostgreSQL 16, and
+Requirements: Python 3.12+, Node.js 20.19+ (22 recommended), PostgreSQL 16, and
 optionally Redis.
 
 1. **Create the databases** (once). As a PostgreSQL superuser:
@@ -62,6 +65,7 @@ optionally Redis.
    cp .env.example .env    # set ATLAS_REDIS_URL= (empty) if you are not running Redis
    make setup
    make migrate
+   make seed               # demo bank: 64 organizations, 120 synthetic employees, 8 sign-ins
    ```
 
 3. **Run** (two terminals):
@@ -73,6 +77,27 @@ optionally Redis.
 
 Run `make help` to see every command.
 
+## Signing in
+
+`make seed` (or the `seed-demo` command above) creates one demo account per role, all with
+the password `atlas-demo-password` (override with `ATLAS_DEMO_PASSWORD`). These exist for
+local development only; the seed refuses to run in staging or production.
+
+| Username     | Role                   | Can                                                        |
+| ------------ | ---------------------- | ---------------------------------------------------------- |
+| `admin`      | Platform Administrator | Everything, including creating users, countries, units, staff |
+| `executive`  | Global Executive       | Read everything incl. compensation; list users             |
+| `regional`   | Regional Executive     | Read the directory incl. compensation                      |
+| `manager`    | Department Manager     | Read the directory                                         |
+| `employee`   | Banking Employee       | Read the directory (no compensation)                       |
+| `compliance` | Compliance Officer     | Read the directory and the audit log                       |
+| `researcher` | AI Researcher          | Read the directory                                         |
+| `auditor`    | Auditor                | Read everything incl. compensation and the audit log       |
+
+Permissions are enforced by the backend on every request; the UI only hides what a role
+cannot use. To create a real administrator for a non-demo environment:
+`cd backend && .venv/bin/python -m app.cli create-user --username ops.admin --role platform_administrator --email ops.admin@example.com --display-name "Ops Admin"`.
+
 ## Tests
 
 | Command             | What it runs                                                       |
@@ -82,24 +107,33 @@ Run `make help` to see every command.
 | `make test-e2e`     | Playwright in Chromium against the real backend and frontend       |
 | `make lint`         | Ruff lint and format check (backend)                               |
 | `make validate`     | Live checks against a running stack (`scripts/validate_system.py`) |
+| `make seed`         | Create the demo bank and demo sign-ins (idempotent)                |
 
 The backend suite **drops and recreates the schema of the test database**. Point
 `ATLAS_TEST_DATABASE_URL` only at a disposable database.
 
 For Playwright, the first time on a new machine run `cd frontend && npx playwright install chromium`.
+The end-to-end suite seeds the demo data itself (idempotently) and creates uniquely named
+records, so it can run repeatedly against your development database.
 
 ## API
 
-| Method | Path                  | Purpose                                                    |
-| ------ | --------------------- | ---------------------------------------------------------- |
-| GET    | `/api/health`         | Application + database health. 200 healthy, 503 if the database is down |
-| GET    | `/api/system/info`    | Version, environment, runtime and the module roadmap       |
-| GET    | `/api/system/status`  | Database details, migration state, Redis status            |
-| GET    | `/api/docs`           | Interactive OpenAPI documentation                          |
+Interactive documentation: <http://localhost:8000/api/docs>. Conventions and every
+endpoint are described in [docs/api.md](docs/api.md).
 
-Every response carries an `X-Correlation-ID` header (a valid one you send is echoed back).
-Errors use one envelope: `{"error": {"code", "message", "details", "correlation_id"}}`.
-Business modules will be mounted under the versioned prefix `/api/v1/`.
+| Area | Endpoints |
+| --- | --- |
+| Platform (public) | `GET /api/health`, `/api/system/info`, `/api/system/status` |
+| Auth | `POST /api/v1/auth/login`, `GET /api/v1/auth/me` |
+| Users & roles | `/api/v1/users`, `/api/v1/roles` |
+| Countries | `/api/v1/countries` |
+| Organizations | `/api/v1/organizations` (+ `/{id}/ancestors`) |
+| Employees | `/api/v1/employees` (+ `/{id}/direct-reports`, `/{id}/reporting-chain`) |
+| Audit | `GET /api/v1/audit-events` (read-only) |
+
+Every response carries an `X-Correlation-ID` header. Errors use one envelope:
+`{"error": {"code", "message", "details", "correlation_id"}}`. Create requests accept an
+`Idempotency-Key` header so retries never create duplicates.
 
 ## Repository layout
 
@@ -111,7 +145,7 @@ backend/            FastAPI application, Alembic migrations, pytest suite
   app/simulation/   Simulation engine (Phase 5)
 frontend/           React application, Vitest and Playwright tests
 docs/               Architecture, database, workflow and AI-testing documentation
-scripts/            Operational scripts (validate_system.py)
+scripts/            Operational scripts (seed.py, validate_system.py)
 docker-compose.yml  Local development stack
 ```
 

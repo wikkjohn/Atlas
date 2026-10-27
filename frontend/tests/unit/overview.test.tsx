@@ -37,15 +37,15 @@ describe("Overview page", () => {
     expect(within(rows[2]).getByText("Planned")).toBeInTheDocument();
   });
 
-  it("shows a failure state when the backend cannot be reached, and recovers on retry", async () => {
+  it("keeps the session through an outage at load and recovers on retry", async () => {
     let backendUp = false;
-    const fetchMock = mockApi(
+    mockApi(
       Object.fromEntries(
         Object.entries(healthyRoutes).map(([path, handler]) => [
           path,
-          () => {
+          (request: Parameters<typeof handler>[0]) => {
             if (!backendUp) throw new TypeError("Failed to fetch");
-            return handler();
+            return handler(request);
           },
         ]),
       ),
@@ -54,22 +54,45 @@ describe("Overview page", () => {
 
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText("The ATLAS API is unavailable")).toBeInTheDocument();
-    expect(screen.getByText("API unreachable")).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Database" })).not.toBeInTheDocument();
+    // The user was not signed out by the outage.
+    expect(screen.queryByRole("form", { name: "Sign in" })).not.toBeInTheDocument();
 
     backendUp = true;
     await userEvent.click(within(alert).getByRole("button", { name: /retry connection/i }));
 
     expect(await screen.findByText("All systems operational")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("shows the failure state on the overview when the API fails mid-session", async () => {
+    let backendUp = true;
+    const failing = (handler: (typeof healthyRoutes)[string]) => (request: Parameters<typeof handler>[0]) => {
+      if (!backendUp) throw new TypeError("Failed to fetch");
+      return handler(request);
+    };
+    mockApi({
+      ...healthyRoutes,
+      "/api/health": failing(healthyRoutes["/api/health"]),
+      "/api/system/info": failing(healthyRoutes["/api/system/info"]),
+      "/api/system/status": failing(healthyRoutes["/api/system/status"]),
+    });
+    renderApp();
+    expect(await screen.findByText("All systems operational")).toBeInTheDocument();
+
+    backendUp = false;
+    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByText("The ATLAS API is unavailable")).toBeInTheDocument();
+    expect(screen.getByText("API unreachable")).toBeInTheDocument();
   });
 
   it("treats a proxy 502 (backend down behind Vite) as unreachable", async () => {
+    const badGateway = () => new Response("Bad Gateway", { status: 502 });
     mockApi({
-      "/api/health": () => new Response("Bad Gateway", { status: 502 }),
-      "/api/system/info": () => new Response("Bad Gateway", { status: 502 }),
-      "/api/system/status": () => new Response("Bad Gateway", { status: 502 }),
+      "/api/v1/auth/me": badGateway,
+      "/api/health": badGateway,
+      "/api/system/info": badGateway,
+      "/api/system/status": badGateway,
     });
     renderApp();
 

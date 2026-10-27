@@ -20,6 +20,10 @@ setup: ## Install backend (venv) and frontend dependencies
 migrate: ## Apply database migrations
 	cd $(BACKEND) && .venv/bin/alembic upgrade head
 
+.PHONY: seed
+seed: ## Create the demo bank and one demo sign-in per role (idempotent)
+	cd $(BACKEND) && .venv/bin/python -m app.cli seed-demo
+
 .PHONY: backend
 backend: ## Run the API with auto-reload on http://localhost:8000
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port 8000

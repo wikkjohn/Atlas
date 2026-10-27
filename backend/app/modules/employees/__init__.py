@@ -1,1 +1,1 @@
-"""employees module — scheduled for Phase 2; no functionality is implemented yet."""
+"""Synthetic workforce registry: employees, department assignment and reporting lines."""

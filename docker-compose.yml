@@ -37,6 +37,8 @@ services:
       ATLAS_REDIS_URL: redis://redis:6379/0
       ATLAS_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       ATLAS_LOG_FORMAT: ${ATLAS_LOG_FORMAT:-json}
+      ATLAS_JWT_SECRET: ${ATLAS_JWT_SECRET:-}
+      ATLAS_DEMO_PASSWORD: ${ATLAS_DEMO_PASSWORD:-atlas-demo-password}
     ports:
       - "8000:8000"
     depends_on:

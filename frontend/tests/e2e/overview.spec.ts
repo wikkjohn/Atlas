@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-test.describe("Phase 1 platform shell", () => {
+import { nav, signIn } from "./helpers";
+
+test.describe("Platform shell", () => {
   test("overview displays live health from the real backend and database", async ({ page }) => {
-    await page.goto("/");
+    await signIn(page, "researcher");
 
     await expect(page.getByRole("heading", { name: "Platform Overview" })).toBeVisible();
     const database = page.getByRole("group", { name: "Database" });
@@ -11,19 +13,21 @@ test.describe("Phase 1 platform shell", () => {
 
     const migrations = page.getByRole("group", { name: "Schema migrations" });
     await expect(migrations.getByText("Up to date")).toBeVisible();
-    await expect(migrations.getByText(/0001_platform_baseline/)).toBeVisible();
+    await expect(migrations.getByText(/head \d{4}_\w+/)).toBeVisible();
 
     const roadmap = page.getByRole("region", { name: "Module roadmap" });
     await expect(roadmap.getByRole("cell", { name: "Platform core" })).toBeVisible();
-    await expect(roadmap.getByRole("cell", { name: "Workflow engine" })).toBeVisible();
-
     await expect(page.getByText("Synthetic data", { exact: true })).toBeVisible();
   });
 
-  test("shows a failure state when the backend is unreachable and recovers", async ({ page }) => {
-    // Simulate the API being down at the network layer.
+  test("shows a failure state when the backend becomes unreachable and recovers", async ({
+    page,
+  }) => {
+    await signIn(page, "researcher");
+    await expect(page.getByText("All systems operational")).toBeVisible();
+
     await page.route("**/api/**", (route) => route.abort("connectionrefused"));
-    await page.goto("/");
+    await page.getByRole("button", { name: "Refresh" }).click();
 
     const alert = page.getByRole("alert");
     await expect(alert.getByText("The ATLAS API is unavailable")).toBeVisible();
@@ -31,24 +35,20 @@ test.describe("Phase 1 platform shell", () => {
 
     await page.unroute("**/api/**");
     await alert.getByRole("button", { name: /retry connection/i }).click();
-
     await expect(page.getByRole("alert")).toHaveCount(0);
-    await expect(
-      page.getByRole("group", { name: "Database" }).getByText("Connected"),
-    ).toBeVisible();
+    await expect(page.getByRole("group", { name: "Database" }).getByText("Connected")).toBeVisible();
   });
 
   test("navigation works on a phone-sized screen", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/missing-page");
+    await signIn(page, "researcher", "/missing-page");
     await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
 
     await page.getByRole("button", { name: "Open navigation" }).click();
-    const nav = page.getByRole("navigation", { name: "Primary" });
-    await expect(nav.getByText("AI Innovation Lab")).toBeVisible();
-    await nav.getByRole("link", { name: "Overview" }).click();
+    await expect(nav(page).getByText("AI Innovation Lab")).toBeVisible();
+    await nav(page).getByRole("link", { name: "Overview" }).click();
 
     await expect(page.getByRole("heading", { name: "Platform Overview" })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Primary" })).toBeHidden();
+    await expect(nav(page)).toBeHidden();
   });
 });

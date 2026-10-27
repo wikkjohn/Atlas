@@ -17,6 +17,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | Revision | Phase | Description |
 | --- | --- | --- |
 | `0001_platform_baseline` | 1 | Creates `system_properties`; records `platform.initialized_at` |
+| `0002_enterprise_foundation` | 2 | Countries, organizations, roles, users, employees, audit events (with append-only triggers), idempotency keys, `employee_number_seq`; seeds the 8 roles and 5 initial countries |
 
 Common commands (from `backend/`):
 
@@ -41,6 +42,80 @@ Key/value facts about this installation.
 | `updated_at` | `timestamptz` | Defaults to `now()` |
 
 Seeded rows: `platform.initialized_at`, the UTC time the baseline migration ran.
+
+### `countries` (Phase 2)
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `uuid` | PK |
+| `iso_country_code` | `varchar(2)` | Unique; CHECK `^[A-Z]{2}$` |
+| `country_name` | `varchar(100)` | Unique |
+| `region` | `varchar(30)` | CHECK in americas, europe, middle_east_africa, asia_pacific |
+| `default_currency` | `varchar(3)` | CHECK `^[A-Z]{3}$` (ISO 4217) |
+| `default_timezone` | `varchar(64)` | IANA name (validated by the API) |
+| `supported_languages` | `varchar(16)[]` | Language tags |
+| `operational_status` | `varchar(20)` | CHECK in active, planned, suspended |
+| `created_at`, `updated_at` | `timestamptz` | |
+
+Seeded: US, GB, DE, SG, JP (all active). The schema has no country limit; the 120-country
+target is exercised by a test.
+
+### `organizations` (Phase 2)
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `uuid` | PK |
+| `name` | `varchar(200)` | Unique among siblings |
+| `organization_type` | `varchar(30)` | global_bank, regional_headquarters, country_subsidiary, business_division, department, team |
+| `parent_organization_id` | `uuid` | FK → organizations; NULL only for the global bank (CHECK) |
+| `country_id` | `uuid` | FK → countries; set from the subsidiary downward |
+| `region` | `varchar(30)` | Set from the regional headquarters downward |
+| `status` | `varchar(20)` | active, inactive |
+| `created_at`, `updated_at` | `timestamptz` | |
+
+Partial unique indexes: one `global_bank`; one `country_subsidiary` per country.
+
+### `roles` (Phase 2)
+
+`id`, `code` (unique), `name`, `description`. The permissions of each role are defined in
+`app/core/permissions.py`.
+
+### `users` (Phase 2)
+
+`id`, `username` (unique, lowercase), `email` (unique), `display_name`, `password_hash`
+(salted scrypt), `role_id` → roles, `employee_id` → employees (unique, optional),
+`is_active`, `last_login_at`, timestamps. Users are deactivated, never deleted.
+
+### `employees` (Phase 2)
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `uuid` | PK |
+| `employee_number` | `varchar(20)` | Unique; `AGB-` + `employee_number_seq` |
+| `first_name`, `last_name` | `varchar(100)` | |
+| `email` | `varchar(254)` | Unique; synthetic `@atlasbank.example` |
+| `organization_id` | `uuid` | FK → organizations (a department or team) |
+| `department_id` | `uuid` | FK → organizations (derived) |
+| `manager_id` | `uuid` | FK → employees; CHECK not self; cycles prevented by the service |
+| `job_title` | `varchar(150)` | |
+| `role_id` | `uuid` | FK → roles (default platform role for a user account) |
+| `country_id` | `uuid` | FK → countries |
+| `employment_status` | `varchar(20)` | active, on_leave, terminated |
+| `annual_compensation` | `bigint` | Minor units; CHECK ≥ 0 |
+| `compensation_currency` | `varchar(3)` | From the country's default currency |
+| `created_at`, `updated_at` | `timestamptz` | |
+
+### `audit_events` (Phase 2)
+
+`id`, `actor_id` → users (NULL for system actions), `action`, `entity_type`, `entity_id`,
+`timestamp`, `correlation_id`, `metadata` (jsonb). Indexed by entity, timestamp, actor and
+action. Triggers `audit_events_no_update_delete` and `audit_events_no_truncate` raise
+`insufficient_privilege` on any modification.
+
+### `idempotency_keys` (Phase 2)
+
+PK (`actor_id`, `key`); `method`, `path`, `request_hash` (SHA-256 of method, path and body),
+`status_code`, `response_body` (jsonb), `created_at`. Expired keys are not yet pruned.
 
 ### `alembic_version`
 

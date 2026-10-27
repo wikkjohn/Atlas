@@ -107,6 +107,16 @@ def run_checks(api: str, frontend: str | None, timeout: float) -> list[Check]:
         )
     )
 
+    # Business data must never be served to anonymous callers.
+    status, _, _ = fetch(f"{api}/api/v1/employees", timeout)
+    checks.append(
+        Check(
+            "Business API requires authentication",
+            status == 401,
+            f"anonymous GET /api/v1/employees answered HTTP {status}",
+        )
+    )
+
     if frontend:
         try:
             status, _, page = fetch(frontend, timeout)

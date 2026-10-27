@@ -1,1 +1,2 @@
-"""Simulation engine — scheduled for Phase 5; no functionality is implemented yet."""
+"""Simulation engine. Phase 2 provides the seeded synthetic name generator; the clock,
+scenarios and run engine arrive in Phase 5."""

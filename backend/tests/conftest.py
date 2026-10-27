@@ -22,9 +22,11 @@ from collections.abc import Iterator  # noqa: E402
 import pytest  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import Connection  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
 
 from alembic import command  # noqa: E402
-from app.core.database import build_engine  # noqa: E402
+from app.core.database import build_engine, get_db, get_engine  # noqa: E402
 from app.core.system import alembic_config  # noqa: E402
 from app.main import create_app  # noqa: E402
 
@@ -48,8 +50,50 @@ def migrated_database() -> Iterator[None]:
 
 
 @pytest.fixture
-def app() -> FastAPI:
-    return create_app()
+def db_connection() -> Iterator[Connection]:
+    """A connection holding an outer transaction that is rolled back after each test."""
+    connection = get_engine().connect()
+    transaction = connection.begin()
+    yield connection
+    transaction.rollback()
+    connection.close()
+
+
+def _session(connection: Connection) -> Session:
+    # Commits inside the code under test release savepoints instead of committing.
+    return Session(
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
+
+@pytest.fixture
+def db(db_connection: Connection) -> Iterator[Session]:
+    """Session for arranging and asserting test data; sees everything the API writes."""
+    session = _session(db_connection)
+    yield session
+    session.close()
+
+
+@pytest.fixture
+def app(db_connection: Connection) -> FastAPI:
+    application = create_app()
+
+    def _get_db() -> Iterator[Session]:
+        session = _session(db_connection)
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    application.dependency_overrides[get_db] = _get_db
+    return application
 
 
 @pytest.fixture

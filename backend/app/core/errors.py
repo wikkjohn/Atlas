@@ -30,6 +30,45 @@ _STATUS_CODES = {
 }
 
 
+class DomainError(Exception):
+    """A business-rule failure raised by a service and rendered as an API error."""
+
+    status_code = 400
+    code = "bad_request"
+
+    def __init__(self, message: str, details: Any = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = details
+
+
+class NotFoundError(DomainError):
+    status_code = 404
+    code = "not_found"
+
+
+class ConflictError(DomainError):
+    status_code = 409
+    code = "conflict"
+
+
+class BusinessRuleViolation(DomainError):
+    """The request is well-formed but breaks a business rule (e.g. invalid hierarchy)."""
+
+    status_code = 422
+    code = "business_rule_violation"
+
+
+class AuthenticationError(DomainError):
+    status_code = 401
+    code = "unauthorized"
+
+
+class PermissionDeniedError(DomainError):
+    status_code = 403
+    code = "forbidden"
+
+
 def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
     return {
         "error": {
@@ -42,6 +81,15 @@ def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(DomainError)
+    async def _domain_error(_: Request, exc: DomainError) -> JSONResponse:
+        headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=error_body(exc.code, exc.message, exc.details),
+            headers=headers,
+        )
+
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         code = _STATUS_CODES.get(exc.status_code, "http_error")

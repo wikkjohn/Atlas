@@ -5,7 +5,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__
+from app import __version__, models  # noqa: F401  (registers all tables)
 from app.api.router import api_router, v1_router
 from app.config import get_settings
 from app.core.errors import register_error_handlers

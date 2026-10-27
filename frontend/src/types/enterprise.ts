@@ -20,7 +20,10 @@ export type Permission =
   | "accounts:transact"
   | "accounts:manage"
   | "ledger:read"
-  | "ledger:post";
+  | "ledger:post"
+  | "workflows:read"
+  | "workflows:start"
+  | "workflows:manage";
 
 export interface Page<T> {
   items: T[];

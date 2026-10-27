@@ -1,17 +1,57 @@
 # Implementation status
 
-Last updated: Phase 3.
+Last updated: Phase 4.
 
 | Phase | Name | Status |
 | --- | --- | --- |
 | 1 | Initialize the application | **Complete** |
 | 2 | Shared enterprise foundation | **Complete** |
 | 3 | First banking business modules | **Complete** |
-| 4 | Workflow execution engine | Not started |
+| 4 | Workflow execution engine | **Complete** |
 | 5 | Simulation engine | Not started |
 | 6 | AI Innovation Lab | Not started |
 | 7 | Benchmarking and experiment evaluation | Not started |
-| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts and Audit Center screens exist) |
+| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer and Audit Center screens exist) |
+
+## Phase 4: what exists
+
+- **Engine:** versioned, validated, immutable definitions with nine step types (service
+  task, human task, approval, decision, parallel/join, wait, AI task, completion, failure)
+  and a safe structured condition language; durable execution in PostgreSQL with atomic
+  steps (handler effects and state change in one savepoint), execution-row locking against
+  duplicate execution, retries with exponential backoff, failure routing, timeouts (flag or
+  transition), signals, cancellation, step-level timing, append-only history and audit
+- **Resumption:** `run_due` / `python -m app.cli run-workflows [--watch]` (`make workflows`)
+  resumes due steps and applies timers after a restart, one execution per transaction,
+  skipping executions other workers hold
+- **WF-0001 Retail Account Opening:** validation, document wait (72 h timeout), customer
+  registration, parallel identity verification and sanctions screening, risk rating,
+  compliance rules, routing, compliance review or authorized approval (both four-eyes, with
+  overdue flags), account opening through the Phase 3 services, rejection, finalized audit
+  record and a simulated customer notification
+- **API:** definitions, metrics (bottleneck analysis), start (idempotent), executions,
+  history, signals, resume, cancel, task inbox and task completion
+- **UI:** Workflow Explorer — catalogue with steps, routes, policies and per-step metrics
+  (bottleneck highlighted); start-application form with valid synthetic documents; executions
+  with step timeline, errors, context and history; task inbox with four-eyes explanations;
+  document submission for waiting cases
+- **Demo data:** 20 WF-0001 cases run through the engine (approved, rejected, waiting for
+  documents, waiting for approval or compliance review)
+
+## Phase 4: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 150 passed (35 workflow tests) |
+| Ruff lint + format check | clean |
+| Alembic 0003 → 0004, base ↔ head, `alembic check` | clean |
+| Frontend typecheck | clean |
+| Vitest | 43 passed |
+| Production build | succeeds |
+| Playwright (Chromium, real backend + DB) | 8 passed, local (twice) and against Docker Compose |
+| Docker Compose: upgrade of the Phase 3 database, seed and runner in container | succeeds |
+| `validate_system.py --login auditor` | 12/12 (local and Docker) |
+| Restart/resume and four-thread duplicate-execution tests (committed sessions) | pass (3 repeated runs) |
 
 ## Phase 3: what exists
 
@@ -127,8 +167,13 @@ Last updated: Phase 3.
 
 - Accounts are domestic-currency only; there is no FX, interest, fees, transfers between
   accounts, or statements beyond posted lines.
-- Account opening is driven directly through the API in Phase 3; WF-0001 (Phase 4) will
-  orchestrate the same services as a persisted workflow.
+- Workflow definitions are authored in code (registered at import); there is no visual
+  designer or upload API, and only WF-0001 exists so far.
+- The workflow runner is a polling CLI process; there is no in-API background scheduler, so
+  timeouts and retries fire only while `make workflows` (or the CLI) runs.
+- `ai_task` steps work with registered adapters, but no AI tools exist until Phase 6.
+- Human tasks are offered to everyone holding the permissions; there is no assignment to a
+  named person, delegation or escalation routing beyond the overdue flag.
 - Balances are computed from lines on every read; fine at demo scale, but large volumes
   will need snapshots or materialized balances.
 - Reconciliation scans the whole ledger synchronously.

@@ -23,12 +23,13 @@ describe("Application shell", () => {
       "Employees",
       "Customers",
       "Accounts",
+      "Workflow Explorer",
       "Audit Center",
     ]);
 
-    const workflows = within(nav).getByText("Workflow Explorer").closest("[aria-disabled]");
-    expect(workflows).toHaveAttribute("aria-disabled", "true");
-    expect(workflows).toHaveTextContent("Phase 4");
+    const simulation = within(nav).getByText("Simulation Center").closest("[aria-disabled]");
+    expect(simulation).toHaveAttribute("aria-disabled", "true");
+    expect(simulation).toHaveTextContent("Phase 5");
     expect(screen.getByText("Synthetic data")).toBeInTheDocument();
     expect(screen.getByText("Demo Platform Administrator")).toBeInTheDocument();
   });

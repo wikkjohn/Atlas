@@ -132,6 +132,9 @@ const ALL_PERMISSIONS: Permission[] = [
   "accounts:manage",
   "ledger:read",
   "ledger:post",
+  "workflows:read",
+  "workflows:start",
+  "workflows:manage",
 ];
 
 function user(role: string, roleName: string, permissions: Permission[]): CurrentUser {

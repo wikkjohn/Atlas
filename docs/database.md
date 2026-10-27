@@ -19,6 +19,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0001_platform_baseline` | 1 | Creates `system_properties`; records `platform.initialized_at` |
 | `0002_enterprise_foundation` | 2 | Countries, organizations, roles, users, employees, audit events (with append-only triggers), idempotency keys, `employee_number_seq`; seeds the 8 roles and 5 initial countries |
 | `0003_banking_core` | 3 | Customers, account requests, accounts, ledger accounts, journal entries and lines; customer/account/journal number sequences; ledger balance and immutability triggers |
+| `0004_workflow_engine` | 4 | Workflow definitions (snapshots), executions, step runs, append-only workflow events; customer notifications |
 
 Common commands (from `backend/`):
 
@@ -168,6 +169,16 @@ Ledger triggers (migration 0003):
 | `journal_lines_no_update_delete`, `journal_lines_no_truncate` | Lines are immutable |
 | `journal_lines_insert_with_entry` | Lines can only be added in the transaction that posted the entry |
 | `journal_entries_guard`, `journal_entries_no_truncate` | Entries cannot be deleted; the only permitted update is status posted → reversed |
+
+### Workflow tables (Phase 4)
+
+| Table | Contents |
+| --- | --- |
+| `workflow_definitions` | Snapshot of each definition version used: `workflow_id`, `version` (unique together), `definition` (jsonb), `content_hash` |
+| `workflow_executions` | `workflow_id`, `workflow_version`, `definition_id`, `status` (running, waiting, completed, failed, cancelled), `outcome`, `current_steps`, `context` (jsonb), `error`, `business_key`, `initiated_by`, `idempotency_key` (unique per initiator), `correlation_id`, `started_at`, `completed_at`, `step_counter` |
+| `workflow_step_runs` | One row per step visit: `sequence` (unique per execution), `step_id`, `step_type`, `status` (pending, waiting, completed, failed, cancelled), `branch`, `attempt`, `required_permissions`, `actor_id`, `output`, `error`, `created_at`, `started_at`, `completed_at`, `duration_ms`, `not_before` (retry), `due_at` (timeout), `escalated_at`. Partial indexes for due pending runs and waiting timers. |
+| `workflow_events` | Append-only history (`seq` identity, `event_type`, `occurred_at`, `actor_id`, `data`); triggers reject UPDATE, DELETE, TRUNCATE |
+| `customer_notifications` | Simulated messages (`customer_id`, `channel`, `subject`, `body`, `workflow_execution_id`) |
 
 ### `alembic_version`
 

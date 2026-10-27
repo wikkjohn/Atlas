@@ -14,3 +14,14 @@ export function formatTimestamp(iso: string | null | undefined): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
+
+/** A step or case duration, e.g. 850 ms, 4.2 s, 3.5 min, 26.0 h. */
+export function formatMilliseconds(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return "—";
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)} s`;
+  const m = s / 60;
+  if (m < 60) return `${m.toFixed(1)} min`;
+  return `${(m / 60).toFixed(1)} h`;
+}

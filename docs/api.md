@@ -143,6 +143,23 @@ Reconciliation checks: every entry has ≥ 2 lines and balances; every line uses
 account in the entry's currency; debits equal credits per currency (trial balance); every
 reversed entry has a reversing entry; every customer account matches its ledger currency.
 
+### Workflows
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/workflows?q=` | `workflows:read` | Registered workflows (latest version) |
+| GET | `/api/v1/workflows/{id}?version=` | `workflows:read` | Definition, steps, input schema, transition/approval/failure/timeout policies |
+| GET | `/api/v1/workflows/{id}/metrics` | `workflows:read` | Per-step runs, completions, failures, retries, avg/p50/p95/max duration; bottleneck step |
+| POST | `/api/v1/workflows/{id}/executions` | `workflows:start` | `{input}`; validated against the input schema; optional `Idempotency-Key` (same key → same execution, 200) |
+| GET | `/api/v1/workflow-executions` | `workflows:read` | Filters: `workflow_id`, `status`, `outcome`, `business_key` |
+| GET | `/api/v1/workflow-executions/{id}` | `workflows:read` | Status, outcome, context, error and every step run (attempts, actor, timings, errors) |
+| GET | `/api/v1/workflow-executions/{id}/history` | `workflows:read` | Append-only events |
+| POST | `/api/v1/workflow-executions/{id}/signals` | `workflows:start` | `{signal, payload}` for a waiting wait-state |
+| POST | `/api/v1/workflow-executions/{id}/resume` | `workflows:manage` | Runs due steps now (never passes a waiting approval) |
+| POST | `/api/v1/workflow-executions/{id}/cancel` | `workflows:manage` | `{reason}` |
+| GET | `/api/v1/workflow-tasks?actionable=` | signed in | Open tasks/approvals with `can_act` and `blocked_reason` for the caller |
+| POST | `/api/v1/workflow-tasks/{run_id}/complete` | the step's permissions | `{decision?, data?, note?}`; four-eyes enforced; a task completes once (409 after) |
+
 ### Audit
 
 | Method | Path | Permission | Notes |
@@ -153,5 +170,5 @@ There are no write endpoints for audit events.
 
 ### Planned
 
-`/workflows`, `/workflow-executions` (Phase 4); `/simulations` (Phase 5); `/ai-tools` (Phase 6);
+`/simulations` (Phase 5); `/ai-tools` (Phase 6);
 `/experiments`, `/benchmarks` (Phase 7); `/analytics` (Phase 8).

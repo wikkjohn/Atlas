@@ -11,6 +11,7 @@ import { CustomersPage } from "@/features/customers/CustomersPage";
 import { OverviewPage } from "@/features/dashboard/OverviewPage";
 import { EmployeesPage } from "@/features/employees/EmployeesPage";
 import { OrganizationPage } from "@/features/organizations/OrganizationPage";
+import { WorkflowExplorerPage } from "@/features/workflows/WorkflowExplorerPage";
 
 export function AppRoutes() {
   return (
@@ -29,6 +30,7 @@ export function AppRoutes() {
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="customers" element={<CustomersPage />} />
         <Route path="accounts" element={<AccountsPage />} />
+        <Route path="workflows" element={<WorkflowExplorerPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

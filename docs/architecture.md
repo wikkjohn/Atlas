@@ -150,10 +150,21 @@ overdraw; a test races six withdrawals and fails if the lock is removed.
 currency consistency, trial balance per currency, reversal links, account/ledger currency)
 and records each run in the audit log.
 
+## Workflow engine (Phase 4)
+
+Business processes are versioned definitions interpreted by one shared engine
+(`app/modules/workflows`); see [workflows.md](workflows.md). Modules contribute named step
+handlers and keep their own rules: WF-0001 calls the Phase 3 customer and account services,
+so four-eyes, high-risk and eligibility checks apply whether an account is opened through
+the workflow or the API. Each step commits atomically with its handler's effects; the
+execution row lock prevents concurrent double execution; `run_due` resumes work after a
+restart. The engine takes `now` as a parameter so the Phase 5 simulation clock can drive it.
+
 ## Planned design for later phases
 
-- **Events (Phase 4):** an in-process event dispatcher in `app/core/events.py` for
-  cross-module side effects, introduced with the workflow engine that first needs it.
+- **Events:** cross-module side effects are currently explicit service calls made from
+  workflow steps; a separate in-process event dispatcher has not been needed yet and will be
+  added when a second consumer of the same business event appears.
 - **Scoped access (later):** Phase 2 permissions are role-wide. Restricting a regional
   executive or department manager to *their* part of the hierarchy is a planned refinement.
 - **Workflow engine (Phase 4):** see [workflows.md](workflows.md).

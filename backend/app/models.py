@@ -8,3 +8,4 @@ from app.modules.employees import models as employees  # noqa: F401
 from app.modules.identity import models as identity  # noqa: F401
 from app.modules.ledger import models as ledger  # noqa: F401
 from app.modules.organizations import models as organizations  # noqa: F401
+from app.modules.workflows import models as workflows  # noqa: F401

@@ -1,47 +1,83 @@
 # Workflows
 
-> **Status: design only.** The workflow engine is delivered in Phase 4. Nothing in this
-> document is implemented yet; it records the agreed design so that earlier phases stay
-> compatible with it.
+The workflow engine (Phase 4) is a durable, database-backed interpreter for versioned
+business-process definitions. It is shared by every module: business logic lives in named
+step handlers; the engine owns state, routing, approvals, retries, timeouts and history.
 
-## Engine design
+Code: `backend/app/modules/workflows/` — `definition.py` (model and validation),
+`registry.py` (definitions and handlers), `engine.py` (execution), `wf0001.py` (the first
+workflow), `service.py` / `router.py` (API).
 
-A general-purpose, durable, database-backed workflow engine shared by every banking
-module. Business processes are *definitions* (data), not hard-coded endpoint logic.
+## Definitions
 
-**Definition:** `workflow_id`, `name`, `version`, `description`, `business_owner`,
-`trigger_type`, `input_schema` (JSON Schema), `steps`, `transition_rules`,
-`approval_policies`, `failure_policies`, `timeout_policies`.
+A definition has `workflow_id` (`WF-0000` format), `name`, `version`, `description`,
+`business_owner`, `trigger_type`, `input_schema` (generated from a Pydantic model),
+`start` and `steps`. Its `transition_rules`, `approval_policies`, `failure_policies` and
+`timeout_policies` are derived views returned by `GET /api/v1/workflows/{id}`.
 
-**Execution:** `execution_id`, `workflow_id`, `workflow_version`, `status`,
-`current_steps`, `started_at`, `completed_at`, `initiated_by`, `correlation_id`, `context`.
+Definitions are validated when registered: every referenced step exists, every
+non-terminal step has a way forward, handlers are registered, parallel steps name a join,
+approvals have transitions, at least one completion step exists and every step is
+reachable. A version is immutable: re-registering it with different content fails, and the
+first execution stores a snapshot (`workflow_definitions`) with a content hash that later
+starts must match.
 
-**Step types:** automated service task, human task, approval, conditional decision,
-parallel branch, wait state, AI task, completion, failure.
+### Step types
 
-**Guarantees:** every state transition is persisted in the same transaction as its effects.
-Step claims use row locks so a step cannot run twice. Executions resume after restart from
-persisted state. Approvals are checked against role-based policies in the backend. Retries
-follow per-step policies. Failures record the step, error and attempt count. Every
-transition emits an audit event carrying the execution's correlation ID.
+| Type | Behaviour |
+| --- | --- |
+| `service_task` | Runs a registered handler. Retried on transient errors (`retry.max_attempts`, exponential `backoff_seconds`); then `on_failure` or the execution fails. |
+| `human_task` | Waits for a person holding the step's permissions to submit its `form`. |
+| `approval` | Waits for an `approve`/`reject` decision by a person holding every listed permission and not in `distinct_from` (`initiator` or earlier step ids — four-eyes). |
+| `decision` | Routes on the first matching transition condition. |
+| `parallel` / `join` | Starts every branch; the join runs once, after all branches arrive. |
+| `wait` | Waits for a named signal and/or a timer. |
+| `ai_task` | Calls a registered AI adapter (Phase 6 connects the AI tool registry). |
+| `completion` / `failure` | Ends the execution (outcome from the step or `context.outcome`). |
 
-## WF-0001 Retail Account Opening (planned)
+Conditions are structured, never `eval`: `{"path": "a.b", "op": "eq", "value": …}` with
+`eq, ne, in, not_in, gt, gte, lt, lte, exists, truthy`, combined with `all` / `any` and
+`negate`. Timeouts either `flag` a task as overdue (audited) or `transition` elsewhere.
 
-1. Customer submits application
-2. Validate required information
-3. Synthetic identity verification
-4. Assign customer risk rating
-5. Evaluate compliance rules
-6. Route high-risk cases to human review
-7. Authorized approver accepts or rejects
-8. Create the account when approved (exactly once)
-9. Finalize audit and workflow records
-10. Send a simulated customer notification
+## Execution guarantees
 
-Test scenarios: normal approval, rejection, high-risk human review.
+- **Persisted state.** Executions, step runs (one row per visit; retries reuse it with
+  `attempt` + 1) and an append-only event history (`workflow_events`, protected by a
+  trigger, ordered by a database sequence) are all in PostgreSQL.
+- **Atomic steps.** A handler runs inside a savepoint with its state transition. If it
+  raises, its writes are rolled back and only the failure is recorded; if the process
+  dies, the whole transaction rolls back and the step is still `pending`.
+- **No duplicate execution.** Advancing locks the execution row; concurrent workers wait
+  (or skip, in the runner) instead of running the same step. Tested with four threads.
+- **Resumption.** `run_due` (CLI: `python -m app.cli run-workflows [--watch]`) advances
+  every execution with due steps or expired timers, one execution per transaction, with
+  `SKIP LOCKED`. A test commits one step, discards the session and resumes in a new one.
+- **Validated transitions and approvals.** Only the engine moves state; approvals check
+  permissions and four-eyes on every completion; a task can be completed once.
+- **Timing.** Every run records `started_at`, `completed_at`, `duration_ms`; real time is
+  read before each step (an explicit `now`, e.g. the simulation clock, freezes time).
+- **Auditing.** `workflow.started`, `workflow.task_completed`, `workflow.task_overdue`,
+  `workflow.completed` / `failed` / `cancelled` go to the audit log with correlation IDs.
 
-Phase 3 already provides the banking services these steps will call: customer KYC review
-(`customers.service.review_customer`), eligibility (`accounts.service.eligibility`), the
-approval-gated account opening (`submit_request` → `approve_request` / `reject_request`)
-with its four-eyes and high-risk rules, and the ledger. The workflow engine will
-orchestrate those calls and persist each step; it will not re-implement their rules.
+## WF-0001 Retail Account Opening
+
+| # | Step | Type | Notes |
+| --- | --- | --- | --- |
+| 1 | Customer submits application | service_task | Records receipt |
+| 2 | Validate required information | service_task | Active country, age ≥ 18 → else reject; missing identity document or proof of address → wait |
+| — | Wait for missing documents | wait | Signal `documents_submitted`; 72 h timeout → reject |
+| 3 | Register synthetic customer | service_task | Creates the customer; KYC → pending |
+| 4 | Identity verification ‖ sanctions screening | parallel | Synthetic document check digits, name/DOB match, expiry; synthetic watchlist |
+| 5 | Assign customer risk rating | service_task | Score from sanctions hit, identity issues, PEP, large deposits, age |
+| 6 | Evaluate compliance rules | service_task | Flags; `requires_review` when high risk or flagged |
+| 7 | Route the case | decision | Forged documents → reject; review needed → compliance review; else approval |
+| 8 | Compliance review / Authorized approval | approval | Needs `customers:review + accounts:approve` / `accounts:approve`; never the initiator; 48 h / 24 h overdue flags |
+| 9 | Create the customer account | service_task | KYC verified, then the Phase 3 request → approval services (which re-check four-eyes, high risk and eligibility); failures → technical failure |
+| — | Reject the application | service_task | KYC rejected (if a customer exists), reasons recorded |
+| 10 | Finalize audit and workflow records | service_task | Audit summary |
+| 11 | Send simulated customer notification | service_task | Stored in `customer_notifications`; nothing is sent |
+
+Tested scenarios: normal approval, approver rejection, high-risk compliance review,
+sanctions hit, underage (invalid), forged documents, missing documents (resume and
+timeout), approvals cannot be skipped, initiator cannot approve, duplicate start, failing
+account-opening step, history and metrics.

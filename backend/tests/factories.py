@@ -245,3 +245,40 @@ def open_account(
         requested_by=staff.employee.id,
     )
     return approve_request(db, request.id, principal(staff.manager))
+
+
+# --- Phase 4: WF-0001 applications ---------------------------------------------------------
+
+from app.modules.workflows.wf0001 import synthetic_document_number  # noqa: E402
+
+
+def application(
+    *,
+    name: str | None = None,
+    born: str = "1988-05-04",
+    country_code: str = "GB",
+    account_type: str = "current",
+    documents: list[str] = ("passport", "proof_of_address"),
+    **overrides: object,
+) -> dict:
+    """A valid synthetic WF-0001 application (override fields to break it)."""
+    name = name or f"Ada {unique_surname().title()}"
+    serial = next(_counter)
+    docs = [
+        {
+            "document_type": kind,
+            "document_number": synthetic_document_number(kind, serial * 10 + i),
+            "name_on_document": name,
+            "date_of_birth": born if kind != "proof_of_address" else None,
+            "expiry_date": "2031-01-01" if kind != "proof_of_address" else None,
+        }
+        for i, kind in enumerate(documents)
+    ]
+    return {
+        "applicant_name": name,
+        "date_of_birth": born,
+        "country_code": country_code,
+        "account_type": account_type,
+        "documents": docs,
+        **overrides,
+    }

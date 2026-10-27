@@ -28,7 +28,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 3;
+export const IMPLEMENTED_PHASE = 4;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -43,7 +43,13 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Employees", path: "/employees", icon: Users, phase: 2, permission: "employees:read" },
   { label: "Customers", path: "/customers", icon: UserRound, phase: 3, permission: "customers:read" },
   { label: "Accounts", path: "/accounts", icon: Banknote, phase: 3, permission: "accounts:read" },
-  { label: "Workflow Explorer", path: "/workflows", icon: Workflow, phase: 4 },
+  {
+    label: "Workflow Explorer",
+    path: "/workflows",
+    icon: Workflow,
+    phase: 4,
+    permission: "workflows:read",
+  },
   { label: "Simulation Center", path: "/simulations", icon: PlayCircle, phase: 5 },
   { label: "AI Innovation Lab", path: "/ai-lab", icon: Bot, phase: 6 },
   { label: "Experiments", path: "/experiments", icon: FlaskConical, phase: 7 },

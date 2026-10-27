@@ -24,6 +24,10 @@ migrate: ## Apply database migrations
 seed: ## Create the demo bank and one demo sign-in per role (idempotent)
 	cd $(BACKEND) && .venv/bin/python -m app.cli seed-demo
 
+.PHONY: workflows
+workflows: ## Run the workflow runner (resumes due steps, applies timeouts)
+	cd $(BACKEND) && .venv/bin/python -m app.cli run-workflows --watch
+
 .PHONY: backend
 backend: ## Run the API with auto-reload on http://localhost:8000
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port 8000

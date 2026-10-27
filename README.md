@@ -9,10 +9,11 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–3 are complete** — the platform foundation, the shared
+**Current state: Phases 1–4 are complete** — the platform foundation, the shared
 enterprise foundation (sign-in and role-based permissions, countries, the organization
 hierarchy, the employee registry and an append-only audit log), and the first banking
-modules (synthetic customers with KYC, approval-gated accounts and a double-entry ledger). See
+modules (synthetic customers with KYC, approval-gated accounts and a double-entry ledger),
+and a durable workflow engine running WF-0001 Retail Account Opening end to end. See
 [docs/implementation-status.md](docs/implementation-status.md) for what exists today and
 what is planned.
 
@@ -66,7 +67,7 @@ optionally Redis.
    cp .env.example .env    # set ATLAS_REDIS_URL= (empty) if you are not running Redis
    make setup
    make migrate
-   make seed               # demo bank: 64 orgs, 120 employees, 8 sign-ins, 150 customers, accounts
+   make seed               # demo bank: orgs, employees, 8 sign-ins, customers, accounts, WF-0001 cases
    ```
 
 3. **Run** (two terminals):
@@ -76,7 +77,9 @@ optionally Redis.
    make frontend   # http://localhost:5173
    ```
 
-Run `make help` to see every command.
+Run `make help` to see every command. `make workflows` runs the workflow runner, which
+resumes due steps (e.g. retries) and applies timeouts; leave it running in a third terminal
+if you want timers to fire.
 
 ## Signing in
 
@@ -137,6 +140,7 @@ endpoint are described in [docs/api.md](docs/api.md).
 | Account opening | `/api/v1/account-requests` (+ `/{id}/approve`, `/{id}/reject`) |
 | Accounts | `/api/v1/accounts` (+ `/deposits`, `/withdrawals`, `/transactions`, `/freeze`, `/unfreeze`, `/close`) |
 | Ledger | `/api/v1/ledger/accounts`, `/journal-entries` (+ `/reverse`), `/reconciliation` |
+| Workflows | `/api/v1/workflows` (+ `/{id}/executions`, `/{id}/metrics`), `/workflow-executions` (+ `/history`, `/signals`, `/resume`, `/cancel`), `/workflow-tasks` (+ `/complete`) |
 | Audit | `GET /api/v1/audit-events` (read-only) |
 
 Every response carries an `X-Correlation-ID` header. Errors use one envelope:

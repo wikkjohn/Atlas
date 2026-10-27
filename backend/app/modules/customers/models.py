@@ -1,8 +1,18 @@
 import uuid
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Sequence, String, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Sequence,
+    String,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -65,3 +75,21 @@ class Customer(UUIDPrimaryKey, Timestamps, Base):
     kyc_status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
 
     country: Mapped[Country] = relationship(lazy="joined")
+
+
+class CustomerNotification(UUIDPrimaryKey, Base):
+    """A simulated message to a customer. Nothing is ever sent anywhere."""
+
+    __tablename__ = "customer_notifications"
+
+    customer_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="simulated_email")
+    subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Set when a workflow sent it (no FK: the customers module does not depend on workflows).
+    workflow_execution_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

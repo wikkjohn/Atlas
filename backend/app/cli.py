@@ -16,6 +16,7 @@ from app.core.errors import DomainError
 from app.core.permissions import RoleCode
 from app.modules.identity.schemas import UserCreate
 from app.modules.identity.service import create_user
+from app.modules.workflows import wf0001  # noqa: F401  (registers WF-0001 for the seed)
 from app.seed import DEFAULT_SEED, DEMO_USERS, seed_demo
 
 DEFAULT_DEMO_PASSWORD = "atlas-demo-password"
@@ -46,6 +47,10 @@ def _seed_demo(args: argparse.Namespace) -> int:
             f"{report.pending_requests} pending account requests and "
             f"{report.journal_entries} ledger postings."
         )
+    if report.skipped_workflows:
+        print("Workflow executions already exist; WF-0001 demo cases unchanged.")
+    else:
+        print(f"Ran {report.workflow_cases} WF-0001 account-opening cases through the engine.")
     print("\nDemo sign-ins (local development only):")
     for username, _, label in DEMO_USERS:
         print(f"  {username:<12} {label}")
@@ -73,6 +78,22 @@ def _create_user(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_workflows(args: argparse.Namespace) -> int:
+    import time
+
+    from app.modules.workflows import engine  # noqa: F401  (registers WF-0001)
+
+    while True:
+        report = engine.run_due(get_sessionmaker())
+        print(
+            f"Advanced {report.executions} executions: {report.steps} steps run, "
+            f"{report.timers} timers applied, {report.skipped_locked} skipped (locked)."
+        )
+        if not args.watch:
+            return 0
+        time.sleep(args.interval)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -87,6 +108,13 @@ def main(argv: list[str] | None = None) -> int:
     user.add_argument("--display-name", required=True)
     user.add_argument("--role", required=True, choices=[r.value for r in RoleCode])
     user.set_defaults(handler=_create_user)
+
+    runner = commands.add_parser(
+        "run-workflows", help="Resume due workflow steps and apply timeouts"
+    )
+    runner.add_argument("--watch", action="store_true", help="Keep running")
+    runner.add_argument("--interval", type=float, default=5.0, help="Seconds between passes")
+    runner.set_defaults(handler=_run_workflows)
 
     args = parser.parse_args(argv)
     return args.handler(args)

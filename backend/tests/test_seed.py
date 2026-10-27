@@ -1,3 +1,5 @@
+from collections import Counter
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -47,7 +49,8 @@ def test_demo_seed_builds_a_consistent_bank_and_is_rerunnable(db: Session) -> No
     assert report.customers == 150
     assert report.accounts > 0 and report.pending_requests > 0
     accounts = db.execute(select(Account)).scalars().all()
-    assert len(accounts) == report.accounts
+    # Both the banking seed and approved WF-0001 cases open accounts.
+    assert len(accounts) >= report.accounts
     for account in accounts:
         assert account.customer.kyc_status == "verified"
         assert account.currency == account.customer.country.default_currency
@@ -55,12 +58,28 @@ def test_demo_seed_builds_a_consistent_bank_and_is_rerunnable(db: Session) -> No
     approved = db.execute(
         select(func.count()).where(AccountRequest.status == "approved")
     ).scalar_one()
-    assert approved == report.accounts
+    assert approved == len(accounts)  # every account came from an approved request
     assert ledger.reconcile(db, None).ok
 
+    # WF-0001 demo cases ran through the real engine and ended in a mix of states.
+    from app.modules.workflows.models import WorkflowExecution
+
+    assert report.workflow_cases == 20
+    states = Counter(
+        (e.status, e.outcome or e.current_steps[0])
+        for e in db.execute(select(WorkflowExecution)).scalars()
+    )
+    assert states[("completed", "approved")] > 0
+    assert states[("completed", "rejected")] > 0
+    assert states[("waiting", "await_documents")] > 0
+    assert sum(n for (status, _), n in states.items() if status == "waiting") > 2
+    assert ledger.reconcile(db, None).ok
+
+    customers_before = db.execute(select(func.count()).select_from(Customer)).scalar_one()
     again = seed_demo(db, "demo-password-123", seed=99)
 
     assert again.skipped_structure and again.users == [] and again.employees == 0
     assert again.skipped_banking and again.customers == 0
+    assert again.skipped_workflows and again.workflow_cases == 0
     assert db.execute(select(func.count()).select_from(Organization)).scalar_one() == 64
-    assert db.execute(select(func.count()).select_from(Customer)).scalar_one() == 150
+    assert db.execute(select(func.count()).select_from(Customer)).scalar_one() == customers_before

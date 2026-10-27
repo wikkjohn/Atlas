@@ -29,6 +29,9 @@ class Permission(StrEnum):
     ACCOUNTS_MANAGE = "accounts:manage"  # freeze, unfreeze, close
     LEDGER_READ = "ledger:read"
     LEDGER_POST = "ledger:post"  # manual journal entries and reversals
+    WORKFLOWS_READ = "workflows:read"
+    WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
+    WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
 
 
 class RoleCode(StrEnum):
@@ -61,6 +64,7 @@ _BASE = frozenset(
         Permission.EMPLOYEES_READ,
         Permission.CUSTOMERS_READ,
         Permission.ACCOUNTS_READ,
+        Permission.WORKFLOWS_READ,
     }
 )
 _FRONT_OFFICE = frozenset(
@@ -68,6 +72,7 @@ _FRONT_OFFICE = frozenset(
         Permission.CUSTOMERS_MANAGE,
         Permission.ACCOUNTS_REQUEST,
         Permission.ACCOUNTS_TRANSACT,
+        Permission.WORKFLOWS_START,
     }
 )
 

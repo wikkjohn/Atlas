@@ -120,6 +120,9 @@ DEPOSIT_RANGE = {"JPY": (10_000, 2_500_000)}
 DEFAULT_DEPOSIT_RANGE = (100, 25_000)
 
 
+WORKFLOW_CASES = 20
+
+
 @dataclass
 class SeedReport:
     organizations: int = 0
@@ -131,6 +134,8 @@ class SeedReport:
     pending_requests: int = 0
     journal_entries: int = 0
     skipped_banking: bool = False
+    workflow_cases: int = 0
+    skipped_workflows: bool = False
 
 
 def _org(
@@ -363,6 +368,64 @@ def _open_and_fund(
             report.journal_entries += 1
 
 
+def _build_workflow_cases(db: Session, names: SyntheticNameGenerator, report: SeedReport) -> None:
+    """Run WF-0001 cases through the real engine, leaving a realistic mix of states."""
+    from app.modules.workflows import engine
+    from app.modules.workflows.models import WorkflowStepRun
+    from app.modules.workflows.wf0001 import synthetic_document_number
+
+    teller = _principal(db, "employee")
+    manager = _principal(db, "manager")
+    compliance = _principal(db, "compliance")
+    if not (teller and manager and compliance):
+        report.skipped_workflows = True
+        return
+    codes = list(SUBSIDIARY_NAMES)
+    for index in range(WORKFLOW_CASES):
+        first, last = names.name()
+        name = f"{first} {last}"
+        born = date(names.integer(1955, 2003), names.integer(1, 12), names.integer(1, 28))
+        kinds = ["passport", "proof_of_address"]
+        if index % 10 == 3:
+            kinds = ["passport"]  # waits for documents
+        documents = [
+            {
+                "document_type": kind,
+                "document_number": synthetic_document_number(kind, names.integer(0, 9_999_999)),
+                "name_on_document": name,
+                "date_of_birth": born.isoformat() if kind == "passport" else None,
+                "expiry_date": "2031-06-30" if kind == "passport" else None,
+            }
+            for kind in kinds
+        ]
+        execution, _ = engine.start(
+            db,
+            workflow_id="WF-0001",
+            payload={
+                "applicant_name": name,
+                "date_of_birth": born.isoformat(),
+                "country_code": codes[index % len(codes)],
+                "account_type": "current" if index % 3 else "savings",
+                "documents": documents,
+                "politically_exposed": index % 7 == 5,
+                "expected_monthly_deposits": 80_000 if index % 7 == 5 else names.integer(0, 20_000),
+            },
+            initiator=teller,
+            idempotency_key=f"seed-wf0001-{index}",
+        )
+        report.workflow_cases += 1
+        task = db.execute(
+            select(WorkflowStepRun).where(
+                WorkflowStepRun.execution_id == execution.id, WorkflowStepRun.status == "waiting"
+            )
+        ).scalar_one_or_none()
+        if task is None or task.step_type != "approval" or index % 5 == 4:
+            continue  # leave some cases waiting for a decision
+        reviewer = compliance if task.step_id == "compliance_review" else manager
+        decision = "reject" if index % 6 == 0 else "approve"
+        engine.complete_task(db, task.id, reviewer, decision=decision, note="Seeded decision")
+
+
 def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedReport:
     report = SeedReport()
     names = SyntheticNameGenerator(seed)
@@ -415,4 +478,11 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
         report.skipped_banking = True
     else:
         _build_banking(db, SyntheticNameGenerator(seed + 1), report)
+
+    from app.modules.workflows.models import WorkflowExecution
+
+    if db.execute(select(WorkflowExecution.id).limit(1)).first():
+        report.skipped_workflows = True
+    else:
+        _build_workflow_cases(db, SyntheticNameGenerator(seed + 2), report)
     return report

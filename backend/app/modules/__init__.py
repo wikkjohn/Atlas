@@ -79,15 +79,15 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "workflows",
         "Workflow engine",
         4,
-        "planned",
+        "available",
         "Durable, database-backed workflow execution (WF-0001 Retail Account Opening).",
     ),
     ModuleInfo(
         "compliance",
         "Compliance",
         4,
-        "planned",
-        "Compliance rule evaluation and human review routing.",
+        "available",
+        "Compliance rule evaluation and human review routing (inside WF-0001).",
     ),
     ModuleInfo(
         "simulation",

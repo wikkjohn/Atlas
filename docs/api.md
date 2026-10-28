@@ -1,0 +1,232 @@
+# API contracts
+
+The OpenAPI document generated from the code is the authoritative contract:
+`GET /api/openapi.json`, browsable at `/api/docs`. This page explains the conventions
+every endpoint follows and lists what exists.
+
+## Conventions
+
+| Concern | Rule |
+| --- | --- |
+| Versioning | Business endpoints live under `/api/v1/`. Platform health endpoints live under `/api/` so infrastructure probes stay stable. |
+| Authentication | `Authorization: Bearer <access token>` from `POST /api/v1/auth/login`. Tokens are HS256 JWTs (default lifetime 60 minutes). The user is re-loaded on every request, so deactivation and role changes apply immediately. |
+| Authorization | Each endpoint requires one permission (below). Checked on the server; 403 names the missing permission in `details.required_permission`. |
+| Errors | `{"error": {"code", "message", "details", "correlation_id"}}`. Codes: `unauthorized` (401), `forbidden` (403), `not_found` (404), `conflict` (409), `validation_error` (422, malformed input, `details` lists fields), `business_rule_violation` (422, well-formed but breaks a rule), `internal_error` (500, no internal detail). |
+| Correlation | Send `X-Correlation-ID` (≤128 chars of `A-Za-z0-9._:-`) or one is generated. It is echoed in the response, logged, and stored on audit events. |
+| Idempotency | `POST` create endpoints accept `Idempotency-Key`. Retrying with the same key and body replays the original response (header `Idempotent-Replayed: true`) without side effects. The same key with a different body returns 409. Keys are scoped per user. A request that failed stores nothing, so it can be retried. |
+| Pagination | List endpoints take `limit` (1–200, default 50) and `offset`, and return `{"items", "total", "limit", "offset"}`. |
+| Filtering | Query parameters per endpoint (below). Free-text `q` is a case-insensitive contains-match. |
+| Money | Integer minor units of an ISO 4217 currency (e.g. `8250000` USD = $82,500.00; JPY has no minor unit). Never floating point. |
+| Partial updates | `PATCH` changes only the fields sent; send `null` explicitly to clear a nullable field (e.g. `manager_id`). |
+
+## Endpoints
+
+### Platform (public)
+
+| Method | Path | Notes |
+| --- | --- | --- |
+| GET | `/api/health` | 200 healthy/degraded, 503 when the database is down |
+| GET | `/api/system/info` | Version, environment, module roadmap |
+| GET | `/api/system/status` | Database, migration state, Redis |
+
+### Auth, users and roles
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/v1/auth/login` | public | `{username, password}` → token, expiry, user with permissions. Failures are audited. |
+| GET | `/api/v1/auth/me` | signed in | Current user and permissions |
+| GET | `/api/v1/roles` | signed in | Roles and the permissions each grants |
+| GET | `/api/v1/users?kind=people|service&q=` | `users:read` | Paginated; `is_service_account` marks system principals (simulated staff, the policy engine) that cannot sign in |
+| POST | `/api/v1/users` | `users:manage` | Password ≥ 12 characters; idempotent |
+| GET | `/api/v1/users/{id}` | `users:read` | |
+| PATCH | `/api/v1/users/{id}` | `users:manage` | `display_name`, `role`, `is_active`; administrators cannot demote or deactivate themselves; service accounts keep their role (deactivating the policy engine switches automated approvals off); service roles cannot be given to people |
+
+### Countries
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/countries` | `countries:read` | Filters: `region`, `operational_status`, `q` |
+| POST | `/api/v1/countries` | `countries:manage` | ISO 3166 code, ISO 4217 currency, IANA time zone, language tags; idempotent |
+| GET | `/api/v1/countries/{id}` | `countries:read` | |
+| PATCH | `/api/v1/countries/{id}` | `countries:manage` | Name, time zone, languages, status. Code, region and currency are fixed once created. |
+
+### Organizations
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/organizations` | `organizations:read` | Filters: `parent_id`, `root_only`, `organization_type`, `country_id`, `status`, `q` |
+| POST | `/api/v1/organizations` | `organizations:manage` | Hierarchy and country rules below; idempotent |
+| GET | `/api/v1/organizations/{id}` | `organizations:read` | Includes `child_count`, `employee_count`, inherited `currency` |
+| GET | `/api/v1/organizations/{id}/ancestors` | `organizations:read` | Path from the global bank |
+| PATCH | `/api/v1/organizations/{id}` | `organizations:manage` | `name`, `status` |
+
+Hierarchy rules: global bank (exactly one, the only root) → regional headquarters (has a
+region) → country subsidiary (one per country; the country must be **active** and in the
+headquarters' region) → business division → department → team. Region and country are
+inherited downward and cannot be overridden. Sibling names are unique. A unit with active
+children or staff cannot be deactivated, and nothing can be created under an inactive unit.
+
+### Employees
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/employees` | `employees:read` | Filters: `q`, `organization_id`, `department_id`, `country_id`, `manager_id`, `employment_status` |
+| POST | `/api/v1/employees` | `employees:manage` | Idempotent; see rules |
+| GET | `/api/v1/employees/{id}` | `employees:read` | |
+| GET | `/api/v1/employees/{id}/direct-reports` | `employees:read` | |
+| GET | `/api/v1/employees/{id}/reporting-chain` | `employees:read` | Direct manager upwards |
+| PATCH | `/api/v1/employees/{id}` | `employees:manage` | Title, unit (transfer), manager, role, status, compensation |
+
+Rules: staff join a department or a team (`department_id` is derived). Country defaults to
+the unit's and must be active; compensation is recorded in that country's currency. Email
+addresses are synthetic (`@atlasbank.example`), generated when omitted. A manager must be
+an active employee and the reporting line may not form a cycle. An employee with active
+direct reports cannot be terminated. `annual_compensation` and `compensation_currency`
+are `null` unless the caller has `employees:read_compensation`.
+
+### Customers
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/customers` | `customers:read` | Filters: `q`, `customer_type`, `country_id`, `risk_rating`, `kyc_status` |
+| POST | `/api/v1/customers` | `customers:manage` | Individual or business; active country; date not in the future; idempotent |
+| GET | `/api/v1/customers/{id}` | `customers:read` | Includes the country's currency |
+| PATCH | `/api/v1/customers/{id}` | `customers:manage` | `name` |
+| POST | `/api/v1/customers/{id}/review` | `customers:review` | `kyc_status` and/or `risk_rating`, optional `note`. KYC moves not_started → pending → verified/rejected (and back to pending for re-review); verifying requires a risk rating. |
+| GET | `/api/v1/customers/{id}/eligibility?account_type=` | `accounts:read` | `{eligible, reasons[]}` |
+
+### Account opening
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/account-requests` | `accounts:read` | Filters: `status`, `customer_id` |
+| POST | `/api/v1/account-requests` | `accounts:request` | `{customer_id, account_type, currency?}`; eligibility checked; one pending request per customer/type/currency; idempotent |
+| GET | `/api/v1/account-requests/{id}` | `accounts:read` | |
+| POST | `/api/v1/account-requests/{id}/approve` | `accounts:approve` | Opens the account. Not by the requester (four-eyes, also a DB constraint); high-risk customers need `customers:review`; eligibility re-checked; a second approval returns 409. |
+| POST | `/api/v1/account-requests/{id}/reject` | `accounts:approve` | `{reason}`; four-eyes applies |
+
+Eligibility: KYC verified; a risk rating assigned; account type matches the customer type
+(individuals: current, savings; businesses: business_current); individuals aged 18+; the
+customer's country is active; domestic currency only; no live account of the same type
+and currency.
+
+### Accounts
+
+There is no endpoint that creates an account directly.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/accounts` | `accounts:read` | Filters: `q`, `customer_id`, `status`, `currency`. `balance` is derived from the ledger. |
+| GET | `/api/v1/accounts/{id}` | `accounts:read` | |
+| GET | `/api/v1/accounts/{id}/transactions` | `accounts:read` | Posted ledger lines, newest first |
+| POST | `/api/v1/accounts/{id}/deposits` | `accounts:transact` | `{amount, memo?}` in minor units; **Idempotency-Key required**; account must be open |
+| POST | `/api/v1/accounts/{id}/withdrawals` | `accounts:transact` | Same; no overdrafts (the account row is locked while the balance is checked) |
+| POST | `/api/v1/accounts/{id}/freeze` · `/unfreeze` · `/close` | `accounts:manage` | `{reason}`; closing requires a zero balance |
+
+Account numbers: two-letter country code, ten digits and two ISO 7064 MOD 97-10 check
+digits (e.g. `US000000004257`). They are synthetic, not IBANs.
+
+### Ledger
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/ledger/accounts` | `ledger:read` | Chart of accounts with derived balances. Filters: `currency`, `account_type`, `q` |
+| POST | `/api/v1/ledger/accounts` | `ledger:post` | `{code, name, account_type, currency}` |
+| GET | `/api/v1/ledger/accounts/{id}` · `/statement` | `ledger:read` | |
+| GET | `/api/v1/ledger/journal-entries` | `ledger:read` | Filters: `currency`, `source`, `ledger_account_id` |
+| POST | `/api/v1/ledger/journal-entries` | `ledger:post` | Manual balanced entry; **Idempotency-Key required**; same key + same body replays (200), different body 409 |
+| GET | `/api/v1/ledger/journal-entries/{id}` | `ledger:read` | Lines, `reversal_of_id`, `reversed_by_id` |
+| POST | `/api/v1/ledger/journal-entries/{id}/reverse` | `ledger:post` | `{reason}`; posts the opposite entry; **Idempotency-Key required** |
+| POST | `/api/v1/ledger/reconciliation` | `ledger:read` | Runs the checks below; the run is audited |
+
+Reconciliation checks: every entry has ≥ 2 lines and balances; every line uses a ledger
+account in the entry's currency; debits equal credits per currency (trial balance); every
+reversed entry has a reversing entry; every customer account matches its ledger currency.
+
+### Workflows
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/workflows?q=` | `workflows:read` | Registered workflows (latest version) |
+| GET | `/api/v1/workflows/{id}?version=` | `workflows:read` | Definition, steps, input schema, transition/approval/failure/timeout policies |
+| GET | `/api/v1/workflows/{id}/metrics` | `workflows:read` | Per-step runs, completions, failures, retries, avg/p50/p95/max duration; bottleneck step |
+| POST | `/api/v1/workflows/{id}/executions` | `workflows:start` | `{input}`; validated against the input schema; optional `Idempotency-Key` (same key → same execution, 200) |
+| GET | `/api/v1/workflow-executions` | `workflows:read` | Filters: `workflow_id`, `status`, `outcome`, `business_key`. Live executions only, unless `simulation_run_id` asks for one simulation run's executions |
+| GET | `/api/v1/workflow-executions/{id}` | `workflows:read` | Status, outcome, context, error and every step run (attempts, actor, timings, errors) |
+| GET | `/api/v1/workflow-executions/{id}/history` | `workflows:read` | Append-only events |
+| POST | `/api/v1/workflow-executions/{id}/signals` | `workflows:start` | `{signal, payload}` for a waiting wait-state |
+| POST | `/api/v1/workflow-executions/{id}/resume` | `workflows:manage` | Runs due steps now (never passes a waiting approval) |
+| POST | `/api/v1/workflow-executions/{id}/cancel` | `workflows:manage` | `{reason}` |
+| GET | `/api/v1/workflow-tasks?actionable=` | signed in | Open tasks/approvals with `can_act` and `blocked_reason` for the caller |
+| POST | `/api/v1/workflow-tasks/{run_id}/complete` | the step's permissions | `{decision?, data?, note?}`; four-eyes enforced; a task completes once (409 after) |
+
+Simulated executions (driven by the Phase 5 simulation engine on simulated time) are kept
+out of the task inbox, the metrics and the `run_due` timer sweep; each carries its
+`simulation_run_id`.
+
+### Simulations
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/simulations/scenarios` | `simulations:read` | Registered scenarios with their full configuration |
+| GET | `/api/v1/simulations/profiles` | `simulations:read` | Workload profiles; `runnable` is false for the enterprise configuration target |
+| POST | `/api/v1/simulations` | `simulations:run` | `{scenario_id, scenario_version?, profile, seed, applications?, employees?}` (sizes only with `profile: custom`, max 10,000 / 500). **202**: the run executes in the background. One run at a time (409 otherwise); the enterprise profile is refused (422) |
+| GET | `/api/v1/simulations?status=` | `simulations:read` | Run registry, newest first, with progress |
+| GET | `/api/v1/simulations/{id}` | `simulations:read` | Configuration, software version, config hash, progress, results, result digest, failure reason and `reproductions` (other completed runs with the same scenario, seed, configuration and software, and whether their results match) |
+| GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
+| POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202) |
+| POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`) |
+
+`POST /api/v1/simulations` also takes `mode` (`baseline`, `ai_assisted`, `ai_automated`)
+and, for AI modes, `tool_id` (+ optional `tool_version`, default: highest active). AI
+modes need a scenario version that supports them (`retail-onboarding` v2) and an active
+tool declared compatible with the scenario's workflow (422 otherwise). The run list
+filters by `batch_id` and `mode`.
+
+Runs that stop making progress for 5 minutes (the process running them stopped) are
+reported as failed with an "Interrupted" reason. See [simulation.md](simulation.md).
+
+### AI tools
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/ai-tools?status=&workflow_id=` | `ai_tools:read` | Registered tool versions with invocation counts |
+| GET | `/api/v1/ai-tools/adapters` | `ai_tools:read` | Implementations with their default input, output and configuration schemas |
+| GET | `/api/v1/ai-tools/actions` | `ai_tools:read` | Grantable and never-grantable actions |
+| POST | `/api/v1/ai-tools` | `ai_tools:manage` | Register a version (see [ai-testing.md](ai-testing.md#registry) for validation); optional `Idempotency-Key`; 409 for an existing version |
+| GET | `/api/v1/ai-tools/{id}` | `ai_tools:read` | |
+| PATCH | `/api/v1/ai-tools/{id}` | `ai_tools:manage` | `{status: active | disabled}` — everything else is immutable |
+| POST | `/api/v1/ai-tools/{id}/invoke` | `ai_tools:invoke` + the tool's `permissions` | `{action, input}` → the recorded invocation (its `status` says whether it succeeded, failed, timed out or broke a schema). A disabled tool or an action not granted → **403**, and the refused call is still recorded |
+| GET | `/api/v1/ai-tools/invocations?tool=&status=&execution_id=&simulation_run_id=` | `ai_tools:read` | Recorded invocations, newest first |
+
+### Experiments and benchmarks
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/experiments?status=&tool_id=` | `experiments:read` | Newest first, with the two runs' progress and headline changes |
+| POST | `/api/v1/experiments` | `experiments:run` | `{name, tool_id, tool_version?, candidate_mode (ai_assisted/ai_automated), scenario_id?, scenario_version?, profile (small/department/custom), applications?, employees?, seed, costs?, thresholds?}` → **202**; runs baseline and candidate, then evaluates |
+| POST | `/api/v1/experiments/from-runs` | `experiments:run` | `{name, baseline_run_id, candidate_run_id, costs?, thresholds?}` → 201, evaluated; 422 when the runs are not an equivalent baseline/candidate pair |
+| GET | `/api/v1/experiments/{id}` | `experiments:read` | Configuration, raw `measurements`, derived `evaluation` |
+| POST | `/api/v1/experiments/{id}/re-evaluate` | `experiments:read` | Recomputes from the stored raw measurements: `{stored_digest, recomputed_digest, matches}` |
+| GET | `/api/v1/experiments/{id}/report?format=markdown|json` | `experiments:read` | Downloadable proof-of-concept report; 409 until evaluated |
+| GET | `/api/v1/benchmarks` | `experiments:read` | Completed experiments by tool version and configuration: counts, successes, median relative changes, latest verdict |
+
+See [benchmarking.md](benchmarking.md) for metrics, costs and criteria.
+
+### Audit
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/audit-events` | `audit:read` | Newest first. Filters: `action` (exact or `prefix*`), `entity_type`, `entity_id`, `actor_id`, `correlation_id`, `since`, `until` |
+
+There are no write endpoints for audit events.
+
+### Analytics
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/analytics/overview` | `analytics:read` (every role) | The dashboard: employees, configured countries, registered workflows, active simulation runs, completed and failed workflow executions, customer accounts, AI tools, completed experiments, average process duration and the estimated simulation operating cost — each with a `detail` saying what it includes, `synthetic` and `estimate` flags — plus live execution outcomes, open tasks, recent runs and experiments |
+
+Every figure is queried from the records at request time. The cost figure applies the
+default cost assumptions to every completed simulation run through the experiment
+engine's cost function, and is flagged as an estimate.

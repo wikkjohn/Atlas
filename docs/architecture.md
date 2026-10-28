@@ -170,6 +170,16 @@ derived from the seed. Simulated staff are real employees and service-account us
 cannot sign in) in a per-run team, so every permission and four-eyes rule applies. See
 [simulation.md](simulation.md).
 
+## AI Innovation Lab (Phase 6)
+
+`app/modules/ai_tools` is the single AI registry of the platform: tool versions with JSON
+Schema contracts, an async provider-independent adapter interface, and one invocation
+service that enforces allowed actions, validates requests and results, applies timeouts
+and records every call. Workflows reach it only through `ai_task` steps (WF-0001 v2); a
+separate policy step and the accounts service keep final decisions with authorized
+principals. Experiments are ordinary simulation runs in different modes on the same seed.
+See [ai-testing.md](ai-testing.md).
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from
@@ -178,7 +188,7 @@ cannot sign in) in a per-run team, so every permission and four-eyes rule applie
 - **Scoped access (later):** Phase 2 permissions are role-wide. Restricting a regional
   executive or department manager to *their* part of the hierarchy is a planned refinement.
 - **Workflow engine (Phase 4):** see [workflows.md](workflows.md).
-- **AI lab and benchmarking (Phases 6–7):** see [ai-testing.md](ai-testing.md).
+- **Benchmarking (Phase 7):** see [ai-testing.md](ai-testing.md#phase-7-evaluation).
 
 ## Explicit non-goals for now
 

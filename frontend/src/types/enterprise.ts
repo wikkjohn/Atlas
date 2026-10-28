@@ -25,7 +25,11 @@ export type Permission =
   | "workflows:start"
   | "workflows:manage"
   | "simulations:read"
-  | "simulations:run";
+  | "simulations:run"
+  | "ai_tools:read"
+  | "ai_tools:manage"
+  | "ai_tools:invoke"
+  | "accounts:approve_low_risk";
 
 export interface Page<T> {
   items: T[];

@@ -18,6 +18,7 @@ from app.simulation.schemas import (
     SimulationRunDetail,
     SimulationRunSummary,
     StartSimulation,
+    StartSuite,
 )
 
 router = APIRouter(prefix="/simulations", tags=["simulations"])
@@ -47,9 +48,11 @@ def list_runs(
     page: PageParamsDep,
     _: Authorized(Permission.SIMULATIONS_READ),
     status: SimulationStatus | None = None,
+    batch_id: uuid.UUID | None = None,
+    mode: Annotated[str | None, Query(max_length=20)] = None,
 ) -> Page[SimulationRunSummary]:
     service.reap_stale(db)
-    items, total = service.list_runs(db, page, status=status)
+    items, total = service.list_runs(db, page, status=status, batch_id=batch_id, mode=mode)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
@@ -77,6 +80,26 @@ def start_run(
     factory: SessionFactory,
 ) -> SimulationRunDetail:
     return _launch(db, body, actor.id, tasks, factory)
+
+
+@router.post(
+    "/suites",
+    response_model=list[SimulationRunSummary],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run several experiment modes on the same seed and workload, one after another",
+)
+def start_suite(
+    body: StartSuite,
+    db: DbSession,
+    actor: Authorized(Permission.SIMULATIONS_RUN),
+    tasks: BackgroundTasks,
+    factory: SessionFactory,
+) -> list[SimulationRunSummary]:
+    runs = service.start_suite(db, body, actor.id)
+    db.commit()
+    tasks.add_task(runner.execute_batch, factory, [r.id for r in runs])
+    names = {actor.id: actor.username}
+    return [service.summary(r, names) for r in runs]
 
 
 @router.get("/{run_id}", response_model=SimulationRunDetail, summary="A run with its results")

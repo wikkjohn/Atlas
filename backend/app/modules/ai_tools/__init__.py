@@ -1,1 +1,2 @@
-"""ai_tools module — scheduled for Phase 6; no functionality is implemented yet."""
+"""AI Innovation Lab: the shared AI tool registry, provider-independent adapters and the
+invocation service every workflow and experiment uses."""

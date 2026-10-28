@@ -15,6 +15,8 @@ class ScenarioOut(BaseModel):
     name: str
     description: str
     workflow_id: str
+    workflow_version: int
+    modes: list[str]
     simulated_start: datetime
     config: dict[str, Any]
 
@@ -41,6 +43,29 @@ class StartSimulation(BaseModel):
     employees: int | None = Field(
         default=None, ge=3, le=MAX_CUSTOM_EMPLOYEES, description="Custom profile only"
     )
+    mode: Literal["baseline", "ai_assisted", "ai_automated"] = "baseline"
+    tool_id: str | None = Field(default=None, max_length=64, description="AI modes only")
+    tool_version: str | None = Field(
+        default=None, max_length=40, description="Defaults to the highest active version"
+    )
+
+
+class StartSuite(BaseModel):
+    """Several modes on the same scenario, seed and workload, executed one after another."""
+
+    scenario_id: str = "retail-onboarding"
+    scenario_version: int | None = Field(default=None, ge=1)
+    profile: Literal["small", "department", "custom"] = "small"
+    seed: int = Field(default=42, ge=0, le=MAX_SEED)
+    applications: int | None = Field(default=None, ge=1, le=MAX_CUSTOM_APPLICATIONS)
+    employees: int | None = Field(default=None, ge=3, le=MAX_CUSTOM_EMPLOYEES)
+    modes: list[Literal["baseline", "ai_assisted", "ai_automated"]] = Field(
+        default_factory=lambda: ["baseline", "ai_assisted", "ai_automated"],
+        min_length=1,
+        max_length=3,
+    )
+    tool_id: str | None = Field(default=None, max_length=64)
+    tool_version: str | None = Field(default=None, max_length=40)
 
 
 class Reproduction(BaseModel):
@@ -73,6 +98,10 @@ class SimulationRunSummary(BaseModel):
     wall_ms: int | None
     progress: dict[str, Any]
     percent_complete: float
+    mode: str
+    tool_id: str | None
+    tool_version: str | None
+    batch_id: uuid.UUID | None
 
 
 class SimulationRunDetail(SimulationRunSummary):
@@ -102,3 +131,6 @@ class CaseResultOut(BaseModel):
     completed_at: datetime | None
     cycle_hours: float | None
     path: list[str]
+    ai_recommendation: str | None
+    ai_status: str | None
+    automated: bool

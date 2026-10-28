@@ -96,6 +96,7 @@ def test_normal_application_is_approved_and_opens_one_account(
         "checks_complete",
         "assign_risk_rating",
         "evaluate_compliance",
+        "ai_kyc_review",  # WF-0001 v2; AI is off unless an experiment turns it on
         "route_case",
         "account_approval",
         "open_account",

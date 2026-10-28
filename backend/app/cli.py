@@ -53,6 +53,8 @@ def _seed_demo(args: argparse.Namespace) -> int:
         print("Workflow executions already exist; WF-0001 demo cases unchanged.")
     else:
         print(f"Ran {report.workflow_cases} WF-0001 account-opening cases through the engine.")
+    if report.ai_tools:
+        print(f"Registered AI tools: {', '.join(report.ai_tools)}")
     print("\nDemo sign-ins (local development only):")
     for username, _, label in DEMO_USERS:
         print(f"  {username:<12} {label}")
@@ -110,7 +112,10 @@ def _simulate(args: argparse.Namespace) -> int:
     try:
         body = StartSimulation(
             scenario_id=args.scenario,
+            scenario_version=args.scenario_version,
             profile=args.profile,
+            mode=args.mode,
+            tool_id=args.tool,
             seed=args.seed,
             applications=args.applications,
             employees=args.employees,
@@ -167,6 +172,13 @@ def main(argv: list[str] | None = None) -> int:
     simulate.add_argument("--scenario", default="retail-onboarding")
     simulate.add_argument(
         "--profile", default="small", choices=["small", "department", "enterprise", "custom"]
+    )
+    simulate.add_argument("--scenario-version", type=int, help="Defaults to the latest")
+    simulate.add_argument(
+        "--mode", default="baseline", choices=["baseline", "ai_assisted", "ai_automated"]
+    )
+    simulate.add_argument(
+        "--tool", help="AI tool id (AI modes), e.g. agb-intelligent-kyc-assistant"
     )
     simulate.add_argument("--seed", type=int, default=42)
     simulate.add_argument("--applications", type=int, help="Custom profile only")

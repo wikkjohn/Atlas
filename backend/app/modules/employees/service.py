@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import diff, record_audit_event
 from app.core.errors import BusinessRuleViolation, ConflictError, NotFoundError
 from app.core.pagination import PageParams, paginate
+from app.core.permissions import SERVICE_ROLES
 from app.modules.countries.service import require_active_country
 from app.modules.employees.models import (
     EMPLOYEE_NUMBER_SEQUENCE,
@@ -197,6 +198,10 @@ def _snapshot(employee: Employee) -> dict[str, Any]:
 
 
 def create_employee(db: Session, data: EmployeeCreate, actor_id: uuid.UUID | None) -> Employee:
+    if data.role in SERVICE_ROLES:
+        raise BusinessRuleViolation(
+            f"The {data.role.value} role belongs to system principals only."
+        )
     unit, department = _placement(db, data.organization_id)
     country_id = data.country_id or unit.country_id
     if country_id is None:
@@ -265,6 +270,10 @@ def update_employee(
     if data.job_title is not None:
         employee.job_title = data.job_title.strip()
     if data.role is not None:
+        if data.role in SERVICE_ROLES:
+            raise BusinessRuleViolation(
+                f"The {data.role.value} role belongs to system principals only."
+            )
         employee.role_id = get_role(db, data.role).id
     if data.annual_compensation is not None:
         employee.annual_compensation = data.annual_compensation

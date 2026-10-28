@@ -4,6 +4,7 @@ import { NotFoundPage } from "@/app/NotFoundPage";
 import { RequireAuth } from "@/app/RequireAuth";
 import { AppShell } from "@/components/AppShell";
 import { AccountsPage } from "@/features/accounts/AccountsPage";
+import { AiLabPage } from "@/features/ai-lab/AiLabPage";
 import { AuditPage } from "@/features/audit/AuditPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { CountriesPage } from "@/features/countries/CountriesPage";
@@ -33,6 +34,7 @@ export function AppRoutes() {
         <Route path="accounts" element={<AccountsPage />} />
         <Route path="workflows" element={<WorkflowExplorerPage />} />
         <Route path="simulations" element={<SimulationCenterPage />} />
+        <Route path="ai-lab" element={<AiLabPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

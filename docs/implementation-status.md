@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 5.
+Last updated: Phase 6.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -9,9 +9,58 @@ Last updated: Phase 5.
 | 3 | First banking business modules | **Complete** |
 | 4 | Workflow execution engine | **Complete** |
 | 5 | Simulation engine | **Complete** |
-| 6 | AI Innovation Lab | Not started |
+| 6 | AI Innovation Lab | **Complete** |
 | 7 | Benchmarking and experiment evaluation | Not started |
-| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer, Simulation Center and Audit Center screens exist) |
+| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer, Simulation Center, AI Innovation Lab and Audit Center screens exist) |
+
+## Phase 6: what exists
+
+- **AI tool registry** (`ai_tools`): versioned tools with JSON Schema input/output
+  contracts, allowed actions, caller permissions, compatible workflows, adapter-validated
+  configuration and status; registration refuses never-delegable actions (approve or open
+  accounts, KYC decisions, ledger postings…), invalid schemas and invalid configuration
+- **Adapter contract:** async `AIToolAdapter.execute(request, context)` with typed
+  request/result, structured `ToolError`; one invocation service enforces allowed actions
+  and status, validates input and output against the registered schemas, applies the
+  timeout and records every call (`ai_tool_invocations`) with status, duration and usage
+- **AGB Intelligent KYC Assistant** (rule-based proof of concept): missing and
+  inconsistent fields, risk classification, explanation, approve/reject/escalate; plus a
+  reproducible **fault injector** for failure testing
+- **WF-0001 v2:** advisory `ai_kyc_review` step (off / assisted / automated) with safe
+  escalation on any tool failure; `policy_approval` step — the workflow policy engine —
+  approves only low-risk, unflagged, verified cases the tool recommends; the
+  `automated_policy` system principal can approve low-risk customers only (enforced by the
+  accounts service), cannot sign in, and its role cannot be given to people
+- **Experiments A/B/C:** scenario `retail-onboarding` v2 runs baseline, AI-assisted and
+  AI-automated modes on the same seeded applications and staff; suites run them back to
+  back; AI-assistance effects on reviewers are explicit, stored assumptions; results
+  report invocations, failures, recommendations, recommendation accuracy and policy
+  approvals per run and per case
+- **API:** `/api/v1/ai-tools` (registry, adapters, actions, invocations, test-console
+  invoke, enable/disable) and `/api/v1/simulations/suites`; permissions `ai_tools:read`
+  (every role), `ai_tools:manage` and `ai_tools:invoke` (AI researcher, administrator)
+- **UI:** AI Innovation Lab — tool registry, capabilities and schemas, registration form
+  (never-grantable actions shown disabled), test console, recorded invocations, experiment
+  configuration on compatible workflows, side-by-side run results linking to the
+  Simulation Center (which now shows modes, tools and AI behaviour)
+- **Demo data:** the KYC assistant and the fault injector are registered by `make seed`;
+  `python -m app.cli simulate --mode ai_assisted --tool agb-intelligent-kyc-assistant`
+
+## Phase 6: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 213 passed (39 AI Innovation Lab tests) |
+| Ruff lint + format check | clean |
+| Alembic 0005 → 0006, base ↔ head, `alembic check` | clean (also upgraded a database holding a 10,000-case run) |
+| Frontend typecheck | clean |
+| Vitest | 53 passed |
+| Production build | succeeds |
+| Playwright (Chromium, real backend + DB) | 11 passed — fresh local database (twice) and Docker Compose |
+| Docker Compose: upgrade of the Phase 4 database volume to 0006, seed in container | succeeds |
+| `validate_system.py --login auditor` (Docker) | 13/13, incl. simulation reproducibility across 5 runs |
+| A/B/C suite, 100 applications, seed 42 (local) | completed; same applications in all modes; see ai-testing.md |
+| Mutation check: low-risk guard removed from the accounts service | the policy-limit test fails |
 
 ## Phase 5: what exists
 
@@ -55,7 +104,8 @@ Last updated: Phase 5.
 | Frontend typecheck | clean |
 | Vitest | 48 passed |
 | Production build | succeeds |
-| Department profile (10,000 / 500) | measurement in progress — see simulation.md |
+| Department profile (10,000 / 500), local | 10,000 cases completed in 35 min 16 s (4.7 cases/s) |
+| Playwright (Chromium, real backend + fresh DB) | 10 passed (twice) |
 
 ## Phase 4: what exists
 
@@ -220,7 +270,12 @@ Last updated: Phase 5.
   throughput and why the enterprise profile is only a target.
 - The workflow runner is a polling CLI process; there is no in-API background scheduler, so
   timeouts and retries fire only while `make workflows` (or the CLI) runs.
-- `ai_task` steps work with registered adapters, but no AI tools exist until Phase 6.
+- The only AI tool implementation is rule-based; no external model provider is connected
+  (an adapter for one implements the same contract). Adapter timeouts cancel async work;
+  CPU-bound synchronous code inside an adapter cannot be interrupted.
+- The effect of AI advice on reviewers is an assumption of the scenario, not a measurement.
+- Live (non-simulated) WF-0001 cases run v2 with AI off; the UI does not offer AI modes for
+  live cases.
 - Human tasks are offered to everyone holding the permissions; there is no assignment to a
   named person, delegation or escalation routing beyond the overdue flag.
 - Balances are computed from lines on every read; fine at demo scale, but large volumes

@@ -190,6 +190,18 @@ simulation drove.
 | `simulation_runs` | `run_number` (identity), `scenario_id`, `scenario_version`, `workflow_id`, `workflow_version`, `profile`, `seed`, `config` (jsonb: the fully resolved configuration incl. dataset fingerprint), `config_hash`, `software_version`, `status` (queued, running, completed, failed), `failure_reason`, `created_by`, `created_at`, `started_at`, `completed_at`, `heartbeat_at`, `progress` (jsonb), `results` (jsonb), `result_digest`, `simulated_start`, `simulated_end`, `wall_ms`, `staff_unit_id` (the team employing the run's simulated staff) |
 | `simulation_case_results` | One row per case (unique `run_id`, `case_index`): `execution_id`, `kind` and `expected_outcome` (ground truth), `status`, `outcome`, `risk_rating`, `flags`, `manual_reviews`, `review_seconds`, `queue_wait_seconds`, `overdue_tasks`, `arrived_at`, `completed_at`, `cycle_seconds`, `path` (completed step ids) |
 
+### AI Innovation Lab tables (Phase 6)
+
+| Table | Contents |
+| --- | --- |
+| `ai_tools` | One row per tool version (unique `tool_id`, `tool_version`): `tool_name`, `provider`, `description`, `adapter`, `input_schema`, `output_schema`, `allowed_actions`, `permissions`, `compatible_workflows`, `configuration` (jsonb), `status` (active, disabled), `created_by`, `created_at`, `updated_at` |
+| `ai_tool_invocations` | Every call: `tool_record_id`, `tool_id`, `tool_version`, `action`, `status` (succeeded, failed, timeout, invalid_input, invalid_output, blocked), `input`, `output`, `error`, `duration_ms`, `usage`, `invoked_by`, `execution_id`, `simulation_run_id`, `occurred_at` (business time), `created_at` |
+
+Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
+`tool_record_id`, `batch_id` (suite), and `simulation_case_results.ai_recommendation`,
+`ai_status`, `automated`. Migration `0006` inserts the `automated_policy` role and the
+`atlas-policy-engine` system user (unusable password hash).
+
 ### `alembic_version`
 
 Managed by Alembic. Holds the current schema revision.

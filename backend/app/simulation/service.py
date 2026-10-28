@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessRuleViolation, ConflictError, NotFoundError
 from app.core.pagination import PageParams, paginate
+from app.modules.ai_tools.models import AITool, ToolStatus
+from app.modules.ai_tools.service import find_tool
 from app.modules.identity.models import User
 from app.simulation import runner
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
-from app.simulation.scenarios import PROFILES, SCENARIOS, Scenario, get_scenario
+from app.simulation.scenarios import MODES, PROFILES, SCENARIOS, Scenario, get_scenario
 from app.simulation.schemas import (
     CaseResultOut,
     ProfileOut,
@@ -20,6 +22,7 @@ from app.simulation.schemas import (
     SimulationRunDetail,
     SimulationRunSummary,
     StartSimulation,
+    StartSuite,
 )
 
 # A running simulation commits progress every few seconds; this long without one means the
@@ -36,6 +39,8 @@ def scenarios() -> list[ScenarioOut]:
             name=s.name,
             description=s.description,
             workflow_id=s.workflow_id,
+            workflow_version=s.workflow_version,
+            modes=list(MODES) if s.config.ai_assistance is not None else ["baseline"],
             simulated_start=s.simulated_start,
             config=s.config.model_dump(mode="json"),
         )
@@ -62,6 +67,16 @@ def profiles() -> list[ProfileOut]:
 def reap_stale(db: Session, now: datetime | None = None) -> int:
     """Fail runs whose process stopped: they would otherwise show as running forever."""
     cutoff = (now or datetime.now(UTC)) - STALE_AFTER
+    # Queued members of a suite wait while an earlier member runs; they are not stale.
+    busy_batches = set(
+        db.execute(
+            select(SimulationRun.batch_id).where(
+                SimulationRun.status == SimulationStatus.RUNNING,
+                SimulationRun.heartbeat_at >= cutoff,
+                SimulationRun.batch_id.is_not(None),
+            )
+        ).scalars()
+    )
     stale = db.execute(
         select(SimulationRun)
         .where(
@@ -73,6 +88,8 @@ def reap_stale(db: Session, now: datetime | None = None) -> int:
     ).scalars()
     count = 0
     for run in stale:
+        if run.status == SimulationStatus.QUEUED and run.batch_id in busy_batches:
+            continue
         last = run.heartbeat_at or run.created_at
         run.status = SimulationStatus.FAILED.value
         run.failure_reason = (
@@ -85,7 +102,32 @@ def reap_stale(db: Session, now: datetime | None = None) -> int:
     return count
 
 
-def _resolve(body: StartSimulation) -> tuple[Scenario, int, int]:
+def _resolve_tool(
+    db: Session, scenario: Scenario, modes: list[str], tool_id: str | None, version: str | None
+) -> AITool | None:
+    if all(m == "baseline" for m in modes):
+        return None
+    if scenario.config.ai_assistance is None:
+        raise BusinessRuleViolation(
+            f"Scenario {scenario.scenario_id} v{scenario.version} has no AI modes; use a "
+            "scenario version that supports them.",
+            {"supported_modes": ["baseline"]},
+        )
+    if not tool_id:
+        raise BusinessRuleViolation("AI modes need tool_id (a registered AI tool).")
+    tool = find_tool(db, tool_id, version)
+    if tool.status != ToolStatus.ACTIVE:
+        raise BusinessRuleViolation(f"{tool.tool_id} {tool.tool_version} is disabled.")
+    if scenario.workflow_id not in tool.compatible_workflows:
+        raise BusinessRuleViolation(
+            f"{tool.tool_id} {tool.tool_version} is not declared compatible with "
+            f"{scenario.workflow_id}.",
+            {"compatible_workflows": tool.compatible_workflows},
+        )
+    return tool
+
+
+def _resolve(body: StartSimulation | StartSuite) -> tuple[Scenario, int, int]:
     scenario = get_scenario(body.scenario_id, body.scenario_version)
     if scenario is None:
         raise NotFoundError(
@@ -114,11 +156,12 @@ def _resolve(body: StartSimulation) -> tuple[Scenario, int, int]:
     return scenario, profile.applications, profile.employees
 
 
-def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> SimulationRun:
-    scenario, applications, employees = _resolve(body)
+def _ensure_idle(db: Session) -> None:
     reap_stale(db)
     active = db.execute(
-        select(SimulationRun.run_number).where(SimulationRun.status.in_(list(ACTIVE)))
+        select(SimulationRun.run_number)
+        .where(SimulationRun.status.in_(list(ACTIVE)))
+        .order_by(SimulationRun.run_number)
     ).first()
     if active is not None:
         # One run at a time: runs share the database with the rest of the bank.
@@ -126,6 +169,12 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
             f"Simulation run #{active[0]} is still in progress; start another when it finishes.",
             {"active_run": active[0]},
         )
+
+
+def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> SimulationRun:
+    scenario, applications, employees = _resolve(body)
+    tool = _resolve_tool(db, scenario, [body.mode], body.tool_id, body.tool_version)
+    _ensure_idle(db)
     return runner.create_run(
         db,
         scenario,
@@ -134,11 +183,38 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
         employees=employees,
         seed=body.seed,
         created_by=actor_id,
+        mode=body.mode,
+        tool=tool,
     )
+
+
+def start_suite(db: Session, body: StartSuite, actor_id: uuid.UUID) -> list[SimulationRun]:
+    """One run per mode, same scenario, seed and workload: the experiment's equal footing."""
+    scenario, applications, employees = _resolve(body)
+    modes = list(dict.fromkeys(body.modes))
+    tool = _resolve_tool(db, scenario, modes, body.tool_id, body.tool_version)
+    _ensure_idle(db)
+    batch_id = uuid.uuid4()
+    return [
+        runner.create_run(
+            db,
+            scenario,
+            profile=body.profile,
+            applications=applications,
+            employees=employees,
+            seed=body.seed,
+            created_by=actor_id,
+            mode=mode,
+            tool=tool,
+            batch_id=batch_id,
+        )
+        for mode in modes
+    ]
 
 
 def rerun_body(run: SimulationRun) -> StartSimulation:
     custom = run.profile == "custom"
+    tool = run.config.get("ai_tool") or {}
     return StartSimulation(
         scenario_id=run.scenario_id,
         scenario_version=run.scenario_version,
@@ -146,6 +222,9 @@ def rerun_body(run: SimulationRun) -> StartSimulation:
         seed=run.seed,
         applications=run.config["applications"] if custom else None,
         employees=run.config["employees"] if custom else None,
+        mode=run.mode,  # type: ignore[arg-type]
+        tool_id=tool.get("tool_id"),
+        tool_version=tool.get("tool_version"),
     )
 
 
@@ -157,11 +236,20 @@ def get_run(db: Session, run_id: uuid.UUID) -> SimulationRun:
 
 
 def list_runs(
-    db: Session, params: PageParams, *, status: str | None = None
+    db: Session,
+    params: PageParams,
+    *,
+    status: str | None = None,
+    batch_id: uuid.UUID | None = None,
+    mode: str | None = None,
 ) -> tuple[list[SimulationRunSummary], int]:
     query = select(SimulationRun).order_by(SimulationRun.run_number.desc())
     if status:
         query = query.where(SimulationRun.status == status)
+    if batch_id:
+        query = query.where(SimulationRun.batch_id == batch_id)
+    if mode:
+        query = query.where(SimulationRun.mode == mode)
     items, total = paginate(db, query, params)
     names = _usernames(db, {r.created_by for r in items})
     return [summary(r, names) for r in items], total
@@ -205,6 +293,10 @@ def summary(run: SimulationRun, names: dict[uuid.UUID, str]) -> SimulationRunSum
         wall_ms=run.wall_ms,
         progress=progress,
         percent_complete=percent,
+        mode=run.mode,
+        tool_id=(run.config.get("ai_tool") or {}).get("tool_id"),
+        tool_version=(run.config.get("ai_tool") or {}).get("tool_version"),
+        batch_id=run.batch_id,
     )
 
 
@@ -288,6 +380,9 @@ def list_cases(
             completed_at=c.completed_at,
             cycle_hours=round(c.cycle_seconds / 3600, 3) if c.cycle_seconds is not None else None,
             path=c.path,
+            ai_recommendation=c.ai_recommendation,
+            ai_status=c.ai_status,
+            automated=c.automated,
         )
         for c in items
     ], total

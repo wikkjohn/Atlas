@@ -25,12 +25,13 @@ describe("Application shell", () => {
       "Accounts",
       "Workflow Explorer",
       "Simulation Center",
+      "AI Innovation Lab",
       "Audit Center",
     ]);
 
-    const lab = within(nav).getByText("AI Innovation Lab").closest("[aria-disabled]");
-    expect(lab).toHaveAttribute("aria-disabled", "true");
-    expect(lab).toHaveTextContent("Phase 6");
+    const experiments = within(nav).getByText("Experiments").closest("[aria-disabled]");
+    expect(experiments).toHaveAttribute("aria-disabled", "true");
+    expect(experiments).toHaveTextContent("Phase 7");
     expect(screen.getByText("Synthetic data")).toBeInTheDocument();
     expect(screen.getByText("Demo Platform Administrator")).toBeInTheDocument();
   });

@@ -12,6 +12,8 @@ const scenario: Scenario = {
   name: "Retail account onboarding",
   description: "A working day of synthetic retail applications.",
   workflow_id: "WF-0001",
+  workflow_version: 1,
+  modes: ["baseline"],
   simulated_start: "2026-01-05T09:00:00Z",
   config: {},
 };
@@ -45,6 +47,10 @@ const completed: SimulationRunDetail = {
   wall_ms: 24000,
   progress: { cases_total: 100, cases_started: 100, cases_completed: 100, events_processed: 290 },
   percent_complete: 100,
+  mode: "baseline",
+  tool_id: null,
+  tool_version: null,
+  batch_id: null,
   config: {},
   results: {
     cases: 100,
@@ -91,6 +97,9 @@ const mismatch: CaseResult = {
   completed_at: "2026-01-05T10:40:00Z",
   cycle_hours: 0.667,
   path: ["receive_application", "complete"],
+  ai_recommendation: null,
+  ai_status: null,
+  automated: false,
 };
 
 const baseRoutes = {
@@ -100,6 +109,7 @@ const baseRoutes = {
   "GET /api/v1/simulations": () => jsonResponse(page([completed])),
   "GET /api/v1/simulations/run-1": () => jsonResponse(completed),
   "GET /api/v1/simulations/run-1/cases": () => jsonResponse(page([mismatch])),
+  "GET /api/v1/ai-tools": () => jsonResponse(page([])),
 };
 
 describe("Simulation Center", () => {
@@ -126,6 +136,9 @@ describe("Simulation Center", () => {
     await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
     expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({
       scenario_id: "retail-onboarding",
+      scenario_version: 1,
+      mode: "baseline",
+      tool_id: null,
       profile: "custom",
       seed: 1234,
       applications: 40,

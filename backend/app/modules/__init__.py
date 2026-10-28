@@ -100,8 +100,8 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "ai_tools",
         "AI Innovation Lab",
         6,
-        "planned",
-        "Provider-independent AI tool registry and adapters.",
+        "available",
+        "Provider-independent AI tool registry, adapters and A/B/C experiments.",
     ),
     ModuleInfo(
         "experiments",

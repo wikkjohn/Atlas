@@ -518,8 +518,12 @@ def start(
     now: datetime | None = None,
     max_steps: int = MAX_STEPS_PER_ADVANCE,
     simulation_run_id: uuid.UUID | None = None,
+    settings: dict[str, Any] | None = None,
 ) -> tuple[WorkflowExecution, bool]:
     """Start an execution and run it until it waits, completes or fails.
+
+    `settings` are execution options outside the business input (e.g. the AI mode and tool
+    of an experiment); handlers read them as `_settings` in the context.
 
     Returns (execution, replayed). With an idempotency key, a repeated start by the same
     user returns the original execution instead of starting another.
@@ -557,7 +561,10 @@ def start(
         definition_id=record.id,
         status=ExecutionStatus.RUNNING.value,
         current_steps=[],
-        context={"input": data.model_dump(mode="json")},
+        context={
+            "input": data.model_dump(mode="json"),
+            **({"_settings": settings} if settings else {}),
+        },
         initiated_by=initiator.id,
         idempotency_key=idempotency_key,
         correlation_id=correlation_id_var.get(),

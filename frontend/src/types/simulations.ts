@@ -9,9 +9,19 @@ export interface Scenario {
   name: string;
   description: string;
   workflow_id: string;
+  workflow_version: number;
+  modes: ExperimentMode[];
   simulated_start: string;
   config: Record<string, unknown>;
 }
+
+export type ExperimentMode = "baseline" | "ai_assisted" | "ai_automated";
+
+export const MODE_LABELS: Record<ExperimentMode, string> = {
+  baseline: "A — Baseline",
+  ai_assisted: "B — AI assisted",
+  ai_automated: "C — AI automated tasks",
+};
 
 export interface Profile {
   profile_id: Exclude<ProfileId, "custom">;
@@ -26,6 +36,9 @@ export interface Profile {
 
 export interface StartSimulation {
   scenario_id: string;
+  scenario_version?: number;
+  mode?: ExperimentMode;
+  tool_id?: string | null;
   profile: ProfileId;
   seed: number;
   applications?: number | null;
@@ -65,6 +78,32 @@ export interface SimulationRunSummary {
   wall_ms: number | null;
   progress: SimulationProgress;
   percent_complete: number;
+  mode: ExperimentMode;
+  tool_id: string | null;
+  tool_version: string | null;
+  batch_id: string | null;
+}
+
+export interface StartSuite {
+  scenario_id: string;
+  scenario_version: number;
+  profile: "small" | "custom";
+  seed: number;
+  applications?: number | null;
+  employees?: number | null;
+  modes: ExperimentMode[];
+  tool_id: string;
+}
+
+export interface AiResults {
+  mode: string;
+  invocations: number;
+  invocation_statuses: Record<string, number>;
+  failed_invocations: number;
+  recommendations: Record<string, number>;
+  escalations: number;
+  recommendation_accuracy: number | null;
+  automated_approvals: number;
 }
 
 export interface Percentiles {
@@ -95,6 +134,7 @@ export interface SimulationResults {
   review_queue_wait_hours: Percentiles;
   staff: Record<string, number>;
   simulated_hours: number | null;
+  ai?: AiResults | null;
   execution: {
     events_processed: number;
     workflow_steps_completed: number;
@@ -137,4 +177,7 @@ export interface CaseResult {
   completed_at: string | null;
   cycle_hours: number | null;
   path: string[];
+  ai_recommendation: string | null;
+  ai_status: string | null;
+  automated: boolean;
 }

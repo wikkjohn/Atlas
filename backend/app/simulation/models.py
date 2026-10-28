@@ -76,6 +76,15 @@ class SimulationRun(UUIDPrimaryKey, Base):
     staff_unit_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True
     )
+    # Phase 6: experiment mode (baseline, ai_assisted, ai_automated), the AI tool used and
+    # the suite the run was started in (runs of one suite share seed and workload).
+    mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="baseline", server_default="baseline"
+    )
+    tool_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ai_tools.id", ondelete="RESTRICT"), nullable=True
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
 
 
 class SimulationCaseResult(UUIDPrimaryKey, Base):
@@ -107,3 +116,6 @@ class SimulationCaseResult(UUIDPrimaryKey, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cycle_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     path: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    ai_recommendation: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ai_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    automated: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")

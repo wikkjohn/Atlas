@@ -205,7 +205,10 @@ def submit_request(
 
 
 def _check_decider(request: AccountRequest, approver: AuthenticatedUser) -> None:
-    if not approver.can(Permission.ACCOUNTS_APPROVE):
+    if not (
+        approver.can(Permission.ACCOUNTS_APPROVE)
+        or approver.can(Permission.ACCOUNTS_APPROVE_LOW_RISK)
+    ):
         raise PermissionDeniedError("Your role cannot decide account requests.")
     if request.requested_by == approver.id:
         raise PermissionDeniedError(
@@ -228,6 +231,13 @@ def approve_request(
     request = get_request(db, request_id, for_update=True)
     _check_decider(request, approver)
     customer = get_customer(db, request.customer_id, for_update=True)
+    if not approver.can(Permission.ACCOUNTS_APPROVE) and customer.risk_rating != RiskRating.LOW:
+        # The automated policy engine's permission covers low-risk customers only, whatever
+        # the workflow asked: this check holds even if a policy misfires.
+        raise PermissionDeniedError(
+            "Only low-risk customers can be approved without the accounts:approve permission.",
+            {"rule": "low_risk_only", "risk_rating": customer.risk_rating},
+        )
     if customer.risk_rating == RiskRating.HIGH and not approver.can(Permission.CUSTOMERS_REVIEW):
         raise PermissionDeniedError(
             "High-risk customers can only be approved by a compliance reviewer.",
@@ -283,6 +293,8 @@ def reject_request(
 ) -> AccountRequest:
     request = get_request(db, request_id, for_update=True)
     _check_decider(request, approver)
+    if not approver.can(Permission.ACCOUNTS_APPROVE):
+        raise PermissionDeniedError("Rejecting a request needs the accounts:approve permission.")
     request.status = RequestStatus.REJECTED.value
     request.decided_by = approver.id
     request.decided_at = datetime.now(UTC)

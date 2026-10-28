@@ -25,6 +25,8 @@ class Permission(StrEnum):
     ACCOUNTS_READ = "accounts:read"
     ACCOUNTS_REQUEST = "accounts:request"  # submit an account-opening request
     ACCOUNTS_APPROVE = "accounts:approve"  # approve/reject requests (never one's own)
+    # Approve requests of LOW-risk customers only (held by the automated policy engine).
+    ACCOUNTS_APPROVE_LOW_RISK = "accounts:approve_low_risk"
     ACCOUNTS_TRANSACT = "accounts:transact"  # synthetic deposits and withdrawals
     ACCOUNTS_MANAGE = "accounts:manage"  # freeze, unfreeze, close
     LEDGER_READ = "ledger:read"
@@ -34,6 +36,9 @@ class Permission(StrEnum):
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
     SIMULATIONS_READ = "simulations:read"
     SIMULATIONS_RUN = "simulations:run"  # start simulation runs (creates synthetic data)
+    AI_TOOLS_READ = "ai_tools:read"
+    AI_TOOLS_MANAGE = "ai_tools:manage"  # register tools and versions, enable/disable
+    AI_TOOLS_INVOKE = "ai_tools:invoke"  # call a tool directly (test console)
 
 
 class RoleCode(StrEnum):
@@ -45,6 +50,9 @@ class RoleCode(StrEnum):
     COMPLIANCE_OFFICER = "compliance_officer"
     AI_RESEARCHER = "ai_researcher"
     AUDITOR = "auditor"
+    # A service role, never assigned to a person: the workflow policy engine that may
+    # approve low-risk cases when policy allows (Phase 6, experiment C).
+    AUTOMATED_POLICY = "automated_policy"
 
 
 ROLE_NAMES: dict[RoleCode, str] = {
@@ -56,7 +64,11 @@ ROLE_NAMES: dict[RoleCode, str] = {
     RoleCode.COMPLIANCE_OFFICER: "Compliance Officer",
     RoleCode.AI_RESEARCHER: "AI Researcher",
     RoleCode.AUDITOR: "Auditor",
+    RoleCode.AUTOMATED_POLICY: "Automated Policy Engine",
 }
+
+# Roles that belong to system principals only; people cannot be given them.
+SERVICE_ROLES = frozenset({RoleCode.AUTOMATED_POLICY})
 
 # Read access every role has: the enterprise directory and the banking books.
 _BASE = frozenset(
@@ -68,6 +80,7 @@ _BASE = frozenset(
         Permission.ACCOUNTS_READ,
         Permission.WORKFLOWS_READ,
         Permission.SIMULATIONS_READ,
+        Permission.AI_TOOLS_READ,
     }
 )
 _FRONT_OFFICE = frozenset(
@@ -96,7 +109,12 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.ACCOUNTS_MANAGE,
         Permission.LEDGER_READ,
     },
-    RoleCode.AI_RESEARCHER: _BASE | {Permission.SIMULATIONS_RUN},
+    RoleCode.AI_RESEARCHER: _BASE
+    | {
+        Permission.SIMULATIONS_RUN,
+        Permission.AI_TOOLS_MANAGE,
+        Permission.AI_TOOLS_INVOKE,
+    },
     RoleCode.AUDITOR: _BASE
     | {
         Permission.EMPLOYEES_READ_COMPENSATION,
@@ -104,6 +122,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.AUDIT_READ,
         Permission.LEDGER_READ,
     },
+    RoleCode.AUTOMATED_POLICY: frozenset(
+        {Permission.CUSTOMERS_READ, Permission.ACCOUNTS_READ, Permission.ACCOUNTS_APPROVE_LOW_RISK}
+    ),
 }
 
 

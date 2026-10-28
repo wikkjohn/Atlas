@@ -77,6 +77,14 @@ Conditions are structured, never `eval`: `{"path": "a.b", "op": "eq", "value": �
 | 10 | Finalize audit and workflow records | service_task | Audit summary |
 | 11 | Send simulated customer notification | service_task | Stored in `customer_notifications`; nothing is sent |
 
+### Version 2 (Phase 6)
+
+Version 2 inserts **AI KYC assistant review** (ai_task, after step 6) and **Policy engine:
+low-risk automation check** (service_task, between routing and approval). With the AI mode
+off — the default for cases started from the API or UI — it behaves exactly like version 1.
+Version 1 remains registered; executions keep the version they started on. See
+[ai-testing.md](ai-testing.md#wf-0001-version-2).
+
 Tested scenarios: normal approval, approver rejection, high-risk compliance review,
 sanctions hit, underage (invalid), forged documents, missing documents (resume and
 timeout), approvals cannot be skipped, initiator cannot approve, duplicate start, failing

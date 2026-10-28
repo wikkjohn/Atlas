@@ -31,7 +31,7 @@ from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.workflows.definition import WorkflowDefinition
 from app.modules.workflows.engine import StepContext, StepError
-from app.modules.workflows.registry import register_definition, service_task
+from app.modules.workflows.registry import ai_task, register_definition, service_task
 
 WORKFLOW_ID = "WF-0001"
 VERSION = 1
@@ -431,7 +431,11 @@ def _principal(ctx: StepContext, user_id: str) -> AuthenticatedUser:
 
 @service_task("wf0001.open_account")
 def open_account(ctx: StepContext) -> dict:
-    approver_id = ctx.get("compliance_review.actor_id") or ctx.get("account_approval.actor_id")
+    approver_id = (
+        ctx.get("compliance_review.actor_id")
+        or ctx.get("account_approval.actor_id")
+        or ctx.get("policy_approval.approver_id")
+    )
     if not approver_id:
         raise StepError("no_approval", "No approval was recorded; the account cannot be opened.")
     customer = get_customer(ctx.db, uuid.UUID(ctx.get("register_customer.customer_id")))
@@ -535,3 +539,196 @@ def notify_customer(ctx: StepContext) -> dict:
 
 
 register_definition(DEFINITION, RetailAccountApplication)
+
+
+# --- Version 2: AI Innovation Lab (Phase 6) -----------------------------------------------
+#
+# Identical to version 1 plus two steps:
+# - `ai_kyc_review` (ai_task) asks the registered KYC assistant for an analysis when the
+#   execution's settings select an AI mode. With mode "off" (the default) it does nothing,
+#   so version 2 with AI off behaves exactly like version 1 — the experiment baseline.
+# - `policy_approval` is the workflow policy engine. In "automated" mode a low-risk case
+#   the tool recommends approving may be approved without a person, but only when every
+#   policy check passes; otherwise the case goes to a human approver as usual. The tool
+#   itself never approves anything.
+
+VERSION_2 = 2
+POLICY_ENGINE_USERNAME = "atlas-policy-engine"
+POLICY_ID = "low-risk-automation-v1"
+POLICY_MAX_MONTHLY_DEPOSITS = 25_000
+AI_MODES = ("off", "assisted", "automated")
+
+
+def _definition_v2() -> WorkflowDefinition:
+    data = DEFINITION.model_dump(mode="json", exclude_none=True)
+    data["version"] = VERSION_2
+    data["description"] += (
+        " Version 2 adds an optional AI KYC assistant (off, assisted or automated) and a "
+        "policy engine that may approve low-risk cases when every policy check passes."
+    )
+    steps = []
+    for step in data["steps"]:
+        if step["id"] == "evaluate_compliance":
+            step["next"] = "ai_kyc_review"
+            steps.append(step)
+            steps.append(
+                {
+                    "id": "ai_kyc_review",
+                    "type": "ai_task",
+                    "name": "AI KYC assistant review (advisory)",
+                    "handler": "wf0001.kyc_assistant",
+                    "next": "route_case",
+                }
+            )
+            continue
+        if step["id"] == "route_case":
+            step["transitions"] = [
+                {
+                    "to": "reject_application",
+                    "when": _when("identity_verification.hard_fail", "truthy"),
+                },
+                {
+                    "to": "compliance_review",
+                    "when": _when("evaluate_compliance.requires_review", "truthy"),
+                },
+                {
+                    "to": "policy_approval",
+                    "when": _when("ai_kyc_review.automation_requested", "truthy"),
+                },
+                {"to": "account_approval"},
+            ]
+            steps.append(step)
+            steps.append(
+                {
+                    "id": "policy_approval",
+                    "type": "service_task",
+                    "name": "Policy engine: low-risk automation check",
+                    "handler": "wf0001.policy_approval",
+                    "transitions": [
+                        {"to": "open_account", "when": _when("policy_approval.approved", "truthy")},
+                        {"to": "account_approval"},
+                    ],
+                }
+            )
+            continue
+        steps.append(step)
+    data["steps"] = steps
+    return WorkflowDefinition.model_validate(data)
+
+
+def _ai_unavailable(mode: str, code: str, message: str, **extra: object) -> dict:
+    # Safe escalation: without a usable result the case follows the human path.
+    return {
+        "mode": mode,
+        "available": False,
+        "recommendation": "escalate",
+        "automation_requested": False,
+        "error": {"code": code, "message": message},
+        **extra,
+    }
+
+
+@ai_task("wf0001.kyc_assistant")
+def kyc_assistant(ctx: StepContext) -> dict:
+    # Imported here: the AI module depends on the workflow registry, not the reverse.
+    from app.modules.ai_tools.models import AITool, InvocationStatus
+    from app.modules.ai_tools.service import invoke
+
+    settings = ctx.get("_settings") or {}
+    mode = settings.get("ai_mode", "off")
+    if mode not in AI_MODES:
+        raise StepError("invalid_ai_mode", f"Unknown AI mode '{mode}'.")
+    if mode == "off":
+        return {"mode": "off"}
+    tool_record_id = settings.get("ai_tool_id")
+    tool = ctx.db.get(AITool, uuid.UUID(tool_record_id)) if tool_record_id else None
+    if tool is None:
+        return _ai_unavailable(mode, "tool_missing", "No AI tool is configured for this case.")
+    action = "complete_low_risk_review" if mode == "automated" else "recommend_decision"
+    payload = {
+        "application": ctx.input,
+        "screening": {"sanctions_hit": bool(ctx.get("sanctions_screening.hit"))},
+        "as_of": ctx.now.date().isoformat(),
+    }
+    call = invoke(
+        ctx.db,
+        tool,
+        action,
+        payload,
+        actor_id=None,
+        execution_id=ctx.execution.id,
+        simulation_run_id=ctx.execution.simulation_run_id,
+        now=ctx.now,
+    )
+    identity = {
+        "tool_id": tool.tool_id,
+        "tool_version": tool.tool_version,
+        "invocation_id": str(call.id),
+        "action": action,
+    }
+    if call.status != InvocationStatus.SUCCEEDED:
+        error = call.error or {}
+        return _ai_unavailable(
+            mode,
+            error.get("code", call.status),
+            error.get("message", call.status),
+            invocation_status=call.status,
+            **identity,
+        )
+    out = call.output or {}
+    return {
+        "mode": mode,
+        "available": True,
+        "invocation_status": call.status,
+        **identity,
+        "recommendation": out["recommendation"],
+        "risk_classification": out["risk_classification"],
+        "risk_score": out["risk_score"],
+        "confidence": out["confidence"],
+        "findings": [f["code"] for f in out["findings"]],
+        "explanation": out["explanation"],
+        # A request only: the policy engine decides.
+        "automation_requested": mode == "automated"
+        and out["recommendation"] == "approve"
+        and out["risk_classification"] == "low",
+    }
+
+
+@service_task("wf0001.policy_approval")
+def policy_approval(ctx: StepContext) -> dict:
+    ai = ctx.get("ai_kyc_review") or {}
+    checks = {
+        "automation_enabled": (ctx.get("_settings") or {}).get("ai_mode") == "automated",
+        "tool_result_available": bool(ai.get("available")),
+        "tool_recommends_approval": ai.get("recommendation") == "approve",
+        "tool_risk_low": ai.get("risk_classification") == "low",
+        "workflow_risk_low": ctx.get("assign_risk_rating.rating") == RiskRating.LOW,
+        "no_compliance_flags": not (ctx.get("evaluate_compliance.flags") or []),
+        "identity_verified": bool(ctx.get("identity_verification.verified")),
+        "sanctions_clear": not ctx.get("sanctions_screening.hit"),
+        "deposits_within_limit": ctx.input.get("expected_monthly_deposits", 0)
+        <= POLICY_MAX_MONTHLY_DEPOSITS,
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    result = {"policy": POLICY_ID, "checks": checks, "failed_checks": failed}
+    if failed:
+        return {**result, "approved": False}
+    engine_user = ctx.db.execute(
+        select(User).where(User.username == POLICY_ENGINE_USERNAME)
+    ).scalar_one_or_none()
+    if engine_user is None or not engine_user.is_active:
+        return {**result, "approved": False, "failed_checks": ["policy_engine_unavailable"]}
+    record_audit_event(
+        ctx.db,
+        actor_id=engine_user.id,
+        action="workflow.policy_approved",
+        entity_type="workflow_execution",
+        entity_id=ctx.execution.id,
+        metadata={"policy": POLICY_ID, "tool_invocation": ai.get("invocation_id")},
+    )
+    # The accounts service re-checks: this principal can approve low-risk customers only.
+    return {**result, "approved": True, "approver_id": str(engine_user.id)}
+
+
+DEFINITION_V2 = _definition_v2()
+register_definition(DEFINITION_V2, RetailAccountApplication)

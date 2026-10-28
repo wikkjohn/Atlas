@@ -28,7 +28,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 5;
+export const IMPLEMENTED_PHASE = 6;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -57,7 +57,7 @@ export const NAV_ITEMS: NavItem[] = [
     phase: 5,
     permission: "simulations:read",
   },
-  { label: "AI Innovation Lab", path: "/ai-lab", icon: Bot, phase: 6 },
+  { label: "AI Innovation Lab", path: "/ai-lab", icon: Bot, phase: 6, permission: "ai_tools:read" },
   { label: "Experiments", path: "/experiments", icon: FlaskConical, phase: 7 },
   { label: "Benchmarking", path: "/benchmarking", icon: Gauge, phase: 7 },
   { label: "Audit Center", path: "/audit", icon: ScrollText, phase: 2, permission: "audit:read" },

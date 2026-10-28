@@ -35,6 +35,7 @@ from app.config import get_settings
 from app.core.errors import ConflictError, DomainError
 from app.core.money import to_minor_units
 from app.core.permissions import RoleCode, permissions_for
+from app.modules.ai_tools.models import AITool
 from app.modules.countries.models import Country, OperationalStatus
 from app.modules.employees.schemas import EmployeeCreate
 from app.modules.employees.service import create_employee
@@ -60,7 +61,7 @@ from app.simulation.generators import (
     digest,
 )
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
-from app.simulation.scenarios import Scenario, get_scenario
+from app.simulation.scenarios import MODES, Scenario, get_scenario
 
 logger = logging.getLogger("atlas.simulation")
 
@@ -95,12 +96,30 @@ def _hash(value: Any) -> str:
 
 
 def resolve_config(
-    db: Session, scenario: Scenario, *, profile: str, applications: int, employees: int
+    db: Session,
+    scenario: Scenario,
+    *,
+    profile: str,
+    applications: int,
+    employees: int,
+    mode: str = "baseline",
+    tool: AITool | None = None,
 ) -> dict[str, Any]:
     """The complete configuration of a run; stored with it and hashed to compare runs."""
-    definition = registry.get_definition(scenario.workflow_id)
+    definition = registry.get_definition(scenario.workflow_id, scenario.workflow_version)
     if definition is None:
-        raise SimulationSetupError(f"Workflow {scenario.workflow_id} is not registered.")
+        raise SimulationSetupError(
+            f"Workflow {scenario.workflow_id} v{scenario.workflow_version} is not registered."
+        )
+    if mode not in MODES:
+        raise SimulationSetupError(f"Unknown mode '{mode}'.")
+    ai_capable = scenario.config.ai_assistance is not None
+    if mode != "baseline" and not ai_capable:
+        raise SimulationSetupError(
+            f"Scenario {scenario.scenario_id} v{scenario.version} does not support AI modes."
+        )
+    if mode != "baseline" and tool is None:
+        raise SimulationSetupError(f"The {mode} mode needs an AI tool.")
     countries = sorted(
         db.execute(
             select(Country.iso_country_code).where(
@@ -110,7 +129,7 @@ def resolve_config(
     )
     if not countries:
         raise SimulationSetupError("No active country is configured; applications need one.")
-    return {
+    config = {
         "scenario_id": scenario.scenario_id,
         "scenario_version": scenario.version,
         "workflow_id": definition.workflow_id,
@@ -120,10 +139,27 @@ def resolve_config(
         "applications": applications,
         "customers": applications,  # every application registers one new customer
         "employees": employees,
-        "scenario": scenario.config.model_dump(mode="json"),
+        "scenario": scenario.config.model_dump(mode="json", exclude_none=True),
         # The dataset the run draws on: active countries decide where applicants live.
         "dataset": {"countries": countries, "watchlist": "synthetic-watchlist-v1"},
     }
+    if ai_capable:
+        config["mode"] = mode
+        config["ai_mode"] = MODES[mode]
+        if mode != "baseline":
+            assert tool is not None
+            # Everything that determines the tool's behaviour, so runs of different tool
+            # versions or configurations never count as reproductions of each other.
+            config["ai_tool"] = {
+                "tool_id": tool.tool_id,
+                "tool_version": tool.tool_version,
+                "adapter": tool.adapter,
+                "allowed_actions": tool.allowed_actions,
+                "configuration": tool.configuration,
+                "input_schema_hash": _hash(tool.input_schema),
+                "output_schema_hash": _hash(tool.output_schema),
+            }
+    return config
 
 
 def create_run(
@@ -135,9 +171,18 @@ def create_run(
     employees: int,
     seed: int,
     created_by: uuid.UUID,
+    mode: str = "baseline",
+    tool: AITool | None = None,
+    batch_id: uuid.UUID | None = None,
 ) -> SimulationRun:
     config = resolve_config(
-        db, scenario, profile=profile, applications=applications, employees=employees
+        db,
+        scenario,
+        profile=profile,
+        applications=applications,
+        employees=employees,
+        mode=mode,
+        tool=tool if mode != "baseline" else None,
     )
     run = SimulationRun(
         scenario_id=scenario.scenario_id,
@@ -153,6 +198,9 @@ def create_run(
         created_by=created_by,
         progress={"cases_total": applications, "cases_started": 0, "cases_completed": 0},
         simulated_start=scenario.simulated_start,
+        mode=mode,
+        tool_record_id=tool.id if tool is not None and mode != "baseline" else None,
+        batch_id=batch_id,
     )
     db.add(run)
     db.flush()
@@ -201,6 +249,14 @@ class _Simulation:
         self.seed = run.seed
         self.scenario = scenario
         self.config = scenario.config
+        self.ai_mode = run.config.get("ai_mode")  # None: the scenario has no AI modes
+        self.settings = (
+            {"ai_mode": self.ai_mode, "ai_tool_id": str(run.tool_record_id)}
+            if self.ai_mode is not None and run.tool_record_id is not None
+            else {"ai_mode": self.ai_mode}
+            if self.ai_mode is not None
+            else None
+        )
         self.workflow_version = run.workflow_version
         self.clock = SimulationClock(scenario.simulated_start)
         self.applications = run.config["applications"]
@@ -357,6 +413,7 @@ class _Simulation:
                 initiator=teller.principal,
                 now=now,
                 simulation_run_id=self.run_id,
+                settings=self.settings,
             )
             case.execution_id = execution.id
             self.started += 1
@@ -428,7 +485,7 @@ class _Simulation:
             if run.due_at is not None:
                 self.push(max(at, self.seconds(run.due_at)), "timer", case.app.index, run.id)
             if run.step_type == StepType.APPROVAL:
-                self.assign_review(case, run, at)
+                self.assign_review(case, run, at, execution.context)
             elif run.step_type == StepType.WAIT and not case.documents_sent:
                 delay = case.app.document_delay_seconds
                 if delay is not None and case.app.payload.get("_late_document"):
@@ -440,7 +497,9 @@ class _Simulation:
                     f"The scenario has no simulated behaviour for human task '{run.step_id}'."
                 )
 
-    def assign_review(self, case: _Case, run: WorkflowStepRun, at: int) -> None:
+    def assign_review(
+        self, case: _Case, run: WorkflowStepRun, at: int, context: dict[str, Any]
+    ) -> None:
         pool = self.pools.get(run.step_id)
         model = self.config.reviewers.get(run.step_id)
         if pool is None or model is None:
@@ -451,12 +510,26 @@ class _Simulation:
         rng = case_random(self.seed, case.app.index, f"review:{run.step_id}:{case.visits}")
         free_at, staff_index = heapq.heappop(pool)
         begin = max(at, free_at)
-        mu = math.log(model.mean_minutes * 60) - model.sigma**2 / 2  # mean = mean_minutes
-        service = max(60, round(rng.lognormvariate(mu, model.sigma)))
-        heapq.heappush(pool, (begin + service, staff_index))
         truth = "approve" if case.app.expected_outcome == "approved" else "reject"
         wrong = "reject" if truth == "approve" else "approve"
-        decision = truth if rng.random() < model.accuracy else wrong
+        # With an AI recommendation in front of them, reviewers work faster and follow it
+        # more often — the scenario's stated assumptions, not measured behaviour. An
+        # escalation or an unavailable tool gives no help.
+        ai = context.get("ai_kyc_review") or {}
+        recommendation = ai.get("recommendation") if ai.get("available") else None
+        time_factor, accuracy = 1.0, model.accuracy
+        assist = self.config.ai_assistance
+        if assist is not None and recommendation in ("approve", "reject"):
+            time_factor = assist.review_time_factor
+            accuracy = (
+                assist.accuracy_when_ai_correct
+                if recommendation == truth
+                else assist.accuracy_when_ai_wrong
+            )
+        mu = math.log(model.mean_minutes * 60) - model.sigma**2 / 2  # mean = mean_minutes
+        service = max(60, round(rng.lognormvariate(mu, model.sigma) * time_factor))
+        heapq.heappush(pool, (begin + service, staff_index))
+        decision = truth if rng.random() < accuracy else wrong
         case.reviews += 1
         case.review_seconds += service
         case.queue_wait_seconds += begin - at
@@ -480,6 +553,7 @@ class _Simulation:
             ).scalars()
         )
         context = execution.context
+        ai = context.get("ai_kyc_review") or {}
         completed_at = execution.completed_at
         cycle = (
             round((completed_at - self.at(case.arrived)).total_seconds()) if completed_at else None
@@ -502,6 +576,10 @@ class _Simulation:
             completed_at=completed_at,
             cycle_seconds=cycle,
             path=path,
+            ai_recommendation=ai.get("recommendation") if ai.get("available") else None,
+            ai_status=ai.get("invocation_status")
+            or ("unavailable" if ai and ai.get("mode") != "off" else None),
+            automated=bool((context.get("policy_approval") or {}).get("approved")),
         )
         self.pending_results.append(result)
         self.case_rows.append(_row(result))
@@ -561,6 +639,9 @@ def _row(result: SimulationCaseResult) -> tuple:
         result.overdue_tasks,
         result.cycle_seconds,
         result.path,
+        result.ai_recommendation,
+        result.ai_status,
+        result.automated,
     )
 
 
@@ -602,6 +683,7 @@ def summarize(rows: list[tuple], sim: _Simulation, wall_ms: int) -> dict[str, An
         late,
         cycle,
         _path,
+        *_ai,
     ) in rows:
         entry = by_kind.setdefault(kind, {"cases": 0, "approved": 0, "rejected": 0, "other": 0})
         entry["cases"] += 1
@@ -659,12 +741,43 @@ def summarize(rows: list[tuple], sim: _Simulation, wall_ms: int) -> dict[str, An
             **{f"{step}_reviewers": len(people) for step, people in sim.reviewers.items()},
         },
         "simulated_hours": _hours(sim.clock.elapsed.total_seconds()),
+        "ai": _ai_summary(rows, sim.ai_mode),
         "execution": {
             "events_processed": sim.processed,
             "workflow_steps_completed": sum(len(r[12]) for r in rows),
             "wall_ms": wall_ms,
             "cases_per_second": round(finished / (wall_ms / 1000), 2) if wall_ms else None,
         },
+    }
+
+
+def _ai_summary(rows: list[tuple], ai_mode: str | None) -> dict[str, Any] | None:
+    """How the AI tool behaved in this run (None for scenarios without AI modes)."""
+    if ai_mode is None:
+        return None
+    statuses: dict[str, int] = {}
+    recommendations: dict[str, int] = {}
+    decisive = agreed = automated = 0
+    for row in rows:
+        expected, recommendation, status, was_automated = row[2], row[13], row[14], row[15]
+        if status:
+            statuses[status] = statuses.get(status, 0) + 1
+        if recommendation:
+            recommendations[recommendation] = recommendations.get(recommendation, 0) + 1
+            if recommendation in ("approve", "reject"):
+                decisive += 1
+                agreed += (recommendation == "approve") == (expected == "approved")
+        automated += bool(was_automated)
+    calls = sum(statuses.values())
+    return {
+        "mode": ai_mode,
+        "invocations": calls,
+        "invocation_statuses": statuses,
+        "failed_invocations": calls - statuses.get("succeeded", 0),
+        "recommendations": recommendations,
+        "escalations": recommendations.get("escalate", 0),
+        "recommendation_accuracy": round(agreed / decisive, 4) if decisive else None,
+        "automated_approvals": automated,
     }
 
 
@@ -728,6 +841,12 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> No
         mark_failed(session_factory, run_id, reason, wall_start)
     finally:
         db.close()
+
+
+def execute_batch(session_factory: sessionmaker[Session], run_ids: list[uuid.UUID]) -> None:
+    """Run a suite's runs one after another (each records its own outcome)."""
+    for run_id in run_ids:
+        execute_run(session_factory, run_id)
 
 
 def mark_failed(

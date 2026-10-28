@@ -174,10 +174,30 @@ out of the task inbox, the metrics and the `run_due` timer sweep; each carries i
 | GET | `/api/v1/simulations?status=` | `simulations:read` | Run registry, newest first, with progress |
 | GET | `/api/v1/simulations/{id}` | `simulations:read` | Configuration, software version, config hash, progress, results, result digest, failure reason and `reproductions` (other completed runs with the same scenario, seed, configuration and software, and whether their results match) |
 | GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
-| POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes and seed (202) |
+| POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202) |
+| POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`) |
+
+`POST /api/v1/simulations` also takes `mode` (`baseline`, `ai_assisted`, `ai_automated`)
+and, for AI modes, `tool_id` (+ optional `tool_version`, default: highest active). AI
+modes need a scenario version that supports them (`retail-onboarding` v2) and an active
+tool declared compatible with the scenario's workflow (422 otherwise). The run list
+filters by `batch_id` and `mode`.
 
 Runs that stop making progress for 5 minutes (the process running them stopped) are
 reported as failed with an "Interrupted" reason. See [simulation.md](simulation.md).
+
+### AI tools
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/ai-tools?status=&workflow_id=` | `ai_tools:read` | Registered tool versions with invocation counts |
+| GET | `/api/v1/ai-tools/adapters` | `ai_tools:read` | Implementations with their default input, output and configuration schemas |
+| GET | `/api/v1/ai-tools/actions` | `ai_tools:read` | Grantable and never-grantable actions |
+| POST | `/api/v1/ai-tools` | `ai_tools:manage` | Register a version (see [ai-testing.md](ai-testing.md#registry) for validation); optional `Idempotency-Key`; 409 for an existing version |
+| GET | `/api/v1/ai-tools/{id}` | `ai_tools:read` | |
+| PATCH | `/api/v1/ai-tools/{id}` | `ai_tools:manage` | `{status: active | disabled}` — everything else is immutable |
+| POST | `/api/v1/ai-tools/{id}/invoke` | `ai_tools:invoke` + the tool's `permissions` | `{action, input}` → the recorded invocation (its `status` says whether it succeeded, failed, timed out or broke a schema). A disabled tool or an action not granted → **403**, and the refused call is still recorded |
+| GET | `/api/v1/ai-tools/invocations?tool=&status=&execution_id=&simulation_run_id=` | `ai_tools:read` | Recorded invocations, newest first |
 
 ### Audit
 
@@ -189,5 +209,4 @@ There are no write endpoints for audit events.
 
 ### Planned
 
-`/ai-tools` (Phase 6);
 `/experiments`, `/benchmarks` (Phase 7); `/analytics` (Phase 8).

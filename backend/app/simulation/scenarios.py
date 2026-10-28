@@ -39,6 +39,18 @@ class ReviewerModel(BaseModel):
     accuracy: float = Field(default=0.95, ge=0, le=1)  # P(decision matches ground truth)
 
 
+class AIAssistanceModel(BaseModel):
+    """ASSUMPTIONS (not measurements) about how an AI summary changes human review.
+
+    They are part of the scenario configuration, stored with every run and shown with every
+    result, so a reader can see — and change — what the simulated benefit rests on.
+    """
+
+    review_time_factor: float = Field(default=0.6, gt=0, le=2)  # share of the usual time
+    accuracy_when_ai_correct: float = Field(default=0.99, ge=0, le=1)
+    accuracy_when_ai_wrong: float = Field(default=0.80, ge=0, le=1)  # automation bias
+
+
 class ScenarioConfig(BaseModel):
     arrival_window_hours: float = Field(default=8.0, gt=0)  # applications arrive across this
     document_delay_hours: tuple[float, float] = (2.0, 48.0)  # when late documents arrive
@@ -53,6 +65,8 @@ class ScenarioConfig(BaseModel):
     staff_mix: dict[str, float] = Field(
         default_factory=lambda: {"teller": 0.4, "manager": 0.4, "compliance": 0.2}
     )
+    # Present when the scenario supports AI experiment modes.
+    ai_assistance: AIAssistanceModel | None = None
 
 
 class Scenario(BaseModel):
@@ -61,6 +75,7 @@ class Scenario(BaseModel):
     name: str
     description: str
     workflow_id: str
+    workflow_version: int = Field(ge=1)  # pinned: a scenario version never changes meaning
     simulated_start: datetime  # fixed, so simulated timestamps are reproducible
     config: ScenarioConfig
 
@@ -108,10 +123,30 @@ register_scenario(
         "realistic mix of clean, high-risk, incomplete and fraudulent cases and simulated "
         "reviewers who take time and occasionally make mistakes.",
         workflow_id="WF-0001",
+        workflow_version=1,
         simulated_start=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
         config=ScenarioConfig(),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="retail-onboarding",
+        version=2,
+        name="Retail account onboarding (AI experiments)",
+        description="The version 1 working day on WF-0001 v2, which can run without AI "
+        "(baseline), with the KYC assistant preparing summaries for human reviewers "
+        "(AI assisted), or with the policy engine approving low-risk cases the assistant "
+        "recommends (AI automated tasks). Same applications and staff in every mode.",
+        workflow_id="WF-0001",
+        workflow_version=2,
+        simulated_start=datetime(2026, 1, 5, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(ai_assistance=AIAssistanceModel()),
+    )
+)
+
+# Experiment modes and the WF-0001 v2 AI mode each one runs with.
+MODES: dict[str, str] = {"baseline": "off", "ai_assisted": "assisted", "ai_automated": "automated"}
 
 PROFILES: dict[str, Profile] = {
     p.profile_id: p

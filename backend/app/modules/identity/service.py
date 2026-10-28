@@ -17,7 +17,7 @@ from app.core.errors import (
     NotFoundError,
 )
 from app.core.pagination import PageParams, paginate
-from app.core.permissions import Permission, RoleCode, permissions_for
+from app.core.permissions import SERVICE_ROLES, Permission, RoleCode, permissions_for
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     UNUSABLE_PASSWORD_HASH,
@@ -132,7 +132,13 @@ def list_users(db: Session, params: PageParams) -> tuple[list[User], int]:
     return paginate(db, select(User).order_by(User.username), params)
 
 
+def _require_person_role(role: RoleCode) -> None:
+    if role in SERVICE_ROLES:
+        raise BusinessRuleViolation(f"The {role.value} role belongs to system principals only.")
+
+
 def create_user(db: Session, data: UserCreate, actor_id: uuid.UUID | None) -> User:
+    _require_person_role(data.role)
     if data.employee_id is not None:
         # Imported here to keep identity free of a module-level dependency on employees.
         from app.modules.employees.models import Employee
@@ -211,6 +217,7 @@ def update_user(db: Session, user: User, data: UserUpdate, actor_id: uuid.UUID) 
     if data.display_name is not None:
         user.display_name = data.display_name
     if data.role is not None:
+        _require_person_role(data.role)
         if user.id == actor_id and data.role != RoleCode.PLATFORM_ADMINISTRATOR:
             raise BusinessRuleViolation("You cannot remove your own administrator role.")
         role = get_role(db, data.role)

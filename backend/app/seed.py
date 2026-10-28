@@ -136,6 +136,7 @@ class SeedReport:
     skipped_banking: bool = False
     workflow_cases: int = 0
     skipped_workflows: bool = False
+    ai_tools: list[str] = field(default_factory=list)
 
 
 def _org(
@@ -485,4 +486,56 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
         report.skipped_workflows = True
     else:
         _build_workflow_cases(db, SyntheticNameGenerator(seed + 2), report)
+    _register_ai_tools(db, report)
     return report
+
+
+# The candidate tool of the AI Innovation Lab and a deliberately unreliable test double.
+DEMO_AI_TOOLS = [
+    {
+        "tool_id": "agb-intelligent-kyc-assistant",
+        "tool_name": "AGB Intelligent KYC Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Analyses synthetic retail applications and documents, flags missing "
+        "or inconsistent fields, proposes a risk classification with an explanation and "
+        "recommends approve, reject or escalate. Advisory: it never approves accounts.",
+        "adapter": "rule_based_kyc",
+        "allowed_actions": [
+            "analyze_application",
+            "recommend_decision",
+            "complete_low_risk_review",
+        ],
+        "permissions": ["customers:read"],
+        "compatible_workflows": ["WF-0001"],
+    },
+    {
+        "tool_id": "kyc-fault-injector",
+        "tool_name": "KYC Fault Injector (test double)",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (test harness)",
+        "description": "Behaves like the KYC assistant but fails 10%, times out 5% and "
+        "returns malformed output 5% of the time, reproducibly. It is not granted "
+        "complete_low_risk_review, so automated mode demonstrates blocked actions.",
+        "adapter": "fault_injection",
+        "allowed_actions": ["analyze_application", "recommend_decision"],
+        "permissions": ["customers:read"],
+        "compatible_workflows": ["WF-0001"],
+    },
+]
+
+
+def _register_ai_tools(db: Session, report: SeedReport) -> None:
+    from app.modules.ai_tools.models import AITool
+    from app.modules.ai_tools.schemas import ToolCreate
+    from app.modules.ai_tools.service import register_tool
+
+    for spec in DEMO_AI_TOOLS:
+        exists = db.execute(
+            select(AITool.id).where(
+                AITool.tool_id == spec["tool_id"], AITool.tool_version == spec["tool_version"]
+            )
+        ).first()
+        if not exists:
+            register_tool(db, ToolCreate.model_validate(spec), actor_id=None)
+            report.ai_tools.append(f"{spec['tool_id']} {spec['tool_version']}")

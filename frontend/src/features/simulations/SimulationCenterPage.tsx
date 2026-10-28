@@ -22,7 +22,14 @@ import {
   useSimulationRuns,
   useStartSimulation,
 } from "@/services/simulations";
-import type { ProfileId, SimulationRunDetail, SimulationStatus } from "@/types/simulations";
+import { useAiTools } from "@/services/aiTools";
+import {
+  type ExperimentMode,
+  MODE_LABELS,
+  type ProfileId,
+  type SimulationRunDetail,
+  type SimulationStatus,
+} from "@/types/simulations";
 
 const RUNS_PAGE = 10;
 const CASES_PAGE = 20;
@@ -52,13 +59,28 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const scenarios = useScenarios();
   const profiles = useProfiles();
   const start = useStartSimulation();
-  const [scenario, setScenario] = useState("retail-onboarding");
+  const tools = useAiTools();
+  const [scenarioKey, setScenarioKey] = useState("");
+  const [mode, setMode] = useState<ExperimentMode>("baseline");
+  const [toolId, setToolId] = useState("");
   const [profile, setProfile] = useState<ProfileId>("small");
   const [seed, setSeed] = useState("42");
   const [applications, setApplications] = useState("50");
   const [employees, setEmployees] = useState("10");
 
   const selected = profiles.data?.find((p) => p.profile_id === profile);
+  const scenarioList = scenarios.data ?? [];
+  // Default: the latest version of the first scenario.
+  const chosen =
+    scenarioList.find((s) => `${s.scenario_id}@${s.version}` === scenarioKey) ??
+    [...scenarioList].sort((a, b) => b.version - a.version)[0];
+  const modes = chosen?.modes ?? ["baseline"];
+  const effectiveMode: ExperimentMode = modes.includes(mode) ? mode : "baseline";
+  const compatibleTools = (tools.data?.items ?? []).filter(
+    (t) => t.status === "active" && chosen && t.compatible_workflows.includes(chosen.workflow_id),
+  );
+  const toolIdValue = toolId || compatibleTools[0]?.tool_id || "";
+  const needsTool = effectiveMode !== "baseline";
   const seedValue = Number(seed);
   const seedError =
     seed.trim() === "" || !Number.isInteger(seedValue) || seedValue < 0 || seedValue > MAX_SEED
@@ -67,10 +89,13 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (seedError) return;
+    if (seedError || !chosen || (needsTool && !toolIdValue)) return;
     start.mutate(
       {
-        scenario_id: scenario,
+        scenario_id: chosen.scenario_id,
+        scenario_version: chosen.version,
+        mode: effectiveMode,
+        tool_id: needsTool ? toolIdValue : null,
         profile,
         seed: seedValue,
         applications: profile === "custom" ? Number(applications) : null,
@@ -84,15 +109,54 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
     <form aria-label="Start a simulation" onSubmit={submit} className="space-y-4">
       <Field label="Scenario">
         {(props) => (
-          <select {...props} className={inputClass} value={scenario} onChange={(e) => setScenario(e.target.value)}>
-            {(scenarios.data ?? []).map((s) => (
-              <option key={`${s.scenario_id}-${s.version}`} value={s.scenario_id}>
-                {s.name} (v{s.version}, {s.workflow_id})
+          <select
+            {...props}
+            className={inputClass}
+            value={chosen ? `${chosen.scenario_id}@${chosen.version}` : ""}
+            onChange={(e) => setScenarioKey(e.target.value)}
+          >
+            {scenarioList.map((s) => (
+              <option key={`${s.scenario_id}@${s.version}`} value={`${s.scenario_id}@${s.version}`}>
+                {s.name} (v{s.version}, {s.workflow_id} v{s.workflow_version})
               </option>
             ))}
           </select>
         )}
       </Field>
+      {modes.length > 1 && (
+        <Field label="Mode" hint="All modes use the same applications and staff for a given seed.">
+          {(props) => (
+            <select
+              {...props}
+              className={inputClass}
+              value={effectiveMode}
+              onChange={(e) => setMode(e.target.value as ExperimentMode)}
+            >
+              {modes.map((m) => (
+                <option key={m} value={m}>
+                  {MODE_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      )}
+      {needsTool && (
+        <Field
+          label="AI tool"
+          error={compatibleTools.length === 0 ? "No active tool is compatible with this workflow." : null}
+        >
+          {(props) => (
+            <select {...props} className={inputClass} value={toolIdValue} onChange={(e) => setToolId(e.target.value)}>
+              {compatibleTools.map((t) => (
+                <option key={t.id} value={t.tool_id}>
+                  {t.tool_name} {t.tool_version}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      )}
       <Field
         label="Workload"
         hint={
@@ -166,7 +230,11 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           </div>
         )}
       </Field>
-      <Button type="submit" className="w-full" disabled={start.isPending || Boolean(seedError)}>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={start.isPending || Boolean(seedError) || (needsTool && !toolIdValue)}
+      >
         <Play aria-hidden className="h-4 w-4" /> Start run
       </Button>
       <ErrorMessage error={start.error} />
@@ -235,6 +303,7 @@ function Cases({ runId }: { runId: string }) {
               <th className="px-3 py-2">Expected</th>
               <th className="px-3 py-2">Outcome</th>
               <th className="px-3 py-2">Risk</th>
+              <th className="px-3 py-2">AI advice</th>
               <th className="px-3 py-2 text-right">Reviews</th>
               <th className="px-3 py-2 text-right">Queue wait</th>
               <th className="px-3 py-2 text-right">Cycle time</th>
@@ -257,6 +326,14 @@ function Cases({ runId }: { runId: string }) {
                   </span>
                 </td>
                 <td className="px-3 py-2">{c.risk_rating ? humanize(c.risk_rating) : "—"}</td>
+                <td className="px-3 py-2">
+                  {c.ai_recommendation
+                    ? humanize(c.ai_recommendation)
+                    : c.ai_status
+                      ? humanize(c.ai_status)
+                      : "—"}
+                  {c.automated && " · automated"}
+                </td>
                 <td className="px-3 py-2 text-right">{c.manual_reviews}</td>
                 <td className="px-3 py-2 text-right">{c.queue_wait_minutes} min</td>
                 <td className="px-3 py-2 text-right">{hours(c.cycle_hours)}</td>
@@ -264,7 +341,7 @@ function Cases({ runId }: { runId: string }) {
             ))}
             {cases.data && cases.data.items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={9} className="px-3 py-6 text-center text-sm text-slate-500">
                   No cases match.
                 </td>
               </tr>
@@ -298,7 +375,9 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
             <StatusPill tone={STATUS_TONE[r.status]} label={humanize(r.status)} />
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            {r.scenario_id} v{r.scenario_version} · {r.workflow_id} v{r.workflow_version} · {humanize(r.profile)} ·{" "}
+            {MODE_LABELS[r.mode]}
+            {r.tool_id && ` with ${r.tool_id} ${r.tool_version}`} · {r.scenario_id} v{r.scenario_version} ·{" "}
+            {r.workflow_id} v{r.workflow_version} · {humanize(r.profile)} ·{" "}
             {r.applications.toLocaleString()} applications · {r.employees} staff · seed{" "}
             <span className="font-mono">{r.seed}</span>
           </p>
@@ -352,6 +431,27 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
               hint={`average · p95 ${hours(res.review_queue_wait_hours.p95)} · ${res.overdue_tasks} overdue`}
             />
           </dl>
+
+          {res.ai && res.ai.mode !== "off" && (
+            <section aria-label="AI tool behaviour" className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
+              <h3 className="mb-1 text-sm font-semibold text-slate-900">AI tool behaviour</h3>
+              <p>
+                {res.ai.invocations} invocations · {res.ai.failed_invocations} failed or blocked (
+                {Object.entries(res.ai.invocation_statuses)
+                  .map(([s, n]) => `${humanize(s)} ${n}`)
+                  .join(", ") || "none"}
+                )
+              </p>
+              <p>
+                Recommendations:{" "}
+                {Object.entries(res.ai.recommendations)
+                  .map(([k, n]) => `${humanize(k)} ${n}`)
+                  .join(" · ") || "none"}{" "}
+                · accuracy of approve/reject recommendations {percent(res.ai.recommendation_accuracy)}
+              </p>
+              <p>Approved by the policy engine without a person: {res.ai.automated_approvals}</p>
+            </section>
+          )}
 
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table aria-label="Outcomes by case type" className="min-w-full text-sm">
@@ -472,7 +572,7 @@ export function SimulationCenterPage() {
                       <StatusPill tone={STATUS_TONE[run.status]} label={humanize(run.status)} />
                     </div>
                     <div className="text-xs text-slate-500">
-                      {humanize(run.profile)} · {run.applications.toLocaleString()} apps · seed {run.seed}
+                      {MODE_LABELS[run.mode]} · {run.applications.toLocaleString()} apps · seed {run.seed}
                       {run.status === "running" && ` · ${run.percent_complete}%`}
                     </div>
                   </button>

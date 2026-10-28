@@ -1,5 +1,5 @@
 import { LogOut, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "@/app/auth";
@@ -185,7 +185,9 @@ export function AppShell() {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto px-4 py-6 lg:px-8">
-          <Outlet />
+          <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

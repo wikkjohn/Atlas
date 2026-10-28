@@ -31,7 +31,8 @@ export type Permission =
   | "ai_tools:invoke"
   | "accounts:approve_low_risk"
   | "experiments:read"
-  | "experiments:run";
+  | "experiments:run"
+  | "analytics:read";
 
 export interface Page<T> {
   items: T[];
@@ -52,6 +53,29 @@ export interface CurrentUser {
   last_login_at: string | null;
   created_at: string;
   permissions: Permission[];
+}
+
+/** A user as listed by GET /api/v1/users. */
+export interface UserAccount {
+  id: string;
+  username: string;
+  email: string;
+  display_name: string;
+  role: string;
+  role_name: string;
+  employee_id: string | null;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+  is_service_account: boolean;
+}
+
+export interface UserCreate {
+  username: string;
+  email: string;
+  display_name: string;
+  password: string;
+  role: string;
 }
 
 export interface LoginResponse {

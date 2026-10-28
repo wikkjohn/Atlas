@@ -1,21 +1,25 @@
+import { lazy } from "react";
 import { Route, Routes } from "react-router-dom";
 
 import { NotFoundPage } from "@/app/NotFoundPage";
 import { RequireAuth } from "@/app/RequireAuth";
 import { AppShell } from "@/components/AppShell";
-import { AccountsPage } from "@/features/accounts/AccountsPage";
-import { AiLabPage } from "@/features/ai-lab/AiLabPage";
-import { AuditPage } from "@/features/audit/AuditPage";
-import { BenchmarkingPage } from "@/features/benchmarking/BenchmarkingPage";
 import { LoginPage } from "@/features/auth/LoginPage";
-import { CountriesPage } from "@/features/countries/CountriesPage";
-import { CustomersPage } from "@/features/customers/CustomersPage";
 import { OverviewPage } from "@/features/dashboard/OverviewPage";
-import { EmployeesPage } from "@/features/employees/EmployeesPage";
-import { ExperimentsPage } from "@/features/experiments/ExperimentsPage";
-import { OrganizationPage } from "@/features/organizations/OrganizationPage";
-import { SimulationCenterPage } from "@/features/simulations/SimulationCenterPage";
-import { WorkflowExplorerPage } from "@/features/workflows/WorkflowExplorerPage";
+
+// Feature screens load on first visit (keeps the initial bundle small).
+const AccountsPage = lazy(() => import("@/features/accounts/AccountsPage").then((m) => ({ default: m.AccountsPage })));
+const AiLabPage = lazy(() => import("@/features/ai-lab/AiLabPage").then((m) => ({ default: m.AiLabPage })));
+const AuditPage = lazy(() => import("@/features/audit/AuditPage").then((m) => ({ default: m.AuditPage })));
+const BenchmarkingPage = lazy(() => import("@/features/benchmarking/BenchmarkingPage").then((m) => ({ default: m.BenchmarkingPage })));
+const CountriesPage = lazy(() => import("@/features/countries/CountriesPage").then((m) => ({ default: m.CountriesPage })));
+const CustomersPage = lazy(() => import("@/features/customers/CustomersPage").then((m) => ({ default: m.CustomersPage })));
+const EmployeesPage = lazy(() => import("@/features/employees/EmployeesPage").then((m) => ({ default: m.EmployeesPage })));
+const ExperimentsPage = lazy(() => import("@/features/experiments/ExperimentsPage").then((m) => ({ default: m.ExperimentsPage })));
+const OrganizationPage = lazy(() => import("@/features/organizations/OrganizationPage").then((m) => ({ default: m.OrganizationPage })));
+const SettingsPage = lazy(() => import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const SimulationCenterPage = lazy(() => import("@/features/simulations/SimulationCenterPage").then((m) => ({ default: m.SimulationCenterPage })));
+const WorkflowExplorerPage = lazy(() => import("@/features/workflows/WorkflowExplorerPage").then((m) => ({ default: m.WorkflowExplorerPage })));
 
 export function AppRoutes() {
   return (
@@ -40,6 +44,7 @@ export function AppRoutes() {
         <Route path="experiments" element={<ExperimentsPage />} />
         <Route path="benchmarking" element={<BenchmarkingPage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

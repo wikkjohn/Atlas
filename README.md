@@ -9,19 +9,18 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–7 are complete** — the platform foundation, the shared
-enterprise foundation (sign-in and role-based permissions, countries, the organization
-hierarchy, the employee registry and an append-only audit log), the first banking
-modules (synthetic customers with KYC, approval-gated accounts and a double-entry ledger),
-a durable workflow engine running WF-0001 Retail Account Opening end to end, a
-seeded, reproducible simulation engine that drives that workflow with synthetic
-workloads, and the AI Innovation Lab: a shared AI tool registry with a provider-
-independent adapter contract, the rule-based AGB Intelligent KYC Assistant, and
-baseline / AI-assisted / AI-automated experiments on identical workloads, and an
-evaluation engine that compares them under transparent cost assumptions and success
-criteria and produces proof-of-concept reports. See
-[docs/implementation-status.md](docs/implementation-status.md) for what exists today and
-what is planned.
+**Current state: all eight phases are complete.** ATLAS runs a synthetic global bank —
+sign-in and role-based permissions, countries, the organization hierarchy, the workforce,
+customers with KYC, approval-gated accounts, a double-entry ledger and an append-only
+audit log — with a durable workflow engine executing WF-0001 Retail Account Opening; a
+seeded, reproducible simulation engine; the AI Innovation Lab (a provider-independent AI
+tool registry and the rule-based AGB Intelligent KYC Assistant); an evaluation engine that
+compares baseline and AI-supported runs under transparent cost assumptions and success
+criteria; and an enterprise dashboard over all of it. The end-to-end demonstration —
+AI-assisted account opening from sign-in to an exported proof-of-concept report — is
+described in [docs/demo.md](docs/demo.md) and automated as a Playwright test. See
+[docs/implementation-status.md](docs/implementation-status.md) for details and known
+limitations.
 
 | Layer    | Technology                                                                |
 | -------- | ------------------------------------------------------------------------- |
@@ -151,6 +150,7 @@ endpoint are described in [docs/api.md](docs/api.md).
 | Simulations | `/api/v1/simulations` (+ `/scenarios`, `/profiles`, `/suites`, `/{id}/cases`, `/{id}/rerun`) |
 | AI tools | `/api/v1/ai-tools` (+ `/adapters`, `/actions`, `/invocations`, `/{id}/invoke`) |
 | Experiments | `/api/v1/experiments` (+ `/from-runs`, `/{id}/re-evaluate`, `/{id}/report`), `/api/v1/benchmarks` |
+| Analytics | `GET /api/v1/analytics/overview` (dashboard metrics) |
 | Audit | `GET /api/v1/audit-events` (read-only) |
 
 Every response carries an `X-Correlation-ID` header. Errors use one envelope:

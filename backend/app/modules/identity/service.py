@@ -55,6 +55,7 @@ def user_out(user: User) -> UserOut:
         is_active=user.is_active,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
+        is_service_account=user.password_hash == UNUSABLE_PASSWORD_HASH,
     )
 
 
@@ -128,8 +129,18 @@ def get_user(db: Session, user_id: uuid.UUID) -> User:
     return user
 
 
-def list_users(db: Session, params: PageParams) -> tuple[list[User], int]:
-    return paginate(db, select(User).order_by(User.username), params)
+def list_users(
+    db: Session, params: PageParams, *, kind: str | None = None, q: str | None = None
+) -> tuple[list[User], int]:
+    query = select(User).order_by(User.username)
+    if kind == "people":
+        query = query.where(User.password_hash != UNUSABLE_PASSWORD_HASH)
+    elif kind == "service":
+        query = query.where(User.password_hash == UNUSABLE_PASSWORD_HASH)
+    if q:
+        needle = f"%{q.strip().lower()}%"
+        query = query.where(User.username.ilike(needle) | User.display_name.ilike(needle))
+    return paginate(db, query, params)
 
 
 def _require_person_role(role: RoleCode) -> None:
@@ -218,6 +229,10 @@ def update_user(db: Session, user: User, data: UserUpdate, actor_id: uuid.UUID) 
         user.display_name = data.display_name
     if data.role is not None:
         _require_person_role(data.role)
+        if user.password_hash == UNUSABLE_PASSWORD_HASH and data.role != user.role.code:
+            raise BusinessRuleViolation(
+                "Service accounts keep their role; deactivate the account instead."
+            )
         if user.id == actor_id and data.role != RoleCode.PLATFORM_ADMINISTRATOR:
             raise BusinessRuleViolation("You cannot remove your own administrator role.")
         role = get_role(db, data.role)

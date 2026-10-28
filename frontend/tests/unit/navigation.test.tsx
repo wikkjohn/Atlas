@@ -7,7 +7,7 @@ import { authRoutes, employeeUser, healthyRoutes, mockApi } from "./fixtures";
 import { renderApp } from "./render";
 
 describe("Application shell", () => {
-  it("links live screens and shows later phases disabled", async () => {
+  it("links every screen of the platform", async () => {
     mockApi(healthyRoutes);
     renderApp();
 
@@ -29,12 +29,11 @@ describe("Application shell", () => {
       "Experiments",
       "Benchmarking",
       "Audit Center",
+      "System Settings",
     ]);
-
-    const settings = within(nav).getByText("System Settings").closest("[aria-disabled]");
-    expect(settings).toHaveAttribute("aria-disabled", "true");
-    expect(settings).toHaveTextContent("Phase 8");
-    expect(screen.getByText("Synthetic data")).toBeInTheDocument();
+    // Phase 8 completes the navigation: nothing is left disabled.
+    expect(nav.querySelector("[aria-disabled='true']")).toBeNull();
+    expect(screen.getAllByText("Synthetic data").length).toBeGreaterThan(0);
     expect(screen.getByText("Demo Platform Administrator")).toBeInTheDocument();
   });
 
@@ -53,6 +52,6 @@ describe("Application shell", () => {
 
     expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("link", { name: "Back to overview" }));
-    expect(await screen.findByRole("heading", { name: "Platform Overview" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Enterprise Overview" })).toBeInTheDocument();
   });
 });

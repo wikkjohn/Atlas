@@ -1,127 +1,125 @@
-import { Database, GitBranch, RefreshCw, Server, Zap } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  Banknote,
+  Bot,
+  Clock,
+  FlaskConical,
+  Globe2,
+  PlayCircle,
+  RefreshCw,
+  Users,
+  Wallet,
+  Workflow,
+  XCircle,
+  CheckCircle2,
+  Activity,
+} from "lucide-react";
+import type { ComponentType } from "react";
+import { Link } from "react-router-dom";
 
+import { useAuth } from "@/app/auth";
 import { BackendUnavailable } from "@/components/BackendUnavailable";
+import { ErrorMessage } from "@/components/ErrorMessage";
 import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
-import { formatDuration, formatTimestamp } from "@/features/dashboard/format";
+import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
+import { formatTimestamp } from "@/features/dashboard/format";
+import { HealthTiles } from "@/features/dashboard/PlatformHealth";
+import { useAnalyticsOverview } from "@/services/analytics";
 import { BackendUnreachableError } from "@/services/api";
+import { humanize } from "@/services/format";
 import { useHealth, useSystemInfo, useSystemStatus } from "@/services/queries";
-import type { ComponentStatus, PlatformModule } from "@/types/system";
+import type { DashboardMetric } from "@/types/analytics";
+import type { Permission } from "@/types/enterprise";
+import { MODE_LABELS, type ExperimentMode } from "@/types/simulations";
 
-function componentTone(status: ComponentStatus | undefined): Tone {
-  if (status === "ok") return "good";
-  if (status === "disabled") return "neutral";
-  return "bad";
+const TILE: Record<string, { icon: ComponentType<{ className?: string }>; to: string; permission?: Permission }> = {
+  employees: { icon: Users, to: "/employees", permission: "employees:read" },
+  countries: { icon: Globe2, to: "/countries", permission: "countries:read" },
+  workflows: { icon: Workflow, to: "/workflows", permission: "workflows:read" },
+  active_simulations: { icon: PlayCircle, to: "/simulations", permission: "simulations:read" },
+  completed_executions: { icon: CheckCircle2, to: "/workflows?tab=executions", permission: "workflows:read" },
+  failed_executions: { icon: XCircle, to: "/workflows?tab=executions", permission: "workflows:read" },
+  accounts: { icon: Banknote, to: "/accounts", permission: "accounts:read" },
+  ai_tools: { icon: Bot, to: "/ai-lab", permission: "ai_tools:read" },
+  experiments: { icon: FlaskConical, to: "/experiments", permission: "experiments:read" },
+  avg_process_duration: { icon: Clock, to: "/simulations", permission: "simulations:read" },
+  simulation_cost: { icon: Wallet, to: "/benchmarking", permission: "experiments:read" },
+};
+
+function formatMetric(m: DashboardMetric, currency: string): string {
+  if (m.value === null) return "—";
+  if (m.unit === "hours") return `${m.value.toFixed(2)} h`;
+  if (m.unit === "currency") return `${m.value.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${currency}`;
+  return m.value.toLocaleString();
 }
 
-function componentLabel(status: ComponentStatus | undefined): string {
-  if (status === "ok") return "Connected";
-  if (status === "disabled") return "Not configured";
-  return "Unavailable";
-}
-
-interface HealthTileProps {
-  title: string;
-  icon: ReactNode;
-  tone: Tone;
-  label: string;
-  detail: ReactNode;
-}
-
-function HealthTile({ title, icon, tone, label, detail }: HealthTileProps) {
-  return (
-    <div
-      aria-label={title}
-      role="group"
-      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-          {icon}
-          {title}
-        </div>
-        <StatusPill tone={tone} label={label} />
+function MetricTile({ metric, currency }: { metric: DashboardMetric; currency: string }) {
+  const { can } = useAuth();
+  const tile = TILE[metric.key];
+  const Icon = tile?.icon ?? Activity;
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-xs font-medium text-slate-500">
+          <Icon aria-hidden className="h-4 w-4 text-slate-400" />
+          {metric.label}
+        </span>
+        {metric.estimate && (
+          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-amber-800 uppercase">
+            Estimate
+          </span>
+        )}
       </div>
-      <div className="mt-3 min-h-5 text-xs text-slate-500">{detail}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
+        {formatMetric(metric, metric.unit === "currency" ? "" : currency)}
+      </div>
+      <div className="mt-1 text-[11px] leading-snug text-slate-500">{metric.detail}</div>
+    </>
+  );
+  // The cost estimate is wider so eleven tiles close the last row of four.
+  const span = metric.key === "simulation_cost" ? "xl:col-span-2" : "";
+  const className = `block rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${span}`;
+  const linked = tile && (!tile.permission || can(tile.permission));
+  return linked ? (
+    <Link to={tile.to} aria-label={`${metric.label}: ${formatMetric(metric, "")}`} className={`${className} transition hover:border-slate-300 hover:shadow`}>
+      {body}
+    </Link>
+  ) : (
+    <div role="group" aria-label={metric.label} className={className}>
+      {body}
     </div>
   );
 }
 
-function DefinitionList({ rows }: { rows: [string, ReactNode][] }) {
-  return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-      {rows.map(([term, value]) => (
-        <div key={term}>
-          <dt className="text-xs font-medium tracking-wide text-slate-500 uppercase">{term}</dt>
-          <dd className="mt-0.5 break-words text-slate-900">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
-function ModuleRoadmap({ modules }: { modules: PlatformModule[] }) {
-  const sorted = [...modules].sort((a, b) => a.phase - b.phase);
-  return (
-    <div className="-mx-5 -my-5 overflow-x-auto">
-      <table className="min-w-full text-sm">
-        <thead className="bg-slate-50 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
-          <tr>
-            <th className="px-5 py-2.5">Module</th>
-            <th className="px-5 py-2.5">Phase</th>
-            <th className="px-5 py-2.5">Status</th>
-            <th className="px-5 py-2.5">Scope</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {sorted.map((module) => (
-            <tr key={module.key}>
-              <td className="px-5 py-2.5 font-medium whitespace-nowrap text-slate-900">
-                {module.name}
-              </td>
-              <td className="px-5 py-2.5 text-slate-600">{module.phase}</td>
-              <td className="px-5 py-2.5">
-                <StatusPill
-                  tone={module.status === "available" ? "good" : "neutral"}
-                  label={module.status === "available" ? "Available" : "Planned"}
-                />
-              </td>
-              <td className="px-5 py-2.5 text-slate-600">{module.description}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+const OUTCOME_TONE: Record<string, Tone> = { completed: "good", waiting: "warn", running: "warn", failed: "bad", cancelled: "neutral" };
 
 export function OverviewPage() {
   const health = useHealth();
   const status = useSystemStatus();
   const info = useSystemInfo();
+  const analytics = useAnalyticsOverview();
 
   const refreshAll = () => {
     void health.refetch();
     void status.refetch();
     void info.refetch();
+    void analytics.refetch();
   };
-  const refreshing = health.isFetching || status.isFetching || info.isFetching;
+  const refreshing = health.isFetching || status.isFetching || info.isFetching || analytics.isFetching;
 
   const header = (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Platform Overview</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Enterprise Overview</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Live health of the ATLAS Global Bank simulation platform. All business data on this
-          platform is synthetic.
+          ATLAS Global Bank at a glance — workforce, banking, workflows, simulations and AI experiments. Every figure is
+          computed from the platform's synthetic records.
         </p>
       </div>
       <div className="flex items-center gap-3">
-        {health.dataUpdatedAt > 0 && (
-          <span className="text-xs text-slate-500">
-            Checked {new Date(health.dataUpdatedAt).toLocaleTimeString()}
-          </span>
+        <SyntheticDataBadge />
+        {analytics.dataUpdatedAt > 0 && (
+          <span className="text-xs text-slate-500">Updated {new Date(analytics.dataUpdatedAt).toLocaleTimeString()}</span>
         )}
         <button
           type="button"
@@ -149,132 +147,117 @@ export function OverviewPage() {
     );
   }
 
-  const components = health.data?.components;
-  const migrations = status.data?.database.migrations;
-  const database = status.data?.database;
-  const loading = "Loading…";
+  const data = analytics.data;
+  const currency = data?.cost_assumptions.currency_label ?? "";
+  const outcomes = Object.entries(data?.workflow_outcomes ?? {});
+  const totalLive = outcomes.reduce((sum, [, n]) => sum + n, 0);
 
   return (
     <>
       {header}
-
       {health.error && (
         <div role="alert" className="mb-6 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           Health check failed: {health.error.message}
         </div>
       )}
+      <ErrorMessage error={analytics.error} className="mb-6" />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <HealthTile
-          title="API service"
-          icon={<Server aria-hidden className="h-4 w-4" />}
-          tone={components ? componentTone(components.application?.status) : "neutral"}
-          label={components ? "Online" : "Checking"}
-          detail={info.data ? `FastAPI · v${info.data.version}` : loading}
-        />
-        <HealthTile
-          title="Database"
-          icon={<Database aria-hidden className="h-4 w-4" />}
-          tone={components ? componentTone(components.database?.status) : "neutral"}
-          label={components ? componentLabel(components.database?.status) : "Checking"}
-          detail={
-            components?.database?.status === "ok"
-              ? `PostgreSQL · ${components.database.latency_ms} ms round trip`
-              : (components?.database?.error ?? loading)
-          }
-        />
-        <HealthTile
-          title="Schema migrations"
-          icon={<GitBranch aria-hidden className="h-4 w-4" />}
-          tone={migrations ? (migrations.up_to_date ? "good" : "warn") : database ? "bad" : "neutral"}
-          label={
-            migrations
-              ? migrations.up_to_date
-                ? "Up to date"
-                : "Pending"
-              : database
-                ? "Unknown"
-                : "Checking"
-          }
-          detail={
-            migrations
-              ? `Current ${migrations.current_revisions.join(", ") || "none"} · head ${migrations.head_revisions.join(", ")}`
-              : database && !database.connected
-                ? "Database unreachable"
-                : loading
-          }
-        />
-        <HealthTile
-          title="Redis cache"
-          icon={<Zap aria-hidden className="h-4 w-4" />}
-          tone={components ? componentTone(components.redis?.status) : "neutral"}
-          label={components ? componentLabel(components.redis?.status) : "Checking"}
-          detail={
-            components?.redis?.error ??
-            (components?.redis?.status === "disabled"
-              ? "Optional in Phase 1 (ATLAS_REDIS_URL unset)"
-              : components
-                ? "Optional cache and lightweight queue"
-                : loading)
-          }
-        />
-      </div>
+      <section aria-label="Key metrics" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {data
+          ? data.metrics.map((m) => <MetricTile key={m.key} metric={m} currency={currency} />)
+          : !analytics.error &&
+            Array.from({ length: 8 }, (_, i) => (
+              <div key={i} className="h-28 animate-pulse rounded-xl border border-slate-200 bg-white" />
+            ))}
+      </section>
 
-      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <Panel title="Platform" subtitle="From GET /api/system/info">
-          {info.data ? (
-            <DefinitionList
-              rows={[
-                ["Name", info.data.name],
-                ["Version", info.data.version],
-                ["Environment", <span className="capitalize">{info.data.environment}</span>],
-                ["API versions", info.data.api_versions.join(", ")],
-                ["Build", info.data.build_sha ?? "Not supplied"],
-                ["Runtime", `Python ${info.data.python_version}`],
-                ["Started", formatTimestamp(info.data.started_at)],
-                ["Uptime", formatDuration(status.data?.uptime_seconds ?? info.data.uptime_seconds)],
-              ]}
-            />
-          ) : (
-            <p className="text-sm text-slate-500">{info.error ? info.error.message : loading}</p>
-          )}
-        </Panel>
-
-        <Panel title="Database" subtitle="From GET /api/system/status">
-          {database ? (
-            <DefinitionList
-              rows={[
-                ["Connection", database.connected ? "Connected" : `Unavailable — ${database.error}`],
-                ["Database", database.database_name ?? "—"],
-                ["Server", database.server_version ? `PostgreSQL ${database.server_version}` : "—"],
-                ["Tables", database.table_count ?? "—"],
-                ["Schema initialised", formatTimestamp(database.initialized_at)],
-                ["Overall status", status.data?.status.replace("_", " ") ?? "—"],
-              ]}
-            />
-          ) : (
-            <p className="text-sm text-slate-500">
-              {status.error ? status.error.message : loading}
+      {data && (
+        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <Panel title="Workflow operations" subtitle="Live WF-0001 cases (simulated cases are counted per run)">
+            {totalLive === 0 ? (
+              <p className="text-sm text-slate-500">No live workflow executions yet.</p>
+            ) : (
+              <ul aria-label="Live executions by status" className="space-y-2 text-sm">
+                {outcomes
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([state, n]) => (
+                    <li key={state} className="flex items-center justify-between gap-3">
+                      <StatusPill tone={OUTCOME_TONE[state] ?? "neutral"} label={humanize(state)} />
+                      <span className="flex flex-1 items-center gap-2">
+                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                          <span className="block h-full rounded-full bg-slate-400" style={{ width: `${(n / totalLive) * 100}%` }} />
+                        </span>
+                        <span className="w-10 text-right tabular-nums text-slate-700">{n}</span>
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+            <p className="mt-4 text-xs text-slate-600">
+              <Link to="/workflows?tab=tasks" className="font-medium text-navy-700 hover:underline">
+                {data.open_tasks} open task{data.open_tasks === 1 ? "" : "s"}
+              </Link>{" "}
+              waiting for an authorized person.
             </p>
-          )}
-        </Panel>
-      </div>
+          </Panel>
 
-      <Panel
-        className="mt-6"
-        title="Module roadmap"
-        subtitle="Modules registered in the backend and the phase that delivers each one"
-      >
-        {info.data ? (
-          <ModuleRoadmap modules={info.data.modules} />
-        ) : (
-          <p className="text-sm text-slate-500">{info.error ? info.error.message : loading}</p>
-        )}
-      </Panel>
+          <Panel title="Recent simulation runs">
+            {data.recent_runs.length === 0 ? (
+              <p className="text-sm text-slate-500">No simulation has been run yet.</p>
+            ) : (
+              <ul aria-label="Recent simulation runs" className="divide-y divide-slate-100 text-sm">
+                {data.recent_runs.map((r) => (
+                  <li key={r.id} className="flex items-center justify-between gap-2 py-2">
+                    <Link to={`/simulations?run=${r.id}`} className="font-medium text-slate-900 hover:underline">
+                      Run #{r.run_number}
+                      <span className="ml-1 text-xs font-normal text-slate-500">
+                        {MODE_LABELS[r.mode as ExperimentMode] ?? humanize(r.mode)} · {r.applications.toLocaleString()} apps
+                      </span>
+                    </Link>
+                    <StatusPill tone={r.status === "completed" ? "good" : r.status === "failed" ? "bad" : "warn"} label={humanize(r.status)} compact />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
 
-      {info.data && (
+          <Panel title="Recent experiments">
+            {data.recent_experiments.length === 0 ? (
+              <p className="text-sm text-slate-500">No experiment has been run yet.</p>
+            ) : (
+              <ul aria-label="Recent experiments" className="divide-y divide-slate-100 text-sm">
+                {data.recent_experiments.map((e) => (
+                  <li key={e.id} className="flex items-center justify-between gap-2 py-2">
+                    <Link to={`/experiments?experiment=${e.id}`} className="min-w-0 truncate font-medium text-slate-900 hover:underline">
+                      #{e.experiment_number} {e.name}
+                    </Link>
+                    {e.verdict ? (
+                      <StatusPill tone={e.verdict === "successful" ? "good" : "bad"} label={e.verdict === "successful" ? "Successful" : "Not successful"} compact />
+                    ) : (
+                      <StatusPill tone={e.status === "failed" ? "bad" : "warn"} label={humanize(e.status)} compact />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+      )}
+
+      <section aria-label="Platform health" className="mt-6 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">Platform health</h2>
+          <Link to="/settings" className="text-xs font-medium text-navy-700 hover:underline">
+            System settings
+          </Link>
+        </div>
+        <HealthTiles health={health} status={status} info={info} />
+      </section>
+
+      {data && (
         <p className="mt-6 text-xs text-slate-500">
-          <span className="font-semibold">Data policy:</span> {info.data.data_policy}
+          Figures as of {formatTimestamp(data.generated_at)}. The operating cost is an estimate from the default, stated
+          assumptions ({currency}) applied to what the simulation runs recorded — not measured spending.
         </p>
       )}
     </>

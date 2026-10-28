@@ -36,10 +36,10 @@ every endpoint follows and lists what exists.
 | POST | `/api/v1/auth/login` | public | `{username, password}` → token, expiry, user with permissions. Failures are audited. |
 | GET | `/api/v1/auth/me` | signed in | Current user and permissions |
 | GET | `/api/v1/roles` | signed in | Roles and the permissions each grants |
-| GET | `/api/v1/users` | `users:read` | Paginated |
+| GET | `/api/v1/users?kind=people|service&q=` | `users:read` | Paginated; `is_service_account` marks system principals (simulated staff, the policy engine) that cannot sign in |
 | POST | `/api/v1/users` | `users:manage` | Password ≥ 12 characters; idempotent |
 | GET | `/api/v1/users/{id}` | `users:read` | |
-| PATCH | `/api/v1/users/{id}` | `users:manage` | `display_name`, `role`, `is_active`; administrators cannot demote or deactivate themselves |
+| PATCH | `/api/v1/users/{id}` | `users:manage` | `display_name`, `role`, `is_active`; administrators cannot demote or deactivate themselves; service accounts keep their role (deactivating the policy engine switches automated approvals off); service roles cannot be given to people |
 
 ### Countries
 
@@ -221,6 +221,12 @@ See [benchmarking.md](benchmarking.md) for metrics, costs and criteria.
 
 There are no write endpoints for audit events.
 
-### Planned
+### Analytics
 
-`/analytics` (Phase 8).
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/analytics/overview` | `analytics:read` (every role) | The dashboard: employees, configured countries, registered workflows, active simulation runs, completed and failed workflow executions, customer accounts, AI tools, completed experiments, average process duration and the estimated simulation operating cost — each with a `detail` saying what it includes, `synthetic` and `estimate` flags — plus live execution outcomes, open tasks, recent runs and experiments |
+
+Every figure is queried from the records at request time. The cost figure applies the
+default cost assumptions to every completed simulation run through the experiment
+engine's cost function, and is flagged as an estimate.

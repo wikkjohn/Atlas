@@ -166,7 +166,8 @@ def _ensure_idle(db: Session) -> None:
     if active is not None:
         # One run at a time: runs share the database with the rest of the bank.
         raise ConflictError(
-            f"Simulation run #{active[0]} is still in progress; start another when it finishes.",
+            f"Simulation run #{active[0]} is still in progress; start another when it finishes. "
+            "(A run whose process stopped is marked interrupted after 5 minutes.)",
             {"active_run": active[0]},
         )
 

@@ -41,6 +41,7 @@ class Permission(StrEnum):
     AI_TOOLS_INVOKE = "ai_tools:invoke"  # call a tool directly (test console)
     EXPERIMENTS_READ = "experiments:read"  # experiments, evaluations, benchmarks, reports
     EXPERIMENTS_RUN = "experiments:run"  # start and evaluate experiments
+    ANALYTICS_READ = "analytics:read"  # enterprise dashboard metrics
 
 
 class RoleCode(StrEnum):
@@ -84,6 +85,7 @@ _BASE = frozenset(
         Permission.SIMULATIONS_READ,
         Permission.AI_TOOLS_READ,
         Permission.EXPERIMENTS_READ,
+        Permission.ANALYTICS_READ,
     }
 )
 _FRONT_OFFICE = frozenset(

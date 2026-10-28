@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 7.
+Last updated: Phase 8.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -11,7 +11,43 @@ Last updated: Phase 7.
 | 5 | Simulation engine | **Complete** |
 | 6 | AI Innovation Lab | **Complete** |
 | 7 | Benchmarking and experiment evaluation | **Complete** |
-| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer, Simulation Center, AI Innovation Lab, Experiments, Benchmarking and Audit Center screens exist) |
+| 8 | Enterprise dashboard | **Complete** |
+| — | End-to-end demonstration (Part 12) | **Complete** — [demo.md](demo.md), automated in Playwright |
+
+## Phase 8: what exists
+
+- **Analytics API** (`GET /api/v1/analytics/overview`, `analytics:read` for every role):
+  employees (enterprise vs. simulated staff), configured countries, registered
+  workflows, active simulation runs, completed and failed workflow executions (live, with
+  simulated counts alongside), customer accounts (with the share opened by simulations),
+  AI tools, completed experiments, average process duration and the estimated
+  simulation operating cost (default assumptions, flagged as an estimate; computed with
+  the experiment engine's cost function and cross-checked against it in tests)
+- **Enterprise Overview:** every metric as a tile linked to its screen, live execution
+  outcomes and open tasks, recent simulation runs and experiments, platform health, and
+  visible synthetic-data and estimate labels
+- **System Settings:** platform health, build, database and module registry; users
+  (people vs. service accounts, search, create with validation, change role,
+  activate/deactivate — service accounts keep their role; service roles are never
+  offered to people); the role and permission matrix
+- **Navigation complete:** every entry links to a working screen; feature screens
+  load on first visit (initial bundle 303 kB, from 507 kB)
+- **End-to-end demonstration** (Part 12) automated as a Playwright test and documented
+  with screenshots in [demo.md](demo.md)
+
+## Phase 8: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 238 passed (5 analytics/settings tests, incl. a cross-check of the dashboard cost estimate against the experiment engine) |
+| Ruff lint + format check | clean |
+| `alembic check` (no schema change in Phase 8) | clean |
+| Frontend typecheck | clean |
+| Vitest | 63 passed |
+| Production build | succeeds; no chunk-size warning (route-level code splitting) |
+| Playwright (Chromium, real backend + DB) | 14 passed — fresh local database (twice) and Docker Compose; includes the Part 12 demonstration and the System Settings user journey |
+| `validate_system.py --login auditor` (Docker) | 14/14 |
+| Visual review | Overview, Settings, Experiments, Benchmarking at 1440 px and 390 px (no horizontal scroll) |
 
 ## Phase 7: what exists
 
@@ -332,8 +368,6 @@ Last updated: Phase 7.
   platform has no currency conversion).
 - Stored idempotency keys are never pruned.
 - `app/core/events.py` (event dispatcher) is deferred to Phase 4, where workflows need it.
-- The Overview page still shows platform health only; enterprise metrics arrive with the
-  Phase 8 dashboard.
 - Redis is connected and health-checked but not used by any feature yet.
 - `scripts/reset_demo.py` does not exist yet; simulation data accumulates in the
   development database (`docker compose down -v` resets everything).

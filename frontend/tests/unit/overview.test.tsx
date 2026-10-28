@@ -11,22 +11,65 @@ import {
 import { renderApp } from "./render";
 
 describe("Overview page", () => {
-  it("shows live health, database and module data from the backend", async () => {
+  it("shows every enterprise metric from the analytics endpoint, linked to its screen", async () => {
     mockApi(healthyRoutes);
     renderApp();
 
+    const metrics = await screen.findByRole("region", { name: "Key metrics" });
+    const employees = await within(metrics).findByRole("link", { name: "Employees: 131" });
+    expect(employees).toHaveAttribute("href", "/employees");
+    for (const label of [
+      "Configured countries: 5",
+      "Registered workflows: 1",
+      "Active simulation runs: 1",
+      "Completed workflow executions: 14",
+      "Failed workflow executions: 1",
+      "Customer accounts created: 120",
+      "Registered AI tools: 2",
+      "Completed experiments: 3",
+      "Average process duration: 3.35 h",
+    ]) {
+      expect(within(metrics).getByRole("link", { name: label })).toBeInTheDocument();
+    }
+    const cost = within(metrics).getByRole("link", { name: /Estimated simulation operating cost/ });
+    expect(cost).toHaveTextContent("Estimate");
+    expect(cost).toHaveAttribute("href", "/benchmarking");
+
+    expect(screen.getByRole("list", { name: "Live executions by status" })).toHaveTextContent("Failed");
+    expect(screen.getByRole("link", { name: "5 open tasks" })).toHaveAttribute("href", "/workflows?tab=tasks");
+    expect(screen.getByRole("list", { name: "Recent simulation runs" })).toHaveTextContent("Run #4");
+    expect(screen.getByRole("list", { name: "Recent experiments" })).toHaveTextContent("Successful");
+  });
+
+  it("shows platform health tiles below the metrics", async () => {
+    mockApi(healthyRoutes);
+    renderApp();
     const database = await screen.findByRole("group", { name: "Database" });
     expect(await within(database).findByText("Connected")).toBeInTheDocument();
     expect(within(database).getByText(/2.5 ms round trip/)).toBeInTheDocument();
-
     const migrations = screen.getByRole("group", { name: "Schema migrations" });
     expect(await within(migrations).findByText("Up to date")).toBeInTheDocument();
-
     const redis = screen.getByRole("group", { name: "Redis cache" });
     expect(within(redis).getByText("Not configured")).toBeInTheDocument();
-
     expect(await screen.findByText("All systems operational")).toBeInTheDocument();
-    expect(screen.getByText("PostgreSQL 16.4")).toBeInTheDocument();
+  });
+
+  it("shows an analytics failure visibly", async () => {
+    mockApi({
+      ...healthyRoutes,
+      "/api/v1/analytics/overview": () =>
+        jsonResponse({ error: { code: "internal_error", message: "Metrics unavailable", details: null, correlation_id: "c1" } }, 500),
+    });
+    renderApp();
+    expect(await screen.findByText(/Metrics unavailable/)).toBeInTheDocument();
+  });
+});
+
+describe("System Settings page", () => {
+  it("shows platform, database and module details", async () => {
+    mockApi({ ...healthyRoutes, "/api/v1/roles": () => jsonResponse([]), "/api/v1/users": () => jsonResponse({ items: [], total: 0, limit: 20, offset: 0 }) });
+    renderApp("/settings");
+    expect(await screen.findByText("PostgreSQL 16.4")).toBeInTheDocument();
 
     const roadmap = screen.getByRole("region", { name: "Module roadmap" });
     const rows = within(roadmap).getAllByRole("row");
@@ -36,7 +79,9 @@ describe("Overview page", () => {
     expect(within(rows[1]).getByText("Available")).toBeInTheDocument();
     expect(within(rows[2]).getByText("Planned")).toBeInTheDocument();
   });
+});
 
+describe("Overview availability", () => {
   it("keeps the session through an outage at load and recovers on retry", async () => {
     let backendUp = false;
     mockApi(

@@ -130,3 +130,81 @@ test("Experiments: baseline vs. AI on one workload → evaluation → report →
   await expect(page.getByRole("figure", { name: /Processing time per case/ })).toBeVisible();
   await expect(page.getByRole("figure", { name: /Estimated operating cost/ })).toBeVisible();
 });
+
+test("DEMO (Part 12): AI-assisted bank account opening, end to end", async ({ page }) => {
+  test.setTimeout(300_000);
+  const seed = String(1 + Math.floor(Math.random() * 1_000_000));
+
+  // Step 1 — An authorized AI researcher signs in.
+  await signIn(page, "researcher", "/");
+
+  // Step 2 — Explore the enterprise: dashboard, organization, employees.
+  await expect(page.getByRole("heading", { name: "Enterprise Overview" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Key metrics" }).getByRole("link", { name: /^Employees: / })).toBeVisible();
+  await nav(page).getByRole("link", { name: "Organization" }).click();
+  await expect(page.getByRole("heading", { name: "Organization", level: 1 })).toBeVisible();
+  await nav(page).getByRole("link", { name: "Employees" }).click();
+  await expect(page.getByRole("heading", { name: "Employees", level: 1 })).toBeVisible();
+
+  // Step 3 — Open WF-0001 Retail Account Opening.
+  await nav(page).getByRole("link", { name: "Workflow Explorer" }).click();
+  await expect(page.getByRole("heading", { name: "Retail Account Opening" })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Process steps" }).getByText("AI KYC assistant review (advisory)")).toBeVisible();
+
+  // Steps 4–7 — 100 seeded applications; baseline and AI-assisted runs on the same applications,
+  // with the AGB Intelligent KYC Assistant and human approval preserved.
+  await nav(page).getByRole("link", { name: "Experiments" }).click();
+  await page.getByRole("button", { name: "New experiment" }).click();
+  const form = page.getByRole("form", { name: "New experiment" });
+  await form.getByLabel("Name").fill(`Demo ${seed}: KYC assistant, AI assisted`);
+  await form.getByLabel("AI tool").selectOption("agb-intelligent-kyc-assistant");
+  await form.getByLabel("Candidate configuration").selectOption("ai_assisted");
+  await form.getByLabel("Applications").fill("100");
+  await form.getByLabel("Staff").fill("25");
+  await form.getByLabel("Seed").fill(seed);
+  await page.getByRole("button", { name: "Run experiment" }).click();
+
+  // Step 8 — The evaluation engine compares timing, cost, accuracy and review effort.
+  const details = page.getByRole("region", { name: "Experiment details" });
+  await expect(details.getByRole("heading", { name: new RegExp(`Demo ${seed}:`) })).toBeVisible();
+  await expect(details.getByRole("list", { name: "Success criteria" })).toBeVisible({ timeout: 240_000 });
+  const comparison = details.getByRole("table", { name: "Metric comparison" });
+  for (const metric of ["Workflow processing time (average cycle)", "Simulated labour time", "Cost per completed case", "Decisions matching ground truth", "Manual reviews"]) {
+    await expect(comparison.getByRole("row", { name: new RegExp(metric.replace(/[()]/g, ".")) })).toBeVisible();
+  }
+  // Human approval was preserved: the AI-assisted run still has every manual review.
+  const reviews = comparison.getByRole("row", { name: /^Manual reviews/ });
+  const cells = await reviews.getByRole("cell").allTextContents();
+  expect(cells[1]).toBe(cells[2]);
+
+  // Step 9 — Review failures: misclassifications, escalations, exceptions, policy violations.
+  await expect(details.getByText(/account decisions checked: 0 violation/)).toBeVisible();
+  await details.getByRole("link", { name: /B — AI assisted — run #/ }).click();
+  const run = page.getByRole("region", { name: "Run details" });
+  await expect(run.getByRole("region", { name: "AI tool behaviour" })).toContainText("Recommendations:");
+  await run.getByLabel("Only cases whose outcome differs from the ground truth").check();
+  await expect(run.getByRole("table", { name: "Case results" })).toBeVisible();
+  await page.goBack();
+
+  // Step 10 — Export the proof-of-concept report.
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("region", { name: "Experiment details" }).getByRole("button", { name: "Report (.md)" }).click(),
+  ]);
+  const { readFile } = await import("node:fs/promises");
+  const report = await readFile((await download.path())!, "utf8");
+  for (const section of [
+    "## Tested tool",
+    "## Test scenario and workload",
+    `Data seed: \`${seed}\``,
+    "Software version",
+    "## Baseline and AI performance",
+    "## Operational differences",
+    "## Financial assumptions",
+    "## Security and compliance results",
+    "## Known limitations",
+    "## Recommendation",
+  ]) {
+    expect(report).toContain(section);
+  }
+});

@@ -1,0 +1,38 @@
+import { expect, test } from "@playwright/test";
+
+import { DEMO_PASSWORD, nav, signIn, uniqueWord } from "./helpers";
+
+test("System Settings: an administrator creates a user who then signs in with that role only", async ({ browser }) => {
+  const username = `analyst.${uniqueWord()}`;
+  const admin = await (await browser.newContext()).newPage();
+  await signIn(admin, "admin", "/settings");
+
+  await admin.getByRole("button", { name: "Create user" }).click();
+  const form = admin.getByRole("form", { name: "Create a user" });
+  await form.getByLabel("Username").fill(username);
+  await form.getByLabel("Email").fill(`${username}@atlasbank.example`);
+  await form.getByLabel("Display name").fill("New Auditor");
+  await form.getByLabel("Initial password").fill(DEMO_PASSWORD);
+  await form.getByLabel("Role").selectOption("auditor");
+  await admin.getByRole("dialog").getByRole("button", { name: "Create user" }).click();
+
+  await admin.getByLabel("Search users").fill(username);
+  const users = admin.getByRole("table", { name: "Users" });
+  await expect(users.getByRole("row", { name: new RegExp(username) })).toBeVisible();
+  await expect(users.getByLabel(`Role of ${username}`)).toHaveValue("auditor");
+
+  // The new auditor signs in: read-only screens, no management actions.
+  const auditor = await (await browser.newContext()).newPage();
+  await signIn(auditor, username, "/");
+  await expect(auditor.getByRole("heading", { name: "Enterprise Overview" })).toBeVisible();
+  await expect(nav(auditor).getByRole("link", { name: "Audit Center" })).toBeVisible();
+  await auditor.goto("/settings");
+  await expect(auditor.getByRole("table", { name: "Role permissions" })).toBeVisible();
+  await expect(auditor.getByRole("button", { name: "Create user" })).toHaveCount(0);
+
+  // Deactivation takes effect on the next request.
+  await users.getByRole("button", { name: `Deactivate ${username}` }).click();
+  await expect(users.getByRole("row", { name: new RegExp(username) }).getByText("Inactive")).toBeVisible();
+  await auditor.reload();
+  await expect(auditor.getByRole("button", { name: "Sign in" })).toBeVisible();
+});

@@ -8,6 +8,8 @@ import type {
   Organization,
   Page,
   Role,
+  UserAccount,
+  UserCreate,
 } from "@/types/enterprise";
 
 type Params = Record<string, string | number | boolean | null | undefined>;
@@ -155,5 +157,33 @@ export function useRoles() {
     queryKey: ["roles"],
     queryFn: () => apiGet<Role[]>("/api/v1/roles"),
     staleTime: Infinity,
+  });
+}
+
+// --- Users (System Settings) ----------------------------------------------------------------
+
+export function useUsers(params: Params, enabled = true) {
+  return useQuery({
+    queryKey: ["users", params],
+    queryFn: () => apiGet<Page<UserAccount>>(`/api/v1/users${query(params)}`),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export function useCreateUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: UserCreate) => apiPost<UserAccount>("/api/v1/users", body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+export function useUpdateUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string; role?: string; is_active?: boolean }) =>
+      apiPatch<UserAccount>(`/api/v1/users/${id}`, body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
   });
 }

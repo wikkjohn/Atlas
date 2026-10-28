@@ -116,8 +116,14 @@ screens the role cannot use; the backend remains the enforcement point.
 
 The API client separates *backend unreachable* (network failure or proxy 502/503/504) from
 *backend answered with an error* (`ApiError` carrying the envelope), so screens can show the
-right failure state. Navigation entries for unbuilt screens are visibly disabled and
-labelled with the phase that delivers them, never linked to placeholder pages.
+right failure state. Feature screens are loaded on first visit (`React.lazy` per route), so
+the initial bundle stays small. Every navigation entry links to a working screen; synthetic
+data and simulation estimates are labelled where they appear.
+
+Screens: Enterprise Overview (analytics), Organization, Countries, Employees, Customers,
+Accounts, Workflow Explorer, Simulation Center, AI Innovation Lab, Experiments,
+Benchmarking, Audit Center and System Settings (platform health, build, database,
+modules, users, roles and permissions).
 
 ## Banking core (Phase 3)
 

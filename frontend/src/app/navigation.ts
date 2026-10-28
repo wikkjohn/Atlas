@@ -28,7 +28,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 7;
+export const IMPLEMENTED_PHASE = 8;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },

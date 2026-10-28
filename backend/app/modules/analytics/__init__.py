@@ -1,1 +1,2 @@
-"""analytics module — scheduled for Phase 8; no functionality is implemented yet."""
+"""Analytics: enterprise metrics for the dashboard, each computed from the records
+themselves at request time."""

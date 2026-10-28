@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from app.api import system
 from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.ai_tools.router import router as ai_tools_router
+from app.modules.analytics.router import router as analytics_router
 from app.modules.audit.router import router as audit_router
 from app.modules.countries.router import router as countries_router
 from app.modules.customers.router import router as customers_router
@@ -44,6 +45,7 @@ for module_router in (
     ai_tools_router,
     experiments_router,
     benchmarks_router,
+    analytics_router,
     audit_router,
 ):
     v1_router.include_router(module_router)

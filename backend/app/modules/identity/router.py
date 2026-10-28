@@ -1,6 +1,7 @@
 import uuid
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Query, Request, status
 
 from app.core.dependencies import DbSession, SettingsDep
 from app.core.idempotency import IdempotencyKey, run_idempotent
@@ -54,9 +55,16 @@ def list_roles(db: DbSession, _: CurrentUser) -> list[RoleOut]:
 
 @users_router.get("", response_model=Page[UserOut], summary="List users")
 def list_users(
-    db: DbSession, page: PageParamsDep, _: Authorized(Permission.USERS_READ)
+    db: DbSession,
+    page: PageParamsDep,
+    _: Authorized(Permission.USERS_READ),
+    kind: Annotated[
+        Literal["people", "service"] | None,
+        Query(description="people: can sign in; service: system principals"),
+    ] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
 ) -> Page[UserOut]:
-    users, total = service.list_users(db, page)
+    users, total = service.list_users(db, page, kind=kind, q=q)
     return Page(
         items=[service.user_out(u) for u in users],
         total=total,

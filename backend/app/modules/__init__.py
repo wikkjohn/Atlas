@@ -114,7 +114,7 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "analytics",
         "Analytics",
         8,
-        "planned",
+        "available",
         "Operational metrics backing the enterprise dashboard.",
     ),
 )

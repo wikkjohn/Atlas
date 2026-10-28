@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Connection, select, text
 from sqlalchemy.orm import Session
 
+from app import __version__
 from app.core.permissions import RoleCode
 from app.modules.ai_tools.schemas import ToolCreate
 from app.modules.ai_tools.service import register_tool
@@ -407,7 +408,7 @@ def test_report_documents_the_proof_of_concept(api: TestClient, lab: dict) -> No
         "## Tested tool",
         "## Test scenario and workload",
         "Data seed: `17`",
-        "Software version: `0.7.0`",
+        f"Software version: `{__version__}`",
         "## Baseline and AI performance",
         "## Operational differences",
         "## Financial assumptions",

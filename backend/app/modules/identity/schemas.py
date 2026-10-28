@@ -31,6 +31,8 @@ class UserOut(BaseModel):
     is_active: bool
     last_login_at: datetime | None
     created_at: datetime
+    # A system principal (simulated staff, the policy engine) that can never sign in.
+    is_service_account: bool = False
 
 
 class CurrentUserOut(UserOut):

@@ -176,8 +176,46 @@ export function page<T>(items: T[], total = items.length, limit = 50, offset = 0
   return { items, total, limit, offset };
 }
 
+const metric = (key: string, label: string, value: number, unit = "count", estimate = false) => ({
+  key,
+  label,
+  value,
+  unit,
+  detail: `${label} detail`,
+  synthetic: true,
+  estimate,
+});
+
+export const analyticsOverview = {
+  generated_at: "2026-10-28T10:00:00Z",
+  metrics: [
+    metric("employees", "Employees", 131),
+    metric("countries", "Configured countries", 5),
+    metric("workflows", "Registered workflows", 1),
+    metric("active_simulations", "Active simulation runs", 1),
+    metric("completed_executions", "Completed workflow executions", 14),
+    metric("failed_executions", "Failed workflow executions", 1),
+    metric("accounts", "Customer accounts created", 120),
+    metric("ai_tools", "Registered AI tools", 2),
+    metric("experiments", "Completed experiments", 3),
+    metric("avg_process_duration", "Average process duration", 3.35, "hours"),
+    metric("simulation_cost", "Estimated simulation operating cost", 1183.62, "currency", true),
+  ],
+  workflow_outcomes: { completed: 14, waiting: 5, failed: 1 },
+  open_tasks: 5,
+  simulation_runs_by_status: { completed: 4, running: 1 },
+  cost_assumptions: { currency_label: "USD (illustrative)" },
+  recent_runs: [
+    { id: "run-1", run_number: 4, mode: "ai_automated", status: "running", applications: 100, created_at: "2026-10-28T10:00:00Z" },
+  ],
+  recent_experiments: [
+    { id: "exp-1", experiment_number: 2, name: "KYC vs baseline", status: "completed", verdict: "successful", tool_id: "agb-intelligent-kyc-assistant", created_at: "2026-10-28T10:00:00Z" },
+  ],
+};
+
 export const healthyRoutes: Routes = {
   ...authRoutes(adminUser),
+  "/api/v1/analytics/overview": () => jsonResponse(analyticsOverview),
   "/api/health": () => jsonResponse(healthyHealth),
   "/api/system/info": () => jsonResponse(systemInfo),
   "/api/system/status": () => jsonResponse(systemStatus),

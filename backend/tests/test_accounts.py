@@ -332,3 +332,33 @@ def test_roles_without_transact_permission_cannot_move_money(
 
     assert response.status_code == 403
     assert account.account_type == AccountType.CURRENT
+
+
+def test_approval_uses_the_customer_state_under_the_lock(db: Session) -> None:
+    """A review committed while an approval starts must not be approved past (stale ORM state)."""
+    from sqlalchemy import text
+
+    from app.core.errors import PermissionDeniedError
+    from app.modules.accounts.service import approve_request, get_request, submit_request
+    from tests.factories import principal
+
+    staff = make_staff(db)
+    customer = make_customer(db, risk=RiskRating.LOW)
+    request = submit_request(
+        db,
+        customer_id=customer.id,
+        account_type=AccountType.CURRENT,
+        currency=None,
+        requested_by=staff.employee.id,
+    )
+    db.flush()
+    # The request (with its customer, eagerly) is in the session, as in a real approval.
+    assert get_request(db, request.id).customer.risk_rating == RiskRating.LOW
+    # Meanwhile a compliance review raises the risk (written past this session's objects).
+    db.execute(
+        text("UPDATE customers SET risk_rating = 'high' WHERE id = :id"), {"id": customer.id}
+    )
+
+    with pytest.raises(PermissionDeniedError) as denied:
+        approve_request(db, request.id, principal(staff.manager), "approve")
+    assert denied.value.details == {"rule": "high_risk_requires_compliance"}

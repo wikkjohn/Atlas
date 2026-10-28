@@ -157,7 +157,7 @@ test("DEMO (Part 12): AI-assisted bank account opening, end to end", async ({ pa
   await page.getByRole("button", { name: "New experiment" }).click();
   const form = page.getByRole("form", { name: "New experiment" });
   await form.getByLabel("Name").fill(`Demo ${seed}: KYC assistant, AI assisted`);
-  await form.getByLabel("AI tool").selectOption("agb-intelligent-kyc-assistant");
+  await form.getByLabel("AI tool").selectOption({ label: "AGB Intelligent KYC Assistant 1.0.0" });
   await form.getByLabel("Candidate configuration").selectOption("ai_assisted");
   await form.getByLabel("Applications").fill("100");
   await form.getByLabel("Staff").fill("25");

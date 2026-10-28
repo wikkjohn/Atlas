@@ -28,6 +28,7 @@ export interface SuccessThresholds {
 export interface ExperimentCreate {
   name: string;
   tool_id: string;
+  tool_version: string | null;
   candidate_mode: "ai_assisted" | "ai_automated";
   profile: "custom";
   applications: number;

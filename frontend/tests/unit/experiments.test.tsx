@@ -174,6 +174,25 @@ describe("Experiments", () => {
     });
   });
 
+  it("sends the tool version that was chosen, not the newest one", async () => {
+    const newer = { ...tool, id: "tool-2", tool_version: "2.0.0" };
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/ai-tools": () => jsonResponse(page([newer, tool])),
+      "POST /api/v1/experiments": () => jsonResponse({ ...experiment, id: "exp-3", status: "running", evaluation: null }, 202),
+    });
+    renderApp("/experiments");
+    await userEvent.click(await screen.findByRole("button", { name: "New experiment" }));
+    const form = await screen.findByRole("form", { name: "New experiment" });
+    await userEvent.selectOptions(within(form).getByLabelText("AI tool"), "AGB Intelligent KYC Assistant 1.0.0");
+    await userEvent.click(screen.getByRole("button", { name: "Run experiment" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
+      tool_id: "agb-intelligent-kyc-assistant",
+      tool_version: "1.0.0",
+    });
+  });
+
   it("lets read-only roles see experiments without starting them", async () => {
     const reader = { ...employeeUser, permissions: [...employeeUser.permissions, "experiments:read" as const] };
     mockApi({ ...routes, ...authRoutes(reader) });

@@ -397,3 +397,29 @@ def test_idempotency_key_conflict_at_service_level(db: Session) -> None:
             actor_id=None,
         )
     assert db.execute(select(func.count()).select_from(JournalLine)).scalar_one() == 2
+
+
+def test_idempotency_key_reused_with_another_effective_date_conflicts(db: Session) -> None:
+    from datetime import date
+
+    cash = ledger.cash_account(db, "USD")
+    equity = _gl(db, "3000", LedgerAccountType.EQUITY)
+    lines = [
+        ledger.LineSpec(cash.id, Direction.DEBIT, 1),
+        ledger.LineSpec(equity.id, Direction.CREDIT, 1),
+    ]
+    post = lambda day: ledger.post_entry(  # noqa: E731
+        db,
+        idempotency_key="dated-1",
+        currency="USD",
+        description="Dated",
+        source="manual",
+        lines=lines,
+        actor_id=None,
+        effective_date=day,
+    )
+    first, _ = post(date(2026, 1, 31))
+    again, replayed = post(date(2026, 1, 31))
+    assert replayed and again.id == first.id
+    with pytest.raises(ConflictError):
+        post(date(2026, 2, 1))

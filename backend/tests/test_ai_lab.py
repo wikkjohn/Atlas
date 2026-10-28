@@ -609,3 +609,44 @@ def test_queued_suite_members_are_not_reaped_while_the_suite_runs(db: Session) -
 
 def test_synthetic_document_numbers_used_in_tests_are_valid() -> None:
     assert synthetic_document_number("passport", 1234567).startswith("P1234567")
+
+
+def test_ai_review_sees_documents_submitted_after_the_wait(db: Session) -> None:
+    staff = make_staff(db)
+    tool = _kyc_tool(db)
+    payload = application(name="Ada Lovelace", documents=("passport",))
+    execution, _ = engine.start(
+        db,
+        workflow_id="WF-0001",
+        version=2,
+        payload=payload,
+        initiator=principal(staff.employee),
+        settings={"ai_mode": "assisted", "ai_tool_id": str(tool.id)},
+    )
+    db.flush()
+    assert execution.current_steps == ["await_documents"]
+    proof = {
+        "document_type": "proof_of_address",
+        "document_number": synthetic_document_number("proof_of_address", 4242),
+        "name_on_document": "Ada Lovelace",
+    }
+    engine.signal(
+        db, execution.id, "documents_submitted", {"documents": [proof]}, staff.employee.id
+    )
+    db.flush()
+
+    review = execution.context["ai_kyc_review"]
+    call = db.get(AIToolInvocation, uuid.UUID(review["invocation_id"]))
+    assert [d["document_type"] for d in call.input["application"]["documents"]] == [
+        "passport",
+        "proof_of_address",
+    ]
+    assert call.output["missing_fields"] == []
+    assert review["recommendation"] == "approve"
+
+
+def test_oversized_inputs_are_refused_before_any_analysis(db: Session) -> None:
+    tool = _kyc_tool(db)
+    huge = _payload(applicant_name="A" * 10_000)
+    call = invoke(db, tool, "analyze_application", huge, actor_id=None)
+    assert call.status == "invalid_input"

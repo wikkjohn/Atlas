@@ -79,7 +79,8 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const compatibleTools = (tools.data?.items ?? []).filter(
     (t) => t.status === "active" && chosen && t.compatible_workflows.includes(chosen.workflow_id),
   );
-  const toolIdValue = toolId || compatibleTools[0]?.tool_id || "";
+  const selectedTool = compatibleTools.find((t) => t.id === toolId) ?? compatibleTools[0];
+  const toolIdValue = selectedTool?.tool_id ?? "";
   const needsTool = effectiveMode !== "baseline";
   const seedValue = Number(seed);
   const seedError =
@@ -96,6 +97,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         scenario_version: chosen.version,
         mode: effectiveMode,
         tool_id: needsTool ? toolIdValue : null,
+        tool_version: needsTool ? (selectedTool?.tool_version ?? null) : null,
         profile,
         seed: seedValue,
         applications: profile === "custom" ? Number(applications) : null,
@@ -147,9 +149,9 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           error={compatibleTools.length === 0 ? "No active tool is compatible with this workflow." : null}
         >
           {(props) => (
-            <select {...props} className={inputClass} value={toolIdValue} onChange={(e) => setToolId(e.target.value)}>
+            <select {...props} className={inputClass} value={selectedTool?.id ?? ""} onChange={(e) => setToolId(e.target.value)}>
               {compatibleTools.map((t) => (
-                <option key={t.id} value={t.tool_id}>
+                <option key={t.id} value={t.id}>
                   {t.tool_name} {t.tool_version}
                 </option>
               ))}

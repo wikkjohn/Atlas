@@ -139,6 +139,7 @@ describe("Simulation Center", () => {
       scenario_version: 1,
       mode: "baseline",
       tool_id: null,
+      tool_version: null,
       profile: "custom",
       seed: 1234,
       applications: 40,

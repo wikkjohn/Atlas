@@ -136,7 +136,9 @@ def requests_out(db: Session, requests: list[AccountRequest]) -> list[AccountReq
 def get_request(db: Session, request_id: uuid.UUID, *, for_update: bool = False) -> AccountRequest:
     query = select(AccountRequest).where(AccountRequest.id == request_id)
     if for_update:
-        query = query.with_for_update(of=AccountRequest)
+        # Refresh an already-loaded request from the locked row (see get_customer).
+        db.flush()
+        query = query.with_for_update(of=AccountRequest).execution_options(populate_existing=True)
     request = db.execute(query).unique().scalar_one_or_none()
     if request is None:
         raise NotFoundError("Account request not found.")
@@ -347,8 +349,9 @@ def accounts_out(db: Session, accounts: list[Account]) -> list[AccountOut]:
 def get_account(db: Session, account_id: uuid.UUID, *, for_update: bool = False) -> Account:
     query = select(Account).where(Account.id == account_id)
     if for_update:
-        # Serializes balance-changing operations on one account.
-        query = query.with_for_update(of=Account)
+        # Serializes balance-changing operations on one account; refreshes a loaded copy.
+        db.flush()
+        query = query.with_for_update(of=Account).execution_options(populate_existing=True)
     account = db.execute(query).unique().scalar_one_or_none()
     if account is None:
         raise NotFoundError("Account not found.")

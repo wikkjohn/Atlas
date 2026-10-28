@@ -52,7 +52,10 @@ def age_in_years(born: date, on: date) -> int:
 def get_customer(db: Session, customer_id: uuid.UUID, *, for_update: bool = False) -> Customer:
     query = select(Customer).where(Customer.id == customer_id)
     if for_update:
-        query = query.with_for_update(of=Customer)
+        # populate_existing: a customer already in the session (e.g. loaded with an account
+        # request) is refreshed from the locked row, so checks never use stale values.
+        db.flush()  # never let the refresh discard this session's unflushed changes
+        query = query.with_for_update(of=Customer).execution_options(populate_existing=True)
     customer = db.execute(query).unique().scalar_one_or_none()
     if customer is None:
         raise NotFoundError("Customer not found.")

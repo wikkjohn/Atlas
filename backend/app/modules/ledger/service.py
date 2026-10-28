@@ -180,19 +180,26 @@ def list_ledger_accounts(
 # --- Posting -----------------------------------------------------------------------------
 
 
-def _request_hash(currency: str, description: str, source: str, lines: list[LineSpec]) -> str:
-    canonical = json.dumps(
-        {
-            "currency": currency,
-            "description": description,
-            "source": source,
-            "lines": [
-                [str(line.ledger_account_id), line.direction.value, line.amount, line.memo]
-                for line in lines
-            ],
-        },
-        separators=(",", ":"),
-    )
+def _request_hash(
+    currency: str,
+    description: str,
+    source: str,
+    lines: list[LineSpec],
+    effective_date: date | None = None,
+) -> str:
+    body: dict = {
+        "currency": currency,
+        "description": description,
+        "source": source,
+        "lines": [
+            [str(line.ledger_account_id), line.direction.value, line.amount, line.memo]
+            for line in lines
+        ],
+    }
+    if effective_date is not None:
+        # Only when supplied, so requests without a date keep their earlier fingerprint.
+        body["effective_date"] = effective_date.isoformat()
+    canonical = json.dumps(body, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
@@ -262,7 +269,7 @@ def post_entry(
     """Post a balanced entry. Returns (entry, replayed)."""
     if not idempotency_key or len(idempotency_key) > 300:
         raise BusinessRuleViolation("An idempotency key (1-300 characters) is required.")
-    request_hash = _request_hash(currency, description, source, lines)
+    request_hash = _request_hash(currency, description, source, lines, effective_date)
 
     existing = find_entry_by_key(db, idempotency_key)
     if existing is not None:
@@ -329,7 +336,8 @@ def post_entry(
 def get_entry(db: Session, entry_id: uuid.UUID, *, for_update: bool = False) -> JournalEntry:
     query = select(JournalEntry).where(JournalEntry.id == entry_id)
     if for_update:
-        query = query.with_for_update()
+        db.flush()
+        query = query.with_for_update().execution_options(populate_existing=True)
     entry = db.execute(query).scalar_one_or_none()
     if entry is None:
         raise NotFoundError("Journal entry not found.")

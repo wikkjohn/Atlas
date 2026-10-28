@@ -86,7 +86,9 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
   );
   const [currency, setCurrency] = useState(DEFAULT_COSTS.currency_label);
   const [submitted, setSubmitted] = useState(false);
-  const tool = toolId || compatible[0]?.tool_id || "";
+  // Keyed by registered record so the chosen version is the one sent.
+  const selectedTool = compatible.find((t) => t.id === toolId) ?? compatible[0];
+  const tool = selectedTool?.tool_id ?? "";
 
   const numberError = (key: string, raw: string) => {
     const v = Number(raw);
@@ -115,6 +117,7 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
       {
         name: name.trim(),
         tool_id: tool,
+        tool_version: selectedTool?.tool_version ?? null,
         candidate_mode: mode,
         profile: "custom",
         applications: Number(applications),
@@ -146,9 +149,9 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
           </Field>
           <Field label="AI tool" error={show("tool")}>
             {(p) => (
-              <select {...p} className={inputClass} value={tool} onChange={(e) => setToolId(e.target.value)}>
+              <select {...p} className={inputClass} value={selectedTool?.id ?? ""} onChange={(e) => setToolId(e.target.value)}>
                 {compatible.map((t) => (
-                  <option key={t.id} value={t.tool_id}>
+                  <option key={t.id} value={t.id}>
                     {t.tool_name} {t.tool_version}
                   </option>
                 ))}

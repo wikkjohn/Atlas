@@ -22,23 +22,28 @@ from app.modules.ai_tools.adapters.base import (
 ACTIONS = frozenset({"analyze_application", "recommend_decision", "complete_low_risk_review"})
 DOCUMENT_PREFIX = {"passport": "P", "national_id": "N", "proof_of_address": "A"}
 IDENTITY_DOCUMENTS = ("passport", "national_id")
+# Input bounds (the same as WF-0001's): they keep the analysis small — name comparison is
+# quadratic — so a call finishes well within its timeout, which cannot interrupt
+# synchronous work.
+MAX_NAME = 200
+MAX_DOCUMENTS = 10
 SEVERITY_POINTS = {"low": 1, "medium": 2, "high": 3, "critical": 5}
 
 
 class KycDocument(BaseModel):
     document_type: Literal["passport", "national_id", "proof_of_address"]
-    document_number: str
-    name_on_document: str
+    document_number: str = Field(max_length=20)
+    name_on_document: str = Field(max_length=MAX_NAME)
     date_of_birth: date | None = None
     expiry_date: date | None = None
 
 
 class KycApplication(BaseModel):
-    applicant_name: str
+    applicant_name: str = Field(max_length=MAX_NAME)
     date_of_birth: date
-    country_code: str
+    country_code: str = Field(max_length=2)
     account_type: Literal["current", "savings"] = "current"
-    documents: list[KycDocument] = Field(default_factory=list)
+    documents: list[KycDocument] = Field(default_factory=list, max_length=MAX_DOCUMENTS)
     politically_exposed: bool = False
     expected_monthly_deposits: int = Field(default=0, ge=0)
 

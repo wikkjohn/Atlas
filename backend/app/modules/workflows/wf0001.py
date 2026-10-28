@@ -645,8 +645,14 @@ def kyc_assistant(ctx: StepContext) -> dict:
     if tool is None:
         return _ai_unavailable(mode, "tool_missing", "No AI tool is configured for this case.")
     action = "complete_low_risk_review" if mode == "automated" else "recommend_decision"
+    # The documents the workflow validated, including any submitted after a wait.
+    documents = ctx.get("validate_application.documents")
+    application = {
+        **ctx.input,
+        "documents": documents if documents is not None else ctx.input.get("documents", []),
+    }
     payload = {
-        "application": ctx.input,
+        "application": application,
         "screening": {"sanctions_hit": bool(ctx.get("sanctions_screening.hit"))},
         "as_of": ctx.now.date().isoformat(),
     }

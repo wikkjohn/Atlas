@@ -229,6 +229,7 @@ describe("AI Innovation Lab", () => {
       seed: 42,
       modes: ["baseline", "ai_assisted", "ai_automated"],
       tool_id: "agb-intelligent-kyc-assistant",
+      tool_version: "1.0.0",
     });
     const table = await screen.findByRole("table", { name: "Experiment runs" });
     const automated = await within(table).findByRole("row", { name: /C — AI automated tasks/ });

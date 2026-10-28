@@ -389,6 +389,7 @@ function ExperimentForm({ tool, onStarted }: { tool: AiTool; onStarted: (batchId
             seed: seedValue,
             modes,
             tool_id: tool.tool_id,
+            tool_version: tool.tool_version,
           },
           { onSuccess: (runs) => runs[0]?.batch_id && onStarted(runs[0].batch_id) },
         );

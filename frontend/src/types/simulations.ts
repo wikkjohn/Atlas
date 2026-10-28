@@ -39,6 +39,7 @@ export interface StartSimulation {
   scenario_version?: number;
   mode?: ExperimentMode;
   tool_id?: string | null;
+  tool_version?: string | null;
   profile: ProfileId;
   seed: number;
   applications?: number | null;
@@ -93,6 +94,7 @@ export interface StartSuite {
   employees?: number | null;
   modes: ExperimentMode[];
   tool_id: string;
+  tool_version: string;
 }
 
 export interface AiResults {

@@ -14,13 +14,13 @@ test("Simulation Center: start a seeded run, review outcomes, reproduce it exact
   await form.getByLabel("Workload").selectOption("custom");
   await form.getByLabel("Applications").fill("12");
   await form.getByLabel("Simulated staff").fill("5");
-  await form.getByLabel("Random seed").fill(seed);
+  await form.getByLabel("Random seed", { exact: true }).fill(seed);
   await form.getByRole("button", { name: "Start run" }).click();
 
   // The run executes in the background; the page polls until it finishes.
   const details = page.getByRole("region", { name: "Run details" });
   await expect(details.getByText("Completed", { exact: true })).toBeVisible({ timeout: 120_000 });
-  const heading = await details.getByRole("heading", { level: 2 }).textContent();
+  const heading = await details.getByRole("heading", { name: /^Run #/ }).textContent();
   await expect(details.getByText("Cases completed")).toBeVisible();
   await expect(details.getByText("12 / 12")).toBeVisible();
   await expect(details.getByText(`seed ${seed}`, { exact: false })).toBeVisible();
@@ -28,7 +28,7 @@ test("Simulation Center: start a seeded run, review outcomes, reproduce it exact
 
   // Re-running with the same seed reproduces the same results, and says so.
   await details.getByRole("button", { name: "Run again with this seed" }).click();
-  await expect(details.getByRole("heading", { level: 2 })).not.toHaveText(heading ?? "");
+  await expect(details.getByRole("heading", { name: /^Run #/ })).not.toHaveText(heading ?? "");
   await expect(details.getByText("Completed", { exact: true })).toBeVisible({ timeout: 120_000 });
   const original = heading?.replace("Run ", "") ?? "";
   await expect(details.getByText(`Run ${original}: identical results`)).toBeVisible();

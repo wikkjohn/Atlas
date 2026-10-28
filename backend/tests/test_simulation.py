@@ -414,3 +414,16 @@ def test_case_counts_match_the_ground_truth_mix(db: Session, session_factory) ->
         ).all()
     )
     assert {k: v["cases"] for k, v in by_kind.items()} == stored
+
+
+def test_cli_registers_every_table_on_its_own() -> None:
+    # The API imports all models; the CLI runs in its own process and must too, or the
+    # workflow → simulation foreign key cannot be resolved when the seed writes executions.
+    import subprocess
+    import sys
+
+    code = "import app.cli; from app.core.database import Base; Base.metadata.sorted_tables"
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr

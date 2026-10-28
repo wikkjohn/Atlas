@@ -49,7 +49,7 @@ Last updated: Phase 5.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | 173 passed (23 simulation tests) |
+| Backend pytest (real PostgreSQL) | 174 passed (24 simulation tests) |
 | Ruff lint + format check | clean |
 | Alembic 0004 → 0005, base ↔ head, `alembic check` | clean |
 | Frontend typecheck | clean |

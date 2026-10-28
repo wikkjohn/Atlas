@@ -11,6 +11,7 @@ import getpass
 import os
 import sys
 
+from app import models  # noqa: F401  (registers every table, as the API does)
 from app.config import get_settings
 from app.core.database import get_sessionmaker
 from app.core.errors import DomainError

@@ -84,3 +84,49 @@ test("AI Innovation Lab: try the KYC assistant, see a blocked action, run A/B/C 
   await runs.getByRole("link", { name: "C — AI automated tasks" }).click();
   await expect(page.getByRole("region", { name: "AI tool behaviour" })).toBeVisible();
 });
+
+test("Experiments: baseline vs. AI on one workload → evaluation → report → benchmarking", async ({ page }) => {
+  test.setTimeout(240_000);
+  await signIn(page, "researcher", "/");
+  await nav(page).getByRole("link", { name: "Experiments" }).click();
+  await page.getByRole("button", { name: "New experiment" }).click();
+
+  const form = page.getByRole("form", { name: "New experiment" });
+  const name = `E2E automated ${Date.now()}`;
+  await form.getByLabel("Name").fill(name);
+  await form.getByLabel("Candidate configuration").selectOption("ai_automated");
+  await form.getByLabel("Applications").fill("15");
+  await form.getByLabel("Staff").fill("5");
+  await form.getByLabel("Seed").fill(String(1 + Math.floor(Math.random() * 1_000_000)));
+  await form.getByLabel("Reviewer cost per minute").fill("0.9");
+  await page.getByRole("button", { name: "Run experiment" }).click();
+
+  // Both runs execute in the background; the evaluation appears when they finish.
+  const details = page.getByRole("region", { name: "Experiment details" });
+  await expect(details.getByRole("heading", { name: new RegExp(name) })).toBeVisible();
+  await expect(details.getByRole("list", { name: "Success criteria" })).toBeVisible({ timeout: 180_000 });
+  await expect(details.getByRole("table", { name: "Metric comparison" })).toBeVisible();
+  await expect(details.getByText("reviewer cost per minute", { exact: false }).first()).toBeAttached();
+
+  // The proof-of-concept report downloads with the assumptions and limitations.
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    details.getByRole("button", { name: "Report (.md)" }).click(),
+  ]);
+  const path = await download.path();
+  const { readFile } = await import("node:fs/promises");
+  const report = await readFile(path!, "utf8");
+  expect(report).toContain("# Proof-of-concept report");
+  expect(report).toContain("| reviewer cost per minute | 0.9 |");
+  expect(report).toContain("## Known limitations");
+
+  // Re-evaluating from the stored raw measurements reproduces the result.
+  await details.getByRole("button", { name: "Re-evaluate" }).click();
+  await expect(details.getByRole("status")).toContainText("identical result");
+
+  // Benchmarking charts the same experiment.
+  await details.getByRole("link", { name: "Benchmarking" }).click();
+  await expect(page.getByRole("table", { name: "Tool benchmarks" })).toContainText("agb-intelligent-kyc-assistant");
+  await expect(page.getByRole("figure", { name: /Processing time per case/ })).toBeVisible();
+  await expect(page.getByRole("figure", { name: /Estimated operating cost/ })).toBeVisible();
+});

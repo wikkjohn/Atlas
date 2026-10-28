@@ -29,7 +29,9 @@ export type Permission =
   | "ai_tools:read"
   | "ai_tools:manage"
   | "ai_tools:invoke"
-  | "accounts:approve_low_risk";
+  | "accounts:approve_low_risk"
+  | "experiments:read"
+  | "experiments:run";
 
 export interface Page<T> {
   items: T[];

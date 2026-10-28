@@ -14,6 +14,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.countries.router import router as countries_router
 from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
+from app.modules.experiments.router import benchmarks_router, experiments_router
 from app.modules.identity.router import auth_router, roles_router, users_router
 from app.modules.ledger.router import router as ledger_router
 from app.modules.organizations.router import router as organizations_router
@@ -41,6 +42,8 @@ for module_router in (
     tasks_router,
     simulations_router,
     ai_tools_router,
+    experiments_router,
+    benchmarks_router,
     audit_router,
 ):
     v1_router.include_router(module_router)

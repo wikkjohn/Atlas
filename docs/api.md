@@ -199,6 +199,20 @@ reported as failed with an "Interrupted" reason. See [simulation.md](simulation.
 | POST | `/api/v1/ai-tools/{id}/invoke` | `ai_tools:invoke` + the tool's `permissions` | `{action, input}` → the recorded invocation (its `status` says whether it succeeded, failed, timed out or broke a schema). A disabled tool or an action not granted → **403**, and the refused call is still recorded |
 | GET | `/api/v1/ai-tools/invocations?tool=&status=&execution_id=&simulation_run_id=` | `ai_tools:read` | Recorded invocations, newest first |
 
+### Experiments and benchmarks
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/experiments?status=&tool_id=` | `experiments:read` | Newest first, with the two runs' progress and headline changes |
+| POST | `/api/v1/experiments` | `experiments:run` | `{name, tool_id, tool_version?, candidate_mode (ai_assisted/ai_automated), scenario_id?, scenario_version?, profile (small/department/custom), applications?, employees?, seed, costs?, thresholds?}` → **202**; runs baseline and candidate, then evaluates |
+| POST | `/api/v1/experiments/from-runs` | `experiments:run` | `{name, baseline_run_id, candidate_run_id, costs?, thresholds?}` → 201, evaluated; 422 when the runs are not an equivalent baseline/candidate pair |
+| GET | `/api/v1/experiments/{id}` | `experiments:read` | Configuration, raw `measurements`, derived `evaluation` |
+| POST | `/api/v1/experiments/{id}/re-evaluate` | `experiments:read` | Recomputes from the stored raw measurements: `{stored_digest, recomputed_digest, matches}` |
+| GET | `/api/v1/experiments/{id}/report?format=markdown|json` | `experiments:read` | Downloadable proof-of-concept report; 409 until evaluated |
+| GET | `/api/v1/benchmarks` | `experiments:read` | Completed experiments by tool version and configuration: counts, successes, median relative changes, latest verdict |
+
+See [benchmarking.md](benchmarking.md) for metrics, costs and criteria.
+
 ### Audit
 
 | Method | Path | Permission | Notes |
@@ -209,4 +223,4 @@ There are no write endpoints for audit events.
 
 ### Planned
 
-`/experiments`, `/benchmarks` (Phase 7); `/analytics` (Phase 8).
+`/analytics` (Phase 8).

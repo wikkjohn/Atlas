@@ -104,6 +104,17 @@ export const apiPost = <T>(path: string, body: unknown, idempotencyKey = newIdem
 
 export const apiPatch = <T>(path: string, body: unknown) => send<T>("PATCH", path, { body });
 
+/** Fetch a file (e.g. a report) with the caller's credentials. */
+export async function apiDownload(path: string): Promise<Blob> {
+  const response = await request("GET", path);
+  if (!response.ok) {
+    const body = await readJson(response);
+    if (response.status === 401 && accessToken) onUnauthorized?.();
+    throw new ApiError(response.status, isApiErrorBody(body) ? body : null);
+  }
+  return response.blob();
+}
+
 export const apiLogin = <T>(body: unknown) =>
   send<T>("POST", "/api/v1/auth/login", { body, anonymous: true });
 

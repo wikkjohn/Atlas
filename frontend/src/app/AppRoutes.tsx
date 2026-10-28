@@ -6,11 +6,13 @@ import { AppShell } from "@/components/AppShell";
 import { AccountsPage } from "@/features/accounts/AccountsPage";
 import { AiLabPage } from "@/features/ai-lab/AiLabPage";
 import { AuditPage } from "@/features/audit/AuditPage";
+import { BenchmarkingPage } from "@/features/benchmarking/BenchmarkingPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { CountriesPage } from "@/features/countries/CountriesPage";
 import { CustomersPage } from "@/features/customers/CustomersPage";
 import { OverviewPage } from "@/features/dashboard/OverviewPage";
 import { EmployeesPage } from "@/features/employees/EmployeesPage";
+import { ExperimentsPage } from "@/features/experiments/ExperimentsPage";
 import { OrganizationPage } from "@/features/organizations/OrganizationPage";
 import { SimulationCenterPage } from "@/features/simulations/SimulationCenterPage";
 import { WorkflowExplorerPage } from "@/features/workflows/WorkflowExplorerPage";
@@ -35,6 +37,8 @@ export function AppRoutes() {
         <Route path="workflows" element={<WorkflowExplorerPage />} />
         <Route path="simulations" element={<SimulationCenterPage />} />
         <Route path="ai-lab" element={<AiLabPage />} />
+        <Route path="experiments" element={<ExperimentsPage />} />
+        <Route path="benchmarking" element={<BenchmarkingPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

@@ -202,6 +202,14 @@ Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
 `ai_status`, `automated`. Migration `0006` inserts the `automated_policy` role and the
 `atlas-policy-engine` system user (unusable password hash).
 
+### Experiment tables (Phase 7)
+
+| Table | Contents |
+| --- | --- |
+| `experiments` | `experiment_number` (identity), `name`, `scenario_id`, `scenario_version`, `baseline_run_id`, `candidate_run_id` (distinct, both → `simulation_runs`), `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `configuration` (cost assumptions + thresholds), `configuration_hash`, `status` (running, completed, failed), `failure_reason`, `created_by`, `created_at`, `completed_at` |
+| `experiment_measurements` | RAW: one row per experiment and role (baseline, candidate): `run_id`, `metrics` (jsonb), `measurement_digest`, `captured_at` |
+| `experiment_evaluations` | DERIVED: one row per experiment: `evaluation_version`, `costs`, `comparisons`, `criteria`, `verdict`, `conclusion`, `limitations`, `evaluation_digest`, `computed_at` |
+
 ### `alembic_version`
 
 Managed by Alembic. Holds the current schema revision.

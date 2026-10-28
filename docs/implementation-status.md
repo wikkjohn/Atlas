@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 6.
+Last updated: Phase 7.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -10,8 +10,45 @@ Last updated: Phase 6.
 | 4 | Workflow execution engine | **Complete** |
 | 5 | Simulation engine | **Complete** |
 | 6 | AI Innovation Lab | **Complete** |
-| 7 | Benchmarking and experiment evaluation | Not started |
-| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer, Simulation Center, AI Innovation Lab and Audit Center screens exist) |
+| 7 | Benchmarking and experiment evaluation | **Complete** |
+| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer, Simulation Center, AI Innovation Lab, Experiments, Benchmarking and Audit Center screens exist) |
+
+## Phase 7: what exists
+
+- **Experiment model** (`experiments`) linking a baseline and a candidate run, tool and
+  version, resolved configuration (cost assumptions + thresholds) and status; created by
+  running both modes on one seeded workload, or from two existing equivalent runs
+- **Raw measurements** (`experiment_measurements`) read from what runs recorded — case
+  results, workflow history, AI invocations and the account decisions, which are
+  re-checked against the authorization rules (policy violations) — stored apart from
+- **derived evaluations** (`experiment_evaluations`): a pure, digest-checked function of
+  the measurements and configuration: cost lines (review labour, oversight of automation,
+  AI execution, infrastructure, exceptions, escalations; risk exposure separately), 14
+  compared metrics with improvement and regression flags, six success criteria
+  (equivalent workloads, measurable improvement, acceptable correctness, compliance
+  thresholds, effective authorization controls, complete costs), verdict, conclusion
+  and limitations
+- **Reports:** downloadable Markdown proof-of-concept report and JSON; re-evaluation
+  proves the result reproduces; `/benchmarks` aggregates experiments by tool version
+- **UI:** Experiments (create with editable assumptions and thresholds, live status,
+  evaluation, report download, re-evaluate) and Benchmarking (tool comparison,
+  processing-time and cost charts with table views, quality and compliance, conclusions)
+- `validate_system.py` re-evaluates every evaluated experiment of a running stack
+
+## Phase 7: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 233 passed (20 benchmarking tests: hand-checked cost lines and metrics, regression detection, thresholds, complete costs, authorization violations, workload equivalence, determinism, API, reproducibility, re-pricing, policy-violation detection from tampered records, failed runs, reports, benchmarks, permissions) |
+| Ruff lint + format check | clean |
+| Alembic 0006 → 0007, base ↔ head, `alembic check` | clean |
+| Frontend typecheck | clean |
+| Vitest | 57 passed |
+| Production build | succeeds |
+| Playwright (Chromium, real backend + DB) | 12 passed — fresh local database (twice) and Docker Compose |
+| Docker Compose: upgrade 0006 → 0007, seed in container | succeeds |
+| `validate_system.py --login auditor` (Docker) | 14/14, incl. experiment re-evaluation |
+| Example experiment, 100 applications, seed 42, automated mode (local) | successful: labour −77 %, cost per case −70 %, no regressions; the fault injector in assisted mode is not successful (15 % errors) |
 
 ## Phase 6: what exists
 
@@ -274,6 +311,9 @@ Last updated: Phase 6.
   (an adapter for one implements the same contract). Adapter timeouts cancel async work;
   CPU-bound synchronous code inside an adapter cannot be interrupted.
 - The effect of AI advice on reviewers is an assumption of the scenario, not a measurement.
+- Costs are estimates from illustrative default assumptions; experiments compare one
+  baseline with one candidate on one seed (no repeated-seed statistics or confidence
+  intervals yet). The cost model has no time-of-day, overtime or capacity costs.
 - Live (non-simulated) WF-0001 cases run v2 with AI off; the UI does not offer AI modes for
   live cases.
 - Human tasks are offered to everyone holding the permissions; there is no assignment to a
@@ -297,6 +337,6 @@ Last updated: Phase 6.
 - Redis is connected and health-checked but not used by any feature yet.
 - `scripts/reset_demo.py` does not exist yet; simulation data accumulates in the
   development database (`docker compose down -v` resets everything).
-- No charting library is installed yet; one is added with the benchmarking screens (Phase 7).
+- Charts are built from plain HTML/CSS (no charting library); only paired-bar charts exist so far.
 - The frontend Docker image runs the Vite dev server; a production static image is not yet
   defined.

@@ -1,8 +1,8 @@
 # AI Innovation Lab
 
-> **Status:** the AI tool registry, adapters, invocation service, WF-0001 v2 AI modes and
-> the A/B/C experiment runs are implemented (Phase 6). The benchmarking engine with cost
-> models and formal comparisons arrives in Phase 7.
+> **Status:** implemented — the AI tool registry, adapters, invocation service, WF-0001
+> v2 AI modes and A/B/C runs (Phase 6), and the evaluation engine with cost models,
+> success criteria and reports (Phase 7, see [benchmarking.md](benchmarking.md)).
 
 ## Principles
 
@@ -139,12 +139,7 @@ automated 12 reviews, 3.9 h, 100 %, 80 policy approvals. With the fault injector
 timed-out and malformed calls were captured and escalated, and every automated-mode call
 was blocked (the action is not granted), leaving results identical to the baseline.
 
-## Phase 7: evaluation
+## Evaluation
 
-Planned: experiments linking baseline and candidate runs, cost models with explicit
-assumptions (reviewer cost per minute, AI cost per task, infrastructure, exceptions,
-escalations), derived metrics stored separately from raw measurements, success criteria
-(measurable improvement, acceptable correctness, compliance thresholds, effective
-authorization controls, equivalent workloads, costs including AI and oversight), and
-reports that state their assumptions and never present simulated estimates as verified
-savings.
+Experiments, the cost model, success criteria, regressions, reports and the
+Benchmarking screen are described in [benchmarking.md](benchmarking.md).

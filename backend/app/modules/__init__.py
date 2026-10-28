@@ -107,8 +107,8 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "experiments",
         "Experiments & benchmarking",
         7,
-        "planned",
-        "Baseline vs. candidate comparison with transparent cost assumptions.",
+        "available",
+        "Baseline vs. candidate evaluation with transparent cost assumptions and reports.",
     ),
     ModuleInfo(
         "analytics",

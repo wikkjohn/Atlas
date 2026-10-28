@@ -39,6 +39,8 @@ class Permission(StrEnum):
     AI_TOOLS_READ = "ai_tools:read"
     AI_TOOLS_MANAGE = "ai_tools:manage"  # register tools and versions, enable/disable
     AI_TOOLS_INVOKE = "ai_tools:invoke"  # call a tool directly (test console)
+    EXPERIMENTS_READ = "experiments:read"  # experiments, evaluations, benchmarks, reports
+    EXPERIMENTS_RUN = "experiments:run"  # start and evaluate experiments
 
 
 class RoleCode(StrEnum):
@@ -81,6 +83,7 @@ _BASE = frozenset(
         Permission.WORKFLOWS_READ,
         Permission.SIMULATIONS_READ,
         Permission.AI_TOOLS_READ,
+        Permission.EXPERIMENTS_READ,
     }
 )
 _FRONT_OFFICE = frozenset(
@@ -114,6 +117,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.SIMULATIONS_RUN,
         Permission.AI_TOOLS_MANAGE,
         Permission.AI_TOOLS_INVOKE,
+        Permission.EXPERIMENTS_RUN,
     },
     RoleCode.AUDITOR: _BASE
     | {

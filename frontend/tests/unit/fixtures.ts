@@ -141,6 +141,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "ai_tools:manage",
   "ai_tools:invoke",
   "accounts:approve_low_risk",
+  "experiments:read",
+  "experiments:run",
 ];
 
 function user(role: string, roleName: string, permissions: Permission[]): CurrentUser {

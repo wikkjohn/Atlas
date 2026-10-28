@@ -180,6 +180,13 @@ separate policy step and the accounts service keep final decisions with authoriz
 principals. Experiments are ordinary simulation runs in different modes on the same seed.
 See [ai-testing.md](ai-testing.md).
 
+## Benchmarking (Phase 7)
+
+`app/modules/experiments` reads raw measurements from what simulation runs recorded,
+stores them, and derives costs, comparisons, criteria and a verdict through a pure
+evaluation function (deterministic, digest-checked). Reports are generated from the
+stored records. See [benchmarking.md](benchmarking.md).
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from
@@ -188,7 +195,6 @@ See [ai-testing.md](ai-testing.md).
 - **Scoped access (later):** Phase 2 permissions are role-wide. Restricting a regional
   executive or department manager to *their* part of the hierarchy is a planned refinement.
 - **Workflow engine (Phase 4):** see [workflows.md](workflows.md).
-- **Benchmarking (Phase 7):** see [ai-testing.md](ai-testing.md#phase-7-evaluation).
 
 ## Explicit non-goals for now
 

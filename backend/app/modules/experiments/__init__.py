@@ -1,1 +1,2 @@
-"""experiments module — scheduled for Phase 7; no functionality is implemented yet."""
+"""Benchmarking and experiment evaluation: baseline vs. candidate runs, transparent cost
+assumptions, success criteria and reports."""

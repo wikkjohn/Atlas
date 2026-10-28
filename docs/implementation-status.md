@@ -51,7 +51,16 @@ Last updated: Phase 9.
 
 ## Phase 9: verified results
 
-PHASE9_RESULTS
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 266 passed (new: 9 WF-0002, 8 WF-0003, 7 workload tests — straight-through, high-value four-eyes, scam stopped, hold cleared, watchlist, invalid and unfunded payments, funds re-checked under the lock, service controls for every caller, automated release that never releases scams, bureau and pricing, underwriting, committee, policy declines, payment and loan runs, reproducibility, tampered-release detection, the screener experiment) |
+| Ruff lint + format check | clean |
+| Alembic 0007 → 0008 → 0007 → 0008, `alembic check` | clean |
+| Frontend typecheck | clean |
+| Vitest | 69 passed |
+| Production build | succeeds; no chunk-size warning |
+| Playwright (Chromium, real backend, fresh database) | 15 passed, including the new WF-0002 journey (scam held, a manager cannot clear it, the analyst rejects it, no money moves) |
+| Visual review | Payments, Lending, WF-0002 in the Workflow Explorer, the task inbox at 1440 px ([images](images/)) |
 
 ## Phase 8: what exists
 

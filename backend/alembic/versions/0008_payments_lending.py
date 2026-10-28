@@ -8,8 +8,8 @@ Create Date: 2026-10-28 16:05:58.923902+00:00
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 revision: str = "0008_payments_lending"
 down_revision: str | None = "0007_experiments"
@@ -53,7 +53,8 @@ def upgrade() -> None:
         sa.CheckConstraint("status IN ('active', 'repaid')", name=op.f("ck_loans_status_valid")),
         sa.CheckConstraint("annual_rate_bps BETWEEN 0 AND 5000", name=op.f("ck_loans_rate_valid")),
         sa.CheckConstraint(
-            "committee_approved_by IS NULL OR (committee_approved_by <> requested_by AND committee_approved_by <> underwritten_by)",
+            "committee_approved_by IS NULL OR (committee_approved_by <> requested_by "
+            "AND committee_approved_by <> underwritten_by)",
             name=op.f("ck_loans_committee_four_eyes"),
         ),
         sa.CheckConstraint("principal > 0", name=op.f("ck_loans_principal_positive")),

@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPost, query } from "@/services/api";
+import { apiGet, apiPost, query, useIdempotencyKey } from "@/services/api";
 import type { Page } from "@/types/enterprise";
 import type {
   CaseResult,
@@ -65,16 +65,24 @@ function useInvalidate() {
 
 export function useStartSimulation() {
   const invalidate = useInvalidate();
+  const once = useIdempotencyKey();
   return useMutation({
-    mutationFn: (body: StartSimulation) => apiPost<SimulationRunDetail>("/api/v1/simulations", body),
-    onSuccess: invalidate,
+    mutationFn: (body: StartSimulation) => apiPost<SimulationRunDetail>("/api/v1/simulations", body, once.key()),
+    onSuccess: () => {
+      once.renew();
+      invalidate();
+    },
   });
 }
 
 export function useRerunSimulation() {
   const invalidate = useInvalidate();
+  const once = useIdempotencyKey();
   return useMutation({
-    mutationFn: (id: string) => apiPost<SimulationRunDetail>(`/api/v1/simulations/${id}/rerun`, {}),
-    onSuccess: invalidate,
+    mutationFn: (id: string) => apiPost<SimulationRunDetail>(`/api/v1/simulations/${id}/rerun`, {}, once.key()),
+    onSuccess: () => {
+      once.renew();
+      invalidate();
+    },
   });
 }

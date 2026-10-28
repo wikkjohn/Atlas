@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import type { ApiErrorBody, HealthResponse, SystemInfo, SystemStatus } from "@/types/system";
 
 // Empty by default: the browser calls the same origin and the Vite dev server (or a
@@ -120,6 +122,18 @@ export const apiLogin = <T>(body: unknown) =>
 
 export function newIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/** One Idempotency-Key per intended action: a retry after a failure (or a double click)
+ * reuses it, so the server replays instead of acting twice; `renew` after success. */
+export function useIdempotencyKey(): { key: () => string; renew: () => void } {
+  const ref = useRef<string | null>(null);
+  return {
+    key: () => (ref.current ??= newIdempotencyKey()),
+    renew: () => {
+      ref.current = null;
+    },
+  };
 }
 
 /** Build a query string, skipping empty values. */

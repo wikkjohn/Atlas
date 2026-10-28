@@ -1,11 +1,12 @@
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, status
 from fastapi.responses import JSONResponse, Response
 
 from app.core.dependencies import DbSession
 from app.core.errors import ConflictError
+from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.experiments import report, service
@@ -19,7 +20,7 @@ from app.modules.experiments.schemas import (
     ReEvaluation,
 )
 from app.modules.identity.dependencies import Authorized
-from app.simulation.router import SessionFactory
+from app.simulation.router import SessionFactory, launch_idempotent
 
 experiments_router = APIRouter(prefix="/experiments", tags=["experiments"])
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["experiments"])
@@ -45,20 +46,31 @@ def list_experiments(
 )
 def create_experiment(
     body: ExperimentCreate,
+    request: Request,
     db: DbSession,
     actor: Authorized(Permission.EXPERIMENTS_RUN),
     tasks: BackgroundTasks,
     factory: SessionFactory,
-) -> ExperimentDetail:
-    experiment = service.create(db, body, actor.id)
-    db.commit()
-    tasks.add_task(
-        service.execute,
-        factory,
-        experiment.id,
-        [experiment.baseline_run_id, experiment.candidate_run_id],
+    idempotency_key: IdempotencyKey = None,
+):
+    def create():
+        experiment = service.create(db, body, actor.id)
+        runs = [experiment.baseline_run_id, experiment.candidate_run_id]
+        return service.detail(db, experiment), [(experiment.id, runs)]
+
+    def schedule(started: list) -> None:
+        experiment_id, runs = started[0]
+        tasks.add_task(service.execute, factory, experiment_id, runs)
+
+    return launch_idempotent(
+        db,
+        request,
+        key=idempotency_key,
+        actor_id=actor.id,
+        payload=body,
+        create=create,
+        schedule=schedule,
     )
-    return service.detail(db, experiment)
 
 
 @experiments_router.post(
@@ -68,9 +80,22 @@ def create_experiment(
     summary="Evaluate two completed, equivalent runs (e.g. with other cost assumptions)",
 )
 def create_from_runs(
-    body: ExperimentFromRuns, db: DbSession, actor: Authorized(Permission.EXPERIMENTS_RUN)
-) -> ExperimentDetail:
-    return service.detail(db, service.create_from_runs(db, body, actor.id))
+    body: ExperimentFromRuns,
+    request: Request,
+    db: DbSession,
+    actor: Authorized(Permission.EXPERIMENTS_RUN),
+    idempotency_key: IdempotencyKey = None,
+):
+    return run_idempotent(
+        db,
+        key=idempotency_key,
+        actor_id=actor.id,
+        method="POST",
+        path=request.url.path,
+        payload=body,
+        status_code=status.HTTP_201_CREATED,
+        operation=lambda: service.detail(db, service.create_from_runs(db, body, actor.id)),
+    )
 
 
 @experiments_router.get("/{experiment_id}", response_model=ExperimentDetail)

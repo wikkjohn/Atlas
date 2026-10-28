@@ -182,12 +182,12 @@ out of the task inbox, the metrics and the `run_due` timer sweep; each carries i
 | --- | --- | --- | --- |
 | GET | `/api/v1/simulations/scenarios` | `simulations:read` | Registered scenarios with their workload, workflow, modes and full configuration (`retail-onboarding` v1/v2, `domestic-payments` v1, `personal-loans` v1) |
 | GET | `/api/v1/simulations/profiles` | `simulations:read` | Workload profiles; `runnable` is false for the enterprise configuration target |
-| POST | `/api/v1/simulations` | `simulations:run` | `{scenario_id, scenario_version?, profile, seed, applications?, employees?}` (sizes only with `profile: custom`, max 10,000 / 500). **202**: the run executes in the background. One run at a time (409 otherwise); the enterprise profile is refused (422) |
+| POST | `/api/v1/simulations` | `simulations:run` | `{scenario_id, scenario_version?, profile, seed, applications?, employees?}` (sizes only with `profile: custom`, max 10,000 / 500). **202**: the run executes in the background. One run at a time (409 otherwise); the enterprise profile is refused (422); idempotent: a retry with the same key replays the started run and starts nothing |
 | GET | `/api/v1/simulations?status=` | `simulations:read` | Run registry, newest first, with progress |
 | GET | `/api/v1/simulations/{id}` | `simulations:read` | Configuration, software version, config hash, progress, results, result digest, failure reason and `reproductions` (other completed runs with the same scenario, seed, configuration and software, and whether their results match) |
 | GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
-| POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202) |
-| POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`) |
+| POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202); idempotent |
+| POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`); idempotent |
 
 `POST /api/v1/simulations` also takes `mode` (`baseline`, `ai_assisted`, `ai_automated`)
 and, for AI modes, `tool_id` (+ optional `tool_version`, default: highest active). AI
@@ -216,8 +216,8 @@ reported as failed with an "Interrupted" reason. See [simulation.md](simulation.
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/experiments?status=&tool_id=` | `experiments:read` | Newest first, with the two runs' progress and headline changes |
-| POST | `/api/v1/experiments` | `experiments:run` | `{name, tool_id, tool_version?, candidate_mode (ai_assisted/ai_automated), scenario_id?, scenario_version?, profile (small/department/custom), applications?, employees?, seed, costs?, thresholds?}` → **202**; runs baseline and candidate, then evaluates |
-| POST | `/api/v1/experiments/from-runs` | `experiments:run` | `{name, baseline_run_id, candidate_run_id, costs?, thresholds?}` → 201, evaluated; 422 when the runs are not an equivalent baseline/candidate pair |
+| POST | `/api/v1/experiments` | `experiments:run` | `{name, tool_id, tool_version?, candidate_mode (ai_assisted/ai_automated), scenario_id?, scenario_version?, profile (small/department/custom), applications?, employees?, seed, costs?, thresholds?}` → **202**; runs baseline and candidate, then evaluates; idempotent: a retry replays the experiment and runs nothing again |
+| POST | `/api/v1/experiments/from-runs` | `experiments:run` | `{name, baseline_run_id, candidate_run_id, costs?, thresholds?}` → 201, evaluated; 422 when the runs are not an equivalent baseline/candidate pair; idempotent |
 | GET | `/api/v1/experiments/{id}` | `experiments:read` | Configuration, raw `measurements`, derived `evaluation` |
 | POST | `/api/v1/experiments/{id}/re-evaluate` | `experiments:read` | Recomputes from the stored raw measurements: `{stored_digest, recomputed_digest, matches}` |
 | GET | `/api/v1/experiments/{id}/report?format=markdown|json` | `experiments:read` | Downloadable proof-of-concept report; 409 until evaluated |

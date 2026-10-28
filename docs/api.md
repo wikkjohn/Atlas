@@ -151,7 +151,7 @@ reversed entry has a reversing entry; every customer account matches its ledger 
 | GET | `/api/v1/workflows/{id}?version=` | `workflows:read` | Definition, steps, input schema, transition/approval/failure/timeout policies |
 | GET | `/api/v1/workflows/{id}/metrics` | `workflows:read` | Per-step runs, completions, failures, retries, avg/p50/p95/max duration; bottleneck step |
 | POST | `/api/v1/workflows/{id}/executions` | `workflows:start` | `{input}`; validated against the input schema; optional `Idempotency-Key` (same key → same execution, 200) |
-| GET | `/api/v1/workflow-executions` | `workflows:read` | Filters: `workflow_id`, `status`, `outcome`, `business_key` |
+| GET | `/api/v1/workflow-executions` | `workflows:read` | Filters: `workflow_id`, `status`, `outcome`, `business_key`. Live executions only, unless `simulation_run_id` asks for one simulation run's executions |
 | GET | `/api/v1/workflow-executions/{id}` | `workflows:read` | Status, outcome, context, error and every step run (attempts, actor, timings, errors) |
 | GET | `/api/v1/workflow-executions/{id}/history` | `workflows:read` | Append-only events |
 | POST | `/api/v1/workflow-executions/{id}/signals` | `workflows:start` | `{signal, payload}` for a waiting wait-state |
@@ -159,6 +159,25 @@ reversed entry has a reversing entry; every customer account matches its ledger 
 | POST | `/api/v1/workflow-executions/{id}/cancel` | `workflows:manage` | `{reason}` |
 | GET | `/api/v1/workflow-tasks?actionable=` | signed in | Open tasks/approvals with `can_act` and `blocked_reason` for the caller |
 | POST | `/api/v1/workflow-tasks/{run_id}/complete` | the step's permissions | `{decision?, data?, note?}`; four-eyes enforced; a task completes once (409 after) |
+
+Simulated executions (driven by the Phase 5 simulation engine on simulated time) are kept
+out of the task inbox, the metrics and the `run_due` timer sweep; each carries its
+`simulation_run_id`.
+
+### Simulations
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/simulations/scenarios` | `simulations:read` | Registered scenarios with their full configuration |
+| GET | `/api/v1/simulations/profiles` | `simulations:read` | Workload profiles; `runnable` is false for the enterprise configuration target |
+| POST | `/api/v1/simulations` | `simulations:run` | `{scenario_id, scenario_version?, profile, seed, applications?, employees?}` (sizes only with `profile: custom`, max 10,000 / 500). **202**: the run executes in the background. One run at a time (409 otherwise); the enterprise profile is refused (422) |
+| GET | `/api/v1/simulations?status=` | `simulations:read` | Run registry, newest first, with progress |
+| GET | `/api/v1/simulations/{id}` | `simulations:read` | Configuration, software version, config hash, progress, results, result digest, failure reason and `reproductions` (other completed runs with the same scenario, seed, configuration and software, and whether their results match) |
+| GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
+| POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes and seed (202) |
+
+Runs that stop making progress for 5 minutes (the process running them stopped) are
+reported as failed with an "Interrupted" reason. See [simulation.md](simulation.md).
 
 ### Audit
 
@@ -170,5 +189,5 @@ There are no write endpoints for audit events.
 
 ### Planned
 
-`/simulations` (Phase 5); `/ai-tools` (Phase 6);
+`/ai-tools` (Phase 6);
 `/experiments`, `/benchmarks` (Phase 7); `/analytics` (Phase 8).

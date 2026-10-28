@@ -160,6 +160,16 @@ the workflow or the API. Each step commits atomically with its handler's effects
 execution row lock prevents concurrent double execution; `run_due` resumes work after a
 restart. The engine takes `now` as a parameter so the Phase 5 simulation clock can drive it.
 
+## Simulation engine (Phase 5)
+
+`app/simulation` replays scenarios on simulated time through the real workflow engine — no
+separate model of the process. A discrete-event loop (a heap ordered by simulated time and
+insertion order) starts cases, queues approvals to simulated reviewer pools, delivers late
+documents as signals and fires timeouts; every random draw comes from a per-case stream
+derived from the seed. Simulated staff are real employees and service-account users (they
+cannot sign in) in a per-run team, so every permission and four-eyes rule applies. See
+[simulation.md](simulation.md).
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from
@@ -168,10 +178,6 @@ restart. The engine takes `now` as a parameter so the Phase 5 simulation clock c
 - **Scoped access (later):** Phase 2 permissions are role-wide. Restricting a regional
   executive or department manager to *their* part of the hierarchy is a planned refinement.
 - **Workflow engine (Phase 4):** see [workflows.md](workflows.md).
-- **Simulation (Phase 5):** seeded generators (`random.Random(seed)`, never global random)
-  with every run's scenario version, seed, configuration and software version stored. The
-  first generator (synthetic names, `app/simulation/generators.py`) already drives the
-  Phase 2 demo seed.
 - **AI lab and benchmarking (Phases 6–7):** see [ai-testing.md](ai-testing.md).
 
 ## Explicit non-goals for now

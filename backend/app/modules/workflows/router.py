@@ -104,9 +104,19 @@ def list_executions(
     status: ExecutionStatus | None = None,
     outcome: Annotated[str | None, Query(max_length=50)] = None,
     business_key: Annotated[str | None, Query(max_length=100)] = None,
+    simulation_run_id: Annotated[
+        uuid.UUID | None,
+        Query(description="List one simulation run's executions instead of live ones."),
+    ] = None,
 ) -> Page[ExecutionSummary]:
     items, total = service.list_executions(
-        db, page, workflow_id=workflow_id, status=status, outcome=outcome, business_key=business_key
+        db,
+        page,
+        workflow_id=workflow_id,
+        status=status,
+        outcome=outcome,
+        business_key=business_key,
+        simulation_run_id=simulation_run_id,
     )
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 

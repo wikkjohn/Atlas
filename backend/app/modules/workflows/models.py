@@ -94,6 +94,11 @@ class WorkflowExecution(UUIDPrimaryKey, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     step_counter: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Set for executions driven by the simulation engine (on simulated time); they are kept
+    # out of the live task inbox, the timer sweep and default listings.
+    simulation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("simulation_runs.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
 
 class WorkflowStepRun(UUIDPrimaryKey, Base):

@@ -20,6 +20,7 @@ from app.core.pagination import PageParams, paginate
 from app.core.permissions import Permission, RoleCode, permissions_for
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
+    UNUSABLE_PASSWORD_HASH,
     IssuedToken,
     create_access_token,
     hash_password,
@@ -164,6 +165,39 @@ def create_user(db: Session, data: UserCreate, actor_id: uuid.UUID | None) -> Us
         entity_type="user",
         entity_id=user.id,
         metadata={"username": user.username, "role": str(data.role)},
+    )
+    return user
+
+
+def create_service_account(
+    db: Session,
+    *,
+    username: str,
+    email: str,
+    display_name: str,
+    role: RoleCode,
+    employee_id: uuid.UUID | None,
+    actor_id: uuid.UUID | None,
+) -> User:
+    """A user that acts inside the system (e.g. simulated staff) but can never sign in."""
+    user = User(
+        username=username,
+        email=email,
+        display_name=display_name,
+        password_hash=UNUSABLE_PASSWORD_HASH,
+        role_id=get_role(db, role).id,
+        employee_id=employee_id,
+        is_active=True,
+    )
+    db.add(user)
+    db.flush()
+    record_audit_event(
+        db,
+        actor_id=actor_id,
+        action="user.service_account_created",
+        entity_type="user",
+        entity_id=user.id,
+        metadata={"username": username, "role": str(role)},
     )
     return user
 

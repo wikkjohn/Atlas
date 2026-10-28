@@ -1,5 +1,8 @@
 """Deterministic synthetic data generators.
 
+Phase 2 uses the name generator for the demo seed; Phase 5 adds the application and
+employee generators that drive simulation runs.
+
 Every generator takes an explicit seed and uses its own `random.Random` instance (never the
 global random state), so the same seed always produces the same data. Names are random
 pairings of common given names and surnames; they describe no real person.
@@ -165,3 +168,178 @@ class SyntheticNameGenerator:
 
     def integer(self, low: int, high: int) -> int:
         return self._random.randint(low, high)
+
+
+# --- Simulation generators --------------------------------------------------------------------
+
+import hashlib  # noqa: E402
+from dataclasses import dataclass  # noqa: E402
+from datetime import date  # noqa: E402
+
+# Names on the synthetic watchlist used by WF-0001's sanctions screening (fictional).
+WATCHLIST_NAMES = (
+    "Darius Vantablack",
+    "Morgana Ledgerworth",
+    "Silas Offshore",
+    "Vera Shellcompany",
+)
+DOCUMENT_PREFIX = {"passport": "P", "national_id": "N", "proof_of_address": "A"}
+
+
+def case_random(seed: int, index: int, purpose: str) -> random.Random:
+    """An independent, reproducible random stream for one case and purpose.
+
+    String seeds are hashed with SHA-512 by `random.Random`, so this does not depend on
+    PYTHONHASHSEED or on the order in which cases are processed.
+    """
+    return random.Random(f"{seed}:{index}:{purpose}")
+
+
+def document_number(document_type: str, serial: int) -> str:
+    body = f"{serial % 10**7:07d}"
+    return f"{DOCUMENT_PREFIX[document_type]}{body}{sum(int(d) for d in body) % 10}"
+
+
+@dataclass(frozen=True)
+class SyntheticApplication:
+    index: int
+    kind: str  # the ApplicationMix category
+    expected_outcome: str  # ground truth: "approved" or "rejected"
+    arrival_offset_seconds: int
+    document_delay_seconds: int | None  # None: no late documents (or never, if abandoned)
+    payload: dict
+
+
+SHOULD_REJECT = frozenset({"sanctions_hit", "forged_document", "underage", "abandoned_documents"})
+
+
+class ApplicationGenerator:
+    """Generates WF-0001 applications with known ground truth."""
+
+    def __init__(
+        self,
+        seed: int,
+        mix: dict[str, float],
+        countries: list[str],
+        arrival_window_seconds: int,
+        document_delay_seconds: tuple[int, int],
+        today: date,
+    ) -> None:
+        self.seed = seed
+        self.kinds = sorted(mix)
+        self.weights = [mix[k] for k in self.kinds]
+        self.countries = sorted(countries)
+        self.window = arrival_window_seconds
+        self.delay = document_delay_seconds
+        self.today = today
+
+    def generate(self, count: int) -> list[SyntheticApplication]:
+        return [self._one(i) for i in range(count)]
+
+    def _one(self, index: int) -> SyntheticApplication:
+        rng = case_random(self.seed, index, "application")
+        kind = rng.choices(self.kinds, weights=self.weights)[0]
+        if kind == "sanctions_hit":
+            name = rng.choice(WATCHLIST_NAMES)
+        else:
+            name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+        age = rng.randint(14, 17) if kind == "underage" else rng.randint(19, 80)
+        born = date(self.today.year - age, rng.randint(1, 12), rng.randint(1, 28))
+        serial = rng.randint(0, 9_999_999)
+        identity = {
+            "document_type": "passport" if rng.random() < 0.6 else "national_id",
+            "document_number": "",
+            "name_on_document": name,
+            "date_of_birth": born.isoformat(),
+            "expiry_date": date(self.today.year + rng.randint(1, 9), 6, 30).isoformat(),
+        }
+        identity["document_number"] = document_number(identity["document_type"], serial)
+        if kind == "forged_document":
+            number = identity["document_number"]
+            identity["document_number"] = number[:-1] + str((int(number[-1]) + 1) % 10)
+        address = {
+            "document_type": "proof_of_address",
+            "document_number": document_number("proof_of_address", serial + 1),
+            "name_on_document": name if kind != "name_mismatch" else name + "e",
+        }
+        documents = [identity]
+        late = kind in ("missing_documents", "abandoned_documents")
+        if not late:
+            documents.append(address)
+        payload = {
+            "applicant_name": name,
+            "date_of_birth": born.isoformat(),
+            "country_code": rng.choice(self.countries),
+            "account_type": "current" if rng.random() < 0.75 else "savings",
+            "documents": documents,
+            "politically_exposed": kind == "politically_exposed",
+            "expected_monthly_deposits": rng.choice([60_000, 120_000])
+            if kind == "politically_exposed"
+            else rng.randint(0, 20_000),
+            "_late_document": address if late else None,
+        }
+        return SyntheticApplication(
+            index=index,
+            kind=kind,
+            expected_outcome="rejected" if kind in SHOULD_REJECT else "approved",
+            arrival_offset_seconds=rng.randint(0, self.window),
+            document_delay_seconds=rng.randint(*self.delay)
+            if kind == "missing_documents"
+            else None,
+            payload=payload,
+        )
+
+
+@dataclass(frozen=True)
+class SyntheticStaffMember:
+    index: int
+    role: str  # teller | manager | compliance
+    first_name: str
+    last_name: str
+    job_title: str
+
+
+JOB_TITLES = {
+    "teller": "Customer Onboarding Officer",
+    "manager": "Onboarding Team Manager",
+    "compliance": "KYC Compliance Analyst",
+}
+
+
+class StaffGenerator:
+    def __init__(self, seed: int, staff_mix: dict[str, float]) -> None:
+        self.seed = seed
+        self.mix = staff_mix
+
+    def generate(self, count: int) -> list[SyntheticStaffMember]:
+        roles = sorted(self.mix)
+        total = sum(self.mix.values())
+        # Deterministic allocation by largest remainder; at least one of each role.
+        exact = {r: count * self.mix[r] / total for r in roles}
+        counts = {r: max(1, int(exact[r])) for r in roles}
+        for r in sorted(roles, key=lambda r: exact[r] - int(exact[r]), reverse=True):
+            if sum(counts.values()) >= count:
+                break
+            counts[r] += 1
+        members = []
+        for role in roles:
+            for _ in range(counts[role]):
+                rng = case_random(self.seed, len(members), "staff")
+                members.append(
+                    SyntheticStaffMember(
+                        index=len(members),
+                        role=role,
+                        first_name=rng.choice(FIRST_NAMES),
+                        last_name=rng.choice(LAST_NAMES),
+                        job_title=JOB_TITLES[role],
+                    )
+                )
+        return members
+
+
+def digest(rows: list) -> str:
+    """Stable fingerprint of a result set (used to verify reproducibility)."""
+    import json
+
+    payload = json.dumps(rows, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()

@@ -9,11 +9,13 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–4 are complete** — the platform foundation, the shared
+**Current state: Phases 1–5 are complete** — the platform foundation, the shared
 enterprise foundation (sign-in and role-based permissions, countries, the organization
-hierarchy, the employee registry and an append-only audit log), and the first banking
+hierarchy, the employee registry and an append-only audit log), the first banking
 modules (synthetic customers with KYC, approval-gated accounts and a double-entry ledger),
-and a durable workflow engine running WF-0001 Retail Account Opening end to end. See
+a durable workflow engine running WF-0001 Retail Account Opening end to end, and a
+seeded, reproducible simulation engine that drives that workflow with synthetic
+workloads. See
 [docs/implementation-status.md](docs/implementation-status.md) for what exists today and
 what is planned.
 
@@ -95,7 +97,7 @@ local development only; the seed refuses to run in staging or production.
 | `manager`    | Department Manager     | Onboard customers, request/**approve** accounts, transact, freeze/close |
 | `employee`   | Banking Employee       | Onboard customers, request accounts, deposits and withdrawals       |
 | `compliance` | Compliance Officer     | KYC decisions and risk ratings, approve (incl. high-risk), ledger, audit log |
-| `researcher` | AI Researcher          | Read-only                                                           |
+| `researcher` | AI Researcher          | Start simulation runs                                               |
 | `auditor`    | Auditor                | Compensation, users list, ledger and reconciliation, audit log      |
 
 Account opening needs two people: the requester can never approve their own request,
@@ -115,6 +117,7 @@ cannot use. To create a real administrator for a non-demo environment:
 | `make lint`         | Ruff lint and format check (backend)                               |
 | `make validate`     | Live checks against a running stack (`scripts/validate_system.py`; add `--login auditor` to also reconcile the ledger) |
 | `make seed`         | Create the demo bank and demo sign-ins (idempotent)                |
+| `make simulate`     | Run a small simulation to completion and print its results (`ARGS="--profile custom --applications 500 --employees 40 --seed 7"`) |
 
 The backend suite **drops and recreates the schema of the test database**. Point
 `ATLAS_TEST_DATABASE_URL` only at a disposable database.
@@ -141,6 +144,7 @@ endpoint are described in [docs/api.md](docs/api.md).
 | Accounts | `/api/v1/accounts` (+ `/deposits`, `/withdrawals`, `/transactions`, `/freeze`, `/unfreeze`, `/close`) |
 | Ledger | `/api/v1/ledger/accounts`, `/journal-entries` (+ `/reverse`), `/reconciliation` |
 | Workflows | `/api/v1/workflows` (+ `/{id}/executions`, `/{id}/metrics`), `/workflow-executions` (+ `/history`, `/signals`, `/resume`, `/cancel`), `/workflow-tasks` (+ `/complete`) |
+| Simulations | `/api/v1/simulations` (+ `/scenarios`, `/profiles`, `/{id}/cases`, `/{id}/rerun`) |
 | Audit | `GET /api/v1/audit-events` (read-only) |
 
 Every response carries an `X-Correlation-ID` header. Errors use one envelope:

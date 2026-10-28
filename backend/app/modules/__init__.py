@@ -93,7 +93,7 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "simulation",
         "Simulation engine",
         5,
-        "planned",
+        "available",
         "Simulation clock, scenarios, seeded synthetic data and run registry.",
     ),
     ModuleInfo(

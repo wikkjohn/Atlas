@@ -57,6 +57,10 @@ def verify_password(password: str, encoded: str) -> bool:
     return hmac.compare_digest(actual, expected)
 
 
+# Stored for service accounts (such as simulated staff) that must never sign in. It is not
+# a valid scrypt hash, so `verify_password` rejects every password against it.
+UNUSABLE_PASSWORD_HASH = "!unusable"
+
 # Verifying against a real hash when the username is unknown keeps response timing similar,
 # so login timing does not reveal which usernames exist.
 DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(16))

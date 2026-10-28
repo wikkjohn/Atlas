@@ -449,7 +449,9 @@ def open_account(ctx: StepContext) -> dict:
         requested_by=ctx.initiator_id,
     )
     # The accounts service re-applies four-eyes, high-risk and eligibility rules.
-    account = approve_request(ctx.db, request.id, _principal(ctx, approver_id), "WF-0001")
+    account = approve_request(
+        ctx.db, request.id, _principal(ctx, approver_id), "WF-0001", now=ctx.now
+    )
     ctx.set_outcome("approved")
     return {
         "account_id": str(account.id),

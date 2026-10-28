@@ -180,6 +180,16 @@ Ledger triggers (migration 0003):
 | `workflow_events` | Append-only history (`seq` identity, `event_type`, `occurred_at`, `actor_id`, `data`); triggers reject UPDATE, DELETE, TRUNCATE |
 | `customer_notifications` | Simulated messages (`customer_id`, `channel`, `subject`, `body`, `workflow_execution_id`) |
 
+`workflow_executions.simulation_run_id` (Phase 5, nullable, indexed) links executions a
+simulation drove.
+
+### Simulation tables (Phase 5)
+
+| Table | Contents |
+| --- | --- |
+| `simulation_runs` | `run_number` (identity), `scenario_id`, `scenario_version`, `workflow_id`, `workflow_version`, `profile`, `seed`, `config` (jsonb: the fully resolved configuration incl. dataset fingerprint), `config_hash`, `software_version`, `status` (queued, running, completed, failed), `failure_reason`, `created_by`, `created_at`, `started_at`, `completed_at`, `heartbeat_at`, `progress` (jsonb), `results` (jsonb), `result_digest`, `simulated_start`, `simulated_end`, `wall_ms`, `staff_unit_id` (the team employing the run's simulated staff) |
+| `simulation_case_results` | One row per case (unique `run_id`, `case_index`): `execution_id`, `kind` and `expected_outcome` (ground truth), `status`, `outcome`, `risk_rating`, `flags`, `manual_reviews`, `review_seconds`, `queue_wait_seconds`, `overdue_tasks`, `arrived_at`, `completed_at`, `cycle_seconds`, `path` (completed step ids) |
+
 ### `alembic_version`
 
 Managed by Alembic. Holds the current schema revision.

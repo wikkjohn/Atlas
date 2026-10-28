@@ -517,6 +517,7 @@ def start(
     idempotency_key: str | None = None,
     now: datetime | None = None,
     max_steps: int = MAX_STEPS_PER_ADVANCE,
+    simulation_run_id: uuid.UUID | None = None,
 ) -> tuple[WorkflowExecution, bool]:
     """Start an execution and run it until it waits, completes or fails.
 
@@ -563,6 +564,7 @@ def start(
         started_at=now,
         updated_at=now,
         step_counter=0,
+        simulation_run_id=simulation_run_id,
     )
     try:
         with db.begin_nested():
@@ -845,6 +847,8 @@ def run_due(
                 .join(WorkflowExecution, WorkflowExecution.id == WorkflowStepRun.execution_id)
                 .where(
                     WorkflowExecution.status.in_(list(ACTIVE_STATUSES)),
+                    # Simulated executions run on simulated time; only their run drives them.
+                    WorkflowExecution.simulation_run_id.is_(None),
                     or_(
                         (WorkflowStepRun.status == RunStatus.PENDING)
                         & or_(

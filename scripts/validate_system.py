@@ -81,7 +81,39 @@ def ledger_checks(api: str, username: str, password: str, timeout: float) -> lis
             + (f"failed: {', '.join(failed)}" if failed else "all checks passed"),
         )
     )
+    checks.append(simulation_check(api, login["access_token"], timeout))
     return checks
+
+
+def simulation_check(api: str, token: str, timeout: float) -> Check:
+    """Completed runs with the same scenario, seed, configuration and software must match."""
+    status, _, runs = fetch(f"{api}/api/v1/simulations?limit=200", timeout, token=token)
+    if status != 200:
+        return Check("Simulation reproducibility", False, f"HTTP {status}: {runs}")
+    groups: dict[tuple, set[str]] = {}
+    for run in runs["items"]:
+        if run["status"] == "completed":
+            key = (
+                run["scenario_id"],
+                run["scenario_version"],
+                run["seed"],
+                run["config_hash"],
+                run["software_version"],
+            )
+            groups.setdefault(key, set()).add(run["result_digest"])
+    repeated = [digests for digests in groups.values() if digests]
+    differing = sum(1 for digests in repeated if len(digests) > 1)
+    completed = sum(1 for run in runs["items"] if run["status"] == "completed")
+    return Check(
+        "Simulation reproducibility",
+        differing == 0,
+        f"{runs['total']} runs, {completed} completed; "
+        + (
+            f"{differing} configuration(s) produced different results"
+            if differing
+            else "every repeated configuration produced identical results"
+        ),
+    )
 
 
 def run_checks(api: str, frontend: str | None, timeout: float) -> list[Check]:

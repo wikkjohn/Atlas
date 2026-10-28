@@ -23,7 +23,9 @@ export type Permission =
   | "ledger:post"
   | "workflows:read"
   | "workflows:start"
-  | "workflows:manage";
+  | "workflows:manage"
+  | "simulations:read"
+  | "simulations:run";
 
 export interface Page<T> {
   items: T[];

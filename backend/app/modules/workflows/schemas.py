@@ -60,6 +60,7 @@ class ExecutionSummary(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     duration_ms: int | None
+    simulation_run_id: uuid.UUID | None = None  # set when driven on simulated time
 
 
 class StepRunOut(BaseModel):

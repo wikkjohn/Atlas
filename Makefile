@@ -28,6 +28,10 @@ seed: ## Create the demo bank and one demo sign-in per role (idempotent)
 workflows: ## Run the workflow runner (resumes due steps, applies timeouts)
 	cd $(BACKEND) && .venv/bin/python -m app.cli run-workflows --watch
 
+.PHONY: simulate
+simulate: ## Run a small simulation (override: make simulate ARGS="--profile department --seed 7")
+	cd $(BACKEND) && .venv/bin/python -m app.cli simulate $(ARGS)
+
 .PHONY: backend
 backend: ## Run the API with auto-reload on http://localhost:8000
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port 8000

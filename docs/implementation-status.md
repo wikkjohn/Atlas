@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 4.
+Last updated: Phase 5.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -8,10 +8,54 @@ Last updated: Phase 4.
 | 2 | Shared enterprise foundation | **Complete** |
 | 3 | First banking business modules | **Complete** |
 | 4 | Workflow execution engine | **Complete** |
-| 5 | Simulation engine | Not started |
+| 5 | Simulation engine | **Complete** |
 | 6 | AI Innovation Lab | Not started |
 | 7 | Benchmarking and experiment evaluation | Not started |
-| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer and Audit Center screens exist) |
+| 8 | Enterprise dashboard | Not started (shell plus Overview, Organization, Countries, Employees, Customers, Accounts, Workflow Explorer, Simulation Center and Audit Center screens exist) |
+
+## Phase 5: what exists
+
+- **Simulation clock** (forward-only, timezone-aware, fixed scenario start), **scenarios**
+  (versioned: workflow, application mix with ground truth, arrival window, document
+  delays, reviewer time and accuracy, staff mix) and **workload profiles** (small 100/25,
+  department 10,000/500, custom up to 10,000/500; enterprise 1,000,000 customers / 150,000
+  staff as an unverified configuration target that the API refuses to run)
+- **Generators:** synthetic applications (eight case types, from clean to forged and
+  sanctions hits) and synthetic staff, each draw from a per-case stream derived from the
+  seed; no personal information
+- **Runner:** discrete-event loop driving the real WF-0001 engine on simulated time —
+  tellers start cases, approvals queue to reviewer pools with lognormal review times and
+  seeded accuracy, late documents arrive as signals, timeouts fire at their due time;
+  progress and heartbeat committed every 250 events
+- **Run registry:** every run stores scenario and workflow versions, profile, seed, the
+  fully resolved configuration and its hash, the software version, timing, progress,
+  results, a result digest and per-case results against ground truth; failed runs record
+  their reason; interrupted runs are detected; one run at a time; rerun and
+  reproduction comparison
+- **Simulated staff** are real employees in a per-run team with service-account users
+  that cannot sign in, so permissions and four-eyes rules apply to them
+- **Isolation:** simulated executions carry `simulation_run_id` and are excluded from the
+  live task inbox, workflow metrics, the timer sweep and default execution listings
+- **API:** scenarios, profiles, start (background), list, detail, cases, rerun;
+  `simulations:read` (every role) and `simulations:run` (AI researcher, administrator)
+- **CLI:** `python -m app.cli simulate` / `make simulate`
+- **UI:** Simulation Center — scenario, workload and seed selection, start, live progress,
+  outcomes, decision accuracy, case types, execution statistics, reproducibility,
+  per-case results with a ground-truth mismatch filter, rerun
+- `validate_system.py --login …` also checks that every repeated configuration of a
+  running stack produced identical results
+
+## Phase 5: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 173 passed (23 simulation tests) |
+| Ruff lint + format check | clean |
+| Alembic 0004 → 0005, base ↔ head, `alembic check` | clean |
+| Frontend typecheck | clean |
+| Vitest | 48 passed |
+| Production build | succeeds |
+| Department profile (10,000 / 500) | measurement in progress — see simulation.md |
 
 ## Phase 4: what exists
 
@@ -169,6 +213,11 @@ Last updated: Phase 4.
   accounts, or statements beyond posted lines.
 - Workflow definitions are authored in code (registered at import); there is no visual
   designer or upload API, and only WF-0001 exists so far.
+- Simulation runs write into the same synthetic bank (customers, accounts, ledger postings
+  and staff remain); there is no reset command. Simulated reviewers work around the clock;
+  arrivals are uniform. Background runs live in the API process, so a restart interrupts
+  them (reported as interrupted). See [simulation.md](simulation.md) for measured
+  throughput and why the enterprise profile is only a target.
 - The workflow runner is a polling CLI process; there is no in-API background scheduler, so
   timeouts and retries fire only while `make workflows` (or the CLI) runs.
 - `ai_task` steps work with registered adapters, but no AI tools exist until Phase 6.
@@ -191,7 +240,8 @@ Last updated: Phase 4.
 - The Overview page still shows platform health only; enterprise metrics arrive with the
   Phase 8 dashboard.
 - Redis is connected and health-checked but not used by any feature yet.
-- `scripts/reset_demo.py` and `test-data/` arrive with the phases that need them (3 and 5).
+- `scripts/reset_demo.py` does not exist yet; simulation data accumulates in the
+  development database (`docker compose down -v` resets everything).
 - No charting library is installed yet; one is added with the benchmarking screens (Phase 7).
 - The frontend Docker image runs the Vite dev server; a production static image is not yet
   defined.

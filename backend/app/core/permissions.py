@@ -32,6 +32,8 @@ class Permission(StrEnum):
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
+    SIMULATIONS_READ = "simulations:read"
+    SIMULATIONS_RUN = "simulations:run"  # start simulation runs (creates synthetic data)
 
 
 class RoleCode(StrEnum):
@@ -65,6 +67,7 @@ _BASE = frozenset(
         Permission.CUSTOMERS_READ,
         Permission.ACCOUNTS_READ,
         Permission.WORKFLOWS_READ,
+        Permission.SIMULATIONS_READ,
     }
 )
 _FRONT_OFFICE = frozenset(
@@ -93,7 +96,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.ACCOUNTS_MANAGE,
         Permission.LEDGER_READ,
     },
-    RoleCode.AI_RESEARCHER: _BASE,
+    RoleCode.AI_RESEARCHER: _BASE | {Permission.SIMULATIONS_RUN},
     RoleCode.AUDITOR: _BASE
     | {
         Permission.EMPLOYEES_READ_COMPENSATION,

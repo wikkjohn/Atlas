@@ -54,6 +54,7 @@ export interface ExecutionSummary {
   started_at: string;
   completed_at: string | null;
   duration_ms: number | null;
+  simulation_run_id?: string | null;
 }
 
 export interface StepRun {

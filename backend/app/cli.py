@@ -3,6 +3,7 @@
     python -m app.cli seed-demo                 # demo bank + one sign-in per role
     python -m app.cli create-user --username ops.admin --role platform_administrator \\
         --email ops.admin@example.com --display-name "Ops Admin"   # prompts for a password
+    python -m app.cli simulate --profile small --seed 42          # one simulation run
 """
 
 import argparse
@@ -94,6 +95,51 @@ def _run_workflows(args: argparse.Namespace) -> int:
         time.sleep(args.interval)
 
 
+def _simulate(args: argparse.Namespace) -> int:
+    import json
+
+    from sqlalchemy import select
+
+    from app.modules.identity.models import User
+    from app.simulation import runner, service
+    from app.simulation.models import SimulationRun
+    from app.simulation.schemas import StartSimulation
+
+    factory = get_sessionmaker()
+    try:
+        body = StartSimulation(
+            scenario_id=args.scenario,
+            profile=args.profile,
+            seed=args.seed,
+            applications=args.applications,
+            employees=args.employees,
+        )
+        with factory() as db, db.begin():
+            actor = db.execute(
+                select(User).where(User.username == args.as_user)
+            ).scalar_one_or_none()
+            if actor is None:
+                print(f"No user '{args.as_user}'; runs are recorded against a user.")
+                return 1
+            run = service.start_run(db, body, actor.id)
+            run_id, number = run.id, run.run_number
+    except (ValueError, DomainError) as exc:
+        print(f"Could not start the simulation: {exc}")
+        return 1
+    print(f"Simulation run #{number} started ({args.profile}, seed {args.seed}).")
+    runner.execute_run(factory, run_id)
+    with factory() as db:
+        run = db.get(SimulationRun, run_id)
+        assert run is not None
+        print(f"Status: {run.status} in {(run.wall_ms or 0) / 1000:.1f}s")
+        if run.failure_reason:
+            print(f"Reason: {run.failure_reason}")
+            return 1
+        print(f"Result digest: {run.result_digest}")
+        print(json.dumps(run.results, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -115,6 +161,17 @@ def main(argv: list[str] | None = None) -> int:
     runner.add_argument("--watch", action="store_true", help="Keep running")
     runner.add_argument("--interval", type=float, default=5.0, help="Seconds between passes")
     runner.set_defaults(handler=_run_workflows)
+
+    simulate = commands.add_parser("simulate", help="Run one simulation to completion")
+    simulate.add_argument("--scenario", default="retail-onboarding")
+    simulate.add_argument(
+        "--profile", default="small", choices=["small", "department", "enterprise", "custom"]
+    )
+    simulate.add_argument("--seed", type=int, default=42)
+    simulate.add_argument("--applications", type=int, help="Custom profile only")
+    simulate.add_argument("--employees", type=int, help="Custom profile only")
+    simulate.add_argument("--as-user", default="admin", help="User the run is recorded against")
+    simulate.set_defaults(handler=_simulate)
 
     args = parser.parse_args(argv)
     return args.handler(args)

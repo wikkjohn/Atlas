@@ -110,6 +110,7 @@ def _summary(e: WorkflowExecution, names: dict[uuid.UUID, str]) -> ExecutionSumm
         started_at=e.started_at,
         completed_at=e.completed_at,
         duration_ms=duration,
+        simulation_run_id=e.simulation_run_id,
     )
 
 
@@ -121,9 +122,16 @@ def list_executions(
     status: str | None = None,
     outcome: str | None = None,
     business_key: str | None = None,
+    simulation_run_id: uuid.UUID | None = None,
 ) -> tuple[list[ExecutionSummary], int]:
     query = select(WorkflowExecution).order_by(
         WorkflowExecution.started_at.desc(), WorkflowExecution.id
+    )
+    # Simulated executions are listed only for their own run.
+    query = query.where(
+        WorkflowExecution.simulation_run_id == simulation_run_id
+        if simulation_run_id
+        else WorkflowExecution.simulation_run_id.is_(None)
     )
     if workflow_id:
         query = query.where(WorkflowExecution.workflow_id == workflow_id)
@@ -223,6 +231,7 @@ def open_tasks(
         .where(
             WorkflowStepRun.status == RunStatus.WAITING,
             WorkflowStepRun.step_type.in_([StepType.APPROVAL, StepType.HUMAN_TASK]),
+            WorkflowExecution.simulation_run_id.is_(None),
         )
         .order_by(WorkflowStepRun.due_at.asc().nullslast(), WorkflowStepRun.created_at)
     ).all()
@@ -271,7 +280,10 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
     statuses = dict(
         db.execute(
             select(WorkflowExecution.status, func.count())
-            .where(WorkflowExecution.workflow_id == workflow_id)
+            .where(
+                WorkflowExecution.workflow_id == workflow_id,
+                WorkflowExecution.simulation_run_id.is_(None),
+            )
             .group_by(WorkflowExecution.status)
         ).all()
     )
@@ -280,6 +292,7 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
             select(WorkflowExecution.outcome, func.count())
             .where(
                 WorkflowExecution.workflow_id == workflow_id,
+                WorkflowExecution.simulation_run_id.is_(None),
                 WorkflowExecution.outcome.is_not(None),
             )
             .group_by(WorkflowExecution.outcome)
@@ -293,6 +306,7 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
             )
         ).where(
             WorkflowExecution.workflow_id == workflow_id,
+            WorkflowExecution.simulation_run_id.is_(None),
             WorkflowExecution.completed_at.is_not(None),
         )
     ).scalar_one()
@@ -318,7 +332,10 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
                 func.max(WorkflowStepRun.duration_ms).label("max_ms"),
             )
             .join(WorkflowExecution, WorkflowExecution.id == WorkflowStepRun.execution_id)
-            .where(WorkflowExecution.workflow_id == workflow_id)
+            .where(
+                WorkflowExecution.workflow_id == workflow_id,
+                WorkflowExecution.simulation_run_id.is_(None),
+            )
             .group_by(WorkflowStepRun.step_id)
         ).all()
     }

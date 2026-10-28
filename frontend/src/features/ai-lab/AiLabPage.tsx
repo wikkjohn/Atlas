@@ -50,7 +50,7 @@ const INVOCATIONS_PAGE = 10;
 const TOOL_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
-/** A valid synthetic application for the test console (fictional applicant). */
+/** A valid synthetic application for the KYC test console (fictional applicant). */
 const SAMPLE_INPUT = {
   application: {
     applicant_name: "Mia Novak",
@@ -73,6 +73,15 @@ const SAMPLE_INPUT = {
   screening: { sanctions_hit: false },
   as_of: "2026-01-05",
 };
+
+/** A synthetic held payment for the payment screener's test console. */
+const SAMPLE_PAYMENT = {
+  payment: { amount: 450000, currency: "GBP", reference: "Gift card codes", channel: "online", high_value: false },
+  signals: { sanctions_hit: false, new_payee: true, recent_payments_24h: 0, share_of_balance: 0.6 },
+  as_of: "2026-01-06",
+};
+const SAMPLES: Record<string, unknown> = { rule_based_payment_screening: SAMPLE_PAYMENT };
+const CONSOLE_ACTIONS = ["analyze_application", "analyze_payment", "recommend_decision", "complete_low_risk_review"];
 
 // --- Registration ---------------------------------------------------------------------------
 
@@ -229,7 +238,7 @@ function RegisterToolDialog({ onClose, onRegistered }: { onClose: () => void; on
 function TestConsole({ tool }: { tool: AiTool }) {
   const invoke = useInvokeTool(tool.id);
   const [action, setAction] = useState(tool.allowed_actions[0] ?? "analyze_application");
-  const [input, setInput] = useState(JSON.stringify(SAMPLE_INPUT, null, 2));
+  const [input, setInput] = useState(JSON.stringify(SAMPLES[tool.adapter] ?? SAMPLE_INPUT, null, 2));
   let parsed: Record<string, unknown> | null = null;
   try {
     parsed = JSON.parse(input) as Record<string, unknown>;
@@ -251,7 +260,7 @@ function TestConsole({ tool }: { tool: AiTool }) {
       <Field label="Action" hint="Actions the tool was not granted are refused and recorded.">
         {(p) => (
           <select {...p} className={inputClass} value={action} onChange={(e) => setAction(e.target.value)}>
-            {["analyze_application", "recommend_decision", "complete_low_risk_review"].map((a) => (
+            {CONSOLE_ACTIONS.map((a) => (
               <option key={a} value={a}>
                 {a}
                 {tool.allowed_actions.includes(a) ? "" : " (not granted)"}
@@ -260,7 +269,7 @@ function TestConsole({ tool }: { tool: AiTool }) {
           </select>
         )}
       </Field>
-      <Field label="Request (synthetic application)" error={parsed ? null : "Not valid JSON."}>
+      <Field label="Request (synthetic data)" error={parsed ? null : "Not valid JSON."}>
         {(p) => (
           <textarea {...p} rows={8} className={`${inputClass} font-mono text-xs`} value={input} onChange={(e) => setInput(e.target.value)} />
         )}
@@ -427,7 +436,7 @@ function ExperimentForm({ tool, onStarted }: { tool: AiTool; onStarted: (batchId
         </div>
       </fieldset>
       <div className="grid grid-cols-3 gap-3">
-        <Field label="Applications" hint="1 – 10,000">
+        <Field label="Cases" hint="1 – 10,000">
           {(p) => <input {...p} type="number" className={inputClass} value={applications} onChange={(e) => setApplications(e.target.value)} />}
         </Field>
         <Field label="Staff" hint="3 – 500">

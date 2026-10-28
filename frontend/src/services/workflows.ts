@@ -17,7 +17,7 @@ type Params = Record<string, string | number | boolean | null | undefined>;
 function useInvalidate() {
   const client = useQueryClient();
   return () => {
-    for (const key of ["workflows", "workflow-executions", "workflow-tasks", "customers", "accounts"]) {
+    for (const key of ["workflows", "workflow-executions", "workflow-tasks", "customers", "accounts", "payments", "loans"]) {
       void client.invalidateQueries({ queryKey: [key] });
     }
   };

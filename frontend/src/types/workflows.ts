@@ -47,7 +47,7 @@ export interface ExecutionSummary {
   outcome: string | null;
   current_steps: string[];
   business_key: string | null;
-  applicant: string | null;
+  subject: string | null;
   initiated_by: string;
   initiated_by_username: string | null;
   correlation_id: string | null;
@@ -108,7 +108,7 @@ export interface WorkflowTask {
   required_permissions: string[];
   can_act: boolean;
   blocked_reason: string | null;
-  applicant: string | null;
+  subject: string | null;
   risk_rating: string | null;
   flags: string[];
   initiated_by_username: string | null;

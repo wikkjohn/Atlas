@@ -22,6 +22,7 @@ import {
 import { useAiTools } from "@/services/aiTools";
 import { downloadReport, useCreateExperiment, useExperiment, useExperiments, useReEvaluate } from "@/services/experiments";
 import { humanize } from "@/services/format";
+import { useScenarios } from "@/services/simulations";
 import {
   type CostAssumptions,
   DEFAULT_COSTS,
@@ -70,8 +71,21 @@ const RATE_KEYS = new Set<string>([
 
 function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const tools = useAiTools();
+  const scenarios = useScenarios();
   const create = useCreateExperiment();
-  const compatible = (tools.data?.items ?? []).filter((t) => t.status === "active" && t.compatible_workflows.includes("WF-0001"));
+  // Scenarios that support AI modes, latest version of each.
+  const aiScenarios = Object.values(
+    Object.fromEntries(
+      [...(scenarios.data ?? [])]
+        .filter((s) => s.modes.length > 1)
+        .sort((a, b) => a.version - b.version)
+        .map((s) => [s.scenario_id, s]),
+    ),
+  );
+  const [scenarioId, setScenarioId] = useState("retail-onboarding");
+  const scenario = aiScenarios.find((s) => s.scenario_id === scenarioId) ?? aiScenarios[0];
+  const workflowId = scenario?.workflow_id ?? "WF-0001";
+  const compatible = (tools.data?.items ?? []).filter((t) => t.status === "active" && t.compatible_workflows.includes(workflowId));
   const [name, setName] = useState("KYC assistant vs. baseline");
   const [toolId, setToolId] = useState("");
   const [mode, setMode] = useState<"ai_assisted" | "ai_automated">("ai_automated");
@@ -99,7 +113,7 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
   };
   const errors: Record<string, string | null> = {
     name: name.trim().length >= 3 ? null : "At least 3 characters.",
-    tool: tool ? null : "Register an active tool compatible with WF-0001 first.",
+    tool: tool ? null : `Register an active tool compatible with ${workflowId} first.`,
     applications: Number(applications) >= 1 && Number(applications) <= 10000 && Number.isInteger(Number(applications)) ? null : "1 – 10,000.",
     employees: Number(employees) >= 3 && Number(employees) <= 500 && Number.isInteger(Number(employees)) ? null : "3 – 500.",
     seed: Number.isInteger(Number(seed)) && Number(seed) >= 0 && seed.trim() !== "" ? null : "A whole number ≥ 0.",
@@ -116,6 +130,7 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
     create.mutate(
       {
         name: name.trim(),
+        scenario_id: scenario?.scenario_id ?? "retail-onboarding",
         tool_id: tool,
         tool_version: selectedTool?.tool_version ?? null,
         candidate_mode: mode,
@@ -140,12 +155,31 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
     <Modal title="New experiment" onClose={onClose} wide>
       <form id="new-experiment" aria-label="New experiment" onSubmit={submit} className="space-y-4">
         <p className="text-xs text-slate-500">
-          Runs the baseline (A) and the candidate on the same seeded applications and staff, one after the other, then
+          Runs the baseline (A) and the candidate on the same seeded cases and staff, one after the other, then
           evaluates them against the cost assumptions and success thresholds below. Defaults are illustrative.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Name" error={show("name")}>
             {(p) => <input {...p} className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />}
+          </Field>
+          <Field label="Scenario" hint={scenario ? `${scenario.workflow_id}: ${scenario.description}` : undefined}>
+            {(p) => (
+              <select
+                {...p}
+                className={inputClass}
+                value={scenario?.scenario_id ?? ""}
+                onChange={(e) => {
+                  setScenarioId(e.target.value);
+                  setToolId("");
+                }}
+              >
+                {aiScenarios.map((s) => (
+                  <option key={s.scenario_id} value={s.scenario_id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </Field>
           <Field label="AI tool" error={show("tool")}>
             {(p) => (
@@ -167,7 +201,7 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
             )}
           </Field>
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Applications" error={show("applications")}>
+            <Field label="Cases" error={show("applications")}>
               {(p) => <input {...p} type="number" className={inputClass} value={applications} onChange={(e) => setApplications(e.target.value)} />}
             </Field>
             <Field label="Staff" error={show("employees")}>

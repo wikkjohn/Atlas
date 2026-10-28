@@ -143,6 +143,18 @@ Reconciliation checks: every entry has ≥ 2 lines and balances; every line uses
 account in the entry's currency; debits equal credits per currency (trial balance); every
 reversed entry has a reversing entry; every customer account matches its ledger currency.
 
+### Payments and loans (Phase 9)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/payments` | `payments:read` | Filters: `status`, `account_id`, `q` (number or reference). Debtor and creditor, amount, high-value flag, initiator, approver, journal entry, rejection reason, workflow execution |
+| GET | `/api/v1/payments/{id}` | `payments:read` | One payment |
+| GET | `/api/v1/loans` | `loans:read` | Filters: `customer_id`, `status`, `q` (number or customer). Pricing, instalment, outstanding balance (from the ledger), underwriter and committee approver |
+| GET | `/api/v1/loans/{id}` | `loans:read` | One loan |
+
+Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
+`…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
+
 ### Workflows
 
 | Method | Path | Permission | Notes |
@@ -168,7 +180,7 @@ out of the task inbox, the metrics and the `run_due` timer sweep; each carries i
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/simulations/scenarios` | `simulations:read` | Registered scenarios with their full configuration |
+| GET | `/api/v1/simulations/scenarios` | `simulations:read` | Registered scenarios with their workload, workflow, modes and full configuration (`retail-onboarding` v1/v2, `domestic-payments` v1, `personal-loans` v1) |
 | GET | `/api/v1/simulations/profiles` | `simulations:read` | Workload profiles; `runnable` is false for the enterprise configuration target |
 | POST | `/api/v1/simulations` | `simulations:run` | `{scenario_id, scenario_version?, profile, seed, applications?, employees?}` (sizes only with `profile: custom`, max 10,000 / 500). **202**: the run executes in the background. One run at a time (409 otherwise); the enterprise profile is refused (422) |
 | GET | `/api/v1/simulations?status=` | `simulations:read` | Run registry, newest first, with progress |

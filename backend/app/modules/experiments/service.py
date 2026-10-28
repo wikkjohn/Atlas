@@ -122,7 +122,7 @@ def create_from_runs(db: Session, body: ExperimentFromRuns, actor_id: uuid.UUID)
     if differences or base_measure["case_fingerprint"] != cand_measure["case_fingerprint"]:
         raise BusinessRuleViolation(
             "The runs did not process equivalent workloads, so they cannot be compared.",
-            {"differences": differences or ["generated applications"]},
+            {"differences": differences or ["generated cases"]},
         )
     config, config_hash = _config(body.costs, body.thresholds)
     tool = candidate.config.get("ai_tool") or {}

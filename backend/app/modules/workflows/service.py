@@ -1,7 +1,6 @@
 """Read models for the workflow API: definitions, executions, history, tasks, metrics."""
 
 import uuid
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -103,7 +102,7 @@ def _summary(e: WorkflowExecution, names: dict[uuid.UUID, str]) -> ExecutionSumm
         outcome=e.outcome,
         current_steps=e.current_steps,
         business_key=e.business_key,
-        applicant=(e.context.get("input") or {}).get("applicant_name"),
+        subject=registry.present(e.workflow_id, e.context)["subject"],
         initiated_by=e.initiated_by,
         initiated_by_username=names.get(e.initiated_by),
         correlation_id=e.correlation_id,
@@ -249,7 +248,7 @@ def open_tasks(
             blocked = exc.message
         if actionable_only and blocked:
             continue
-        ctx: dict[str, Any] = execution.context
+        shown = registry.present(execution.workflow_id, execution.context)
         tasks.append(
             TaskOut(
                 run_id=run.id,
@@ -264,9 +263,9 @@ def open_tasks(
                 required_permissions=run.required_permissions,
                 can_act=blocked is None,
                 blocked_reason=blocked,
-                applicant=(ctx.get("input") or {}).get("applicant_name"),
-                risk_rating=(ctx.get("assign_risk_rating") or {}).get("rating"),
-                flags=(ctx.get("evaluate_compliance") or {}).get("flags") or [],
+                subject=shown["subject"],
+                risk_rating=shown["risk_rating"],
+                flags=shown["flags"],
                 initiated_by_username=names.get(execution.initiated_by),
             )
         )

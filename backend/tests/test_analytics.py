@@ -63,8 +63,8 @@ def test_overview_reports_every_required_metric(client: TestClient, db: Session)
     # Only the cost is an estimate; it says so.
     assert [k for k, m in metrics.items() if m["estimate"]] == ["simulation_cost"]
     assert metrics["countries"]["value"] == 5  # the five seeded by migration
-    assert metrics["workflows"]["value"] == 1  # WF-0001 (two versions)
-    assert "2 definition version" in metrics["workflows"]["detail"]
+    assert metrics["workflows"]["value"] == 3  # WF-0001 (two versions), WF-0002, WF-0003
+    assert "4 definition version" in metrics["workflows"]["detail"]
 
 
 def test_overview_counts_follow_the_records(api: TestClient, db: Session) -> None:

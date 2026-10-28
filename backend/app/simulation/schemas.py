@@ -14,6 +14,7 @@ class ScenarioOut(BaseModel):
     version: int
     name: str
     description: str
+    workload: str
     workflow_id: str
     workflow_version: int
     modes: list[str]

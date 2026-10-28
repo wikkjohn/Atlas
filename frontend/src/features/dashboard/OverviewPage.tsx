@@ -173,7 +173,7 @@ export function OverviewPage() {
 
       {data && (
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <Panel title="Workflow operations" subtitle="Live WF-0001 cases (simulated cases are counted per run)">
+          <Panel title="Workflow operations" subtitle="Live cases of every workflow (simulated cases are counted per run)">
             {totalLive === 0 ? (
               <p className="text-sm text-slate-500">No live workflow executions yet.</p>
             ) : (

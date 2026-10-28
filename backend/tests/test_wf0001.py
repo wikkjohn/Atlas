@@ -298,7 +298,7 @@ def test_history_metrics_and_definition_endpoints(client: TestClient, db: Sessio
     ).json()
     metrics = client.get("/api/v1/workflows/WF-0001/metrics", headers=headers).json()
     definition = client.get("/api/v1/workflows/WF-0001", headers=headers).json()
-    listing = client.get("/api/v1/workflows?q=retail", headers=headers).json()
+    listing = client.get("/api/v1/workflows?q=onboarding", headers=headers).json()
     executions = client.get(
         f"/api/v1/workflow-executions?business_key={execution['business_key']}", headers=headers
     ).json()

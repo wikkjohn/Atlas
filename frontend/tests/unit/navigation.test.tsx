@@ -23,6 +23,8 @@ describe("Application shell", () => {
       "Employees",
       "Customers",
       "Accounts",
+      "Payments",
+      "Lending",
       "Workflow Explorer",
       "Simulation Center",
       "AI Innovation Lab",
@@ -31,7 +33,7 @@ describe("Application shell", () => {
       "Audit Center",
       "System Settings",
     ]);
-    // Phase 8 completes the navigation: nothing is left disabled.
+    // Every screen is live: nothing is left disabled.
     expect(nav.querySelector("[aria-disabled='true']")).toBeNull();
     expect(screen.getAllByText("Synthetic data").length).toBeGreaterThan(0);
     expect(screen.getByText("Demo Platform Administrator")).toBeInTheDocument();

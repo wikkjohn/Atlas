@@ -126,3 +126,52 @@ export interface ReconciliationReport {
   lines_checked: number;
   checks: { name: string; passed: boolean; detail: string; failures: Record<string, unknown>[] }[];
 }
+
+// --- Phase 9: payments and lending ------------------------------------------------------
+
+export type PaymentStatus = "pending" | "released" | "rejected";
+
+export interface Payment {
+  id: string;
+  payment_number: string;
+  debtor_account_number: string;
+  debtor_name: string;
+  creditor_account_number: string;
+  creditor_name: string;
+  amount: number;
+  currency: string;
+  reference: string;
+  status: PaymentStatus;
+  high_value: boolean;
+  initiated_by_username: string | null;
+  approved_by_username: string | null;
+  journal_entry_id: string | null;
+  rejection_reason: string | null;
+  workflow_execution_id: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export type LoanPurpose = "home_improvement" | "vehicle" | "education" | "debt_consolidation" | "other";
+
+export interface Loan {
+  id: string;
+  loan_number: string;
+  customer_id: string;
+  customer_number: string;
+  customer_name: string;
+  disbursement_account_number: string;
+  principal: number;
+  currency: string;
+  annual_rate_bps: number;
+  term_months: number;
+  monthly_payment: number;
+  purpose: LoanPurpose;
+  status: "active" | "repaid";
+  outstanding: number;
+  requested_by_username: string | null;
+  underwritten_by_username: string | null;
+  committee_approved_by_username: string | null;
+  workflow_execution_id: string | null;
+  disbursed_at: string;
+}

@@ -358,6 +358,12 @@ def get_account(db: Session, account_id: uuid.UUID, *, for_update: bool = False)
     return account
 
 
+def find_account(db: Session, account_number: str) -> Account | None:
+    return db.execute(
+        select(Account).where(Account.account_number == account_number)
+    ).scalar_one_or_none()
+
+
 def list_accounts(
     db: Session,
     params: PageParams,

@@ -11,6 +11,7 @@ const scenario: Scenario = {
   version: 1,
   name: "Retail account onboarding",
   description: "A working day of synthetic retail applications.",
+  workload: "retail_onboarding",
   workflow_id: "WF-0001",
   workflow_version: 1,
   modes: ["baseline"],
@@ -127,8 +128,8 @@ describe("Simulation Center", () => {
     expect(enterprise).toBeDisabled();
 
     await userEvent.selectOptions(within(form).getByLabelText("Workload"), "custom");
-    await userEvent.clear(within(form).getByLabelText("Applications"));
-    await userEvent.type(within(form).getByLabelText("Applications"), "40");
+    await userEvent.clear(within(form).getByLabelText("Cases"));
+    await userEvent.type(within(form).getByLabelText("Cases"), "40");
     await userEvent.clear(within(form).getByLabelText("Random seed"));
     await userEvent.type(within(form).getByLabelText("Random seed"), "1234");
     await userEvent.click(within(form).getByRole("button", { name: "Start run" }));

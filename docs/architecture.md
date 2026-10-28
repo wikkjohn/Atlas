@@ -181,9 +181,9 @@ cannot sign in) in a per-run team, so every permission and four-eyes rule applie
 `app/modules/ai_tools` is the single AI registry of the platform: tool versions with JSON
 Schema contracts, an async provider-independent adapter interface, and one invocation
 service that enforces allowed actions, validates requests and results, applies timeouts
-and records every call. Workflows reach it only through `ai_task` steps (WF-0001 v2); a
-separate policy step and the accounts service keep final decisions with authorized
-principals. Experiments are ordinary simulation runs in different modes on the same seed.
+and records every call. Workflows reach it only through `ai_task` steps (WF-0001 v2,
+WF-0002); a separate policy step and the accounts or payments service keep final
+decisions with authorized principals. Experiments are ordinary simulation runs in different modes on the same seed.
 See [ai-testing.md](ai-testing.md).
 
 ## Benchmarking (Phase 7)
@@ -192,6 +192,24 @@ See [ai-testing.md](ai-testing.md).
 stores them, and derives costs, comparisons, criteria and a verdict through a pure
 evaluation function (deterministic, digest-checked). Reports are generated from the
 stored records. See [benchmarking.md](benchmarking.md).
+
+## Payments and lending (Phase 9)
+
+Two banking modules and two workflows extend the bank beyond account opening, on the same
+engine, simulation and evaluation layers:
+
+- `app/modules/payments` and `app/modules/lending` follow the banking-core pattern: one
+  service per module is the only writer (`payments.service.release`,
+  `lending.service.originate`), re-checks every control under row locks for any caller,
+  and posts through the ledger; the database repeats the four-eyes rules as CHECK
+  constraints. Read APIs only: payments and loans are created by WF-0002 and WF-0003.
+- Workflows register a **presenter** (what a case is about, its risk and flags) so the
+  task inbox and execution lists stay workflow-neutral; advisory AI steps share
+  `workflows/advisory.py`.
+- The simulation runner no longer knows any workflow: a **workload**
+  (`app/simulation/workloads.py`) produces a scenario's cases with ground truth, creates
+  the pre-existing customers they need, maps approval steps to staff roles, and re-checks
+  the decisions its cases made for the experiment measurements.
 
 ## Planned design for later phases
 

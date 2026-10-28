@@ -60,7 +60,7 @@ const task = (partial: Partial<WorkflowTask>): WorkflowTask => ({
   required_permissions: ["accounts:approve"],
   can_act: true,
   blocked_reason: null,
-  applicant: "Grace Hopper",
+  subject: "Grace Hopper",
   risk_rating: "low",
   flags: [],
   initiated_by_username: "employee",
@@ -75,7 +75,7 @@ const failedExecution: ExecutionDetail = {
   outcome: "failed",
   current_steps: [],
   business_key: null,
-  applicant: "Ada Lovelace",
+  subject: "Ada Lovelace",
   initiated_by: "u1",
   initiated_by_username: "employee",
   correlation_id: null,
@@ -160,7 +160,7 @@ describe("Workflow Explorer", () => {
     const api = mockApi(
       routes({
         "GET /api/v1/workflow-tasks": () =>
-          jsonResponse(page([task({}), task({ run_id: "run-2", applicant: "Own Case", can_act: false, blocked_reason: "Four-eyes rule: the person who started this case cannot decide it." })])),
+          jsonResponse(page([task({}), task({ run_id: "run-2", subject: "Own Case", can_act: false, blocked_reason: "Four-eyes rule: the person who started this case cannot decide it." })])),
         "POST /api/v1/workflow-tasks/run-1/complete": () => jsonResponse(failedExecution),
       }),
     );

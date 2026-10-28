@@ -9,6 +9,8 @@ from app.modules.employees import models as employees  # noqa: F401
 from app.modules.experiments import models as experiments  # noqa: F401
 from app.modules.identity import models as identity  # noqa: F401
 from app.modules.ledger import models as ledger  # noqa: F401
+from app.modules.lending import models as lending  # noqa: F401
 from app.modules.organizations import models as organizations  # noqa: F401
+from app.modules.payments import models as payments  # noqa: F401
 from app.modules.workflows import models as workflows  # noqa: F401
 from app.simulation import models as simulation  # noqa: F401

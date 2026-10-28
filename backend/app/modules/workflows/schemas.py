@@ -53,7 +53,7 @@ class ExecutionSummary(BaseModel):
     outcome: str | None
     current_steps: list[str]
     business_key: str | None
-    applicant: str | None
+    subject: str | None  # what the case is about, e.g. the applicant or the payment
     initiated_by: uuid.UUID
     initiated_by_username: str | None
     correlation_id: str | None
@@ -114,7 +114,7 @@ class TaskOut(BaseModel):
     required_permissions: list[str]
     can_act: bool
     blocked_reason: str | None
-    applicant: str | None
+    subject: str | None  # what the case is about, e.g. the applicant or the payment
     risk_rating: str | None
     flags: list[str]
     initiated_by_username: str | None

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 8.
+Last updated: Phase 9.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -13,6 +13,45 @@ Last updated: Phase 8.
 | 7 | Benchmarking and experiment evaluation | **Complete** |
 | 8 | Enterprise dashboard | **Complete** |
 | — | End-to-end demonstration (Part 12) | **Complete** — [demo.md](demo.md), automated in Playwright |
+| 9 | Additional business workflows: payments and lending | **Complete** |
+
+## Phase 9: what exists
+
+- **Payments module** (`payments` table, `GET /api/v1/payments`): the payments service is
+  the only code that moves money between customer accounts. It re-checks open accounts,
+  currency, funds (under row locks taken in id order), four-eyes and the high-value
+  approval rule for every caller, and posts one balanced ledger entry.
+- **Lending module** (`loans` table, `GET /api/v1/loans`): a deterministic synthetic credit
+  bureau, risk-based pricing by score band, level-instalment amortization,
+  debt-to-income, and `originate`, which re-checks KYC, ownership, limits, underwriting
+  authority, four-eyes and the credit committee rule, then posts loan receivable →
+  customer account. Outstanding balances come from the ledger.
+- **WF-0002 Domestic Payment:** validation, funds check, fraud and sanctions screening,
+  straight-through release of clean payments, fraud review of held payments, four-eyes
+  approval of high-value payments, an optional AI fraud screener (off / assisted /
+  automated) with a policy engine that may release low-risk holds.
+- **WF-0003 Personal Loan Origination:** validation, bureau check, pricing and
+  affordability, automatic credit-policy declines, underwriting and a credit committee
+  above 25,000, disbursement.
+- **AGB Payment Fraud Screener** (`rule_based_payment_screening`), registered by the seed;
+  `release_payment` and `approve_loan` join the actions no tool can be granted.
+- **Permissions:** `payments:read`, `payments:review` (compliance), `payments:approve`
+  (managers), `payments:release_low_risk` (policy engine), `loans:read`, `loans:approve`
+  (managers), `loans:approve_large` (regional and global executives).
+- **Workflow-neutral platform:** presenters name cases in the task inbox and execution
+  lists (`subject` replaces `applicant`); the simulation runner and the experiment
+  measurements work through **workloads**; new scenarios `domestic-payments` v1 (with AI
+  modes) and `personal-loans` v1, each with a pre-existing customer population and known
+  ground truth; experiments run on any scenario with AI modes.
+- **UI:** Payments and Lending screens; start dialogs for payments and loan applications
+  in the Workflow Explorer; scenario choice in Experiments; the AI Lab console offers a
+  payment sample to the fraud screener.
+- **Seed:** 10 payments and 6 loan applications between the seeded customers, leaving a
+  scam in the fraud review queue and applications waiting for an underwriter.
+
+## Phase 9: verified results
+
+PHASE9_RESULTS
 
 ## Phase 8: what exists
 
@@ -332,10 +371,20 @@ Last updated: Phase 8.
 
 ## Known limitations
 
-- Accounts are domestic-currency only; there is no FX, interest, fees, transfers between
-  accounts, or statements beyond posted lines.
+- Accounts are domestic-currency only; there is no FX, interest, fees, or statements
+  beyond posted lines. Payments are between accounts at ATLAS in one currency; there is no
+  external clearing, scheduling, standing orders or recall.
+- Loans are booked and disbursed but never serviced: no interest accrual, repayment
+  schedule, arrears or write-off (the `repaid` status exists but nothing sets it). The
+  credit bureau is a deterministic function of name and date of birth.
 - Workflow definitions are authored in code (registered at import); there is no visual
-  designer or upload API, and only WF-0001 exists so far.
+  designer or upload API. Three business workflows exist (WF-0001, WF-0002, WF-0003).
+- WF-0003 has no AI step yet, so `personal-loans` runs baseline only. Live WF-0002 cases
+  run with AI off; the UI offers AI modes only through simulations and experiments.
+- The default success thresholds were tuned for account opening; in `domestic-payments`
+  even the baseline exceeds the 5 % maximum false approval rate (quiet scams), so
+  experiments there fail the compliance-threshold criterion unless the thresholds are
+  changed for the scenario.
 - Simulation runs write into the same synthetic bank (customers, accounts, ledger postings
   and staff remain); there is no reset command. Simulated reviewers work around the clock;
   arrivals are uniform. Background runs live in the API process, so a restart interrupts
@@ -352,6 +401,8 @@ Last updated: Phase 8.
   intervals yet). The cost model has no time-of-day, overtime or capacity costs.
 - Live (non-simulated) WF-0001 cases run v2 with AI off; the UI does not offer AI modes for
   live cases.
+- Simulated payers are one fresh customer per case, so the payment velocity signal never
+  fires in simulations; it is covered by tests only.
 - Human tasks are offered to everyone holding the permissions; there is no assignment to a
   named person, delegation or escalation routing beyond the overdue flag.
 - Balances are computed from lines on every read; fine at demo scale, but large volumes

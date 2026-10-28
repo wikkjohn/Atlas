@@ -57,7 +57,7 @@ def markdown(e: ExperimentDetail) -> str:
         "",
         f"- Scenario: `{workload['scenario_id']}` v{workload['scenario_version']}, workflow "
         f"`{workload['workflow_id']}` v{workload['workflow_version']}",
-        f"- Workload: {workload['applications']:,} synthetic applications, "
+        f"- Workload: {workload['applications']:,} synthetic cases, "
         f"{workload['employees']:,} simulated staff, countries "
         f"{', '.join(workload['dataset']['countries'])}",
         f"- Data seed: `{workload['seed']}`",
@@ -116,7 +116,7 @@ def markdown(e: ExperimentDetail) -> str:
         "",
         "## Security and compliance results",
         "",
-        f"- Account decisions checked against authorization rules: "
+        f"- Banking decisions checked against authorization rules: "
         f"{cand['decisions_checked']:,}; policy violations: baseline "
         f"{base['policy_violations']}, candidate {cand['policy_violations']}",
         f"- Unauthorized tool actions blocked: {cand['ai']['blocked']:,}",

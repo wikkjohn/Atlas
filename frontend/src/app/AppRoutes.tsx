@@ -16,7 +16,9 @@ const CountriesPage = lazy(() => import("@/features/countries/CountriesPage").th
 const CustomersPage = lazy(() => import("@/features/customers/CustomersPage").then((m) => ({ default: m.CustomersPage })));
 const EmployeesPage = lazy(() => import("@/features/employees/EmployeesPage").then((m) => ({ default: m.EmployeesPage })));
 const ExperimentsPage = lazy(() => import("@/features/experiments/ExperimentsPage").then((m) => ({ default: m.ExperimentsPage })));
+const LoansPage = lazy(() => import("@/features/lending/LoansPage").then((m) => ({ default: m.LoansPage })));
 const OrganizationPage = lazy(() => import("@/features/organizations/OrganizationPage").then((m) => ({ default: m.OrganizationPage })));
+const PaymentsPage = lazy(() => import("@/features/payments/PaymentsPage").then((m) => ({ default: m.PaymentsPage })));
 const SettingsPage = lazy(() => import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const SimulationCenterPage = lazy(() => import("@/features/simulations/SimulationCenterPage").then((m) => ({ default: m.SimulationCenterPage })));
 const WorkflowExplorerPage = lazy(() => import("@/features/workflows/WorkflowExplorerPage").then((m) => ({ default: m.WorkflowExplorerPage })));
@@ -38,6 +40,8 @@ export function AppRoutes() {
         <Route path="employees" element={<EmployeesPage />} />
         <Route path="customers" element={<CustomersPage />} />
         <Route path="accounts" element={<AccountsPage />} />
+        <Route path="payments" element={<PaymentsPage />} />
+        <Route path="lending" element={<LoansPage />} />
         <Route path="workflows" element={<WorkflowExplorerPage />} />
         <Route path="simulations" element={<SimulationCenterPage />} />
         <Route path="ai-lab" element={<AiLabPage />} />

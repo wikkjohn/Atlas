@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ApplicationMix(BaseModel):
-    """Share of each kind of synthetic application (normalized to sum to 1)."""
+    """Retail onboarding: share of each kind of synthetic application (normalized)."""
 
     clean: float = 0.70  # legitimate, low risk
     missing_documents: float = 0.06  # legitimate; documents arrive later
@@ -22,13 +22,6 @@ class ApplicationMix(BaseModel):
     sanctions_hit: float = 0.04  # must be rejected
     forged_document: float = 0.04  # must be rejected
     underage: float = 0.03  # must be rejected
-
-    def normalized(self) -> dict[str, float]:
-        weights = self.model_dump()
-        total = sum(weights.values())
-        if total <= 0:
-            raise ValueError("The application mix must have a positive total.")
-        return {kind: weight / total for kind, weight in weights.items()}
 
 
 class ReviewerModel(BaseModel):
@@ -51,10 +44,19 @@ class AIAssistanceModel(BaseModel):
     accuracy_when_ai_wrong: float = Field(default=0.80, ge=0, le=1)  # automation bias
 
 
+def normalized(mix: dict[str, float]) -> dict[str, float]:
+    total = sum(mix.values())
+    if total <= 0 or any(weight < 0 for weight in mix.values()):
+        raise ValueError("A case mix needs non-negative weights with a positive total.")
+    return {kind: weight / total for kind, weight in mix.items()}
+
+
 class ScenarioConfig(BaseModel):
-    arrival_window_hours: float = Field(default=8.0, gt=0)  # applications arrive across this
-    document_delay_hours: tuple[float, float] = (2.0, 48.0)  # when late documents arrive
-    mix: ApplicationMix = Field(default_factory=ApplicationMix)
+    arrival_window_hours: float = Field(default=8.0, gt=0)  # cases arrive across this
+    # When late documents arrive (None: the workload has no document waits).
+    document_delay_hours: tuple[float, float] | None = (2.0, 48.0)
+    # Share of each kind of case; the kinds belong to the scenario's workload.
+    mix: dict[str, float] = Field(default_factory=lambda: ApplicationMix().model_dump())
     reviewers: dict[str, ReviewerModel] = Field(
         default_factory=lambda: {
             "account_approval": ReviewerModel(mean_minutes=12, accuracy=0.97),
@@ -74,6 +76,8 @@ class Scenario(BaseModel):
     version: int = Field(ge=1)
     name: str
     description: str
+    # How cases are generated, staffed and checked (see `app.simulation.workloads`).
+    workload: str = "retail_onboarding"
     workflow_id: str
     workflow_version: int = Field(ge=1)  # pinned: a scenario version never changes meaning
     simulated_start: datetime  # fixed, so simulated timestamps are reproducible
@@ -145,7 +149,78 @@ register_scenario(
     )
 )
 
-# Experiment modes and the WF-0001 v2 AI mode each one runs with.
+register_scenario(
+    Scenario(
+        scenario_id="domestic-payments",
+        version=1,
+        name="Domestic payments (fraud screening)",
+        description="A working day of synthetic payments through WF-0002: routine payments "
+        "to known payees, first payments, high-value transfers, authorised push-payment "
+        "scams (some with tell-tale references, some without), payments to watchlisted "
+        "payees and payments without funds. Fraud analysts review held payments and "
+        "managers approve high-value ones; the AI fraud screener can assist them or let the "
+        "policy engine release low-risk holds.",
+        workload="domestic_payments",
+        workflow_id="WF-0002",
+        workflow_version=1,
+        simulated_start=datetime(2026, 1, 6, 8, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=10.0,
+            document_delay_hours=None,
+            mix={
+                "routine": 0.50,
+                "new_payee": 0.15,
+                "high_value": 0.08,
+                "large_share": 0.07,
+                "scam": 0.08,
+                "quiet_scam": 0.04,
+                "watchlisted_payee": 0.03,
+                "insufficient_funds": 0.05,
+            },
+            reviewers={
+                "fraud_review": ReviewerModel(mean_minutes=20, accuracy=0.90),
+                "payment_approval": ReviewerModel(mean_minutes=8, accuracy=0.97),
+            },
+            staff_mix={"teller": 0.4, "manager": 0.3, "compliance": 0.3},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)
+
+register_scenario(
+    Scenario(
+        scenario_id="personal-loans",
+        version=1,
+        name="Personal loan origination",
+        description="A working day of synthetic loan applications through WF-0003 from "
+        "existing customers: prime and near-prime borrowers, large loans for the credit "
+        "committee, poor credit and over-indebted applicants the policy declines, and "
+        "applications with inflated income that only an underwriter can catch.",
+        workload="personal_loans",
+        workflow_id="WF-0003",
+        workflow_version=1,
+        simulated_start=datetime(2026, 1, 7, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            document_delay_hours=None,
+            mix={
+                "prime": 0.40,
+                "near_prime": 0.15,
+                "self_employed": 0.05,
+                "large_loan": 0.10,
+                "poor_credit": 0.10,
+                "overextended": 0.10,
+                "inflated_income": 0.10,
+            },
+            reviewers={
+                "underwriting_review": ReviewerModel(mean_minutes=25, accuracy=0.93),
+                "credit_committee": ReviewerModel(mean_minutes=30, accuracy=0.97),
+            },
+            staff_mix={"teller": 0.4, "manager": 0.45, "executive": 0.15},
+        ),
+    )
+)
+
+# Experiment modes and the AI mode each one runs with.
 MODES: dict[str, str] = {"baseline": "off", "ai_assisted": "assisted", "ai_automated": "automated"}
 
 PROFILES: dict[str, Profile] = {

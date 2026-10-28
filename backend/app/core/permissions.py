@@ -42,6 +42,14 @@ class Permission(StrEnum):
     EXPERIMENTS_READ = "experiments:read"  # experiments, evaluations, benchmarks, reports
     EXPERIMENTS_RUN = "experiments:run"  # start and evaluate experiments
     ANALYTICS_READ = "analytics:read"  # enterprise dashboard metrics
+    PAYMENTS_READ = "payments:read"
+    PAYMENTS_REVIEW = "payments:review"  # decide payments held by fraud screening
+    PAYMENTS_APPROVE = "payments:approve"  # release high-value payments (never one's own)
+    # Release flagged payments within the low-risk policy only (the automated policy engine).
+    PAYMENTS_RELEASE_LOW_RISK = "payments:release_low_risk"
+    LOANS_READ = "loans:read"
+    LOANS_APPROVE = "loans:approve"  # underwriting decisions (never one's own application)
+    LOANS_APPROVE_LARGE = "loans:approve_large"  # credit committee: loans above the limit
 
 
 class RoleCode(StrEnum):
@@ -86,6 +94,8 @@ _BASE = frozenset(
         Permission.AI_TOOLS_READ,
         Permission.EXPERIMENTS_READ,
         Permission.ANALYTICS_READ,
+        Permission.PAYMENTS_READ,
+        Permission.LOANS_READ,
     }
 )
 _FRONT_OFFICE = frozenset(
@@ -100,11 +110,22 @@ _FRONT_OFFICE = frozenset(
 ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     RoleCode.PLATFORM_ADMINISTRATOR: frozenset(Permission),
     RoleCode.GLOBAL_EXECUTIVE: _BASE
-    | {Permission.EMPLOYEES_READ_COMPENSATION, Permission.USERS_READ, Permission.LEDGER_READ},
-    RoleCode.REGIONAL_EXECUTIVE: _BASE | {Permission.EMPLOYEES_READ_COMPENSATION},
+    | {
+        Permission.EMPLOYEES_READ_COMPENSATION,
+        Permission.USERS_READ,
+        Permission.LEDGER_READ,
+        Permission.LOANS_APPROVE_LARGE,
+    },
+    RoleCode.REGIONAL_EXECUTIVE: _BASE
+    | {Permission.EMPLOYEES_READ_COMPENSATION, Permission.LOANS_APPROVE_LARGE},
     RoleCode.DEPARTMENT_MANAGER: _BASE
     | _FRONT_OFFICE
-    | {Permission.ACCOUNTS_APPROVE, Permission.ACCOUNTS_MANAGE},
+    | {
+        Permission.ACCOUNTS_APPROVE,
+        Permission.ACCOUNTS_MANAGE,
+        Permission.PAYMENTS_APPROVE,
+        Permission.LOANS_APPROVE,
+    },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
     RoleCode.COMPLIANCE_OFFICER: _BASE
     | {
@@ -113,6 +134,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.ACCOUNTS_APPROVE,
         Permission.ACCOUNTS_MANAGE,
         Permission.LEDGER_READ,
+        Permission.PAYMENTS_REVIEW,
     },
     RoleCode.AI_RESEARCHER: _BASE
     | {
@@ -129,7 +151,13 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.LEDGER_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
-        {Permission.CUSTOMERS_READ, Permission.ACCOUNTS_READ, Permission.ACCOUNTS_APPROVE_LOW_RISK}
+        {
+            Permission.CUSTOMERS_READ,
+            Permission.ACCOUNTS_READ,
+            Permission.ACCOUNTS_APPROVE_LOW_RISK,
+            Permission.PAYMENTS_READ,
+            Permission.PAYMENTS_RELEASE_LOW_RISK,
+        }
     ),
 }
 

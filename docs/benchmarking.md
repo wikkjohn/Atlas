@@ -31,7 +31,7 @@ Stored separately, so the derivation can be audited and repeated:
 
 | Stored in | What | Source |
 | --- | --- | --- |
-| `experiment_measurements` (raw, one row per run) | cases, completions, outcomes vs. ground truth, manual reviews, review and wait seconds, escalations (compliance reviews), automated approvals, overdue tasks, document timeouts, failed executions, AI invocations by status, cycle-time statistics, account decisions checked and policy violations, workload fingerprint | the run's recorded case results, workflow executions and history, AI invocations, and the account requests its cases decided |
+| `experiment_measurements` (raw, one row per run) | cases, completions, outcomes vs. ground truth, manual reviews, review and wait seconds, escalations (compliance reviews, fraud reviews or credit committee, by workload), automated approvals, overdue tasks, document timeouts, failed executions, AI invocations by status, cycle-time statistics, banking decisions checked and policy violations, workload fingerprint | the run's recorded case results, workflow executions and history, AI invocations, and the banking decisions its cases made: account requests (onboarding), released payments (four-eyes, high-value authority) or booked loans (underwriting authority, committee), re-checked by the scenario's workload |
 | `experiment_evaluations` (derived) | costs, metric comparisons, criteria, verdict, conclusion, limitations, evaluation digest | a pure function of the two raw measurement sets and the configuration |
 
 **Policy violations** are found by re-checking every account decision the run's cases

@@ -10,6 +10,7 @@ from app.modules.employees.models import Employee
 from app.modules.identity.models import User
 from app.modules.ledger import service as ledger
 from app.modules.organizations.models import Organization
+from app.modules.payments.models import Payment
 from app.seed import DEMO_USERS, seed_demo
 from app.simulation.generators import SyntheticNameGenerator
 
@@ -75,11 +76,25 @@ def test_demo_seed_builds_a_consistent_bank_and_is_rerunnable(db: Session) -> No
     assert sum(n for (status, _), n in states.items() if status == "waiting") > 2
     assert ledger.reconcile(db, None).ok
 
+    # Phase 9: payments and loan applications between the seeded customers.
+    assert (report.payment_cases, report.loan_cases) == (10, 6)
+    by_workflow = Counter(
+        (e.workflow_id, e.status)
+        for e in db.execute(
+            select(WorkflowExecution).where(WorkflowExecution.workflow_id != "WF-0001")
+        ).scalars()
+    )
+    assert by_workflow[("WF-0002", "completed")] > 0
+    assert by_workflow[("WF-0002", "waiting")] > 0  # a scam left in the fraud review queue
+    assert by_workflow[("WF-0003", "completed")] + by_workflow[("WF-0003", "waiting")] == 6
+    assert db.execute(select(func.count()).select_from(Payment)).scalar_one() > 0
+
     customers_before = db.execute(select(func.count()).select_from(Customer)).scalar_one()
     again = seed_demo(db, "demo-password-123", seed=99)
 
     assert again.skipped_structure and again.users == [] and again.employees == 0
     assert again.skipped_banking and again.customers == 0
     assert again.skipped_workflows and again.workflow_cases == 0
+    assert again.skipped_payments_and_loans and again.payment_cases == 0
     assert db.execute(select(func.count()).select_from(Organization)).scalar_one() == 64
     assert db.execute(select(func.count()).select_from(Customer)).scalar_one() == customers_before

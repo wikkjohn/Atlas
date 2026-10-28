@@ -121,6 +121,8 @@ DEFAULT_DEPOSIT_RANGE = (100, 25_000)
 
 
 WORKFLOW_CASES = 20
+PAYMENT_CASES = 10
+LOAN_CASES = 6
 
 
 @dataclass
@@ -136,6 +138,9 @@ class SeedReport:
     skipped_banking: bool = False
     workflow_cases: int = 0
     skipped_workflows: bool = False
+    payment_cases: int = 0
+    loan_cases: int = 0
+    skipped_payments_and_loans: bool = False
     ai_tools: list[str] = field(default_factory=list)
 
 
@@ -427,6 +432,108 @@ def _build_workflow_cases(db: Session, names: SyntheticNameGenerator, report: Se
         engine.complete_task(db, task.id, reviewer, decision=decision, note="Seeded decision")
 
 
+def _open_accounts(db: Session) -> list[tuple]:
+    """Open current accounts of live (non-simulated) verified customers, with balances."""
+    from app.modules.accounts.models import Account
+    from app.modules.ledger import service as ledger
+    from app.modules.ledger.models import LedgerAccount
+
+    rows = db.execute(
+        select(Account, LedgerAccount)
+        .join(LedgerAccount, LedgerAccount.id == Account.ledger_account_id)
+        .join(Customer, Customer.id == Account.customer_id)
+        .where(
+            Account.status == "open",
+            Account.account_type == AccountType.CURRENT,
+            Customer.kyc_status == KycStatus.VERIFIED,
+            Account.currency != "JPY",  # product limits are set in two-decimal currencies
+        )
+        .order_by(Account.account_number)
+    ).all()
+    amounts = ledger.balances(db, [ledger_account for _, ledger_account in rows])
+    return [(account, amounts[ledger_account.id]) for account, ledger_account in rows]
+
+
+def _build_payment_and_loan_cases(
+    db: Session, names: SyntheticNameGenerator, report: SeedReport
+) -> None:
+    """Run WF-0002 payments and WF-0003 loan applications between seeded customers."""
+    from app.modules.workflows import engine
+    from app.modules.workflows.models import WorkflowStepRun
+
+    teller = _principal(db, "employee")
+    manager = _principal(db, "manager")
+    compliance = _principal(db, "compliance")
+    accounts = _open_accounts(db)
+    if not (teller and manager and compliance) or len(accounts) < 4:
+        report.skipped_payments_and_loans = True
+        return
+
+    def waiting(execution_id) -> WorkflowStepRun | None:
+        return db.execute(
+            select(WorkflowStepRun).where(
+                WorkflowStepRun.execution_id == execution_id, WorkflowStepRun.status == "waiting"
+            )
+        ).scalar_one_or_none()
+
+    funded = [(a, balance) for a, balance in accounts if balance > 0]
+    for index in range(PAYMENT_CASES):
+        debtor, balance = funded[(index * 7) % len(funded)]
+        payees = [a for a, _ in accounts if a.currency == debtor.currency and a.id != debtor.id]
+        if not payees:
+            continue
+        creditor = payees[(index * 3) % len(payees)]
+        share = 0.9 if index % 5 == 3 else names.integer(5, 30) / 100
+        reference = "Gift card codes for the tax office" if index % 5 == 1 else f"Invoice {index}"
+        execution, _ = engine.start(
+            db,
+            workflow_id="WF-0002",
+            payload={
+                "debtor_account_number": debtor.account_number,
+                "creditor_account_number": creditor.account_number,
+                "amount": max(1, int(balance * share)),
+                "currency": debtor.currency,
+                "reference": reference,
+            },
+            initiator=teller,
+            idempotency_key=f"seed-wf0002-{index}",
+        )
+        report.payment_cases += 1
+        task = waiting(execution.id)
+        if task is None or index == 1:
+            continue  # leave a scam waiting in the fraud review queue
+        decision = "reject" if index % 5 == 1 else "approve"
+        reviewer = compliance if task.step_id == "fraud_review" else manager
+        engine.complete_task(db, task.id, reviewer, decision=decision, note="Seeded decision")
+
+    for index in range(LOAN_CASES):
+        account, _ = accounts[(index * 5 + 2) % len(accounts)]
+        income = names.integer(4_000, 9_000)
+        overextended = index % 3 == 2
+        execution, _ = engine.start(
+            db,
+            workflow_id="WF-0003",
+            payload={
+                "customer_number": account.customer.customer_number,
+                "disbursement_account_number": account.account_number,
+                "amount": to_minor_units(names.integer(5, 20) * 1_000, account.currency),
+                "term_months": 36,
+                "purpose": "home_improvement" if index % 2 else "vehicle",
+                "monthly_income": to_minor_units(income, account.currency),
+                "monthly_debt_payments": to_minor_units(
+                    income // 2 if overextended else income // 20, account.currency
+                ),
+                "employment_status": "employed",
+            },
+            initiator=teller,
+            idempotency_key=f"seed-wf0003-{index}",
+        )
+        report.loan_cases += 1
+        task = waiting(execution.id)
+        if task is not None and index % 3 == 1:
+            engine.complete_task(db, task.id, manager, decision="approve", note="Seeded decision")
+
+
 def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedReport:
     report = SeedReport()
     names = SyntheticNameGenerator(seed)
@@ -486,11 +593,22 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
         report.skipped_workflows = True
     else:
         _build_workflow_cases(db, SyntheticNameGenerator(seed + 2), report)
+    if db.execute(
+        select(WorkflowExecution.id)
+        .where(
+            WorkflowExecution.workflow_id == "WF-0002",
+            WorkflowExecution.simulation_run_id.is_(None),
+        )
+        .limit(1)
+    ).first():
+        report.skipped_payments_and_loans = True
+    else:
+        _build_payment_and_loan_cases(db, SyntheticNameGenerator(seed + 3), report)
     _register_ai_tools(db, report)
     return report
 
 
-# The candidate tool of the AI Innovation Lab and a deliberately unreliable test double.
+# The candidate tools of the AI Innovation Lab and a deliberately unreliable test double.
 DEMO_AI_TOOLS = [
     {
         "tool_id": "agb-intelligent-kyc-assistant",
@@ -521,6 +639,20 @@ DEMO_AI_TOOLS = [
         "allowed_actions": ["analyze_application", "recommend_decision"],
         "permissions": ["customers:read"],
         "compatible_workflows": ["WF-0001"],
+    },
+    {
+        "tool_id": "agb-payment-fraud-screener",
+        "tool_name": "AGB Payment Fraud Screener",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews payments that screening has held: scam indicators in the "
+        "reference, behavioural signals and sanctions results, with a risk classification, "
+        "explanation and a release, reject or escalate recommendation. Advisory: it never "
+        "releases or stops a payment.",
+        "adapter": "rule_based_payment_screening",
+        "allowed_actions": ["analyze_payment", "recommend_decision", "complete_low_risk_review"],
+        "permissions": ["payments:read"],
+        "compatible_workflows": ["WF-0002"],
     },
 ]
 

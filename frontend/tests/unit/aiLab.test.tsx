@@ -53,6 +53,7 @@ const scenarioV2: Scenario = {
   version: 2,
   name: "Retail account onboarding (AI experiments)",
   description: "",
+  workload: "retail_onboarding",
   workflow_id: "WF-0001",
   workflow_version: 2,
   modes: ["baseline", "ai_assisted", "ai_automated"],

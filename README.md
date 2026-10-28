@@ -9,12 +9,14 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: all eight phases are complete.** ATLAS runs a synthetic global bank —
+**Current state: Phases 1–9 are complete.** ATLAS runs a synthetic global bank —
 sign-in and role-based permissions, countries, the organization hierarchy, the workforce,
-customers with KYC, approval-gated accounts, a double-entry ledger and an append-only
-audit log — with a durable workflow engine executing WF-0001 Retail Account Opening; a
-seeded, reproducible simulation engine; the AI Innovation Lab (a provider-independent AI
-tool registry and the rule-based AGB Intelligent KYC Assistant); an evaluation engine that
+customers with KYC, approval-gated accounts, a double-entry ledger, domestic payments,
+personal loans and an append-only audit log — with a durable workflow engine executing
+three business workflows (WF-0001 Retail Account Opening, WF-0002 Domestic Payment,
+WF-0003 Personal Loan Origination); a seeded, reproducible simulation engine with a
+scenario for each; the AI Innovation Lab (a provider-independent AI tool registry, the
+rule-based AGB Intelligent KYC Assistant and AGB Payment Fraud Screener); an evaluation engine that
 compares baseline and AI-supported runs under transparent cost assumptions and success
 criteria; and an enterprise dashboard over all of it. The end-to-end demonstration —
 AI-assisted account opening from sign-in to an exported proof-of-concept report — is
@@ -72,7 +74,7 @@ optionally Redis.
    cp .env.example .env    # set ATLAS_REDIS_URL= (empty) if you are not running Redis
    make setup
    make migrate
-   make seed               # demo bank: orgs, employees, 8 sign-ins, customers, accounts, WF-0001 cases
+   make seed               # demo bank: orgs, employees, 8 sign-ins, customers, accounts, workflow cases
    ```
 
 3. **Run** (two terminals):

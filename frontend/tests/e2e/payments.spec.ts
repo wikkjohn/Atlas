@@ -10,7 +10,7 @@ async function as(browser: Browser, username: string, path: string): Promise<Pag
 
 /** The first option of a select whose trailing "(balance)" is above `minimum`. */
 async function fundedOption(page: Page, label: string, minimum: number): Promise<string> {
-  const select = page.getByRole("dialog").getByLabel(label);
+  const select = page.getByRole("dialog").getByLabel(label, { exact: true });
   await expect(select.locator("option").nth(1)).toBeAttached();
   const options = await select.locator("option").evaluateAll((nodes) =>
     nodes.map((n) => ({ value: (n as HTMLOptionElement).value, text: n.textContent ?? "" })),
@@ -32,7 +32,7 @@ test("WF-0002: a scam payment is held, a fraud analyst stops it and no money mov
   await teller.getByRole("button", { name: /Domestic Payment/ }).click();
   await teller.getByRole("button", { name: "Start a payment" }).click();
   const form = teller.getByRole("dialog");
-  await form.getByLabel("Paying account").selectOption(await fundedOption(teller, "Paying account", 20));
+  await form.getByLabel("Paying account", { exact: true }).selectOption(await fundedOption(teller, "Paying account", 20));
   await form.getByLabel("Payee account").selectOption({ index: 1 });
   const payee = await form.getByLabel("Payee account").inputValue();
   await form.getByLabel(/^Amount/).fill(amount);

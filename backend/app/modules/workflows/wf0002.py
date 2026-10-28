@@ -13,10 +13,11 @@ passes. All accounts, payees and watchlists are synthetic.
 """
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.core.audit import record_audit_event
 from app.core.money import minor_unit_exponent
@@ -25,13 +26,16 @@ from app.modules.accounts.service import find_account
 from app.modules.customers.models import CustomerNotification
 from app.modules.ledger import service as ledger
 from app.modules.payments import service as payments
+from app.modules.payments.models import PaymentStatus
 from app.modules.workflows import advisory
 from app.modules.workflows.definition import WorkflowDefinition
 from app.modules.workflows.engine import StepContext
+from app.modules.workflows.models import WorkflowExecution
 from app.modules.workflows.principals import policy_engine, principal
 from app.modules.workflows.registry import (
     Presenter,
     ai_task,
+    on_cancel,
     register_definition,
     register_presenter,
     service_task,
@@ -480,6 +484,17 @@ def notify_customer(ctx: StepContext) -> dict:
     ctx.db.add(notification)
     ctx.db.flush()
     return {"sent": True, "notification_id": str(notification.id), "subject": subject}
+
+
+@on_cancel(WORKFLOW_ID)
+def cancel_payment(db: Session, execution: WorkflowExecution, reason: str, now: datetime) -> None:
+    """A cancelled case must not leave its payment pending forever."""
+    payment_id = (execution.context.get("validate_payment") or {}).get("payment_id")
+    if not payment_id:
+        return
+    payment = payments.get_payment(db, uuid.UUID(payment_id))
+    if payment.status == PaymentStatus.PENDING:
+        payments.reject(db, payment.id, f"Workflow cancelled: {reason}", now=now)
 
 
 register_definition(DEFINITION, PaymentInstruction)

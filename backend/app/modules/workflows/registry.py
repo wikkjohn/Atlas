@@ -19,6 +19,9 @@ _INPUT_MODELS: dict[tuple[str, int], type[BaseModel]] = {}
 _SERVICE_HANDLERS: dict[str, Handler] = {}
 _AI_HANDLERS: dict[str, Handler] = {}
 _PRESENTERS: dict[str, "Presenter"] = {}
+# Called when an execution is cancelled, so a workflow can close what it opened.
+CancelHandler = Callable[[Any, Any, str, Any], None]  # (db, execution, reason, now)
+_CANCEL_HANDLERS: dict[str, CancelHandler] = {}
 
 
 class Presenter(BaseModel):
@@ -103,6 +106,18 @@ def get_definition(workflow_id: str, version: int | None = None) -> WorkflowDefi
 
 def input_model(workflow_id: str, version: int) -> type[BaseModel]:
     return _INPUT_MODELS[(workflow_id, version)]
+
+
+def on_cancel(workflow_id: str) -> Callable[[CancelHandler], CancelHandler]:
+    def register(func: CancelHandler) -> CancelHandler:
+        _CANCEL_HANDLERS[workflow_id] = func
+        return func
+
+    return register
+
+
+def cancel_handler(workflow_id: str) -> CancelHandler | None:
+    return _CANCEL_HANDLERS.get(workflow_id)
 
 
 def register_presenter(workflow_id: str, presenter: Presenter) -> None:

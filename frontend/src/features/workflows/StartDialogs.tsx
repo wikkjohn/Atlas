@@ -26,6 +26,60 @@ function accountLabel(a: Account): string {
   return `${a.account_number} · ${a.customer_name} (${formatExactMoney(a.balance, a.currency)})`;
 }
 
+const PICKER_PAGE = 50;
+
+interface AccountPickerProps {
+  label: string;
+  searchLabel: string;
+  value: Account | null;
+  onChange: (account: Account | null) => void;
+  /** Extra server-side filters, e.g. a currency or account type. */
+  filters?: Record<string, string | null | undefined>;
+  /** Client-side guard on the options (the server filters too). */
+  allow?: (account: Account) => boolean;
+  describe?: (account: Account) => string;
+  error?: string | null;
+}
+
+/** Open accounts, searched on the server by number or customer name, so any account can be
+ * chosen however many exist. The chosen account stays selected while the search changes. */
+function AccountPicker({ label, searchLabel, value, onChange, filters, allow, describe = accountLabel, error }: AccountPickerProps) {
+  const [q, setQ] = useState("");
+  const accounts = useAccounts({ status: "open", q: q.trim() || null, limit: PICKER_PAGE, ...filters });
+  const found = (accounts.data?.items ?? []).filter((a) => !allow || allow(a));
+  const options = value && !found.some((a) => a.id === value.id) ? [value, ...found] : found;
+  const total = accounts.data?.total ?? 0;
+  return (
+    <div className="space-y-1.5">
+      <input
+        aria-label={searchLabel}
+        placeholder="Search by account number or customer"
+        className={inputClass}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      <Field label={label} error={error} hint={total > PICKER_PAGE ? `First ${PICKER_PAGE} of ${total.toLocaleString()} — search to narrow.` : undefined}>
+        {(p) => (
+          <select
+            {...p}
+            className={inputClass}
+            value={value?.account_number ?? ""}
+            onChange={(e) => onChange(options.find((a) => a.account_number === e.target.value) ?? null)}
+          >
+            <option value="">Select…</option>
+            {options.map((a) => (
+              <option key={a.id} value={a.account_number}>
+                {describe(a)}
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+      <ErrorMessage error={accounts.error} />
+    </div>
+  );
+}
+
 function StartFooter({ form, pending, label, onClose }: { form: string; pending: boolean; label: string; onClose: () => void }) {
   return (
     <>
@@ -41,18 +95,17 @@ function StartFooter({ form, pending, label, onClose }: { form: string; pending:
 
 export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
   const start = useStartExecution("WF-0002");
-  const accounts = useAccounts({ status: "open", limit: 100 });
   const [key] = useState(newIdempotencyKey);
-  const [form, setForm] = useState({ debtor: "", creditor: "", amount: "", reference: "" });
+  const [debtor, setDebtor] = useState<Account | null>(null);
+  const [creditor, setCreditor] = useState<Account | null>(null);
+  const [form, setForm] = useState({ amount: "", reference: "" });
   const [submitted, setSubmitted] = useState(false);
   const set = (k: keyof typeof form, v: string) => setForm({ ...form, [k]: v });
-  const items = accounts.data?.items ?? [];
-  const debtor = items.find((a) => a.account_number === form.debtor);
-  const payees = items.filter((a) => a.account_number !== form.debtor && (!debtor || a.currency === debtor.currency));
+  const payable = (a: Account) => a.id !== debtor?.id && (!debtor || a.currency === debtor.currency);
   const amount = debtor ? minorUnits(form.amount, debtor.currency) : Number.NaN;
   const errors = {
     debtor: debtor ? null : "Choose the paying account.",
-    creditor: payees.some((a) => a.account_number === form.creditor) ? null : "Choose a payee in the same currency.",
+    creditor: creditor && payable(creditor) ? null : "Choose a payee in the same currency.",
     amount: Number.isNaN(amount) ? "Enter an amount above zero." : null,
     reference: form.reference.trim() ? null : "A reference is required.",
   };
@@ -61,13 +114,13 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     setSubmitted(true);
-    if (Object.values(errors).some(Boolean) || !debtor) return;
+    if (Object.values(errors).some(Boolean) || !debtor || !creditor) return;
     start.mutate(
       {
         idempotencyKey: key,
         input: {
           debtor_account_number: debtor.account_number,
-          creditor_account_number: form.creditor,
+          creditor_account_number: creditor.account_number,
           amount,
           currency: debtor.currency,
           reference: form.reference.trim(),
@@ -86,30 +139,26 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
       footer={<StartFooter form="wf0002-start" pending={start.isPending} label="Submit payment" onClose={onClose} />}
     >
       <form id="wf0002-start" aria-label="New domestic payment" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Paying account" error={show("debtor")}>
-          {(p) => (
-            <select {...p} className={inputClass} value={form.debtor} onChange={(e) => setForm({ ...form, debtor: e.target.value, creditor: "" })}>
-              <option value="">Select…</option>
-              {items.map((a) => (
-                <option key={a.id} value={a.account_number}>
-                  {accountLabel(a)}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-        <Field label="Payee account" error={show("creditor")}>
-          {(p) => (
-            <select {...p} className={inputClass} value={form.creditor} onChange={(e) => set("creditor", e.target.value)}>
-              <option value="">Select…</option>
-              {payees.map((a) => (
-                <option key={a.id} value={a.account_number}>
-                  {a.account_number} · {a.customer_name}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+        <AccountPicker
+          label="Paying account"
+          searchLabel="Search paying accounts"
+          value={debtor}
+          onChange={(a) => {
+            setDebtor(a);
+            setCreditor(null);
+          }}
+          error={show("debtor")}
+        />
+        <AccountPicker
+          label="Payee account"
+          searchLabel="Search payees"
+          value={creditor}
+          onChange={setCreditor}
+          filters={{ currency: debtor?.currency }}
+          allow={payable}
+          describe={(a) => `${a.account_number} · ${a.customer_name}`}
+          error={show("creditor")}
+        />
         <Field label={`Amount${debtor ? ` (${debtor.currency})` : ""}`} hint="High-value payments (10,000 or more) need a second approver." error={show("amount")}>
           {(p) => <input {...p} type="number" min={0} step="any" className={inputClass} value={form.amount} onChange={(e) => set("amount", e.target.value)} />}
         </Field>
@@ -121,7 +170,7 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
         Screening holds payments with scam indicators (for example a reference mentioning gift cards), payees on the synthetic
         watchlist and first payments that empty an account; fraud analysts decide them.
       </p>
-      <ErrorMessage error={accounts.error ?? start.error} className="mt-4" />
+      <ErrorMessage error={start.error} className="mt-4" />
     </Modal>
   );
 }
@@ -136,10 +185,9 @@ const PURPOSES = [
 
 export function StartLoanDialog({ onClose, onStarted }: DialogProps) {
   const start = useStartExecution("WF-0003");
-  const accounts = useAccounts({ status: "open", limit: 100 });
   const [key] = useState(newIdempotencyKey);
+  const [account, setAccount] = useState<Account | null>(null);
   const [form, setForm] = useState({
-    account: "",
     amount: "",
     term_months: "36",
     purpose: "home_improvement",
@@ -149,8 +197,6 @@ export function StartLoanDialog({ onClose, onStarted }: DialogProps) {
   });
   const [submitted, setSubmitted] = useState(false);
   const set = (k: keyof typeof form, v: string) => setForm({ ...form, [k]: v });
-  const current = (accounts.data?.items ?? []).filter((a) => a.account_type === "current");
-  const account = current.find((a) => a.account_number === form.account);
   const currency = account?.currency ?? "USD";
   const amount = minorUnits(form.amount, currency);
   const income = minorUnits(form.monthly_income, currency);
@@ -193,18 +239,16 @@ export function StartLoanDialog({ onClose, onStarted }: DialogProps) {
       footer={<StartFooter form="wf0003-start" pending={start.isPending} label="Submit application" onClose={onClose} />}
     >
       <form id="wf0003-start" aria-label="New personal loan application" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Customer and disbursement account" error={show("account")}>
-          {(p) => (
-            <select {...p} className={inputClass} value={form.account} onChange={(e) => set("account", e.target.value)}>
-              <option value="">Select…</option>
-              {current.map((a) => (
-                <option key={a.id} value={a.account_number}>
-                  {a.customer_name} · {a.account_number}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+        <AccountPicker
+          label="Customer and disbursement account"
+          searchLabel="Search customers"
+          value={account}
+          onChange={setAccount}
+          filters={{ account_type: "current" }}
+          allow={(a) => a.account_type === "current"}
+          describe={(a) => `${a.customer_name} · ${a.account_number}`}
+          error={show("account")}
+        />
         <Field label={`Amount (${currency})`} hint="Personal loans: 1,000 to 50,000; above 25,000 the credit committee also decides." error={show("amount")}>
           {(p) => <input {...p} type="number" min={0} step="any" className={inputClass} value={form.amount} onChange={(e) => set("amount", e.target.value)} />}
         </Field>
@@ -253,7 +297,7 @@ export function StartLoanDialog({ onClose, onStarted }: DialogProps) {
         The credit bureau is synthetic: each customer's score is derived from their name and date of birth. Applications that
         break the credit policy are declined automatically; the rest go to an underwriter.
       </p>
-      <ErrorMessage error={accounts.error ?? start.error} className="mt-4" />
+      <ErrorMessage error={start.error} className="mt-4" />
     </Modal>
   );
 }

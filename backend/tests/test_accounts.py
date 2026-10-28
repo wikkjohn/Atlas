@@ -362,3 +362,20 @@ def test_approval_uses_the_customer_state_under_the_lock(db: Session) -> None:
     with pytest.raises(PermissionDeniedError) as denied:
         approve_request(db, request.id, principal(staff.manager), "approve")
     assert denied.value.details == {"rule": "high_risk_requires_compliance"}
+
+
+def test_accounts_can_be_filtered_by_type(client: TestClient, db: Session) -> None:
+    staff = make_staff(db)
+    customer = make_customer(db)
+    current = open_account(db, staff, customer)
+    savings = open_account(db, staff, customer, AccountType.SAVINGS)
+    headers = auth(staff.employee)
+
+    found = client.get(
+        "/api/v1/accounts",
+        params={"customer_id": str(customer.id), "account_type": "savings"},
+        headers=headers,
+    ).json()
+
+    assert [a["id"] for a in found["items"]] == [str(savings.id)]
+    assert str(current.id) not in {a["id"] for a in found["items"]}

@@ -292,3 +292,24 @@ def test_automated_mode_releases_low_risk_holds_but_never_scams(db: Session) -> 
     off = run(90_000, "Rent November")
     assert off["policy_release"]["failed_checks"] == ["policy_engine_unavailable"]
     assert off["_status"] == "waiting"
+
+
+def test_cancelling_a_held_payment_rejects_it(client: TestClient, db: Session) -> None:
+    staff = make_staff(db)
+    debtor = funded_account(db, staff, balance=5_000_000)
+    creditor = funded_account(db, staff)
+    held = _start(client, staff.employee, payment(debtor, creditor, 1_500_000))
+    assert held["current_steps"] == ["payment_approval"]
+
+    response = client.post(
+        f"/api/v1/workflow-executions/{held['id']}/cancel",
+        json={"reason": "Customer withdrew the instruction"},
+        headers=auth(staff.admin),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled"
+    record = _payment(db, held)
+    assert record.status == "rejected"
+    assert record.rejection_reason == "Workflow cancelled: Customer withdrew the instruction"
+    assert _balance(db, debtor) == 5_000_000

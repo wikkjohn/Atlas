@@ -163,6 +163,13 @@ describe("Starting payments and loan applications", () => {
     await userEvent.selectOptions(paying, await within(paying).findByRole("option", { name: /US000000004257/ }));
     const payees = within(within(dialog).getByLabelText("Payee account")).getAllByRole("option").map((o) => o.textContent);
     expect(payees).toEqual(["Select…", "US000000004351 · Ines Costa"]); // not itself, not the EUR account
+    // Payees are searched on the server in the payer's currency, so any account can be found.
+    await userEvent.type(within(dialog).getByLabelText("Search payees"), "Costa");
+    await waitFor(() =>
+      expect(
+        api.requests.some((r) => r.path === "/api/v1/accounts" && r.search.get("q") === "Costa" && r.search.get("currency") === "USD"),
+      ).toBe(true),
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: "Submit payment" }));
     expect(within(dialog).getByText("Enter an amount above zero.")).toBeInTheDocument();
     expect(api.requests.some((r) => r.method === "POST")).toBe(false);
@@ -203,6 +210,7 @@ describe("Starting payments and loan applications", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Submit application" }));
 
     await screen.findByRole("dialog", { name: "Workflow execution" });
+    expect(api.requests.some((r) => r.path === "/api/v1/accounts" && r.search.get("account_type") === "current")).toBe(true);
     expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({
       input: {
         customer_number: "CUS-0000002",

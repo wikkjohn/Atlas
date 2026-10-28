@@ -372,6 +372,7 @@ def list_accounts(
     customer_id: uuid.UUID | None = None,
     status: str | None = None,
     currency: str | None = None,
+    account_type: str | None = None,
 ) -> tuple[list[Account], int]:
     query = (
         select(Account)
@@ -389,6 +390,8 @@ def list_accounts(
         query = query.where(Account.status == status)
     if currency:
         query = query.where(Account.currency == currency)
+    if account_type:
+        query = query.where(Account.account_type == account_type)
     return paginate(db, query, params)
 
 

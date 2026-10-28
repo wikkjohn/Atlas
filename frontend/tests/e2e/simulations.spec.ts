@@ -61,6 +61,8 @@ test("AI Innovation Lab: try the KYC assistant, see a blocked action, run A/B/C 
 
   // The fault injector was not granted complete_low_risk_review: the call is blocked.
   await registry.getByRole("button", { name: /KYC Fault Injector/ }).click();
+  // Act only once the details show the fault injector, not the previous tool.
+  await expect(details.getByRole("heading", { name: "KYC Fault Injector (test double)" })).toBeVisible();
   const faulty = details.getByRole("form", { name: "Test console" });
   await faulty.getByLabel("Action").selectOption("complete_low_risk_review");
   await faulty.getByRole("button", { name: "Invoke" }).click();

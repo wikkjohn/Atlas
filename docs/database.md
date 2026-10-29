@@ -175,6 +175,16 @@ Ledger triggers (migration 0003):
 | `journal_entries_guard`, `journal_entries_no_truncate` | Entries cannot be deleted; the only permitted update is status posted → reversed |
 | `journal_lines_maintain_balance` (migration 0010) | Adds each new line to its account's stored totals in `ledger_balances` |
 
+### Search and sort indexes (Phase 13, migration `0011_search_indexes`)
+
+The `pg_trgm` extension and GIN trigram indexes for substring searches:
+`customers.name`, `customers.customer_number`, `accounts.account_number`,
+`ledger_accounts.code`, `ledger_accounts.name`, `payments.payment_number`,
+`payments.reference`, `loans.loan_number`. Two-column btree indexes for list orders:
+`accounts (opened_at, account_number)`, `account_requests (created_at, id)`,
+`payments (created_at, payment_number)`, `loans (disbursed_at, loan_number)` — each list
+sorts both columns descending so the index is read backwards. No table changes.
+
 ### Stored balances and reconciliation history (Phase 12, migration `0010_stored_balances`)
 
 | Table | Contents |

@@ -22,6 +22,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     Sequence,
     String,
@@ -33,7 +34,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.core.models import UUIDPrimaryKey
+from app.core.models import UUIDPrimaryKey, trigram_index
 
 LOAN_NUMBER_SEQUENCE = Sequence("loan_number_seq", start=1)
 
@@ -63,6 +64,8 @@ class LoanPurpose(StrEnum):
 class Loan(UUIDPrimaryKey, Base):
     __tablename__ = "loans"
     __table_args__ = (
+        trigram_index("loans", "loan_number"),
+        Index("ix_loans_disbursed_at_number", "disbursed_at", "loan_number"),
         CheckConstraint("status IN ('active', 'repaid', 'written_off')", name="status_valid"),
         CheckConstraint("(status = 'active') = (closed_at IS NULL)", name="closed_has_date"),
         CheckConstraint("principal > 0", name="principal_positive"),

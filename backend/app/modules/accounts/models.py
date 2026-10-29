@@ -6,7 +6,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Sequence, S
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.core.models import Timestamps, UUIDPrimaryKey
+from app.core.models import Timestamps, UUIDPrimaryKey, trigram_index
 from app.modules.customers.models import Customer
 
 ACCOUNT_NUMBER_SEQUENCE = Sequence("account_number_seq", start=1)
@@ -35,6 +35,7 @@ class AccountRequest(UUIDPrimaryKey, Timestamps, Base):
 
     __tablename__ = "account_requests"
     __table_args__ = (
+        Index("ix_account_requests_created_at_id", "created_at", "id"),
         CheckConstraint("status IN ('pending', 'approved', 'rejected')", name="status_valid"),
         CheckConstraint(
             "account_type IN ('current', 'savings', 'business_current')",
@@ -82,6 +83,8 @@ class Account(UUIDPrimaryKey, Base):
 
     __tablename__ = "accounts"
     __table_args__ = (
+        trigram_index("accounts", "account_number"),
+        Index("ix_accounts_opened_at_number", "opened_at", "account_number"),
         CheckConstraint(
             "account_type IN ('current', 'savings', 'business_current')",
             name="account_type_valid",

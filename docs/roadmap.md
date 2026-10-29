@@ -41,13 +41,14 @@ millions of customers and an AI testing laboratory at that scale.
 - [x] Incremental reconciliation (only what changed since the last checkpoint) with history
       (Phase 12)
 - [ ] Partition the largest tables (journal lines, workflow step runs, events, audit log)
-- [ ] Bulk loading with COPY for generated data; index and query-plan review
+- [x] Bulk loading with COPY for generated data; index and query-plan review (Phase 13)
 - [ ] Queue-backed job system on Redis with multiple worker processes (same codebase)
 - [ ] Built-in scheduler: workflow timers, loan servicing, statements, reconciliation
 - [ ] Reset / archive command for simulation data
 - [ ] Performance test suite with recorded targets (started: `bench-ledger`, Phase 12)
 - [ ] Observability: metrics, slow-query log, worker throughput
 - [ ] **Exit:** `department` profile repeatable; 1M customers / 100k applications measured
+      (1M customers loaded and measured in Phase 13; 100k applications still to do)
 
 ## Milestone B — Workflow factory
 
@@ -151,4 +152,6 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Step | Scope | Status |
 | --- | --- | --- |
 | Phase 12 (A1) | Stored balances, incremental reconciliation, ledger benchmark | complete |
-| Phase 13 (A2, proposed) | Bulk loading and a faster posting path; reset / archive of simulation data | next |
+| Phase 13 (A2) | Bulk posting, 1M-customer population loader, search and sort indexes | complete |
+| Phase 14 (A3, proposed) | Job queue and worker processes, scheduler (reconciliation, servicing, workflow timers) | next |
+| Later in A | Partitioning with archive / reset of simulation data; observability | |

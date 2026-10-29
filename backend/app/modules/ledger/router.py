@@ -44,9 +44,12 @@ def list_ledger_accounts(
     currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
     account_type: LedgerAccountType | None = None,
     q: Annotated[str | None, Query(max_length=100)] = None,
+    code_prefix: Annotated[
+        str | None, Query(max_length=60, description="Codes starting with this, e.g. 1000-")
+    ] = None,
 ) -> Page[LedgerAccountOut]:
     items, total = service.list_ledger_accounts(
-        db, page, currency=currency, account_type=account_type, q=q
+        db, page, currency=currency, account_type=account_type, q=q, code_prefix=code_prefix
     )
     amounts = service.balances(db, items)
     return Page(

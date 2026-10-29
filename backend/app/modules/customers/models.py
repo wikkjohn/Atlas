@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.core.models import Timestamps, UUIDPrimaryKey
+from app.core.models import Timestamps, UUIDPrimaryKey, trigram_index
 from app.modules.countries.models import Country
 
 CUSTOMER_NUMBER_SEQUENCE = Sequence("customer_number_seq", start=1)
@@ -53,6 +53,8 @@ KYC_TRANSITIONS: dict[KycStatus, frozenset[KycStatus]] = {
 class Customer(UUIDPrimaryKey, Timestamps, Base):
     __tablename__ = "customers"
     __table_args__ = (
+        trigram_index("customers", "name"),
+        trigram_index("customers", "customer_number"),
         CheckConstraint("customer_type IN ('individual', 'business')", name="customer_type_valid"),
         CheckConstraint(
             "risk_rating IN ('unrated', 'low', 'medium', 'high')", name="risk_rating_valid"

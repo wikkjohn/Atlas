@@ -198,8 +198,13 @@ def list_ledger_accounts(
     currency: str | None = None,
     account_type: str | None = None,
     q: str | None = None,
+    code_prefix: str | None = None,
 ) -> tuple[list[LedgerAccount], int]:
     query = select(LedgerAccount).order_by(LedgerAccount.code)
+    if code_prefix:
+        # A prefix uses the code's btree index; a substring search (q) needs trigrams and
+        # is slow for patterns most codes contain.
+        query = query.where(LedgerAccount.code.startswith(code_prefix, autoescape=True))
     if currency:
         query = query.where(LedgerAccount.currency == currency)
     if account_type:

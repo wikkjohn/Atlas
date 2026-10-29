@@ -137,11 +137,16 @@ digits (e.g. `US000000004257`). They are synthetic, not IBANs.
 | POST | `/api/v1/ledger/journal-entries` | `ledger:post` | Manual balanced entry; **Idempotency-Key required**; same key + same body replays (200), different body 409 |
 | GET | `/api/v1/ledger/journal-entries/{id}` | `ledger:read` | Lines, `reversal_of_id`, `reversed_by_id` |
 | POST | `/api/v1/ledger/journal-entries/{id}/reverse` | `ledger:post` | `{reason}`; posts the opposite entry; **Idempotency-Key required** |
-| POST | `/api/v1/ledger/reconciliation` | `ledger:read` | Runs the checks below; the run is audited |
+| POST | `/api/v1/ledger/reconciliation` | `ledger:read` | `?mode=full` (default) or `incremental` (entries posted since the previous run, with a 10-minute overlap). Runs the checks below; the run is recorded and audited (Phase 12: `id`, `run_number`, `mode`, `window_start`, `window_end`, `duration_ms`) |
+| GET | `/api/v1/ledger/reconciliations` | `ledger:read` | Reconciliation history, latest first: mode, result, failed checks, entries and lines checked, duration, who ran it (Phase 12) |
+| GET | `/api/v1/ledger/reconciliations/{id}` | `ledger:read` | One recorded report (Phase 12) |
 
 Reconciliation checks: every entry has ≥ 2 lines and balances; every line uses a ledger
 account in the entry's currency; debits equal credits per currency (trial balance); every
-reversed entry has a reversing entry; every customer account matches its ledger currency.
+reversed entry has a reversing entry; every customer account matches its ledger currency;
+stored balances match their lines (Phase 12). Incremental runs limit the entry, currency,
+reversal and account checks to the window and compare the stored balances of up to 500
+accounts it touched; the trial balance always covers the whole ledger, from the stored totals.
 
 ### Payments and loans (Phase 9)
 
@@ -150,8 +155,15 @@ reversed entry has a reversing entry; every customer account matches its ledger 
 | GET | `/api/v1/payments` | `payments:read` | Filters: `status`, `account_id`, `q` (number or reference). Debtor and creditor, amount, high-value flag, initiator, approver, journal entry, rejection reason, workflow execution |
 | GET | `/api/v1/payments/{id}` | `payments:read` | One payment |
 | GET | `/api/v1/loans` | `loans:read` | Filters: `customer_id`, `status`, `q` (number or customer). Pricing, instalment, outstanding balance (from the ledger), underwriter and committee approver |
-| GET | `/api/v1/loans/{id}` | `loans:read` | One loan |
+| GET | `/api/v1/loans/{id}` | `loans:read` | One loan, with its servicing state: instalments paid of total, next due date and amount, days past due, arrears amount and bucket, closed on, written off by |
+| GET | `/api/v1/loans/{id}/schedule` | `loans:read` | Repayment schedule: number, due date, principal, interest, instalment, status, paid on (Phase 10) |
+| GET | `/api/v1/loans/{id}/payoff-quote` | `loans:read` | Outstanding principal + interest already accrued, and the date it would be booked on (Phase 10) |
+| POST | `/api/v1/loans/{id}/repayments` | `loans:repay` | **Idempotency-Key required.** Body `{"instalments": n}` (optional; default all): settles the oldest overdue instalments from the borrower's account. 409 if nothing is overdue, 422 on insufficient funds (Phase 10) |
+| POST | `/api/v1/loans/{id}/payoff` | `loans:repay` | **Idempotency-Key required.** Settles the loan early (payoff quote) and closes it as repaid; remaining instalments become `prepaid` (Phase 10) |
+| GET | `/api/v1/loans/servicing-runs` | `loans:read` | Servicing runs, latest first; the first one's `as_of` is the lending business date (Phase 10) |
+| POST | `/api/v1/loans/servicing-runs` | `loans:service` | Body `{"as_of": "YYYY-MM-DD"}`; optional Idempotency-Key. Accrues interest and collects every instalment due up to `as_of`; 422 if `as_of` is before the business date (Phase 10) |
 
+Write-offs have no endpoint: only the WF-0004 credit-committee approval writes a loan off.
 Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
 `…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
 

@@ -27,9 +27,10 @@ import {
   useLedgerAccounts,
   useMovement,
   useReconciliation,
+  useReconciliationRuns,
   useTransactions,
 } from "@/services/banking";
-import { currencyDigits, formatMoney, toMinorUnits } from "@/services/format";
+import { currencyDigits, formatMoney, humanize, toMinorUnits } from "@/services/format";
 import type { Account, AccountRequest } from "@/types/banking";
 
 const PAGE_SIZE = 25;
@@ -437,6 +438,44 @@ function RequestsTab() {
   );
 }
 
+function ReconciliationHistory() {
+  const runs = useReconciliationRuns();
+  if (!runs.data?.items.length) return null;
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table aria-label="Reconciliation history" className="min-w-full text-sm">
+        <thead className="text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
+          <tr>
+            <th className="px-2 py-1">Run</th>
+            <th className="px-2 py-1">Mode</th>
+            <th className="px-2 py-1">Result</th>
+            <th className="px-2 py-1 text-right">Entries</th>
+            <th className="px-2 py-1 text-right">Duration</th>
+            <th className="px-2 py-1">By</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {runs.data.items.map((r) => (
+            <tr key={r.id}>
+              <td className="px-2 py-1.5">
+                <span className="font-mono text-xs">#{r.run_number}</span>
+                <span className="ml-2 text-[11px] text-slate-400">{formatTimestamp(r.created_at)}</span>
+              </td>
+              <td className="px-2 py-1.5">{humanize(r.mode)}</td>
+              <td className={`px-2 py-1.5 ${r.ok ? "text-emerald-700" : "text-rose-700"}`}>
+                {r.ok ? "Passed" : `Failed: ${r.failed_checks.join(", ")}`}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{r.entries_checked.toLocaleString()}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{r.duration_ms} ms</td>
+              <td className="px-2 py-1.5 text-slate-600">{r.run_by_username ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function LedgerTab() {
   const [currency, setCurrency] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -452,21 +491,31 @@ function LedgerTab() {
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Reconciliation</h2>
             <p className="text-xs text-slate-500">
-              Verifies every entry balances, currencies match, and debits equal credits per currency. Each run is
-              audited.
+              Verifies every entry balances, currencies match, debits equal credits per currency and the stored
+              balances match their lines. An incremental check covers what was posted since the last run; a full
+              run checks everything. Every run is recorded and audited.
             </p>
           </div>
-          <Button onClick={() => reconciliation.mutate()} disabled={reconciliation.isPending}>
-            {reconciliation.isPending ? "Running…" : "Run reconciliation"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => reconciliation.mutate("incremental")} disabled={reconciliation.isPending}>
+              Incremental check
+            </Button>
+            <Button onClick={() => reconciliation.mutate("full")} disabled={reconciliation.isPending}>
+              {reconciliation.isPending ? "Running…" : "Full reconciliation"}
+            </Button>
+          </div>
         </div>
         <ErrorMessage error={reconciliation.error} className="mt-3" />
         {report && (
           <div className="mt-4">
             <p className={`text-sm font-medium ${report.ok ? "text-emerald-700" : "text-rose-700"}`}>
-              {report.ok ? "All checks passed" : "Reconciliation found problems"} · {report.entries_checked} entries,{" "}
-              {report.lines_checked} lines
+              {report.ok ? "All checks passed" : "Reconciliation found problems"} · run #{report.run_number} (
+              {report.mode}) · {report.entries_checked} entries, {report.lines_checked} lines
+              {report.duration_ms !== null && ` · ${report.duration_ms} ms`}
             </p>
+            {report.window_start && (
+              <p className="text-xs text-slate-500">Entries posted since {formatTimestamp(report.window_start)}</p>
+            )}
             <ul className="mt-2 space-y-1 text-sm">
               {report.checks.map((check) => (
                 <li key={check.name} className="flex items-start gap-2">
@@ -484,6 +533,7 @@ function LedgerTab() {
             </ul>
           </div>
         )}
+        <ReconciliationHistory />
       </section>
 
       <div className="flex items-center gap-3">

@@ -143,7 +143,8 @@ class WorkflowStepRun(UUIDPrimaryKey, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # BIGINT: a wait state (e.g. a collections case) can last months.
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

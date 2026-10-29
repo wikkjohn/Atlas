@@ -492,9 +492,11 @@ class PersonalLoans(Workload):
             country = rng.choice(sim.countries)
             currency = currencies[country]
             low, high = SCORE_BANDS[kind]
-            for _ in range(2_000):  # names are drawn until the bureau score fits the kind
+            for _ in range(2_000):  # names are drawn until the bureau file fits the kind
                 name, born = _person(rng, today, 25, 64)
-                if low <= lending.bureau_report(name, born)["score"] <= high:
+                if low <= lending.bureau_report(name, born)["score"] <= high and self.fits(
+                    kind, name, born
+                ):
                     break
             else:
                 raise ValueError(f"No synthetic applicant found for {kind}.")
@@ -505,6 +507,7 @@ class PersonalLoans(Workload):
             else:
                 amount, income = rng.randint(5_000, 20_000), rng.randint(4_000, 9_000)
                 term = rng.choice([24, 36, 48, 60])
+            income = self.declared_income(sim.seed, index, kind, name, born, income)
             debt_share = rng.uniform(0.45, 0.6) if kind == "overextended" else rng.uniform(0, 0.1)
             employment = (
                 "self_employed"
@@ -535,6 +538,16 @@ class PersonalLoans(Workload):
             )
         return out
 
+    def fits(self, kind: str, name: str, born: date) -> bool:
+        """Further conditions on a synthetic applicant beyond the score band."""
+        return True
+
+    def declared_income(
+        self, seed: int, index: int, kind: str, name: str, born: date, drawn: int
+    ) -> int:
+        """The monthly income (major units) the applicant declares."""
+        return drawn
+
     def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
         """Every loan against four-eyes, underwriting authority and the committee rule."""
         underwriter, committee = User.__table__.alias(), User.__table__.alias()
@@ -551,7 +564,11 @@ class PersonalLoans(Workload):
             found = []
             if loan.underwritten_by == loan.requested_by:
                 found.append("four_eyes")
-            if Permission.LOANS_APPROVE not in roles.get(underwriter_role, frozenset()):
+            authority = roles.get(underwriter_role, frozenset())
+            if Permission.LOANS_APPROVE not in authority and not (
+                Permission.LOANS_APPROVE_LOW_RISK in authority
+                and lending.within_automation_limit(loan.principal, loan.currency)
+            ):
                 found.append("underwriter_without_authority")
             if lending.needs_committee(loan.principal, loan.currency):
                 if loan.committee_approved_by is None:
@@ -562,8 +579,46 @@ class PersonalLoans(Workload):
         return check
 
 
+# Declared income / the bureau's income estimate, by kind (personal-loans v2). Honest
+# applicants declare about what the estimate says; self-employed ones legitimately vary
+# more; inflated incomes are well above it.
+INCOME_RATIOS = {
+    "self_employed": (0.9, 1.6),
+    "inflated_income": (1.5, 2.3),
+}
+HONEST_INCOME_RATIO = (0.8, 1.12)
+LARGE_LOAN_MIN_ESTIMATE = 7_000  # large loans go to applicants who can afford them
+
+
+class PersonalLoansWithIncomeCheck(PersonalLoans):
+    """WF-0003 v2: incomes are declared relative to the bureau's income estimate, so the
+    income check (and the AI underwriting assistant that uses it) has something to find."""
+
+    key = "personal_loans_income"
+    ai_step = "ai_underwriting_review"
+    automated_path = "policy_underwrite.approved"
+
+    def fits(self, kind: str, name: str, born: date) -> bool:
+        return (
+            kind != "large_loan" or lending.income_estimate(name, born) >= LARGE_LOAN_MIN_ESTIMATE
+        )
+
+    def declared_income(
+        self, seed: int, index: int, kind: str, name: str, born: date, drawn: int
+    ) -> int:
+        low, high = INCOME_RATIOS.get(kind, HONEST_INCOME_RATIO)
+        ratio = case_random(seed, index, "loan-income").uniform(low, high)
+        return round(lending.income_estimate(name, born) * ratio)
+
+
 WORKLOADS: dict[str, Workload] = {
-    w.key: w for w in (RetailOnboarding(), DomesticPayments(), PersonalLoans())
+    w.key: w
+    for w in (
+        RetailOnboarding(),
+        DomesticPayments(),
+        PersonalLoans(),
+        PersonalLoansWithIncomeCheck(),
+    )
 }
 STAFF_ROLES = {
     "teller": RoleCode.BANKING_EMPLOYEE,

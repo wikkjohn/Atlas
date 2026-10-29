@@ -4,17 +4,22 @@ from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    Identity,
     Integer,
+    Numeric,
     Sequence,
+    SmallInteger,
     String,
     UniqueConstraint,
     Uuid,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -23,6 +28,9 @@ from app.core.models import UUIDPrimaryKey
 JOURNAL_ENTRY_NUMBER_SEQUENCE = Sequence("journal_entry_number_seq", start=1)
 # Upper bound for one line, far below bigint so sums of many lines cannot overflow.
 MAX_LINE_AMOUNT = 10**15
+# Each account's stored totals are spread over this many rows, so concurrent postings to
+# one busy account (e.g. a currency's cash account) rarely wait on the same row lock.
+BALANCE_SHARDS = 8
 
 
 class LedgerAccountType(StrEnum):
@@ -122,3 +130,60 @@ class JournalLine(UUIDPrimaryKey, Base):
 
     entry: Mapped[JournalEntry] = relationship(back_populates="lines")
     ledger_account: Mapped[LedgerAccount] = relationship(lazy="joined")
+
+
+class LedgerBalance(Base):
+    """Running debit and credit totals of one ledger account (one of its shards).
+
+    Maintained only by the `journal_lines_maintain_balance` trigger, in the same transaction
+    as every posted line; journal lines are immutable, so the totals are exact. An account's
+    balance is the sum over its shards. Reconciliation compares them with the lines.
+    """
+
+    __tablename__ = "ledger_balances"
+    __table_args__ = (
+        CheckConstraint(f"shard >= 0 AND shard < {BALANCE_SHARDS}", name="shard_valid"),
+        CheckConstraint("debit_total >= 0 AND credit_total >= 0", name="totals_non_negative"),
+    )
+
+    ledger_account_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("ledger_accounts.id", ondelete="RESTRICT"), primary_key=True
+    )
+    shard: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    debit_total: Mapped[int] = mapped_column(Numeric(38, 0), nullable=False)
+    credit_total: Mapped[int] = mapped_column(Numeric(38, 0), nullable=False)
+    line_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ReconciliationMode(StrEnum):
+    FULL = "full"
+    INCREMENTAL = "incremental"
+
+
+class LedgerReconciliation(UUIDPrimaryKey, Base):
+    """One reconciliation run and its report."""
+
+    __tablename__ = "ledger_reconciliations"
+    __table_args__ = (CheckConstraint("mode IN ('full', 'incremental')", name="mode_valid"),)
+
+    run_number: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), nullable=False, unique=True
+    )
+    mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Incremental runs check entries posted from window_start; full runs have none.
+    window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    entries_checked: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    lines_checked: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    report: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    run_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )

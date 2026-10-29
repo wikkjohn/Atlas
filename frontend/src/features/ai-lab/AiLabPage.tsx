@@ -80,8 +80,33 @@ const SAMPLE_PAYMENT = {
   signals: { sanctions_hit: false, new_payee: true, recent_payments_24h: 0, share_of_balance: 0.6 },
   as_of: "2026-01-06",
 };
-const SAMPLES: Record<string, unknown> = { rule_based_payment_screening: SAMPLE_PAYMENT };
-const CONSOLE_ACTIONS = ["analyze_application", "analyze_payment", "recommend_decision", "complete_low_risk_review"];
+/** A referred synthetic loan application whose declared income is twice the estimate. */
+const SAMPLE_LOAN = {
+  application: {
+    amount: 1500000,
+    currency: "EUR",
+    term_months: 48,
+    purpose: "vehicle",
+    employment_status: "employed",
+    monthly_income: 900000,
+    monthly_debt_payments: 30000,
+  },
+  bureau: { score: 742, recent_defaults: 0, open_credit_lines: 2 },
+  affordability: { annual_rate_bps: 890, monthly_payment: 37254, debt_to_income: 0.0747, committee_required: false },
+  income: { estimated_monthly_income: 450000, declared_to_estimate: 2.0 },
+  as_of: "2026-01-07",
+};
+const SAMPLES: Record<string, unknown> = {
+  rule_based_payment_screening: SAMPLE_PAYMENT,
+  rule_based_credit_underwriting: SAMPLE_LOAN,
+};
+const CONSOLE_ACTIONS = [
+  "analyze_application",
+  "analyze_payment",
+  "analyze_credit_application",
+  "recommend_decision",
+  "complete_low_risk_review",
+];
 
 // --- Registration ---------------------------------------------------------------------------
 

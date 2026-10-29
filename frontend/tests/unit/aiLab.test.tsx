@@ -206,6 +206,35 @@ describe("AI Innovation Lab", () => {
     expect(body.input.application).toBeDefined();
   });
 
+  it("offers the underwriting assistant a referred loan application", async () => {
+    const underwriter: AiTool = {
+      ...tool,
+      id: "tool-3",
+      tool_id: "agb-credit-underwriting-assistant",
+      tool_name: "AGB Credit Underwriting Assistant",
+      adapter: "rule_based_credit_underwriting",
+      allowed_actions: ["analyze_credit_application", "recommend_decision", "complete_low_risk_review"],
+      compatible_workflows: ["WF-0003"],
+    };
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/ai-tools": () => jsonResponse(page([underwriter])),
+      "GET /api/v1/ai-tools/tool-3": () => jsonResponse(underwriter),
+      "POST /api/v1/ai-tools/tool-3/invoke": () => jsonResponse(invocation({})),
+    });
+    renderApp("/ai-lab?tool=tool-3");
+    const console = await screen.findByRole("form", { name: "Test console" });
+    expect(within(console).getByLabelText("Action")).toHaveValue("analyze_credit_application");
+    await userEvent.click(within(console).getByRole("button", { name: "Invoke" }));
+    await within(console).findByRole("status");
+    const body = api.requests.find((r) => r.method === "POST")?.body as {
+      action: string;
+      input: { income: { declared_to_estimate: number } };
+    };
+    expect(body.action).toBe("analyze_credit_application");
+    expect(body.input.income.declared_to_estimate).toBe(2);
+  });
+
   it("starts an A/B/C experiment on one seed and compares the runs", async () => {
     const runs = [run("r1", 1, "baseline", 0.98), run("r2", 2, "ai_assisted", 1), run("r3", 3, "ai_automated", 1)];
     const api = mockApi({

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 9.
+Last updated: Phase 12.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -14,6 +14,124 @@ Last updated: Phase 9.
 | 8 | Enterprise dashboard | **Complete** |
 | — | End-to-end demonstration (Part 12) | **Complete** — [demo.md](demo.md), automated in Playwright |
 | 9 | Additional business workflows: payments and lending | **Complete** |
+| 10 | Loan servicing and collections | **Complete** |
+| 11 | AI underwriting for personal loans | **Complete** |
+| 12 | Scale foundation, step 1: stored balances and incremental reconciliation ([roadmap](roadmap.md) Milestone A) | **Complete** |
+
+## Phase 12: what exists
+
+- **Roadmap** ([roadmap.md](roadmap.md)): the remaining work towards the long-term vision,
+  in milestones A–H with exit tests. Phase 12 is the first step of Milestone A.
+- **Stored balances** (`ledger_balances`, migration 0010): running debit and credit totals
+  per account in eight shards, maintained by a trigger on every journal line in the same
+  transaction, guarded against any other write, backfilled from existing lines. All
+  balance reads (accounts, payments, loans, servicing, the chart of accounts) use them.
+- **Incremental reconciliation** (`POST /api/v1/ledger/reconciliation?mode=incremental`):
+  the entries posted since the previous run (10-minute overlap), the trial balance from
+  the stored totals and the stored balances of up to 500 touched accounts. Full runs also
+  compare every account's stored totals with its lines.
+- **Reconciliation history** (`ledger_reconciliations`, `GET /api/v1/ledger/reconciliations`):
+  every run, its mode, result, failed checks and duration; shown under the General ledger.
+- **Benchmark** (`python -m app.cli bench-ledger`): posts synthetic entries through the
+  normal ledger service and times balance reads and reconciliation.
+
+## Phase 12: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 297 passed (new: 4 — stored balances follow 40 postings and a reversal and match the line sums across shards; direct insert / update / delete / truncate refused; full and incremental runs recorded, listed and readable, incremental window after the previous run; a drifted stored balance caught by both modes) |
+| Migration 0009 → 0010 on a copy of the seeded dev database | backfill matches the lines for all 127 accounts; downgrade and upgrade clean; `alembic check` clean |
+| Frontend typecheck, Vitest, build | clean; 75 passed; succeeds |
+| Playwright (Chromium, real backend, fresh database) | 16 passed; the banking journey now runs a full and an incremental reconciliation |
+| Docker Compose stack | `validate_system.py` 10/10 (migration head 0010, v0.12.0); `bench-ledger` in the container: balances agree, both modes pass |
+
+Measured with `bench-ledger` in the development container (5,001 accounts, 100,000 entries,
+half of all lines on one hot account; medians):
+
+| Measurement | Before (sum of lines) | After (stored totals) |
+| --- | ---: | ---: |
+| Balance of the hot account (49,985 lines) | 7.66 ms | 0.56 ms |
+| Balances of 200 ordinary accounts (~20 lines each) | 5.21 ms | 5.33 ms |
+| Reconciliation after 1,000 new entries on a 103,312-entry ledger | 1,006 ms (full) | 88 ms (incremental) |
+| Posting rate, trigger on / off (two runs each, 5,000 entries) | 203 / 210 entries/s off | 207 / 184 entries/s on |
+
+Stored totals keep a busy account's balance read constant as its history grows; ordinary
+accounts with few lines gain nothing. The trigger's cost is within run-to-run noise; the
+posting rate (about 200 entries per second) is set by the per-entry ORM and audit work, the
+next item of Milestone A.
+
+## Phase 11: what exists
+
+- **AGB Credit Underwriting Assistant** (`rule_based_credit_underwriting`, registered by
+  the seed for WF-0003): declared income against the bureau's income estimate, bureau
+  file and affordability → risk, explanation, approve / reject / escalate. New grantable
+  action `analyze_credit_application`; `approve_loan` stays forbidden.
+- **Synthetic income estimate** (`lending.income_estimate`): a deterministic monthly
+  income per synthetic person, like the bureau score.
+- **WF-0003 v2:** income verification, an advisory AI step for referred applications
+  (off / assisted / automated) and the `low-risk-loan-underwriting-v1` policy. Live
+  applications run v2 with AI off.
+- **`loans:approve_low_risk`** (policy engine only): the lending service lets it
+  underwrite loans up to 15,000 that need no committee, and nothing else; the simulation's
+  control check applies the same rule.
+- **`personal-loans` v2** with AI modes, so experiments run on loans; v1 is unchanged.
+- **UI:** the AI Lab console offers the assistant a sample referred application.
+
+## Phase 11: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 293 passed (new: 6 — the assistant's rules and blind spot, v2 income check with AI off, automated underwriting of small clean loans only (inflated income, above the automation limit and self-employed go to a person), the lending service limiting the policy engine to the automation limit, scenario v2 against its workload, an automated experiment that rejects every inflated income and is evaluated successful with no violations) |
+| Ruff lint + format check; `alembic check` | clean (no schema change in Phase 11) |
+| Frontend typecheck, production build | clean; succeeds |
+| Vitest | 75 passed (new: the AI Lab console offers the assistant a referred loan application) |
+| Playwright (Chromium, real backend, fresh database) | 16 passed |
+| Docker Compose stack | `validate_system.py` 10/10 (v0.11.0); seed registers the assistant; an AI-automated `personal-loans` v2 run completes in the container |
+| Experiments (seed 42, 100 / 25) | assisted and automated both successful — see [ai-testing.md](ai-testing.md) |
+
+## Phase 10: what exists
+
+- **Repayment schedules** (`loan_instalments`): level monthly instalments from one month
+  after disbursement (due days past the 28th move to the 28th), interest rounded half up,
+  the last instalment takes the remaining principal. Created at origination; migration
+  0009 backfills existing loans.
+- **Servicing runs** (`loan_servicing_runs`, `POST /api/v1/loans/servicing-runs`, CLI
+  `service-loans`): accrue interest on each due date (interest receivable → interest
+  income), collect whole instalments oldest first from the borrower's account (deposit →
+  interest receivable + loan receivable), leave the rest due. Idempotent per instalment;
+  the business date never goes backwards; one run at a time (advisory lock); a summary
+  per run (accrued, collected, missed, repaid, arrears per currency, buckets).
+- **Arrears:** days past due from the oldest unpaid due date, buckets current / 1-29 /
+  30-59 / 60-89 / 90+, and the overdue amount on every loan.
+- **Repayment and payoff** (`loans:repay`, Idempotency-Key required): repay the oldest
+  overdue instalments; pay the loan off early for outstanding principal plus accrued
+  interest (checked against the receivable balance first). The final instalment or a
+  payoff closes the loan as `repaid`.
+- **Write-off:** at 90+ days past due, by `loans:approve_large`: remaining principal and
+  accrued interest → loan losses; status `written_off`.
+- **WF-0004 Loan Collections:** opened by servicing at 30 days past due, sends a simulated
+  arrears letter, closes as cured when the arrears are paid, and at 90 days escalates to a
+  four-eyes credit-committee write-off review.
+- **Permissions:** `loans:repay` (front office), `loans:service` (department managers);
+  `loans:approve_large` now also covers write-offs.
+- **UI:** the Lending screen shows the business date, runs servicing, lists recent runs,
+  shows status and arrears per loan, and opens a loan's schedule with repayment, payoff
+  and its collections cases.
+- **Engine fix:** `workflow_step_runs.duration_ms` is BIGINT (a wait of weeks overflowed
+  a 32-bit millisecond count).
+
+## Phase 10: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 287 passed (new: 12 servicing tests — schedule maths, due-date capping and buckets, schedules at origination, accrual and collection posted once per instalment, monotonic business date, arrears and DPD, oldest-whole-instalment collection, idempotent repayment and its funds and count checks, payoff of principal plus accrued interest, the last instalment closing the loan, write-off authority and 90-day rule, permissions and idempotent runs; 4 WF-0004 tests — case at 30 days, one case per loan, cure on repayment, 90-day escalation with four-eyes write-off, declined write-off reopened by the next run, a loan repaid during the review closing as cured) |
+| Ruff lint + format check | clean |
+| Alembic 0008 → 0009 → 0008 → 0009 on a seeded database, `alembic check` | clean; backfill verified on 17 existing loans (708 instalments match the schedule maths; ledger reconciles) |
+| Frontend typecheck, production build | clean; succeeds |
+| Vitest | 74 passed (new: servicing panel, run to a date with an Idempotency-Key, arrears in the loan list, schedule, repayment and payoff with distinct keys, actions hidden without the permissions) |
+| Playwright (Chromium, real backend, fresh database) | 16 passed, including the new servicing journey (a manager moves the business date; a teller, who cannot run servicing, pays a loan off and the schedule closes) |
+| Docker Compose stack | `validate_system.py` 10/10 (migration head `0009_loan_servicing`, v0.10.0); `service-loans` CLI in the container; Playwright 16 passed against the stack |
+| Visual review | Lending with servicing and a loan in arrears with its collections case at 1440 px ([images](images/)) |
 
 ## Phase 9: what exists
 
@@ -383,13 +501,19 @@ Last updated: Phase 9.
 - Accounts are domestic-currency only; there is no FX, interest, fees, or statements
   beyond posted lines. Payments are between accounts at ATLAS in one currency; there is no
   external clearing, scheduling, standing orders or recall.
-- Loans are booked and disbursed but never serviced: no interest accrual, repayment
-  schedule, arrears or write-off (the `repaid` status exists but nothing sets it). The
-  credit bureau is a deterministic function of name and date of birth.
+- Loan servicing is monthly and simplified: interest accrues in full on each due date (no
+  daily accrual between due dates), a payoff settles outstanding principal plus interest
+  already accrued (no interest for the running period), partial instalments are not
+  collected, and there are no late fees, payment holidays, restructuring or recoveries
+  after a write-off. Instalments are collected only from the disbursement account. The
+  lending business date moves only when someone runs servicing (no scheduler); in the
+  dev database it can be moved past today, which then books repayments on that future
+  date. The credit bureau is a deterministic function of name and date of birth.
 - Workflow definitions are authored in code (registered at import); there is no visual
-  designer or upload API. Three business workflows exist (WF-0001, WF-0002, WF-0003).
-- WF-0003 has no AI step yet, so `personal-loans` runs baseline only. Live WF-0002 cases
-  run with AI off; the UI offers AI modes only through simulations and experiments.
+  designer or upload API. Four business workflows exist (WF-0001 to WF-0004).
+- Live WF-0002 and WF-0003 cases run with AI off; the UI offers AI modes only through
+  simulations and experiments. The income estimate behind the loan assistant is synthetic
+  and more reliable than real income estimators.
 - The default success thresholds were tuned for account opening; in `domestic-payments`
   even the baseline exceeds the 5 % maximum false approval rate (quiet scams), so
   experiments there fail the compliance-threshold criterion unless the thresholds are
@@ -414,9 +538,10 @@ Last updated: Phase 9.
   fires in simulations; it is covered by tests only.
 - Human tasks are offered to everyone holding the permissions; there is no assignment to a
   named person, delegation or escalation routing beyond the overdue flag.
-- Balances are computed from lines on every read; fine at demo scale, but large volumes
-  will need snapshots or materialized balances.
-- Reconciliation scans the whole ledger synchronously.
+- Postings go one entry at a time through the ORM (about 200 entries per second in the
+  development container); bulk loading for generated data is still to come (roadmap
+  Milestone A). Reconciliation runs synchronously in the request; incremental runs keep it
+  short, but nothing runs it on a schedule yet.
 
 - Permissions are role-wide: a regional executive or department manager is not yet limited
   to their own region or department.

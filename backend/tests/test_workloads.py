@@ -25,7 +25,7 @@ from app.simulation.workloads import PAYMENT_SHOULD_REJECT, WORKLOADS
 from tests.factories import auth, make_org_tree, make_user
 
 PAYMENTS = get_scenario("domestic-payments")
-LOANS = get_scenario("personal-loans")
+LOANS = get_scenario("personal-loans", 1)  # v2 (Phase 11) is tested in test_loan_ai.py
 
 
 @pytest.fixture
@@ -227,7 +227,12 @@ def test_ai_modes_need_a_compatible_tool(api: TestClient, db: Session) -> None:
     assert "not declared compatible with WF-0002" in response.text
     loans = api.post(
         "/api/v1/simulations",
-        json={"scenario_id": "personal-loans", "mode": "ai_assisted", "tool_id": "x"},
+        json={
+            "scenario_id": "personal-loans",
+            "scenario_version": 1,
+            "mode": "ai_assisted",
+            "tool_id": "x",
+        },
         headers=headers,
     )
     assert loans.status_code == 422 and "has no AI modes" in loans.text

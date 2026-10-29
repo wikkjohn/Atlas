@@ -220,6 +220,41 @@ register_scenario(
     )
 )
 
+register_scenario(
+    Scenario(
+        scenario_id="personal-loans",
+        version=2,
+        name="Personal loan origination (AI experiments)",
+        description="The version 1 working day on WF-0003 v2, where declared incomes can be "
+        "checked against the bureau's income estimate. It can run without AI (baseline), "
+        "with the AI underwriting assistant preparing a recommendation for underwriters "
+        "(AI assisted), or with the policy engine underwriting small, clean loans the "
+        "assistant rates low risk (AI automated tasks). Same applicants in every mode.",
+        workload="personal_loans_income",
+        workflow_id="WF-0003",
+        workflow_version=2,
+        simulated_start=datetime(2026, 1, 7, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            document_delay_hours=None,
+            mix={
+                "prime": 0.40,
+                "near_prime": 0.15,
+                "self_employed": 0.05,
+                "large_loan": 0.10,
+                "poor_credit": 0.10,
+                "overextended": 0.10,
+                "inflated_income": 0.10,
+            },
+            reviewers={
+                "underwriting_review": ReviewerModel(mean_minutes=25, accuracy=0.93),
+                "credit_committee": ReviewerModel(mean_minutes=30, accuracy=0.97),
+            },
+            staff_mix={"teller": 0.4, "manager": 0.45, "executive": 0.15},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)
+
 # Experiment modes and the AI mode each one runs with.
 MODES: dict[str, str] = {"baseline": "off", "ai_assisted": "assisted", "ai_automated": "automated"}
 

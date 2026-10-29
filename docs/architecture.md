@@ -137,7 +137,9 @@ these same service calls rather than duplicating the rules.
 
 **Account metadata and balances are separate.** `accounts` holds number, type, currency
 and status; each account points at its own liability ledger account (`2100-<number>`).
-Balances are always computed from posted journal lines; no balance column exists.
+Balances come from posted journal lines. Since Phase 12 their running totals are stored in
+`ledger_balances`, maintained by a database trigger on every inserted line in the same
+transaction, and checked against the lines by reconciliation.
 
 **The ledger is the only writer of money.** `ledger.service.post_entry` validates that an
 entry has two or more lines in one currency and that debits equal credits, then inserts
@@ -153,8 +155,9 @@ Concurrent duplicates are resolved by the unique index. Withdrawals lock the acc
 overdraw; a test races six withdrawals and fails if the lock is removed.
 
 **Reconciliation** re-verifies the invariants over all posted data (per-entry balance,
-currency consistency, trial balance per currency, reversal links, account/ledger currency)
-and records each run in the audit log.
+currency consistency, trial balance per currency, reversal links, account/ledger currency,
+and since Phase 12 stored balances against their lines) and records each run in the audit
+log and in `ledger_reconciliations`.
 
 ## Workflow engine (Phase 4)
 
@@ -210,6 +213,43 @@ engine, simulation and evaluation layers:
   (`app/simulation/workloads.py`) produces a scenario's cases with ground truth, creates
   the pre-existing customers they need, maps approval steps to staff roles, and re-checks
   the decisions its cases made for the experiment measurements.
+
+## Loan servicing (Phase 10)
+
+- `app/modules/lending/servicing.py` is the only writer of instalments and servicing
+  postings. A **servicing run** (`POST /api/v1/loans/servicing-runs`, or
+  `python -m app.cli service-loans --as-of …`) accrues each instalment's interest on its
+  due date and collects due instalments oldest first; every posting's idempotency key is
+  derived from the instalment, so repeating a run for the same date posts nothing twice.
+  Runs are serialised by a PostgreSQL advisory lock, and the business date (the latest
+  run's `as_of`) never goes backwards.
+- Repayments and payoffs are customer actions with a required Idempotency-Key; write-offs
+  happen only through the WF-0004 credit-committee approval and re-check authority and
+  the 90-day rule in the service.
+- **Listener, not import:** servicing calls `on_arrears_change` listeners after each loan is
+  serviced, repaid or paid off. WF-0004 registers one, so lending never depends on the
+  workflow module, and collections cases open, cure and escalate as a side effect of
+  servicing in the same transaction.
+
+## Scale foundation (Phase 12, roadmap Milestone A)
+
+The first step towards the long-term scale in [roadmap.md](roadmap.md):
+
+- **Stored balances.** `journal_lines_maintain_balance` (an AFTER INSERT trigger) adds every
+  line to `ledger_balances` in the posting's transaction, so a balance read is a lookup of
+  at most eight rows instead of a sum over all of an account's lines. Each account's totals
+  are spread over eight shards (by a hash of the line), so concurrent postings to one busy
+  account, such as a currency's cash account, rarely wait on the same row. Lines are
+  immutable, so the totals are exact; a guard trigger refuses every other write to the
+  table. `ledger.line_balances` keeps the old computation as the reference.
+- **Incremental reconciliation.** A run in `incremental` mode checks the entries posted
+  since the previous run (minus a ten-minute overlap for transactions that committed late),
+  the trial balance from the stored totals, and the stored balances of up to 500 accounts
+  the window touched. A `full` run remains the backstop and compares every account's stored
+  totals with its lines.
+- **Measured.** `python -m app.cli bench-ledger` posts synthetic entries through the normal
+  service (half of them on one hot account by default) and times both read paths and both
+  reconciliation modes; results are in [implementation-status.md](implementation-status.md).
 
 ## Planned design for later phases
 

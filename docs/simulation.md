@@ -90,6 +90,7 @@ configuration. Suites run several modes on the same seed one after another. See
 | --- | --- | --- | --- |
 | `domestic-payments` v1 | `domestic_payments` | WF-0002 v1 | baseline, ai_assisted, ai_automated (AGB Payment Fraud Screener) |
 | `personal-loans` v1 | `personal_loans` | WF-0003 v1 | baseline |
+| `personal-loans` v2 (Phase 11) | `personal_loans_income` | WF-0003 v2 | baseline, ai_assisted, ai_automated (AGB Credit Underwriting Assistant) |
 
 **Population.** Payments and loans need customers who already bank with ATLAS. Before the
 cases arrive the workload creates them through the normal services — a KYC-verified, low
@@ -134,6 +135,14 @@ Applicants are drawn until the synthetic bureau score fits the case type. Underw
 officers, 45 % underwriters (department managers), 15 % committee members (regional
 executives).
 
+### personal-loans v2 (Phase 11)
+
+The same case types, staff and reviewers as v1 on WF-0003 v2, with incomes declared
+relative to the synthetic bureau's income estimate: honest applicants 0.8–1.12× the
+estimate, self-employed 0.9–1.6× (some legitimately above it), inflated incomes 1.5–2.3×;
+large loans go to applicants with an estimate of at least 7,000. The ratio comes from its
+own random stream, so v1 runs are unchanged and still reproduce.
+
 ### Measured (Phase 9, development container)
 
 | Run | Cases / staff | Wall time | Outcome |
@@ -141,6 +150,7 @@ executives).
 | `domestic-payments` baseline, seed 7 | 100 / 25 | 35.8 s (incl. population) | 99 % correct; 63 % straight-through; 37 manual reviews |
 | `domestic-payments` AI automated, seed 7 | 100 / 25 | — | 95 % correct: all 5 quiet scams released by the policy engine; 21 manual reviews |
 | `personal-loans` baseline, seed 42 | 100 / 25 | 17.2 s | 93 % correct (7 false declines, 0 false approvals); 91 manual reviews |
+| `personal-loans` v2, seed 11, baseline / assisted / automated (Phase 11) | 300 / 40 | 32–35 s each | 94.3 % / 99.3 % / 99.7 % correct; 264 / 266 / 168 manual reviews; 98 loans underwritten by the policy engine |
 
 ## Reproducibility
 
@@ -238,7 +248,7 @@ the engine; neither exists yet.
 - Background runs execute inside the API process (FastAPI background tasks). A restart
   interrupts a run; it is then reported as interrupted and must be started again.
 - Three scenarios exist (`retail-onboarding` v1/v2, `domestic-payments` v1,
-  `personal-loans` v1). Payment payers are one customer per case, so the velocity signal
+  `personal-loans` v1/v2). Payment payers are one customer per case, so the velocity signal
   never fires in simulations (it is covered by tests).
 - Workflow steps take no simulated time; only waiting for people and documents does. An
   automated case therefore completes the moment it arrives.

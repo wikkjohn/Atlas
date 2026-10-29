@@ -93,3 +93,27 @@ class ReconciliationReport(BaseModel):
     entries_checked: int
     lines_checked: int
     checks: list[ReconciliationCheck]
+    # Phase 12: every run is recorded.
+    id: uuid.UUID | None = None
+    run_number: int | None = None
+    mode: str = "full"
+    window_start: datetime | None = Field(
+        default=None, description="Incremental runs: entries posted from here were checked"
+    )
+    window_end: datetime | None = None
+    duration_ms: int | None = None
+
+
+class ReconciliationRunOut(BaseModel):
+    id: uuid.UUID
+    run_number: int
+    mode: str
+    ok: bool
+    window_start: datetime | None
+    window_end: datetime
+    entries_checked: int
+    lines_checked: int
+    duration_ms: int
+    failed_checks: list[str]
+    run_by_username: str | None
+    created_at: datetime

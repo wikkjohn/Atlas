@@ -2,7 +2,9 @@
 
 `originate` is the only way a loan comes into existence. It re-applies every control,
 whoever calls it: the customer is KYC-verified, the disbursement account is theirs, open
-and in their currency, the underwriter holds `loans:approve` and did not apply, and a loan
+and in their currency, the underwriter holds `loans:approve` (or, for a loan within the
+automation limit and below the committee limit, the policy engine's
+`loans:approve_low_risk`) and did not apply, and a loan
 above the credit-committee limit also has an approval by a third person holding
 `loans:approve_large`. The principal is then posted from the loan receivable to the
 customer's account in one balanced ledger entry.
@@ -30,13 +32,21 @@ from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.ledger import service as ledger
 from app.modules.ledger.models import Direction, LedgerAccountType
-from app.modules.lending.models import LOAN_NUMBER_SEQUENCE, Loan, LoanStatus
+from app.modules.lending import servicing
+from app.modules.lending.models import (
+    LOAN_NUMBER_SEQUENCE,
+    InstalmentStatus,
+    Loan,
+    LoanInstalment,
+    LoanStatus,
+)
 from app.modules.lending.schemas import LoanOut
 
 LOANS_RECEIVABLE_PREFIX = "1300"
 MIN_PRINCIPAL_MAJOR = 1_000
 MAX_PRINCIPAL_MAJOR = 50_000
 COMMITTEE_LIMIT_MAJOR = 25_000  # above this, the credit committee must also approve
+AUTOMATION_LIMIT_MAJOR = 15_000  # the policy engine may underwrite up to this
 MIN_TERM, MAX_TERM = 6, 84
 # Product pricing by bureau score band: (minimum score, annual rate in basis points).
 PRICING = ((760, 690), (700, 890), (640, 1190), (580, 1590))
@@ -59,6 +69,15 @@ def bureau_report(name: str, date_of_birth: date) -> dict:
         "recent_defaults": defaults,
         "open_credit_lines": digest[3] % 6,
     }
+
+
+def income_estimate(name: str, date_of_birth: date) -> int:
+    """The synthetic bureau's estimate of the applicant's gross monthly income, in major
+    units (2,500 to 12,000). Like real income estimators it is a model, not a payslip:
+    self-employed and irregular earners can legitimately declare more."""
+    key = f"income|{' '.join(name.casefold().split())}|{date_of_birth.isoformat()}"
+    digest = hashlib.sha256(key.encode()).digest()
+    return 2_500 + int.from_bytes(digest[:2], "big") % 9_501
 
 
 # --- Pricing and affordability ------------------------------------------------------------
@@ -87,6 +106,13 @@ def principal_limits(currency: str) -> tuple[int, int]:
 
 def needs_committee(principal: int, currency: str) -> bool:
     return principal > to_minor_units(COMMITTEE_LIMIT_MAJOR, currency)
+
+
+def within_automation_limit(principal: int, currency: str) -> bool:
+    """Small enough for the policy engine to underwrite (never a committee loan)."""
+    return principal <= to_minor_units(AUTOMATION_LIMIT_MAJOR, currency) and not needs_committee(
+        principal, currency
+    )
 
 
 def debt_to_income(
@@ -118,9 +144,13 @@ def _check_deciders(
             {"rule": "four_eyes"},
         )
     if not underwriter.can(Permission.LOANS_APPROVE):
-        raise PermissionDeniedError(
-            "The underwriter lacks loans:approve.", {"rule": "underwriter_without_authority"}
-        )
+        if not (
+            underwriter.can(Permission.LOANS_APPROVE_LOW_RISK)
+            and within_automation_limit(principal, currency)
+        ):
+            raise PermissionDeniedError(
+                "The underwriter lacks loans:approve.", {"rule": "underwriter_without_authority"}
+            )
     if needs_committee(principal, currency):
         if committee is None:
             raise PermissionDeniedError(
@@ -244,6 +274,7 @@ def originate(
     )
     db.add(loan)
     db.flush()
+    servicing.ensure_schedule(db, loan)  # the repayment schedule exists from day one
     record_audit_event(
         db,
         actor_id=underwriter.id,
@@ -317,7 +348,39 @@ def loans_out(db: Session, loans: list[Loan]) -> list[LoanOut]:
         for u in (loan.requested_by, loan.underwritten_by, loan.committee_approved_by)
         if u
     }
+    user_ids |= {loan.written_off_by for loan in loans if loan.written_off_by}
     names = dict(db.execute(select(User.id, User.username).where(User.id.in_(user_ids))).all())
+    on = servicing.business_date(db) or datetime.now(UTC).date()
+    schedules: dict[uuid.UUID, list[LoanInstalment]] = {loan.id: [] for loan in loans}
+    for instalment in db.execute(
+        select(LoanInstalment)
+        .where(LoanInstalment.loan_id.in_(schedules))
+        .order_by(LoanInstalment.number)
+    ).scalars():
+        schedules[instalment.loan_id].append(instalment)
+
+    def servicing_view(loan: Loan) -> dict:
+        rows = schedules[loan.id]
+        due = [i for i in rows if i.status == InstalmentStatus.DUE.value]
+        upcoming = next((i for i in rows if i.status == InstalmentStatus.SCHEDULED.value), None)
+        days = max(0, (on - min(i.due_date for i in due)).days) if due else 0
+        return {
+            "instalments_paid": sum(
+                i.status in (InstalmentStatus.PAID.value, InstalmentStatus.PREPAID.value)
+                for i in rows
+            ),
+            "instalments_total": len(rows),
+            "next_due_date": upcoming.due_date if upcoming else None,
+            "next_due_amount": upcoming.amount if upcoming else None,
+            "days_past_due": days,
+            "arrears_amount": sum(i.amount for i in due),
+            "arrears_bucket": servicing.bucket_for(days) if due else "current",
+            "closed_on": loan.closed_on,
+            "written_off_by_username": names.get(loan.written_off_by)
+            if loan.written_off_by
+            else None,
+        }
+
     return [
         LoanOut(
             id=loan.id,
@@ -341,6 +404,7 @@ def loans_out(db: Session, loans: list[Loan]) -> list[LoanOut]:
             else None,
             workflow_execution_id=loan.workflow_execution_id,
             disbursed_at=loan.disbursed_at,
+            **servicing_view(loan),
         )
         for loan in loans
     ]

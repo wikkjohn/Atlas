@@ -125,6 +125,30 @@ export interface ReconciliationReport {
   entries_checked: number;
   lines_checked: number;
   checks: { name: string; passed: boolean; detail: string; failures: Record<string, unknown>[] }[];
+  // Phase 12: every run is recorded.
+  id: string | null;
+  run_number: number | null;
+  mode: ReconciliationMode;
+  window_start: string | null;
+  window_end: string | null;
+  duration_ms: number | null;
+}
+
+export type ReconciliationMode = "full" | "incremental";
+
+export interface ReconciliationRun {
+  id: string;
+  run_number: number;
+  mode: ReconciliationMode;
+  ok: boolean;
+  window_start: string | null;
+  window_end: string;
+  entries_checked: number;
+  lines_checked: number;
+  duration_ms: number;
+  failed_checks: string[];
+  run_by_username: string | null;
+  created_at: string;
 }
 
 // --- Phase 9: payments and lending ------------------------------------------------------
@@ -154,6 +178,9 @@ export interface Payment {
 
 export type LoanPurpose = "home_improvement" | "vehicle" | "education" | "debt_consolidation" | "other";
 
+export type LoanStatus = "active" | "repaid" | "written_off";
+export type ArrearsBucket = "current" | "1-29" | "30-59" | "60-89" | "90+";
+
 export interface Loan {
   id: string;
   loan_number: string;
@@ -167,11 +194,60 @@ export interface Loan {
   term_months: number;
   monthly_payment: number;
   purpose: LoanPurpose;
-  status: "active" | "repaid";
+  status: LoanStatus;
   outstanding: number;
   requested_by_username: string | null;
   underwritten_by_username: string | null;
   committee_approved_by_username: string | null;
   workflow_execution_id: string | null;
   disbursed_at: string;
+  // Servicing (Phase 10), measured on the lending business date.
+  instalments_paid: number;
+  instalments_total: number;
+  next_due_date: string | null;
+  next_due_amount: number | null;
+  days_past_due: number;
+  arrears_amount: number;
+  arrears_bucket: ArrearsBucket;
+  closed_on: string | null;
+  written_off_by_username: string | null;
+}
+
+export type InstalmentStatus = "scheduled" | "due" | "paid" | "prepaid" | "written_off";
+
+export interface Instalment {
+  number: number;
+  due_date: string;
+  principal: number;
+  interest: number;
+  amount: number;
+  status: InstalmentStatus;
+  paid_on: string | null;
+}
+
+export interface PayoffQuote {
+  principal: number;
+  accrued_interest: number;
+  total: number;
+  as_of: string;
+}
+
+export interface ServicingSummary {
+  loans: number;
+  accrued: number;
+  collected: number;
+  missed: number;
+  repaid: number;
+  in_arrears: number;
+  arrears_amount: Record<string, number>;
+  buckets: Partial<Record<ArrearsBucket, number>>;
+}
+
+export interface ServicingRun {
+  id: string;
+  run_number: number;
+  as_of: string;
+  started_by_username: string | null;
+  summary: ServicingSummary;
+  created_at: string;
 }

@@ -9,12 +9,13 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–9 are complete.** ATLAS runs a synthetic global bank —
+**Current state: Phases 1–10 are complete.** ATLAS runs a synthetic global bank —
 sign-in and role-based permissions, countries, the organization hierarchy, the workforce,
 customers with KYC, approval-gated accounts, a double-entry ledger, domestic payments,
-personal loans and an append-only audit log — with a durable workflow engine executing
-three business workflows (WF-0001 Retail Account Opening, WF-0002 Domestic Payment,
-WF-0003 Personal Loan Origination); a seeded, reproducible simulation engine with a
+personal loans with monthly servicing (schedules, interest accrual, collection, arrears,
+payoff and write-off) and an append-only audit log — with a durable workflow engine
+executing four business workflows (WF-0001 Retail Account Opening, WF-0002 Domestic
+Payment, WF-0003 Personal Loan Origination, WF-0004 Loan Collections); a seeded, reproducible simulation engine with a
 scenario for each; the AI Innovation Lab (a provider-independent AI tool registry, the
 rule-based AGB Intelligent KYC Assistant and AGB Payment Fraud Screener); an evaluation engine that
 compares baseline and AI-supported runs under transparent cost assumptions and success

@@ -1,4 +1,4 @@
-import type { Account, AccountRequest, Customer, ReconciliationReport } from "@/types/banking";
+import type { Account, AccountRequest, Customer, Loan, ReconciliationReport } from "@/types/banking";
 import type { CurrentUser } from "@/types/enterprise";
 
 import { adminUser } from "./fixtures";
@@ -95,4 +95,35 @@ export const cleanReport: ReconciliationReport = {
     { name: "Every entry balances", passed: true, detail: "3 entries checked; 0 unbalanced.", failures: [] },
     { name: "Trial balance per currency", passed: true, detail: "USD: 900 = 900", failures: [] },
   ],
+};
+
+export const loan: Loan = {
+  id: "loan-1",
+  loan_number: "LN-00000001",
+  customer_id: "cus-2",
+  customer_number: "CUS-0000002",
+  customer_name: "Kenji Watanabe",
+  disbursement_account_number: "US000000004257",
+  principal: 1_000_000,
+  currency: "USD",
+  annual_rate_bps: 690,
+  term_months: 36,
+  monthly_payment: 30_831,
+  purpose: "home_improvement",
+  status: "active",
+  outstanding: 1_000_000,
+  requested_by_username: "employee",
+  underwritten_by_username: "manager",
+  committee_approved_by_username: null,
+  workflow_execution_id: "exe-2",
+  disbursed_at: "2026-10-28T11:00:00Z",
+  instalments_paid: 0,
+  instalments_total: 36,
+  next_due_date: "2026-11-28",
+  next_due_amount: 30_831,
+  days_past_due: 0,
+  arrears_amount: 0,
+  arrears_bucket: "current",
+  closed_on: null,
+  written_off_by_username: null,
 };

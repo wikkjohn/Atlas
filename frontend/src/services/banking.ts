@@ -1,17 +1,20 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPost, query } from "@/services/api";
+import { apiGet, apiPost, query, useIdempotencyKey } from "@/services/api";
 import type {
   Account,
   AccountRequest,
   Customer,
   Eligibility,
+  Instalment,
   JournalEntry,
   LedgerAccount,
   Loan,
   MovementResult,
   Payment,
+  PayoffQuote,
   ReconciliationReport,
+  ServicingRun,
   StatementLine,
 } from "@/types/banking";
 import type { Page } from "@/types/enterprise";
@@ -202,5 +205,75 @@ export function useLoans(params: Params) {
     queryKey: ["loans", params],
     queryFn: () => apiGet<Page<Loan>>(`/api/v1/loans${query(params)}`),
     placeholderData: keepPreviousData,
+  });
+}
+
+// --- Loan servicing (Phase 10) ---------------------------------------------------------------
+
+export function useLoan(id: string | null) {
+  return useQuery({
+    queryKey: ["loans", "detail", id],
+    queryFn: () => apiGet<Loan>(`/api/v1/loans/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useLoanSchedule(id: string | null) {
+  return useQuery({
+    queryKey: ["loans", "schedule", id],
+    queryFn: () => apiGet<Instalment[]>(`/api/v1/loans/${id}/schedule`),
+    enabled: Boolean(id),
+  });
+}
+
+export function usePayoffQuote(id: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["loans", "payoff-quote", id],
+    queryFn: () => apiGet<PayoffQuote>(`/api/v1/loans/${id}/payoff-quote`),
+    enabled: Boolean(id) && enabled,
+  });
+}
+
+/** Money movements keep one Idempotency-Key until they succeed, so a retry never pays twice. */
+function useLoanPayment<Body>(path: (id: string) => string) {
+  const invalidate = useInvalidateBanking();
+  const client = useQueryClient();
+  const once = useIdempotencyKey();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Body }) => apiPost<Loan>(path(id), body, once.key()),
+    onSuccess: () => {
+      once.renew();
+      invalidate();
+      // Repayments and servicing runs open and close collections cases (WF-0004).
+      for (const key of ["workflow-executions", "workflow-tasks"]) void client.invalidateQueries({ queryKey: [key] });
+    },
+  });
+}
+
+export const useRepayArrears = () =>
+  useLoanPayment<{ instalments?: number }>((id) => `/api/v1/loans/${id}/repayments`);
+
+export const usePayOffLoan = () => useLoanPayment<Record<string, never>>((id) => `/api/v1/loans/${id}/payoff`);
+
+export function useServicingRuns(params: Params) {
+  return useQuery({
+    queryKey: ["loans", "servicing-runs", params],
+    queryFn: () => apiGet<Page<ServicingRun>>(`/api/v1/loans/servicing-runs${query(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useRunServicing() {
+  const invalidate = useInvalidateBanking();
+  const client = useQueryClient();
+  const once = useIdempotencyKey();
+  return useMutation({
+    mutationFn: (asOf: string) => apiPost<ServicingRun>("/api/v1/loans/servicing-runs", { as_of: asOf }, once.key()),
+    onSuccess: () => {
+      once.renew();
+      invalidate();
+      // Repayments and servicing runs open and close collections cases (WF-0004).
+      for (const key of ["workflow-executions", "workflow-tasks"]) void client.invalidateQueries({ queryKey: [key] });
+    },
   });
 }

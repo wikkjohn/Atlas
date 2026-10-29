@@ -143,6 +143,37 @@ purpose, declared monthly income and existing monthly repayments, employment sta
 
 ![Lending](images/09-lending.png)
 
+## WF-0004 Loan Collections (Phase 10)
+
+Works a personal loan in arrears. Business owner: Retail Lending — Collections. Trigger:
+**event** — loan servicing starts and steers it; nobody needs to start it by hand. Input:
+the loan id and the lending business date the case opened on. The case's business key is
+the loan id, and every step runs at the business date that servicing reported.
+
+| # | Step | Type | Notes |
+| --- | --- | --- | --- |
+| 1 | Open collections case | service_task | Records days past due, overdue amount, instalments and bucket; fails if nothing is overdue |
+| 2 | Send simulated arrears reminder | service_task | A simulated letter to the borrower (`customer_notifications`) |
+| 3 | Wait for repayment or escalation | wait | Signal `loan_status`: `cured` or `escalate` (sent by the servicing listener) |
+| 4 | Route the case | decision | `cured` → close as cured; otherwise → write-off review |
+| 5 | Write-off review (credit committee) | approval | `loans:approve_large` (regional and global executives), never the person who opened the case; 7-day overdue flag. Risk shown: the escalation bucket |
+| 6 | Write the loan off | service_task | The lending service re-checks the authority and the 90-day rule on the business date. A loan paid while the review was open is not written off → closed as cured |
+| — | Close: arrears cleared / write-off declined / written off | service_task | Outcome `cured`, `write_off_declined` or `written_off` |
+
+How servicing drives it (`servicing.on_arrears_change` → `wf0004.sync_collections`, called
+after every servicing run, arrears repayment and payoff):
+
+- 30 or more days past due and no open case → a case starts;
+- arrears cleared or the loan closed while the case waits → signal `cured`;
+- 90 or more days past due while the case waits → signal `escalate`;
+- a declined write-off closes the case; the next servicing run opens a new one.
+
+The lending module never imports the workflow module: the workflow registers itself as a
+listener, so lending stays independent of workflows.
+
+![Lending with servicing](images/12-loan-servicing.png)
+![A loan in arrears: schedule, repayment, payoff and its collections case](images/13-loan-detail.png)
+
 ## Shared workflow plumbing (Phase 9)
 
 - **Presenters** (`registry.register_presenter`) say how a workflow's cases are named in
@@ -153,5 +184,5 @@ purpose, declared monthly income and existing monthly repayments, employment sta
 
 - **Advisory AI steps** (`workflows/advisory.py`) share one implementation of the
   off/assisted/automated modes and the safe escalation when a tool gives no usable answer.
-- **`workflows/catalog.py`** imports every business workflow so its definitions and
+- **`workflows/catalog.py`** imports every business workflow (WF-0001 to WF-0004) so its definitions and
   handlers are registered wherever the application or the CLI starts.

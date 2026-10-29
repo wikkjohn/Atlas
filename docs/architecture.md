@@ -211,6 +211,23 @@ engine, simulation and evaluation layers:
   the pre-existing customers they need, maps approval steps to staff roles, and re-checks
   the decisions its cases made for the experiment measurements.
 
+## Loan servicing (Phase 10)
+
+- `app/modules/lending/servicing.py` is the only writer of instalments and servicing
+  postings. A **servicing run** (`POST /api/v1/loans/servicing-runs`, or
+  `python -m app.cli service-loans --as-of …`) accrues each instalment's interest on its
+  due date and collects due instalments oldest first; every posting's idempotency key is
+  derived from the instalment, so repeating a run for the same date posts nothing twice.
+  Runs are serialised by a PostgreSQL advisory lock, and the business date (the latest
+  run's `as_of`) never goes backwards.
+- Repayments and payoffs are customer actions with a required Idempotency-Key; write-offs
+  happen only through the WF-0004 credit-committee approval and re-check authority and
+  the 90-day rule in the service.
+- **Listener, not import:** servicing calls `on_arrears_change` listeners after each loan is
+  serviced, repaid or paid off. WF-0004 registers one, so lending never depends on the
+  workflow module, and collections cases open, cure and escalate as a side effect of
+  servicing in the same transaction.
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from

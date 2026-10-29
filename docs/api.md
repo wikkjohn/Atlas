@@ -150,8 +150,15 @@ reversed entry has a reversing entry; every customer account matches its ledger 
 | GET | `/api/v1/payments` | `payments:read` | Filters: `status`, `account_id`, `q` (number or reference). Debtor and creditor, amount, high-value flag, initiator, approver, journal entry, rejection reason, workflow execution |
 | GET | `/api/v1/payments/{id}` | `payments:read` | One payment |
 | GET | `/api/v1/loans` | `loans:read` | Filters: `customer_id`, `status`, `q` (number or customer). Pricing, instalment, outstanding balance (from the ledger), underwriter and committee approver |
-| GET | `/api/v1/loans/{id}` | `loans:read` | One loan |
+| GET | `/api/v1/loans/{id}` | `loans:read` | One loan, with its servicing state: instalments paid of total, next due date and amount, days past due, arrears amount and bucket, closed on, written off by |
+| GET | `/api/v1/loans/{id}/schedule` | `loans:read` | Repayment schedule: number, due date, principal, interest, instalment, status, paid on (Phase 10) |
+| GET | `/api/v1/loans/{id}/payoff-quote` | `loans:read` | Outstanding principal + interest already accrued, and the date it would be booked on (Phase 10) |
+| POST | `/api/v1/loans/{id}/repayments` | `loans:repay` | **Idempotency-Key required.** Body `{"instalments": n}` (optional; default all): settles the oldest overdue instalments from the borrower's account. 409 if nothing is overdue, 422 on insufficient funds (Phase 10) |
+| POST | `/api/v1/loans/{id}/payoff` | `loans:repay` | **Idempotency-Key required.** Settles the loan early (payoff quote) and closes it as repaid; remaining instalments become `prepaid` (Phase 10) |
+| GET | `/api/v1/loans/servicing-runs` | `loans:read` | Servicing runs, latest first; the first one's `as_of` is the lending business date (Phase 10) |
+| POST | `/api/v1/loans/servicing-runs` | `loans:service` | Body `{"as_of": "YYYY-MM-DD"}`; optional Idempotency-Key. Accrues interest and collects every instalment due up to `as_of`; 422 if `as_of` is before the business date (Phase 10) |
 
+Write-offs have no endpoint: only the WF-0004 credit-committee approval writes a loan off.
 Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
 `…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
 

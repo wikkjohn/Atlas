@@ -350,3 +350,64 @@ def loan_application(
         "employment_status": "employed",
         **overrides,
     }
+
+
+# --- Phase 10: loan servicing --------------------------------------------------------------
+
+from datetime import UTC, datetime  # noqa: E402
+
+from app.modules.accounts.service import withdraw  # noqa: E402
+from app.modules.lending.models import Loan  # noqa: E402
+from app.modules.lending.service import originate  # noqa: E402
+
+principal_of = principal  # make_loan's `principal` argument shadows the helper
+
+
+def make_loan(
+    db: Session,
+    staff: Staff,
+    *,
+    principal: int = 600_000,
+    rate_bps: int = 1200,
+    term: int = 12,
+    disbursed: date = date(2040, 1, 10),
+    keep_funds: bool = False,
+) -> Loan:
+    """An active loan disbursed on `disbursed` (far in the future, so the lending business
+    date, not today's date, decides). Unless `keep_funds`, the borrower then withdraws the
+    money, so instalments are missed until they deposit."""
+    account = funded_account(db, staff)
+    loan = originate(
+        db,
+        customer_id=account.customer_id,
+        account_id=account.id,
+        principal=principal,
+        annual_rate_bps=rate_bps,
+        term_months=term,
+        purpose="other",
+        requested_by=staff.employee.id,
+        underwriter=principal_of(staff.manager),
+        committee=None,
+        now=datetime.combine(disbursed, datetime.min.time(), tzinfo=UTC).replace(hour=12),
+    )
+    if not keep_funds:
+        withdraw(
+            db,
+            account.id,
+            amount=principal,
+            memo="Spent",
+            idempotency_key=f"spend-{loan.id}",
+            actor_id=staff.employee.id,
+        )
+    return loan
+
+
+def top_up(db: Session, staff: Staff, loan: Loan, amount: int) -> None:
+    deposit(
+        db,
+        loan.disbursement_account_id,
+        amount=amount,
+        memo="Top-up (synthetic)",
+        idempotency_key=f"top-up-{loan.id}-{next(_counter)}",
+        actor_id=staff.employee.id,
+    )

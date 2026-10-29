@@ -219,10 +219,28 @@ Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
 | Table | Contents |
 | --- | --- |
 | `payments` | `payment_number` (`PAY-…`), `debtor_account_id`, `creditor_account_id` (distinct, → `accounts`), `amount` (minor units, > 0), `currency`, `reference`, `status` (pending, released, rejected), `initiated_by`, `approved_by` (CHECK ≠ `initiated_by`), `journal_entry_id` (set exactly when released; unique), `rejection_reason`, `workflow_execution_id`, `created_at` (business time), `decided_at` |
-| `loans` | `loan_number` (`LN-…`), `customer_id`, `disbursement_account_id`, `ledger_account_id` (the loan receivable, an asset; unique), `principal`, `currency`, `annual_rate_bps`, `term_months` (6–84), `monthly_payment`, `purpose`, `status` (active, repaid), `requested_by`, `underwritten_by` (CHECK ≠ requester), `committee_approved_by` (CHECK ≠ requester and underwriter), `disbursement_entry_id` (unique), `workflow_execution_id`, `disbursed_at`, `created_at` |
+| `loans` | `loan_number` (`LN-…`), `customer_id`, `disbursement_account_id`, `ledger_account_id` (the loan receivable, an asset; unique), `principal`, `currency`, `annual_rate_bps`, `term_months` (6–84), `monthly_payment`, `purpose`, `status` (active, repaid, written_off; Phase 10), `requested_by`, `underwritten_by` (CHECK ≠ requester), `committee_approved_by` (CHECK ≠ requester and underwriter), `disbursement_entry_id` (unique), `workflow_execution_id`, `disbursed_at`, `created_at` |
 
 Balances are still never stored: a loan's outstanding amount is the balance of its
 receivable ledger account (`1300-LN-…`).
+
+### Loan servicing tables (Phase 10, migration `0009_loan_servicing`)
+
+| Table | Contents |
+| --- | --- |
+| `loans` (new columns) | `interest_receivable_account_id` (→ `ledger_accounts`, `1310-LN-…`, unique), `closed_on` (business date), `closed_at`, `written_off_by` (→ `users`), `write_off_entry_id` (→ `journal_entries`, unique). CHECK `closed_has_date`: a loan is active exactly when `closed_at` is null |
+| `loan_instalments` | `loan_id` (cascade), `number` (unique per loan), `due_date`, `principal`, `interest` (minor units, ≥ 0), `status` (scheduled, due, paid, prepaid, written_off), `accrual_entry_id`, `payment_entry_id`, `paid_on`. CHECK `entries_match_status`: each status has exactly the postings it implies (e.g. `paid` ⇒ accrual and payment entries, `scheduled` ⇒ neither) |
+| `loan_servicing_runs` | `run_number` (identity), `as_of` (the business date serviced to), `started_by`, `summary` (jsonb: loans, accrued, collected, missed, repaid, in arrears, arrears per currency, buckets), `created_at` |
+
+The **lending business date** is the latest `loan_servicing_runs.as_of`; it never moves
+backwards. The migration backfills a schedule and an interest receivable for every
+existing loan (a frozen copy of the schedule maths), and widens
+`workflow_step_runs.duration_ms` to BIGINT because a collections case can wait for months. Downgrading
+0009 drops the instalments and servicing runs (their ledger postings stay); upgrading again
+rebuilds every schedule as unpaid, so do not service a downgraded-and-upgraded book.
+
+Ledger accounts used by servicing: `1300-LN-…` loan receivable, `1310-LN-…` interest
+receivable (per loan), `4100-<CUR>` interest income, `5100-<CUR>` loan losses.
 
 ### `alembic_version`
 

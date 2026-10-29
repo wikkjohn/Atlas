@@ -49,7 +49,9 @@ class Permission(StrEnum):
     PAYMENTS_RELEASE_LOW_RISK = "payments:release_low_risk"
     LOANS_READ = "loans:read"
     LOANS_APPROVE = "loans:approve"  # underwriting decisions (never one's own application)
-    LOANS_APPROVE_LARGE = "loans:approve_large"  # credit committee: loans above the limit
+    LOANS_APPROVE_LARGE = "loans:approve_large"  # credit committee: large loans, write-offs
+    LOANS_REPAY = "loans:repay"  # record a borrower's arrears repayment or early payoff
+    LOANS_SERVICE = "loans:service"  # run loan servicing (moves the lending business date)
 
 
 class RoleCode(StrEnum):
@@ -104,6 +106,7 @@ _FRONT_OFFICE = frozenset(
         Permission.ACCOUNTS_REQUEST,
         Permission.ACCOUNTS_TRANSACT,
         Permission.WORKFLOWS_START,
+        Permission.LOANS_REPAY,
     }
 )
 
@@ -125,6 +128,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.ACCOUNTS_MANAGE,
         Permission.PAYMENTS_APPROVE,
         Permission.LOANS_APPROVE,
+        Permission.LOANS_SERVICE,
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
     RoleCode.COMPLIANCE_OFFICER: _BASE

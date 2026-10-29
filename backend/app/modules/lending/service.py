@@ -30,7 +30,14 @@ from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.ledger import service as ledger
 from app.modules.ledger.models import Direction, LedgerAccountType
-from app.modules.lending.models import LOAN_NUMBER_SEQUENCE, Loan, LoanStatus
+from app.modules.lending import servicing
+from app.modules.lending.models import (
+    LOAN_NUMBER_SEQUENCE,
+    InstalmentStatus,
+    Loan,
+    LoanInstalment,
+    LoanStatus,
+)
 from app.modules.lending.schemas import LoanOut
 
 LOANS_RECEIVABLE_PREFIX = "1300"
@@ -244,6 +251,7 @@ def originate(
     )
     db.add(loan)
     db.flush()
+    servicing.ensure_schedule(db, loan)  # the repayment schedule exists from day one
     record_audit_event(
         db,
         actor_id=underwriter.id,
@@ -317,7 +325,39 @@ def loans_out(db: Session, loans: list[Loan]) -> list[LoanOut]:
         for u in (loan.requested_by, loan.underwritten_by, loan.committee_approved_by)
         if u
     }
+    user_ids |= {loan.written_off_by for loan in loans if loan.written_off_by}
     names = dict(db.execute(select(User.id, User.username).where(User.id.in_(user_ids))).all())
+    on = servicing.business_date(db) or datetime.now(UTC).date()
+    schedules: dict[uuid.UUID, list[LoanInstalment]] = {loan.id: [] for loan in loans}
+    for instalment in db.execute(
+        select(LoanInstalment)
+        .where(LoanInstalment.loan_id.in_(schedules))
+        .order_by(LoanInstalment.number)
+    ).scalars():
+        schedules[instalment.loan_id].append(instalment)
+
+    def servicing_view(loan: Loan) -> dict:
+        rows = schedules[loan.id]
+        due = [i for i in rows if i.status == InstalmentStatus.DUE.value]
+        upcoming = next((i for i in rows if i.status == InstalmentStatus.SCHEDULED.value), None)
+        days = max(0, (on - min(i.due_date for i in due)).days) if due else 0
+        return {
+            "instalments_paid": sum(
+                i.status in (InstalmentStatus.PAID.value, InstalmentStatus.PREPAID.value)
+                for i in rows
+            ),
+            "instalments_total": len(rows),
+            "next_due_date": upcoming.due_date if upcoming else None,
+            "next_due_amount": upcoming.amount if upcoming else None,
+            "days_past_due": days,
+            "arrears_amount": sum(i.amount for i in due),
+            "arrears_bucket": servicing.bucket_for(days) if due else "current",
+            "closed_on": loan.closed_on,
+            "written_off_by_username": names.get(loan.written_off_by)
+            if loan.written_off_by
+            else None,
+        }
+
     return [
         LoanOut(
             id=loan.id,
@@ -341,6 +381,7 @@ def loans_out(db: Session, loans: list[Loan]) -> list[LoanOut]:
             else None,
             workflow_execution_id=loan.workflow_execution_id,
             disbursed_at=loan.disbursed_at,
+            **servicing_view(loan),
         )
         for loan in loans
     ]

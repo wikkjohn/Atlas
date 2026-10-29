@@ -4,6 +4,7 @@
     python -m app.cli create-user --username ops.admin --role platform_administrator \\
         --email ops.admin@example.com --display-name "Ops Admin"   # prompts for a password
     python -m app.cli simulate --profile small --seed 42          # one simulation run
+    python -m app.cli service-loans --as-of 2026-12-31 --as-user admin   # loan servicing run
 """
 
 import argparse
@@ -153,6 +154,41 @@ def _simulate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _service_loans(args: argparse.Namespace) -> int:
+    import json
+    from datetime import UTC, date, datetime
+
+    from sqlalchemy import select
+
+    from app.core.permissions import permissions_for
+    from app.modules.identity.models import User
+    from app.modules.identity.service import AuthenticatedUser
+    from app.modules.lending import servicing
+
+    try:
+        as_of = date.fromisoformat(args.as_of) if args.as_of else datetime.now(UTC).date()
+        with get_sessionmaker()() as db, db.begin():
+            user = db.execute(
+                select(User).where(User.username == args.as_user)
+            ).scalar_one_or_none()
+            if user is None or not user.is_active:
+                print(f"No active user '{args.as_user}'; runs are recorded against a user.")
+                return 1
+            actor = AuthenticatedUser(
+                id=user.id,
+                username=user.username,
+                role=user.role.code,
+                permissions=permissions_for(user.role.code),
+            )
+            run = servicing.run(db, as_of, actor)
+            print(f"Servicing run #{run.run_number} to {as_of.isoformat()}:")
+            print(json.dumps(run.summary, indent=2))
+    except (ValueError, DomainError) as exc:
+        print(f"Could not run loan servicing: {exc}")
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -192,6 +228,13 @@ def main(argv: list[str] | None = None) -> int:
     simulate.add_argument("--employees", type=int, help="Custom profile only")
     simulate.add_argument("--as-user", default="admin", help="User the run is recorded against")
     simulate.set_defaults(handler=_simulate)
+
+    service = commands.add_parser(
+        "service-loans", help="Accrue and collect loan instalments up to a business date"
+    )
+    service.add_argument("--as-of", help="Business date (YYYY-MM-DD); defaults to today")
+    service.add_argument("--as-user", default="admin", help="User with loans:service")
+    service.set_defaults(handler=_service_loans)
 
     args = parser.parse_args(argv)
     return args.handler(args)

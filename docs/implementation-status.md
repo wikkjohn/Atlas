@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 9.
+Last updated: Phase 10.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -14,6 +14,51 @@ Last updated: Phase 9.
 | 8 | Enterprise dashboard | **Complete** |
 | — | End-to-end demonstration (Part 12) | **Complete** — [demo.md](demo.md), automated in Playwright |
 | 9 | Additional business workflows: payments and lending | **Complete** |
+| 10 | Loan servicing and collections | **Complete** |
+
+## Phase 10: what exists
+
+- **Repayment schedules** (`loan_instalments`): level monthly instalments from one month
+  after disbursement (due days past the 28th move to the 28th), interest rounded half up,
+  the last instalment takes the remaining principal. Created at origination; migration
+  0009 backfills existing loans.
+- **Servicing runs** (`loan_servicing_runs`, `POST /api/v1/loans/servicing-runs`, CLI
+  `service-loans`): accrue interest on each due date (interest receivable → interest
+  income), collect whole instalments oldest first from the borrower's account (deposit →
+  interest receivable + loan receivable), leave the rest due. Idempotent per instalment;
+  the business date never goes backwards; one run at a time (advisory lock); a summary
+  per run (accrued, collected, missed, repaid, arrears per currency, buckets).
+- **Arrears:** days past due from the oldest unpaid due date, buckets current / 1-29 /
+  30-59 / 60-89 / 90+, and the overdue amount on every loan.
+- **Repayment and payoff** (`loans:repay`, Idempotency-Key required): repay the oldest
+  overdue instalments; pay the loan off early for outstanding principal plus accrued
+  interest (checked against the receivable balance first). The final instalment or a
+  payoff closes the loan as `repaid`.
+- **Write-off:** at 90+ days past due, by `loans:approve_large`: remaining principal and
+  accrued interest → loan losses; status `written_off`.
+- **WF-0004 Loan Collections:** opened by servicing at 30 days past due, sends a simulated
+  arrears letter, closes as cured when the arrears are paid, and at 90 days escalates to a
+  four-eyes credit-committee write-off review.
+- **Permissions:** `loans:repay` (front office), `loans:service` (department managers);
+  `loans:approve_large` now also covers write-offs.
+- **UI:** the Lending screen shows the business date, runs servicing, lists recent runs,
+  shows status and arrears per loan, and opens a loan's schedule with repayment, payoff
+  and its collections cases.
+- **Engine fix:** `workflow_step_runs.duration_ms` is BIGINT (a wait of weeks overflowed
+  a 32-bit millisecond count).
+
+## Phase 10: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 287 passed (new: 12 servicing tests — schedule maths, due-date capping and buckets, schedules at origination, accrual and collection posted once per instalment, monotonic business date, arrears and DPD, oldest-whole-instalment collection, idempotent repayment and its funds and count checks, payoff of principal plus accrued interest, the last instalment closing the loan, write-off authority and 90-day rule, permissions and idempotent runs; 4 WF-0004 tests — case at 30 days, one case per loan, cure on repayment, 90-day escalation with four-eyes write-off, declined write-off reopened by the next run, a loan repaid during the review closing as cured) |
+| Ruff lint + format check | clean |
+| Alembic 0008 → 0009 → 0008 → 0009 on a seeded database, `alembic check` | clean; backfill verified on 17 existing loans (708 instalments match the schedule maths; ledger reconciles) |
+| Frontend typecheck, production build | clean; succeeds |
+| Vitest | 74 passed (new: servicing panel, run to a date with an Idempotency-Key, arrears in the loan list, schedule, repayment and payoff with distinct keys, actions hidden without the permissions) |
+| Playwright (Chromium, real backend, fresh database) | 16 passed, including the new servicing journey (a manager moves the business date; a teller, who cannot run servicing, pays a loan off and the schedule closes) |
+| Docker Compose stack | `validate_system.py` 10/10 (migration head `0009_loan_servicing`, v0.10.0); `service-loans` CLI in the container; Playwright 16 passed against the stack |
+| Visual review | Lending with servicing and a loan in arrears with its collections case at 1440 px ([images](images/)) |
 
 ## Phase 9: what exists
 
@@ -383,11 +428,16 @@ Last updated: Phase 9.
 - Accounts are domestic-currency only; there is no FX, interest, fees, or statements
   beyond posted lines. Payments are between accounts at ATLAS in one currency; there is no
   external clearing, scheduling, standing orders or recall.
-- Loans are booked and disbursed but never serviced: no interest accrual, repayment
-  schedule, arrears or write-off (the `repaid` status exists but nothing sets it). The
-  credit bureau is a deterministic function of name and date of birth.
+- Loan servicing is monthly and simplified: interest accrues in full on each due date (no
+  daily accrual between due dates), a payoff settles outstanding principal plus interest
+  already accrued (no interest for the running period), partial instalments are not
+  collected, and there are no late fees, payment holidays, restructuring or recoveries
+  after a write-off. Instalments are collected only from the disbursement account. The
+  lending business date moves only when someone runs servicing (no scheduler); in the
+  dev database it can be moved past today, which then books repayments on that future
+  date. The credit bureau is a deterministic function of name and date of birth.
 - Workflow definitions are authored in code (registered at import); there is no visual
-  designer or upload API. Three business workflows exist (WF-0001, WF-0002, WF-0003).
+  designer or upload API. Four business workflows exist (WF-0001 to WF-0004).
 - WF-0003 has no AI step yet, so `personal-loans` runs baseline only. Live WF-0002 cases
   run with AI off; the UI offers AI modes only through simulations and experiments.
 - The default success thresholds were tuned for account opening; in `domestic-payments`

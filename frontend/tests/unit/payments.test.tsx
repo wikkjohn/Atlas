@@ -1,10 +1,10 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { Account, Loan, Payment } from "@/types/banking";
+import type { Account, Payment } from "@/types/banking";
 import type { ExecutionDetail, WorkflowDefinition } from "@/types/workflows";
 
-import { account } from "./banking-fixtures";
+import { account, loan } from "./banking-fixtures";
 import { healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
 
@@ -34,27 +34,6 @@ const payment = (partial: Partial<Payment>): Payment => ({
   ...partial,
 });
 
-const loan: Loan = {
-  id: "loan-1",
-  loan_number: "LN-00000001",
-  customer_id: "cus-2",
-  customer_number: "CUS-0000002",
-  customer_name: "Kenji Watanabe",
-  disbursement_account_number: funded.account_number,
-  principal: 1_000_000,
-  currency: "USD",
-  annual_rate_bps: 690,
-  term_months: 36,
-  monthly_payment: 30_831,
-  purpose: "home_improvement",
-  status: "active",
-  outstanding: 1_000_000,
-  requested_by_username: "employee",
-  underwritten_by_username: "manager",
-  committee_approved_by_username: null,
-  workflow_execution_id: "exe-2",
-  disbursed_at: "2026-10-28T11:00:00Z",
-};
 
 describe("Payments and lending", () => {
   it("lists payments with their outcome and approver", async () => {
@@ -88,7 +67,11 @@ describe("Payments and lending", () => {
   }, 20_000);
 
   it("lists loans with pricing, balance and approvals", async () => {
-    mockApi({ ...healthyRoutes, "GET /api/v1/loans": () => jsonResponse(page([loan])) });
+    mockApi({
+      ...healthyRoutes,
+      "GET /api/v1/loans": () => jsonResponse(page([loan])),
+      "GET /api/v1/loans/servicing-runs": () => jsonResponse(page([])),
+    });
     renderApp("/lending");
 
     const row = (await screen.findByText("LN-00000001")).closest("tr") as HTMLElement;

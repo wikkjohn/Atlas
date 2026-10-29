@@ -48,6 +48,7 @@ def run(
     hot_share: float,
     batch: int = 500,
     seed: int = 7,
+    bulk: bool = False,
 ) -> dict[str, Any]:
     rng = random.Random(seed)
     tag = f"{int(time.time())}"
@@ -71,27 +72,41 @@ def run(
         ]
         hot_id, pool_ids = hot.id, [a.id for a in pool]
 
+    def posting(number: int) -> ledger.Posting:
+        amount = rng.randint(1, 100_000)
+        debit = hot_id if rng.random() < hot_share else rng.choice(pool_ids)
+        credit = rng.choice([a for a in rng.sample(pool_ids, 2) if a != debit])
+        return ledger.Posting(
+            idempotency_key=f"bench:{tag}:{number}",
+            currency=CURRENCY,
+            description="Benchmark posting (synthetic)",
+            source="benchmark",
+            lines=[
+                ledger.LineSpec(debit, Direction.DEBIT, amount),
+                ledger.LineSpec(credit, Direction.CREDIT, amount),
+            ],
+        )
+
     posted = 0
     start = time.perf_counter()
     while posted < entries:
+        size = min(batch if not bulk else 5_000, entries - posted)
         with factory() as db, db.begin():
-            for _ in range(min(batch, entries - posted)):
-                amount = rng.randint(1, 100_000)
-                debit = hot_id if rng.random() < hot_share else rng.choice(pool_ids)
-                credit = rng.choice([a for a in rng.sample(pool_ids, 2) if a != debit])
-                ledger.post_entry(
-                    db,
-                    idempotency_key=f"bench:{tag}:{posted}",
-                    currency=CURRENCY,
-                    description="Benchmark posting (synthetic)",
-                    source="benchmark",
-                    lines=[
-                        ledger.LineSpec(debit, Direction.DEBIT, amount),
-                        ledger.LineSpec(credit, Direction.CREDIT, amount),
-                    ],
-                    actor_id=None,
-                )
-                posted += 1
+            batch_postings = [posting(posted + i) for i in range(size)]
+            if bulk:
+                ledger.post_entries(db, batch_postings, actor_id=None)
+            else:
+                for p in batch_postings:
+                    ledger.post_entry(
+                        db,
+                        idempotency_key=p.idempotency_key,
+                        currency=p.currency,
+                        description=p.description,
+                        source=p.source,
+                        lines=p.lines,
+                        actor_id=None,
+                    )
+            posted += size
     posting_seconds = time.perf_counter() - start
 
     with factory() as db:
@@ -109,6 +124,7 @@ def run(
             "hot_share": hot_share,
             "hot_account_lines": None,
             "posting": {
+                "path": "bulk" if bulk else "single",
                 "seconds": round(posting_seconds, 2),
                 "entries_per_second": round(entries / posting_seconds, 1),
             },

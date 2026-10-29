@@ -19,6 +19,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
+import psycopg
 from sqlalchemy import case, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -236,6 +237,20 @@ def _request_hash(
 
 
 def _validate(db: Session, currency: str, lines: list[LineSpec]) -> None:
+    account_ids = {line.ledger_account_id for line in lines}
+    accounts = {
+        a.id: (a.code, a.currency)
+        for a in db.execute(
+            select(LedgerAccount).where(LedgerAccount.id.in_(account_ids))
+        ).scalars()
+    }
+    _check_lines(currency, lines, accounts)
+
+
+def _check_lines(
+    currency: str, lines: list[LineSpec], accounts: dict[uuid.UUID, tuple[str, str]]
+) -> None:
+    """The posting rules, given the referenced accounts as {id: (code, currency)}."""
     if len(lines) < 2:
         raise BusinessRuleViolation("A journal entry needs at least two lines.")
     debits = credits = 0
@@ -252,18 +267,12 @@ def _validate(db: Session, currency: str, lines: list[LineSpec]) -> None:
             {"debits": debits, "credits": credits, "difference": debits - credits},
         )
     account_ids = {line.ledger_account_id for line in lines}
-    accounts = {
-        a.id: a
-        for a in db.execute(
-            select(LedgerAccount).where(LedgerAccount.id.in_(account_ids))
-        ).scalars()
-    }
     missing = account_ids - accounts.keys()
     if missing:
         raise BusinessRuleViolation(
             "Unknown ledger account.", {"ledger_account_ids": sorted(map(str, missing))}
         )
-    wrong_currency = sorted(a.code for a in accounts.values() if a.currency != currency)
+    wrong_currency = sorted(accounts[a][0] for a in account_ids if accounts[a][1] != currency)
     if wrong_currency:
         raise BusinessRuleViolation(
             f"Every line must use a {currency} ledger account.", {"accounts": wrong_currency}
@@ -363,6 +372,171 @@ def post_entry(
         },
     )
     return entry, False
+
+
+# --- Bulk posting --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Posting:
+    """One entry of a bulk posting."""
+
+    idempotency_key: str
+    currency: str
+    description: str
+    source: str
+    lines: list[LineSpec]
+    effective_date: date | None = None
+
+
+BULK_BATCH_LIMIT = 50_000
+
+
+def post_entries(
+    db: Session, postings: list[Posting], *, actor_id: uuid.UUID | None
+) -> list[uuid.UUID]:
+    """Post many balanced entries with a fixed number of round trips (PostgreSQL COPY).
+
+    The same rules as `post_entry` apply, in Python and again in the database (balance,
+    currency, immutability and stored-balance triggers fire for copied rows too). Keys that
+    were already posted with the same request replay; with a different request the whole
+    batch is refused. The batch is all or nothing, and it is audited as one event.
+    Returns the entry ids in the order of `postings`.
+    """
+    if not postings:
+        return []
+    if len(postings) > BULK_BATCH_LIMIT:
+        raise BusinessRuleViolation(f"At most {BULK_BATCH_LIMIT} entries per bulk posting.")
+    keys = [p.idempotency_key for p in postings]
+    if any(not k or len(k) > 300 for k in keys):
+        raise BusinessRuleViolation("An idempotency key (1-300 characters) is required.")
+    if len(set(keys)) != len(keys):
+        raise BusinessRuleViolation("Idempotency keys must be unique within a bulk posting.")
+
+    db.flush()
+    account_ids = {line.ledger_account_id for p in postings for line in p.lines}
+    accounts = {
+        account_id: (code, currency)
+        for account_id, code, currency in db.execute(
+            select(LedgerAccount.id, LedgerAccount.code, LedgerAccount.currency).where(
+                LedgerAccount.id.in_(account_ids)
+            )
+        )
+    }
+    hashes = []
+    for posting in postings:
+        _check_lines(posting.currency, posting.lines, accounts)
+        hashes.append(
+            _request_hash(
+                posting.currency,
+                posting.description,
+                posting.source,
+                posting.lines,
+                posting.effective_date,
+            )
+        )
+    existing = {
+        key: (entry_id, number, request_hash)
+        for key, entry_id, number, request_hash in db.execute(
+            select(
+                JournalEntry.idempotency_key,
+                JournalEntry.id,
+                JournalEntry.entry_number,
+                JournalEntry.request_hash,
+            ).where(JournalEntry.idempotency_key.in_(keys))
+        )
+    }
+    for key, request_hash in zip(keys, hashes, strict=True):
+        if key in existing and existing[key][2] != request_hash:
+            raise ConflictError(
+                "This idempotency key was already used for a different journal entry.",
+                {"entry_number": existing[key][1], "idempotency_key": key},
+            )
+    new = [i for i, key in enumerate(keys) if key not in existing]
+    numbers = list(
+        db.execute(
+            text("SELECT nextval('journal_entry_number_seq') FROM generate_series(1, :n)"),
+            {"n": len(new)},
+        ).scalars()
+    )
+    today = datetime.now(UTC).date()
+    correlation_id = correlation_id_var.get()
+    ids: list[uuid.UUID] = [existing[k][0] if k in existing else uuid.uuid4() for k in keys]
+    raw = db.connection().connection.driver_connection
+    # The rows go through the driver, so the savepoint is taken on the driver too: a
+    # rejected batch rolls back to exactly here and leaves the caller's transaction usable.
+    with raw.cursor() as cursor:
+        cursor.execute("SAVEPOINT bulk_posting")
+        try:
+            with cursor.copy(
+                "COPY journal_entries (id, entry_number, idempotency_key, request_hash, currency,"
+                " description, source, status, effective_date, posted_by, correlation_id)"
+                " FROM STDIN"
+            ) as copy:
+                for i, number in zip(new, numbers, strict=True):
+                    p = postings[i]
+                    copy.write_row(
+                        (
+                            ids[i],
+                            f"JE-{number:08d}",
+                            p.idempotency_key,
+                            hashes[i],
+                            p.currency,
+                            p.description,
+                            p.source,
+                            EntryStatus.POSTED.value,
+                            p.effective_date or today,
+                            actor_id,
+                            correlation_id,
+                        )
+                    )
+            with cursor.copy(
+                "COPY journal_lines (id, journal_entry_id, line_number, ledger_account_id,"
+                " direction, amount, memo) FROM STDIN"
+            ) as copy:
+                for i in new:
+                    for number, line in enumerate(postings[i].lines, start=1):
+                        copy.write_row(
+                            (
+                                uuid.uuid4(),
+                                ids[i],
+                                number,
+                                line.ledger_account_id,
+                                line.direction.value,
+                                line.amount,
+                                line.memo,
+                            )
+                        )
+            cursor.execute(f"SET CONSTRAINTS {_DEFERRED_CONSTRAINTS} IMMEDIATE")
+            cursor.execute(f"SET CONSTRAINTS {_DEFERRED_CONSTRAINTS} DEFERRED")
+        except (DBAPIError, psycopg.Error) as exc:  # COPY raises the driver's own errors
+            cursor.execute("ROLLBACK TO SAVEPOINT bulk_posting")
+            cursor.execute(f"SET CONSTRAINTS {_DEFERRED_CONSTRAINTS} DEFERRED")
+            raise BusinessRuleViolation(f"The ledger rejected the bulk posting: {exc}") from exc
+        cursor.execute("RELEASE SAVEPOINT bulk_posting")
+    if new:
+        totals: dict[str, int] = {}
+        for i in new:
+            amount = sum(
+                line.amount for line in postings[i].lines if line.direction == Direction.DEBIT
+            )
+            totals[postings[i].currency] = totals.get(postings[i].currency, 0) + amount
+        record_audit_event(
+            db,
+            actor_id=actor_id,
+            action="ledger.entries_posted",
+            entity_type="ledger",
+            entity_id=None,
+            metadata={
+                "entries": len(new),
+                "replayed": len(keys) - len(new),
+                "first_entry_number": f"JE-{min(numbers):08d}",
+                "last_entry_number": f"JE-{max(numbers):08d}",
+                "sources": sorted({postings[i].source for i in new}),
+                "totals": totals,
+            },
+        )
+    return ids
 
 
 def get_entry(db: Session, entry_id: uuid.UUID, *, for_update: bool = False) -> JournalEntry:

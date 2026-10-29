@@ -6,6 +6,7 @@
     python -m app.cli simulate --profile small --seed 42          # one simulation run
     python -m app.cli service-loans --as-of 2026-12-31 --as-user admin   # loan servicing run
     python -m app.cli bench-ledger --accounts 2000 --entries 50000      # ledger benchmark
+    python -m app.cli load-population --customers 100000 --seed 2026    # bulk customers
 """
 
 import argparse
@@ -205,8 +206,35 @@ def _bench_ledger(args: argparse.Namespace) -> int:
         entries=args.entries,
         hot_share=args.hot_share,
         seed=args.seed,
+        bulk=args.bulk,
     )
     print(json.dumps(report, indent=2))
+    return 0
+
+
+def _load_population(args: argparse.Namespace) -> int:
+    import json
+
+    from app.simulation.population import PopulationError, load
+
+    settings = get_settings()
+    if settings.environment in {"staging", "production"}:
+        print(f"Refusing to load a synthetic population in the {settings.environment} environment.")
+        return 1
+    try:
+        report = load(
+            get_sessionmaker(),
+            customers=args.customers,
+            seed=args.seed,
+            batch=args.batch,
+            progress=lambda done, seconds: print(
+                f"  {done:,} customers in {seconds:.1f}s", flush=True
+            ),
+        )
+    except PopulationError as exc:
+        print(f"Could not load the population: {exc}")
+        return 1
+    print(json.dumps(report.as_dict(), indent=2))
     return 0
 
 
@@ -264,7 +292,16 @@ def main(argv: list[str] | None = None) -> int:
     bench.add_argument("--entries", type=int, default=20000)
     bench.add_argument("--hot-share", type=float, default=0.5, help="Lines on one hot account")
     bench.add_argument("--seed", type=int, default=7)
+    bench.add_argument("--bulk", action="store_true", help="Post through the bulk (COPY) path")
     bench.set_defaults(handler=_bench_ledger)
+
+    population = commands.add_parser(
+        "load-population", help="Bulk-load synthetic customers with open, funded accounts"
+    )
+    population.add_argument("--customers", type=int, required=True)
+    population.add_argument("--seed", type=int, default=2026)
+    population.add_argument("--batch", type=int, default=5_000)
+    population.set_defaults(handler=_load_population)
 
     args = parser.parse_args(argv)
     return args.handler(args)

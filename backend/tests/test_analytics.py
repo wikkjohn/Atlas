@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Connection, select
 from sqlalchemy.orm import Session
 
-from app.core.permissions import RoleCode
+from app.core.permissions import SERVICE_ROLES, RoleCode
 from app.modules.ai_tools.schemas import ToolCreate
 from app.modules.ai_tools.service import register_tool
 from app.modules.experiments.assumptions import CostAssumptions
@@ -111,7 +111,7 @@ def test_overview_counts_follow_the_records(api: TestClient, db: Session) -> Non
 
 def test_every_role_can_read_the_dashboard(client: TestClient, db: Session) -> None:
     for role in RoleCode:
-        if role == RoleCode.AUTOMATED_POLICY:
+        if role in SERVICE_ROLES:  # system principals cannot sign in
             continue
         headers = auth(make_user(db, role))
         assert client.get("/api/v1/analytics/overview", headers=headers).status_code == 200
@@ -122,7 +122,7 @@ def test_users_can_be_filtered_into_people_and_service_accounts(
 ) -> None:
     headers = auth(make_user(db, RoleCode.PLATFORM_ADMINISTRATOR, username="settings-admin"))
     service = client.get("/api/v1/users", params={"kind": "service"}, headers=headers).json()
-    assert [u["username"] for u in service["items"]] == [POLICY_ENGINE_USERNAME]
+    assert [u["username"] for u in service["items"]] == [POLICY_ENGINE_USERNAME, "atlas-scheduler"]
     assert service["items"][0]["is_service_account"] is True
     people = client.get("/api/v1/users", params={"kind": "people"}, headers=headers).json()
     assert POLICY_ENGINE_USERNAME not in {u["username"] for u in people["items"]}

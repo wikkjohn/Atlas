@@ -9,6 +9,7 @@ from app.core.errors import ConflictError
 from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
+from app.jobs import engine as jobs
 from app.modules.experiments import report, service
 from app.modules.experiments.models import ExperimentStatus
 from app.modules.experiments.schemas import (
@@ -56,11 +57,16 @@ def create_experiment(
     def create():
         experiment = service.create(db, body, actor.id)
         runs = [experiment.baseline_run_id, experiment.candidate_run_id]
-        return service.detail(db, experiment), [(experiment.id, runs)]
+        job = jobs.enqueue(
+            db,
+            "experiment.execute",
+            {"experiment_id": str(experiment.id), "run_ids": [str(r) for r in runs]},
+            created_by=actor.id,
+        )
+        return service.detail(db, experiment), [job.id]
 
-    def schedule(started: list) -> None:
-        experiment_id, runs = started[0]
-        tasks.add_task(service.execute, factory, experiment_id, runs)
+    def schedule(job_ids: list) -> None:
+        jobs.dispatch(tasks, factory, job_ids)
 
     return launch_idempotent(
         db,

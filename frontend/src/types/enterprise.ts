@@ -42,7 +42,9 @@ export type Permission =
   | "loans:approve_large"
   | "loans:approve_low_risk"
   | "loans:repay"
-  | "loans:service";
+  | "loans:service"
+  | "jobs:read"
+  | "jobs:manage";
 
 export interface Page<T> {
   items: T[];

@@ -54,6 +54,8 @@ class Permission(StrEnum):
     LOANS_APPROVE_LOW_RISK = "loans:approve_low_risk"
     LOANS_REPAY = "loans:repay"  # record a borrower's arrears repayment or early payoff
     LOANS_SERVICE = "loans:service"  # run loan servicing (moves the lending business date)
+    JOBS_READ = "jobs:read"  # background jobs and their schedules
+    JOBS_MANAGE = "jobs:manage"  # queue jobs, change schedules
 
 
 class RoleCode(StrEnum):
@@ -68,6 +70,9 @@ class RoleCode(StrEnum):
     # A service role, never assigned to a person: the workflow policy engine that may
     # approve low-risk cases when policy allows (Phase 6, experiment C).
     AUTOMATED_POLICY = "automated_policy"
+    # A service role for the job scheduler (Phase 14): runs scheduled reconciliation and
+    # loan servicing. Never assigned to a person.
+    SYSTEM_SCHEDULER = "system_scheduler"
 
 
 ROLE_NAMES: dict[RoleCode, str] = {
@@ -80,10 +85,11 @@ ROLE_NAMES: dict[RoleCode, str] = {
     RoleCode.AI_RESEARCHER: "AI Researcher",
     RoleCode.AUDITOR: "Auditor",
     RoleCode.AUTOMATED_POLICY: "Automated Policy Engine",
+    RoleCode.SYSTEM_SCHEDULER: "System Scheduler",
 }
 
 # Roles that belong to system principals only; people cannot be given them.
-SERVICE_ROLES = frozenset({RoleCode.AUTOMATED_POLICY})
+SERVICE_ROLES = frozenset({RoleCode.AUTOMATED_POLICY, RoleCode.SYSTEM_SCHEDULER})
 
 # Read access every role has: the enterprise directory and the banking books.
 _BASE = frozenset(
@@ -155,6 +161,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.USERS_READ,
         Permission.AUDIT_READ,
         Permission.LEDGER_READ,
+        Permission.JOBS_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {
@@ -165,6 +172,14 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.PAYMENTS_RELEASE_LOW_RISK,
             Permission.LOANS_READ,
             Permission.LOANS_APPROVE_LOW_RISK,
+        }
+    ),
+    RoleCode.SYSTEM_SCHEDULER: frozenset(
+        {
+            Permission.LEDGER_READ,
+            Permission.LOANS_READ,
+            Permission.LOANS_SERVICE,
+            Permission.WORKFLOWS_READ,
         }
     ),
 }

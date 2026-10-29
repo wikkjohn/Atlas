@@ -49,7 +49,8 @@ Conditions are structured, never `eval`: `{"path": "a.b", "op": "eq", "value": â
   dies, the whole transaction rolls back and the step is still `pending`.
 - **No duplicate execution.** Advancing locks the execution row; concurrent workers wait
   (or skip, in the runner) instead of running the same step. Tested with four threads.
-- **Resumption.** `run_due` (CLI: `python -m app.cli run-workflows [--watch]`) advances
+- **Resumption.** `run_due` (the `workflow-timers` schedule of the job worker every minute
+  since Phase 14, or `python -m app.cli run-workflows [--watch]`) advances
   every execution with due steps or expired timers, one execution per transaction, with
   `SKIP LOCKED`. A test commits one step, discards the session and resumes in a new one.
 - **Validated transitions and approvals.** Only the engine moves state; approvals check

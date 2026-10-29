@@ -13,12 +13,13 @@ import { StatusPill } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
 import { formatTimestamp } from "@/features/dashboard/format";
 import { HealthTiles, PlatformDetails } from "@/features/dashboard/PlatformHealth";
+import { JobsPanel } from "@/features/settings/JobsPanel";
 import { useCreateUser, useRoles, useUpdateUser, useUsers } from "@/services/enterprise";
 import { useHealth, useSystemInfo, useSystemStatus } from "@/services/queries";
 import type { Role } from "@/types/enterprise";
 
 const PAGE = 20;
-const SERVICE_ROLES = new Set(["automated_policy"]);
+const SERVICE_ROLES = new Set(["automated_policy", "system_scheduler"]);
 const USERNAME = /^[a-z0-9][a-z0-9._-]{2,63}$/;
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -294,12 +295,13 @@ export function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="System Settings"
-        description="Platform health, build and database details, modules, users, roles and permissions."
+        description="Platform health, build and database details, modules, background jobs, users, roles and permissions."
         actions={<SyntheticDataBadge />}
       />
       <HealthTiles health={health} status={status} info={info} />
       <PlatformDetails status={status} info={info} />
       <ErrorMessage error={roles.error} />
+      {can("jobs:read") && <JobsPanel />}
       {can("users:read") && roles.data && <UsersPanel roles={roles.data} />}
       {roles.data && <RolesMatrix roles={roles.data} />}
     </div>

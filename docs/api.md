@@ -167,6 +167,23 @@ Write-offs have no endpoint: only the WF-0004 credit-committee approval writes a
 Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
 `…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
 
+### Background jobs (Phase 14)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/jobs` | `jobs:read` | Latest first. Filters: `status`, `kind`. Payload, attempts, result (with `duration_ms` and the `worker` that ran it), last error, schedule, who queued it |
+| GET | `/api/v1/jobs/kinds` | `jobs:read` | Registered kinds, their attempts and whether they can be queued by hand |
+| GET | `/api/v1/jobs/{id}` | `jobs:read` | One job |
+| POST | `/api/v1/jobs` | `jobs:manage` | `{kind, payload}` for kinds marked manual (`ledger.reconcile`, `workflows.run_due`, `lending.service_loans`, `system.ping`); runs as the caller; audited; 202 |
+| POST | `/api/v1/jobs/{id}/cancel` | `jobs:manage` | Queued jobs only |
+| GET | `/api/v1/job-schedules` | `jobs:read` | Schedules with interval, next run and last job |
+| PATCH | `/api/v1/job-schedules/{name}` | `jobs:manage` | `{enabled?, interval_seconds?}` (60 s – 7 days); audited |
+| POST | `/api/v1/job-schedules/{name}/run` | `jobs:manage` | Queue the schedule's job now (one active job per schedule); 202 |
+
+Simulation, suite, rerun and experiment starts now queue `simulation.execute` /
+`experiment.execute` jobs in the same transaction as the runs; their responses are
+unchanged.
+
 ### Workflows
 
 | Method | Path | Permission | Notes |

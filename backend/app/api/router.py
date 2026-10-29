@@ -8,6 +8,8 @@ as they are implemented.
 from fastapi import APIRouter
 
 from app.api import system
+from app.jobs import handlers  # noqa: F401  (registers the job kinds)
+from app.jobs.router import jobs_router, schedules_router
 from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.ai_tools.router import router as ai_tools_router
 from app.modules.analytics.router import router as analytics_router
@@ -51,5 +53,7 @@ for module_router in (
     benchmarks_router,
     analytics_router,
     audit_router,
+    jobs_router,
+    schedules_router,
 ):
     v1_router.include_router(module_router)

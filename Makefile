@@ -24,8 +24,12 @@ migrate: ## Apply database migrations
 seed: ## Create the demo bank and one demo sign-in per role (idempotent)
 	cd $(BACKEND) && .venv/bin/python -m app.cli seed-demo
 
+.PHONY: worker
+worker: ## Run the background-job worker and its schedules (reconciliation, workflow timers, ...)
+	cd $(BACKEND) && .venv/bin/python -m app.cli worker
+
 .PHONY: workflows
-workflows: ## Run the workflow runner (resumes due steps, applies timeouts)
+workflows: ## Run only the workflow runner (resumes due steps, applies timeouts)
 	cd $(BACKEND) && .venv/bin/python -m app.cli run-workflows --watch
 
 .PHONY: simulate

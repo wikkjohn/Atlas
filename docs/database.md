@@ -175,6 +175,16 @@ Ledger triggers (migration 0003):
 | `journal_entries_guard`, `journal_entries_no_truncate` | Entries cannot be deleted; the only permitted update is status posted → reversed |
 | `journal_lines_maintain_balance` (migration 0010) | Adds each new line to its account's stored totals in `ledger_balances` |
 
+### Background jobs (Phase 14, migration `0012_background_jobs`)
+
+| Table | Contents |
+| --- | --- |
+| `jobs` | `job_number` (identity), `kind`, `payload` (jsonb), `status` (queued, running, succeeded, failed, cancelled), `priority`, `run_at`, `attempts`, `max_attempts`, `dedupe_key` (unique among queued and running jobs), `locked_by` (set exactly while running), `heartbeat_at`, `result` (jsonb), `last_error`, `schedule_name`, `created_by`, `created_at`, `started_at`, `finished_at`. Index `ix_jobs_due (status, run_at, priority)` serves the claim query |
+| `job_schedules` | `name` (unique), `description`, `kind`, `payload`, `interval_seconds` (≥ 60), `enabled`, `next_run_at`, `last_job_id`, `updated_at`. Seeded: incremental reconciliation every 15 minutes, full reconciliation daily, workflow timers every minute, loan servicing daily (off) |
+
+The migration also adds the `system_scheduler` service role and the `atlas-scheduler`
+user (unusable password), whom scheduled jobs act as.
+
 ### Search and sort indexes (Phase 13, migration `0011_search_indexes`)
 
 The `pg_trgm` extension and GIN trigram indexes for substring searches:

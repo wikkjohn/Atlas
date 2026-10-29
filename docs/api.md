@@ -137,11 +137,16 @@ digits (e.g. `US000000004257`). They are synthetic, not IBANs.
 | POST | `/api/v1/ledger/journal-entries` | `ledger:post` | Manual balanced entry; **Idempotency-Key required**; same key + same body replays (200), different body 409 |
 | GET | `/api/v1/ledger/journal-entries/{id}` | `ledger:read` | Lines, `reversal_of_id`, `reversed_by_id` |
 | POST | `/api/v1/ledger/journal-entries/{id}/reverse` | `ledger:post` | `{reason}`; posts the opposite entry; **Idempotency-Key required** |
-| POST | `/api/v1/ledger/reconciliation` | `ledger:read` | Runs the checks below; the run is audited |
+| POST | `/api/v1/ledger/reconciliation` | `ledger:read` | `?mode=full` (default) or `incremental` (entries posted since the previous run, with a 10-minute overlap). Runs the checks below; the run is recorded and audited (Phase 12: `id`, `run_number`, `mode`, `window_start`, `window_end`, `duration_ms`) |
+| GET | `/api/v1/ledger/reconciliations` | `ledger:read` | Reconciliation history, latest first: mode, result, failed checks, entries and lines checked, duration, who ran it (Phase 12) |
+| GET | `/api/v1/ledger/reconciliations/{id}` | `ledger:read` | One recorded report (Phase 12) |
 
 Reconciliation checks: every entry has ≥ 2 lines and balances; every line uses a ledger
 account in the entry's currency; debits equal credits per currency (trial balance); every
-reversed entry has a reversing entry; every customer account matches its ledger currency.
+reversed entry has a reversing entry; every customer account matches its ledger currency;
+stored balances match their lines (Phase 12). Incremental runs limit the entry, currency,
+reversal and account checks to the window and compare the stored balances of up to 500
+accounts it touched; the trial balance always covers the whole ledger, from the stored totals.
 
 ### Payments and loans (Phase 9)
 

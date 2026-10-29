@@ -3,20 +3,24 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from app.core.dependencies import DbSession
+from app.core.errors import NotFoundError
 from app.core.idempotency import REPLAY_HEADER, RequiredIdempotencyKey
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.identity.dependencies import Authorized
+from app.modules.identity.models import User
 from app.modules.ledger import service
-from app.modules.ledger.models import LedgerAccountType
+from app.modules.ledger.models import LedgerAccountType, LedgerReconciliation, ReconciliationMode
 from app.modules.ledger.schemas import (
     JournalEntryCreate,
     JournalEntryOut,
     LedgerAccountCreate,
     LedgerAccountOut,
     ReconciliationReport,
+    ReconciliationRunOut,
     ReversalCreate,
     StatementLineOut,
 )
@@ -182,9 +186,66 @@ def reverse_entry(
 @router.post(
     "/reconciliation",
     response_model=ReconciliationReport,
-    summary="Run the ledger reconciliation checks (the run is audited)",
+    summary="Run the ledger reconciliation checks (the run is recorded and audited)",
 )
 def run_reconciliation(
-    db: DbSession, actor: Authorized(Permission.LEDGER_READ)
+    db: DbSession,
+    actor: Authorized(Permission.LEDGER_READ),
+    mode: Annotated[
+        ReconciliationMode,
+        Query(description="full: everything; incremental: what was posted since the last run"),
+    ] = ReconciliationMode.FULL,
 ) -> ReconciliationReport:
-    return service.reconcile(db, actor.id)
+    return service.reconcile(db, actor.id, mode)
+
+
+def _run_out(db, run: LedgerReconciliation) -> ReconciliationRunOut:
+    username = (
+        db.execute(select(User.username).where(User.id == run.run_by)).scalar()
+        if run.run_by
+        else None
+    )
+    return ReconciliationRunOut(
+        id=run.id,
+        run_number=run.run_number,
+        mode=run.mode,
+        ok=run.ok,
+        window_start=run.window_start,
+        window_end=run.window_end,
+        entries_checked=run.entries_checked,
+        lines_checked=run.lines_checked,
+        duration_ms=run.duration_ms,
+        failed_checks=[c["name"] for c in run.report.get("checks", []) if not c["passed"]],
+        run_by_username=username,
+        created_at=run.created_at,
+    )
+
+
+@router.get(
+    "/reconciliations",
+    response_model=Page[ReconciliationRunOut],
+    summary="Reconciliation history, latest first",
+)
+def list_reconciliations(
+    db: DbSession, page: PageParamsDep, _: Authorized(Permission.LEDGER_READ)
+) -> Page[ReconciliationRunOut]:
+    items, total = service.list_reconciliations(db, page)
+    return Page(
+        items=[_run_out(db, r) for r in items], total=total, limit=page.limit, offset=page.offset
+    )
+
+
+@router.get(
+    "/reconciliations/{run_id}",
+    response_model=ReconciliationReport,
+    summary="One recorded reconciliation report",
+)
+def get_reconciliation(
+    run_id: uuid.UUID, db: DbSession, _: Authorized(Permission.LEDGER_READ)
+) -> ReconciliationReport:
+    run = db.get(LedgerReconciliation, run_id)
+    if run is None:
+        raise NotFoundError("Reconciliation run not found.")
+    return ReconciliationReport.model_validate(
+        {**run.report, "id": run.id, "run_number": run.run_number}
+    )

@@ -87,8 +87,13 @@ test("onboard → KYC → request → four-eyes approval → deposit → reconci
   await expect(account.getByRole("alert")).toContainText("Insufficient funds");
   await expect(account.getByLabel("Balance")).toHaveText("€379.75");
 
-  // 6. An auditor reconciles the ledger.
+  // 6. An auditor reconciles the ledger in full, then incrementally; both runs are recorded.
   const auditor = await as(browser, "auditor", "/accounts?tab=ledger");
-  await auditor.getByRole("button", { name: "Run reconciliation" }).click();
-  await expect(auditor.getByText(/All checks passed/)).toBeVisible();
+  const reconciliation = auditor.getByRole("region", { name: "Reconciliation" });
+  await auditor.getByRole("button", { name: "Full reconciliation" }).click();
+  await expect(reconciliation.getByText(/All checks passed · run #\d+ \(\s*full\)/)).toBeVisible();
+  await expect(reconciliation.getByText("Stored balances match the lines")).toBeVisible();
+  await auditor.getByRole("button", { name: "Incremental check" }).click();
+  await expect(reconciliation.getByText(/All checks passed · run #\d+ \(\s*incremental\)/)).toBeVisible();
+  await expect(auditor.getByRole("table", { name: "Reconciliation history" }).getByText("Incremental").first()).toBeVisible();
 });

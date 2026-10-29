@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 11.
+Last updated: Phase 12.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -16,6 +16,49 @@ Last updated: Phase 11.
 | 9 | Additional business workflows: payments and lending | **Complete** |
 | 10 | Loan servicing and collections | **Complete** |
 | 11 | AI underwriting for personal loans | **Complete** |
+| 12 | Scale foundation, step 1: stored balances and incremental reconciliation ([roadmap](roadmap.md) Milestone A) | **Complete** |
+
+## Phase 12: what exists
+
+- **Roadmap** ([roadmap.md](roadmap.md)): the remaining work towards the long-term vision,
+  in milestones A–H with exit tests. Phase 12 is the first step of Milestone A.
+- **Stored balances** (`ledger_balances`, migration 0010): running debit and credit totals
+  per account in eight shards, maintained by a trigger on every journal line in the same
+  transaction, guarded against any other write, backfilled from existing lines. All
+  balance reads (accounts, payments, loans, servicing, the chart of accounts) use them.
+- **Incremental reconciliation** (`POST /api/v1/ledger/reconciliation?mode=incremental`):
+  the entries posted since the previous run (10-minute overlap), the trial balance from
+  the stored totals and the stored balances of up to 500 touched accounts. Full runs also
+  compare every account's stored totals with its lines.
+- **Reconciliation history** (`ledger_reconciliations`, `GET /api/v1/ledger/reconciliations`):
+  every run, its mode, result, failed checks and duration; shown under the General ledger.
+- **Benchmark** (`python -m app.cli bench-ledger`): posts synthetic entries through the
+  normal ledger service and times balance reads and reconciliation.
+
+## Phase 12: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 297 passed (new: 4 — stored balances follow 40 postings and a reversal and match the line sums across shards; direct insert / update / delete / truncate refused; full and incremental runs recorded, listed and readable, incremental window after the previous run; a drifted stored balance caught by both modes) |
+| Migration 0009 → 0010 on a copy of the seeded dev database | backfill matches the lines for all 127 accounts; downgrade and upgrade clean; `alembic check` clean |
+| Frontend typecheck, Vitest, build | clean; 75 passed; succeeds |
+| Playwright (Chromium, real backend, fresh database) | 16 passed; the banking journey now runs a full and an incremental reconciliation |
+| Docker Compose stack | `validate_system.py` 10/10 (migration head 0010, v0.12.0); `bench-ledger` in the container: balances agree, both modes pass |
+
+Measured with `bench-ledger` in the development container (5,001 accounts, 100,000 entries,
+half of all lines on one hot account; medians):
+
+| Measurement | Before (sum of lines) | After (stored totals) |
+| --- | ---: | ---: |
+| Balance of the hot account (49,985 lines) | 7.66 ms | 0.56 ms |
+| Balances of 200 ordinary accounts (~20 lines each) | 5.21 ms | 5.33 ms |
+| Reconciliation after 1,000 new entries on a 103,312-entry ledger | 1,006 ms (full) | 88 ms (incremental) |
+| Posting rate, trigger on / off (two runs each, 5,000 entries) | 203 / 210 entries/s off | 207 / 184 entries/s on |
+
+Stored totals keep a busy account's balance read constant as its history grows; ordinary
+accounts with few lines gain nothing. The trigger's cost is within run-to-run noise; the
+posting rate (about 200 entries per second) is set by the per-entry ORM and audit work, the
+next item of Milestone A.
 
 ## Phase 11: what exists
 
@@ -495,9 +538,10 @@ Last updated: Phase 11.
   fires in simulations; it is covered by tests only.
 - Human tasks are offered to everyone holding the permissions; there is no assignment to a
   named person, delegation or escalation routing beyond the overdue flag.
-- Balances are computed from lines on every read; fine at demo scale, but large volumes
-  will need snapshots or materialized balances.
-- Reconciliation scans the whole ledger synchronously.
+- Postings go one entry at a time through the ORM (about 200 entries per second in the
+  development container); bulk loading for generated data is still to come (roadmap
+  Milestone A). Reconciliation runs synchronously in the request; incremental runs keep it
+  short, but nothing runs it on a schedule yet.
 
 - Permissions are role-wide: a regional executive or department manager is not yet limited
   to their own region or department.

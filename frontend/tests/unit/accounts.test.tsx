@@ -90,20 +90,40 @@ describe("Accounts page", () => {
     );
   });
 
-  it("runs reconciliation and lists the checks", async () => {
-    mockApi({
+  it("runs an incremental reconciliation and shows the recorded history", async () => {
+    const run = {
+      id: "rec-1",
+      run_number: 1,
+      mode: "full",
+      ok: false,
+      window_start: null,
+      window_end: "2026-10-27T09:00:00Z",
+      entries_checked: 1200,
+      lines_checked: 2400,
+      duration_ms: 85,
+      failed_checks: ["Stored balances match the lines"],
+      run_by_username: "auditor",
+      created_at: "2026-10-27T09:00:00Z",
+    };
+    const api = mockApi({
       ...routes(),
       "GET /api/v1/ledger/accounts": () => jsonResponse(page([])),
       "GET /api/v1/ledger/journal-entries": () => jsonResponse(page([])),
+      "GET /api/v1/ledger/reconciliations": () => jsonResponse(page([run])),
       "POST /api/v1/ledger/reconciliation": () => jsonResponse(cleanReport),
     });
     renderApp("/accounts?tab=ledger");
 
-    await userEvent.click(await screen.findByRole("button", { name: "Run reconciliation" }));
+    const history = await screen.findByRole("table", { name: "Reconciliation history" });
+    expect(within(history).getByText("Failed: Stored balances match the lines")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Incremental check" }));
 
     const section = screen.getByRole("region", { name: "Reconciliation" });
-    expect(await within(section).findByText(/All checks passed/)).toBeInTheDocument();
+    expect(await within(section).findByText(/All checks passed · run #2/)).toBeInTheDocument();
     expect(within(section).getByText("Every entry balances")).toBeInTheDocument();
+    expect(within(section).getByText(/Entries posted since/)).toBeInTheDocument();
+    const post = api.requests.find((r) => r.method === "POST");
+    expect(post?.search.get("mode")).toBe("incremental");
   });
 
   it("hides the general ledger from roles without ledger access", async () => {

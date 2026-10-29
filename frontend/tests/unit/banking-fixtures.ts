@@ -95,6 +95,12 @@ export const cleanReport: ReconciliationReport = {
     { name: "Every entry balances", passed: true, detail: "3 entries checked; 0 unbalanced.", failures: [] },
     { name: "Trial balance per currency", passed: true, detail: "USD: 900 = 900", failures: [] },
   ],
+  id: "rec-2",
+  run_number: 2,
+  mode: "incremental",
+  window_start: "2026-10-27T09:50:00Z",
+  window_end: "2026-10-27T10:00:00Z",
+  duration_ms: 14,
 };
 
 export const loan: Loan = {

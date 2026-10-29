@@ -5,6 +5,7 @@
         --email ops.admin@example.com --display-name "Ops Admin"   # prompts for a password
     python -m app.cli simulate --profile small --seed 42          # one simulation run
     python -m app.cli service-loans --as-of 2026-12-31 --as-user admin   # loan servicing run
+    python -m app.cli bench-ledger --accounts 2000 --entries 50000      # ledger benchmark
 """
 
 import argparse
@@ -189,6 +190,26 @@ def _service_loans(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bench_ledger(args: argparse.Namespace) -> int:
+    import json
+
+    from app.modules.ledger import benchmark
+
+    settings = get_settings()
+    if settings.environment in {"staging", "production"}:
+        print(f"Refusing to post benchmark entries in the {settings.environment} environment.")
+        return 1
+    report = benchmark.run(
+        get_sessionmaker(),
+        accounts=args.accounts,
+        entries=args.entries,
+        hot_share=args.hot_share,
+        seed=args.seed,
+    )
+    print(json.dumps(report, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -235,6 +256,15 @@ def main(argv: list[str] | None = None) -> int:
     service.add_argument("--as-of", help="Business date (YYYY-MM-DD); defaults to today")
     service.add_argument("--as-user", default="admin", help="User with loans:service")
     service.set_defaults(handler=_service_loans)
+
+    bench = commands.add_parser(
+        "bench-ledger", help="Post synthetic entries and time balance reads and reconciliation"
+    )
+    bench.add_argument("--accounts", type=int, default=2000)
+    bench.add_argument("--entries", type=int, default=20000)
+    bench.add_argument("--hot-share", type=float, default=0.5, help="Lines on one hot account")
+    bench.add_argument("--seed", type=int, default=7)
+    bench.set_defaults(handler=_bench_ledger)
 
     args = parser.parse_args(argv)
     return args.handler(args)

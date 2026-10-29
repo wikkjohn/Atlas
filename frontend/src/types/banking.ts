@@ -125,6 +125,30 @@ export interface ReconciliationReport {
   entries_checked: number;
   lines_checked: number;
   checks: { name: string; passed: boolean; detail: string; failures: Record<string, unknown>[] }[];
+  // Phase 12: every run is recorded.
+  id: string | null;
+  run_number: number | null;
+  mode: ReconciliationMode;
+  window_start: string | null;
+  window_end: string | null;
+  duration_ms: number | null;
+}
+
+export type ReconciliationMode = "full" | "incremental";
+
+export interface ReconciliationRun {
+  id: string;
+  run_number: number;
+  mode: ReconciliationMode;
+  ok: boolean;
+  window_start: string | null;
+  window_end: string;
+  entries_checked: number;
+  lines_checked: number;
+  duration_ms: number;
+  failed_checks: string[];
+  run_by_username: string | null;
+  created_at: string;
 }
 
 // --- Phase 9: payments and lending ------------------------------------------------------

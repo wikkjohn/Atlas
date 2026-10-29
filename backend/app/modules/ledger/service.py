@@ -7,15 +7,17 @@ Invariants (each also enforced by the database, see migration 0003):
   posting a separate, opposite entry;
 - every posting has an idempotency key; a replay returns the original entry.
 
-Balances are never stored: they are derived from posted lines.
+Balances are stored per account in `ledger_balances`, maintained by a database trigger on
+every posted line (migration 0010) and checked against the lines by reconciliation.
 """
 
 import hashlib
 import json
+import time
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import case, func, select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -36,6 +38,9 @@ from app.modules.ledger.models import (
     JournalLine,
     LedgerAccount,
     LedgerAccountType,
+    LedgerBalance,
+    LedgerReconciliation,
+    ReconciliationMode,
 )
 from app.modules.ledger.schemas import (
     JournalEntryOut,
@@ -116,8 +121,41 @@ def open_customer_deposit_account(db: Session, account_number: str, currency: st
     )
 
 
+def _on_normal_side(
+    accounts: list[LedgerAccount], debit_minus_credit: dict[uuid.UUID, int]
+) -> dict[uuid.UUID, int]:
+    result = {}
+    for account in accounts:
+        net = int(debit_minus_credit.get(account.id, 0))
+        result[account.id] = (
+            net if normal_balance(account.account_type) == Direction.DEBIT else -net
+        )
+    return result
+
+
 def balances(db: Session, accounts: Iterable[LedgerAccount]) -> dict[uuid.UUID, int]:
-    """Balance on each account's normal side, derived from posted lines."""
+    """Balance on each account's normal side, from the stored totals (kept by a trigger in
+    the same transaction as every posting)."""
+    accounts = list(accounts)
+    if not accounts:
+        return {}
+    db.flush()  # lines added in this session must reach the trigger first
+    debit_minus_credit = dict(
+        db.execute(
+            select(
+                LedgerBalance.ledger_account_id,
+                func.sum(LedgerBalance.debit_total - LedgerBalance.credit_total),
+            )
+            .where(LedgerBalance.ledger_account_id.in_([a.id for a in accounts]))
+            .group_by(LedgerBalance.ledger_account_id)
+        ).all()
+    )
+    return _on_normal_side(accounts, debit_minus_credit)
+
+
+def line_balances(db: Session, accounts: Iterable[LedgerAccount]) -> dict[uuid.UUID, int]:
+    """The same balances summed from the posted lines: the reference reconciliation and the
+    benchmark compare the stored totals with."""
     accounts = list(accounts)
     if not accounts:
         return {}
@@ -132,13 +170,7 @@ def balances(db: Session, accounts: Iterable[LedgerAccount]) -> dict[uuid.UUID, 
             .group_by(JournalLine.ledger_account_id)
         ).all()
     )
-    result = {}
-    for account in accounts:
-        net = int(debit_minus_credit.get(account.id, 0))
-        result[account.id] = (
-            net if normal_balance(account.account_type) == Direction.DEBIT else -net
-        )
-    return result
+    return _on_normal_side(accounts, debit_minus_credit)
 
 
 def balance(db: Session, account: LedgerAccount) -> int:
@@ -491,12 +523,26 @@ def statement(
 # --- Reconciliation ----------------------------------------------------------------------
 
 
-def reconcile(db: Session, actor_id: uuid.UUID | None) -> ReconciliationReport:
-    """Verify ledger invariants across every posted line."""
+# --- Reconciliation -----------------------------------------------------------------------
+
+# Incremental runs re-check entries posted shortly before the previous run ended: a
+# transaction that started earlier (posted_at is its start time) may have committed after
+# that run looked. A full run remains the backstop for anything older.
+INCREMENTAL_OVERLAP = timedelta(minutes=10)
+# Incremental runs compare stored balances with their lines for at most this many of the
+# accounts the window touched (a full run compares every account).
+INCREMENTAL_BALANCE_SAMPLE = 500
+
+
+def _debit_credit():
     debit = case((JournalLine.direction == "debit", JournalLine.amount), else_=0)
     credit = case((JournalLine.direction == "credit", JournalLine.amount), else_=0)
+    return debit, credit
 
-    per_entry = db.execute(
+
+def _check_entries(db: Session, since: datetime | None) -> tuple[ReconciliationCheck, int, int]:
+    debit, credit = _debit_credit()
+    query = (
         select(
             JournalEntry.entry_number,
             func.count(JournalLine.id),
@@ -505,123 +551,281 @@ def reconcile(db: Session, actor_id: uuid.UUID | None) -> ReconciliationReport:
         )
         .outerjoin(JournalLine, JournalLine.journal_entry_id == JournalEntry.id)
         .group_by(JournalEntry.id)
-    ).all()
+    )
+    if since is not None:
+        query = query.where(JournalEntry.posted_at >= since)
+    per_entry = db.execute(query).all()
     unbalanced = [
         {"entry_number": number, "lines": count, "debits": int(d), "credits": int(c)}
         for number, count, d, c in per_entry
         if count < 2 or d != c
     ]
-
-    currency_mismatches = [
-        {
-            "entry_number": number,
-            "account": code,
-            "entry_currency": e_cur,
-            "account_currency": a_cur,
-        }
-        for number, code, e_cur, a_cur in db.execute(
-            select(
-                JournalEntry.entry_number,
-                LedgerAccount.code,
-                JournalEntry.currency,
-                LedgerAccount.currency,
-            )
-            .join(JournalLine, JournalLine.journal_entry_id == JournalEntry.id)
-            .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
-            .where(JournalEntry.currency != LedgerAccount.currency)
-        ).all()
-    ]
-
-    trial_balance = db.execute(
-        select(JournalEntry.currency, func.sum(debit), func.sum(credit))
-        .join(JournalLine, JournalLine.journal_entry_id == JournalEntry.id)
-        .group_by(JournalEntry.currency)
-        .order_by(JournalEntry.currency)
-    ).all()
-    trial_failures = [
-        {"currency": cur, "debits": int(d), "credits": int(c)}
-        for cur, d, c in trial_balance
-        if d != c
-    ]
-
-    reversed_entries = db.execute(
-        select(JournalEntry.id, JournalEntry.entry_number).where(
-            JournalEntry.status == EntryStatus.REVERSED.value
-        )
-    ).all()
-    reversal_targets = set(
-        db.execute(
-            select(JournalEntry.reversal_of_id).where(JournalEntry.reversal_of_id.is_not(None))
-        ).scalars()
+    lines = sum(count for _, count, _, _ in per_entry)
+    check = ReconciliationCheck(
+        name="Every entry balances",
+        passed=not unbalanced,
+        detail=f"{len(per_entry)} entries checked; {len(unbalanced)} unbalanced.",
+        failures=unbalanced[:50],
     )
-    orphan_reversals = [
-        {"entry_number": number}
-        for entry_id, number in reversed_entries
-        if entry_id not in reversal_targets
-    ]
+    return check, len(per_entry), lines
 
+
+def _check_line_currencies(db: Session, since: datetime | None) -> ReconciliationCheck:
+    query = (
+        select(
+            JournalEntry.entry_number,
+            LedgerAccount.code,
+            JournalEntry.currency,
+            LedgerAccount.currency,
+        )
+        .join(JournalLine, JournalLine.journal_entry_id == JournalEntry.id)
+        .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
+        .where(JournalEntry.currency != LedgerAccount.currency)
+    )
+    if since is not None:
+        query = query.where(JournalEntry.posted_at >= since)
+    mismatches = [
+        {"entry_number": n, "account": code, "entry_currency": e, "account_currency": a}
+        for n, code, e, a in db.execute(query).all()
+    ]
+    return ReconciliationCheck(
+        name="Lines match their entry's currency",
+        passed=not mismatches,
+        detail=f"{len(mismatches)} mismatched lines.",
+        failures=mismatches[:50],
+    )
+
+
+def _check_trial_balance(db: Session) -> ReconciliationCheck:
+    """Debits equal credits per currency, from the stored totals (no line scan)."""
+    rows = db.execute(
+        select(
+            LedgerAccount.currency,
+            func.sum(LedgerBalance.debit_total),
+            func.sum(LedgerBalance.credit_total),
+        )
+        .join(LedgerAccount, LedgerAccount.id == LedgerBalance.ledger_account_id)
+        .group_by(LedgerAccount.currency)
+        .order_by(LedgerAccount.currency)
+    ).all()
+    failures = [
+        {"currency": cur, "debits": int(d), "credits": int(c)} for cur, d, c in rows if d != c
+    ]
+    return ReconciliationCheck(
+        name="Trial balance per currency",
+        passed=not failures,
+        detail=(
+            "Debits = credits in minor units: "
+            + ", ".join(f"{cur}: {int(d):,} = {int(c):,}" for cur, d, c in rows)
+        )
+        if rows
+        else "No postings yet.",
+        failures=failures,
+    )
+
+
+def _check_stored_balances(db: Session, account_ids: list[uuid.UUID] | None) -> ReconciliationCheck:
+    """Stored totals against the lines they summarize (`None`: every account)."""
+    debit, credit = _debit_credit()
+    lines = select(
+        JournalLine.ledger_account_id.label("account_id"),
+        func.sum(debit).label("debits"),
+        func.sum(credit).label("credits"),
+        func.count().label("lines"),
+    ).group_by(JournalLine.ledger_account_id)
+    stored = select(
+        LedgerBalance.ledger_account_id.label("account_id"),
+        func.sum(LedgerBalance.debit_total).label("debits"),
+        func.sum(LedgerBalance.credit_total).label("credits"),
+        func.sum(LedgerBalance.line_count).label("lines"),
+    ).group_by(LedgerBalance.ledger_account_id)
+    if account_ids is not None:
+        lines = lines.where(JournalLine.ledger_account_id.in_(account_ids))
+        stored = stored.where(LedgerBalance.ledger_account_id.in_(account_ids))
+    from_lines = {r.account_id: (int(r.debits), int(r.credits), r.lines) for r in db.execute(lines)}
+    from_store = {
+        r.account_id: (int(r.debits), int(r.credits), int(r.lines)) for r in db.execute(stored)
+    }
+    accounts = set(from_lines) | set(from_store)
+    differ = sorted(a for a in accounts if from_lines.get(a) != from_store.get(a))
+    codes = dict(
+        db.execute(select(LedgerAccount.id, LedgerAccount.code).where(LedgerAccount.id.in_(differ)))
+        .tuples()
+        .all()
+    )
+    failures = [
+        {
+            "account": codes.get(a, str(a)),
+            "lines": list(from_lines.get(a, (0, 0, 0))),
+            "stored": list(from_store.get(a, (0, 0, 0))),
+        }
+        for a in differ[:50]
+    ]
+    scope = "every account" if account_ids is None else "the accounts this window touched"
+    return ReconciliationCheck(
+        name="Stored balances match the lines",
+        passed=not differ,
+        detail=f"{len(accounts)} accounts compared ({scope}); {len(differ)} differ.",
+        failures=failures,
+    )
+
+
+def _check_reversals(db: Session, since: datetime | None) -> ReconciliationCheck:
+    if since is None:
+        reversed_entries = db.execute(
+            select(JournalEntry.id, JournalEntry.entry_number).where(
+                JournalEntry.status == EntryStatus.REVERSED.value
+            )
+        ).all()
+        targets = set(
+            db.execute(
+                select(JournalEntry.reversal_of_id).where(JournalEntry.reversal_of_id.is_not(None))
+            ).scalars()
+        )
+        orphans = [
+            {"entry_number": n} for entry_id, n in reversed_entries if entry_id not in targets
+        ]
+        detail = f"{len(reversed_entries)} reversed entries checked."
+    else:
+        # The window's reversing entries each mark their original reversed.
+        original = JournalEntry.__table__.alias("original")
+        rows = db.execute(
+            select(JournalEntry.entry_number, original.c.entry_number, original.c.status)
+            .join(original, original.c.id == JournalEntry.reversal_of_id)
+            .where(JournalEntry.posted_at >= since)
+        ).all()
+        orphans = [
+            {"entry_number": original_number, "reversed_by": number}
+            for number, original_number, status in rows
+            if status != EntryStatus.REVERSED.value
+        ]
+        detail = f"{len(rows)} reversing entries checked."
+    return ReconciliationCheck(
+        name="Reversed entries have a reversing entry",
+        passed=not orphans,
+        detail=detail,
+        failures=orphans[:50],
+    )
+
+
+def _check_account_links(db: Session, since: datetime | None) -> ReconciliationCheck:
     from app.modules.accounts.models import Account  # accounts depend on the ledger
 
-    account_link_failures = [
-        {"account_number": number, "account_currency": a_cur, "ledger_currency": l_cur}
-        for number, a_cur, l_cur in db.execute(
-            select(Account.account_number, Account.currency, LedgerAccount.currency)
-            .join(LedgerAccount, LedgerAccount.id == Account.ledger_account_id)
-            .where(Account.currency != LedgerAccount.currency)
-        ).all()
+    query = (
+        select(Account.account_number, Account.currency, LedgerAccount.currency)
+        .join(LedgerAccount, LedgerAccount.id == Account.ledger_account_id)
+        .where(Account.currency != LedgerAccount.currency)
+    )
+    if since is not None:
+        query = query.where(LedgerAccount.created_at >= since)
+    failures = [
+        {"account_number": n, "account_currency": a, "ledger_currency": lc}
+        for n, a, lc in db.execute(query).all()
     ]
+    return ReconciliationCheck(
+        name="Customer accounts match their ledger currency",
+        passed=not failures,
+        detail=f"{len(failures)} mismatches.",
+        failures=failures[:50],
+    )
 
-    lines_checked = db.execute(select(func.count()).select_from(JournalLine)).scalar_one()
+
+def _touched_accounts(db: Session, since: datetime) -> tuple[list[uuid.UUID], int]:
+    touched = (
+        select(JournalLine.ledger_account_id)
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(JournalEntry.posted_at >= since)
+        .distinct()
+        .subquery()
+    )
+    total = db.execute(select(func.count()).select_from(touched)).scalar_one()
+    sample = list(
+        db.execute(
+            select(touched.c.ledger_account_id)
+            .order_by(touched.c.ledger_account_id)
+            .limit(INCREMENTAL_BALANCE_SAMPLE)
+        ).scalars()
+    )
+    return sample, total
+
+
+def reconcile(
+    db: Session,
+    actor_id: uuid.UUID | None,
+    mode: ReconciliationMode = ReconciliationMode.FULL,
+) -> ReconciliationReport:
+    """Verify the ledger's invariants and record the run.
+
+    A full run checks every entry, line and account. An incremental run checks the entries
+    posted since the previous run (with an overlap), the stored trial balance and the
+    stored balances of the accounts it touched; the first incremental run checks everything.
+    """
+    started = time.perf_counter()
+    window_end = db.execute(select(func.clock_timestamp())).scalar_one()
+    since: datetime | None = None
+    if mode == ReconciliationMode.INCREMENTAL:
+        previous = db.execute(select(func.max(LedgerReconciliation.window_end))).scalar_one()
+        since = previous - INCREMENTAL_OVERLAP if previous is not None else None
+
+    entries_check, entries_checked, lines_checked = _check_entries(db, since)
+    if since is None:
+        stored_check = _check_stored_balances(db, None)
+    else:
+        sample, touched = _touched_accounts(db, since)
+        stored_check = _check_stored_balances(db, sample)
+        if touched > len(sample):
+            stored_check.detail += f" Sampled {len(sample)} of {touched} touched accounts."
     checks = [
-        ReconciliationCheck(
-            name="Every entry balances",
-            passed=not unbalanced,
-            detail=f"{len(per_entry)} entries checked; {len(unbalanced)} unbalanced.",
-            failures=unbalanced[:50],
-        ),
-        ReconciliationCheck(
-            name="Lines match their entry's currency",
-            passed=not currency_mismatches,
-            detail=f"{len(currency_mismatches)} mismatched lines.",
-            failures=currency_mismatches[:50],
-        ),
-        ReconciliationCheck(
-            name="Trial balance per currency",
-            passed=not trial_failures,
-            detail=(
-                "Debits = credits in minor units: "
-                + ", ".join(f"{cur}: {int(d):,} = {int(c):,}" for cur, d, c in trial_balance)
-            )
-            if trial_balance
-            else "No postings yet.",
-            failures=trial_failures,
-        ),
-        ReconciliationCheck(
-            name="Reversed entries have a reversing entry",
-            passed=not orphan_reversals,
-            detail=f"{len(reversed_entries)} reversed entries checked.",
-            failures=orphan_reversals[:50],
-        ),
-        ReconciliationCheck(
-            name="Customer accounts match their ledger currency",
-            passed=not account_link_failures,
-            detail=f"{len(account_link_failures)} mismatches.",
-            failures=account_link_failures[:50],
-        ),
+        entries_check,
+        _check_line_currencies(db, since),
+        _check_trial_balance(db),
+        stored_check,
+        _check_reversals(db, since),
+        _check_account_links(db, since),
     ]
+    duration_ms = round((time.perf_counter() - started) * 1000)
     report = ReconciliationReport(
         ok=all(check.passed for check in checks),
         checked_at=datetime.now(UTC),
-        entries_checked=len(per_entry),
-        lines_checked=int(lines_checked),
+        entries_checked=entries_checked,
+        lines_checked=lines_checked,
         checks=checks,
+        mode=mode.value,
+        window_start=since,
+        window_end=window_end,
+        duration_ms=duration_ms,
     )
+    run = LedgerReconciliation(
+        mode=mode.value,
+        ok=report.ok,
+        window_start=since,
+        window_end=window_end,
+        entries_checked=entries_checked,
+        lines_checked=lines_checked,
+        duration_ms=duration_ms,
+        report=report.model_dump(mode="json"),
+        run_by=actor_id,
+    )
+    db.add(run)
+    db.flush()
+    report.run_number = run.run_number
+    report.id = run.id
     record_audit_event(
         db,
         actor_id=actor_id,
         action="ledger.reconciliation_run",
         entity_type="ledger",
-        entity_id=None,
-        metadata={"ok": report.ok, "failed": [c.name for c in checks if not c.passed]},
+        entity_id=run.id,
+        metadata={
+            "ok": report.ok,
+            "mode": mode.value,
+            "failed": [c.name for c in checks if not c.passed],
+        },
     )
     return report
+
+
+def list_reconciliations(db: Session, params: PageParams) -> tuple[list[LedgerReconciliation], int]:
+    return paginate(
+        db, select(LedgerReconciliation).order_by(LedgerReconciliation.run_number.desc()), params
+    )

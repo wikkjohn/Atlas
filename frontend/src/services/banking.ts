@@ -13,7 +13,9 @@ import type {
   MovementResult,
   Payment,
   PayoffQuote,
+  ReconciliationMode,
   ReconciliationReport,
+  ReconciliationRun,
   ServicingRun,
   StatementLine,
 } from "@/types/banking";
@@ -185,8 +187,18 @@ export function useJournalEntries(params: Params, enabled = true) {
 }
 
 export function useReconciliation() {
+  const client = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<ReconciliationReport>("/api/v1/ledger/reconciliation", {}),
+    mutationFn: (mode: ReconciliationMode) =>
+      apiPost<ReconciliationReport>(`/api/v1/ledger/reconciliation${query({ mode })}`, {}),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["ledger", "reconciliations"] }),
+  });
+}
+
+export function useReconciliationRuns(limit = 10) {
+  return useQuery({
+    queryKey: ["ledger", "reconciliations", limit],
+    queryFn: () => apiGet<Page<ReconciliationRun>>(`/api/v1/ledger/reconciliations${query({ limit })}`),
   });
 }
 

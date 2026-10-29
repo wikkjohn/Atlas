@@ -173,6 +173,14 @@ Ledger triggers (migration 0003):
 | `journal_lines_no_update_delete`, `journal_lines_no_truncate` | Lines are immutable |
 | `journal_lines_insert_with_entry` | Lines can only be added in the transaction that posted the entry |
 | `journal_entries_guard`, `journal_entries_no_truncate` | Entries cannot be deleted; the only permitted update is status posted → reversed |
+| `journal_lines_maintain_balance` (migration 0010) | Adds each new line to its account's stored totals in `ledger_balances` |
+
+### Stored balances and reconciliation history (Phase 12, migration `0010_stored_balances`)
+
+| Table | Contents |
+| --- | --- |
+| `ledger_balances` | Primary key (`ledger_account_id`, `shard` 0–7): `debit_total`, `credit_total` (numeric(38,0), ≥ 0), `line_count`, `updated_at`. An account's balance is the sum over its shards. Written only by `journal_lines_maintain_balance`; `ledger_balances_guard` and `ledger_balances_no_truncate` refuse direct inserts, updates, deletes and truncation. Backfilled from existing lines by the migration |
+| `ledger_reconciliations` | `run_number` (identity), `mode` (full, incremental), `ok`, `window_start` (incremental runs), `window_end`, `entries_checked`, `lines_checked`, `duration_ms`, `report` (jsonb: every check), `run_by`, `created_at` |
 
 ### Workflow tables (Phase 4)
 

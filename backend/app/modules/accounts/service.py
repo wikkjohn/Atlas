@@ -8,7 +8,7 @@ at the moment of approval. There is no API for creating an account directly.
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import select, union
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -152,7 +152,9 @@ def list_requests(
     status: str | None = None,
     customer_id: uuid.UUID | None = None,
 ) -> tuple[list[AccountRequest], int]:
-    query = select(AccountRequest).order_by(AccountRequest.created_at.desc(), AccountRequest.id)
+    query = select(AccountRequest).order_by(
+        AccountRequest.created_at.desc(), AccountRequest.id.desc()
+    )
     if status:
         query = query.where(AccountRequest.status == status)
     if customer_id:
@@ -374,16 +376,19 @@ def list_accounts(
     currency: str | None = None,
     account_type: str | None = None,
 ) -> tuple[list[Account], int]:
-    query = (
-        select(Account)
-        .join(Customer, Customer.id == Account.customer_id)
-        .order_by(Account.opened_at.desc(), Account.account_number)
-    )
+    # Both descending, so ix_accounts_opened_at_number serves the order backwards.
+    query = select(Account).order_by(Account.opened_at.desc(), Account.account_number.desc())
     if q:
         pattern = f"%{q.strip()}%"
-        query = query.where(
-            or_(Account.account_number.ilike(pattern), Customer.name.ilike(pattern))
+        # One id set from two trigram-indexed searches. An OR across a join reads both
+        # tables in full; an OR of subqueries is checked row by row along the sort order.
+        matches = union(
+            select(Account.id).where(Account.account_number.ilike(pattern)),
+            select(Account.id)
+            .join(Customer, Customer.id == Account.customer_id)
+            .where(Customer.name.ilike(pattern)),
         )
+        query = query.where(Account.id.in_(matches))
     if customer_id:
         query = query.where(Account.customer_id == customer_id)
     if status:

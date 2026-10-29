@@ -14,6 +14,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Sequence,
     String,
     Uuid,
@@ -22,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.core.models import UUIDPrimaryKey
+from app.core.models import UUIDPrimaryKey, trigram_index
 
 PAYMENT_NUMBER_SEQUENCE = Sequence("payment_number_seq", start=1)
 
@@ -36,6 +37,9 @@ class PaymentStatus(StrEnum):
 class Payment(UUIDPrimaryKey, Base):
     __tablename__ = "payments"
     __table_args__ = (
+        trigram_index("payments", "payment_number"),
+        trigram_index("payments", "reference"),
+        Index("ix_payments_created_at_number", "created_at", "payment_number"),
         CheckConstraint("status IN ('pending', 'released', 'rejected')", name="status_valid"),
         CheckConstraint("amount > 0", name="amount_positive"),
         CheckConstraint("debtor_account_id <> creditor_account_id", name="distinct_accounts"),

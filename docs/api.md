@@ -130,7 +130,7 @@ digits (e.g. `US000000004257`). They are synthetic, not IBANs.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/ledger/accounts` | `ledger:read` | Chart of accounts with derived balances. Filters: `currency`, `account_type`, `q` |
+| GET | `/api/v1/ledger/accounts` | `ledger:read` | Chart of accounts with balances (stored totals since Phase 12). Filters: `currency`, `account_type`, `q` (substring of code or name), `code_prefix` (codes starting with it, e.g. `1000-`; Phase 13) |
 | POST | `/api/v1/ledger/accounts` | `ledger:post` | `{code, name, account_type, currency}` |
 | GET | `/api/v1/ledger/accounts/{id}` · `/statement` | `ledger:read` | |
 | GET | `/api/v1/ledger/journal-entries` | `ledger:read` | Filters: `currency`, `source`, `ledger_account_id` |

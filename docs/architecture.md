@@ -251,6 +251,23 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   service (half of them on one hot account by default) and times both read paths and both
   reconciliation modes; results are in [implementation-status.md](implementation-status.md).
 
+## Bulk loading (Phase 13, roadmap Milestone A)
+
+- **Bulk posting.** `ledger.post_entries` posts a batch of entries with a fixed number of
+  round trips: the same rules as `post_entry` are checked in Python for the whole batch,
+  existing idempotency keys replay (a different request under a known key refuses the
+  batch), entry numbers come from the sequence in one query, and entries and lines are
+  written with PostgreSQL COPY. Every database rule still applies, because the balance,
+  immutability and stored-balance triggers fire for copied rows; a test switches the
+  Python checks off and shows the database refusing an unbalanced batch. The batch is all
+  or nothing (a driver-level savepoint) and is audited as one event.
+- **Population loader.** `python -m app.cli load-population` writes the end state the
+  services would produce for a KYC-verified customer with an open, funded current account
+  (customer, approved four-eyes account request, account, its ledger account, opening
+  deposit) in batches with COPY, one transaction and one audit event per batch. It does
+  not replace the services for single customers; it exists so the platform can be tested
+  at the volumes in the roadmap.
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from

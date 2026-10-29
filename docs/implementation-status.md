@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 12.
+Last updated: Phase 13.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -17,6 +17,53 @@ Last updated: Phase 12.
 | 10 | Loan servicing and collections | **Complete** |
 | 11 | AI underwriting for personal loans | **Complete** |
 | 12 | Scale foundation, step 1: stored balances and incremental reconciliation ([roadmap](roadmap.md) Milestone A) | **Complete** |
+| 13 | Scale foundation, step 2: bulk loading, one million customers, search indexes | **Complete** |
+
+## Phase 13: what exists
+
+- **Bulk posting** (`ledger.post_entries`): batches of entries through PostgreSQL COPY with
+  the same rules as single postings (checked in Python, again by the database's triggers),
+  idempotent replays, all or nothing, one audit event per batch. `bench-ledger --bulk`.
+- **Bulk population** (`python -m app.cli load-population --customers N`): KYC-verified
+  customers, approved four-eyes account requests, open accounts and opening deposits in
+  COPY batches, deterministic by seed.
+- **Search and sort indexes** (migration 0011, `pg_trgm`), account and loan searches
+  rewritten so each table's index is used, and `code_prefix` on the chart of accounts
+  (the General ledger's cash-account list uses it).
+- **Measured at one million customers** (below), which is the first part of Milestone A's
+  exit test.
+
+## Phase 13: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 304 passed (new: 5 bulk-loading tests — bulk and single postings agree, replays, a conflicting key refuses the batch, rules applied to the whole batch, the database refusing an unbalanced COPY with the Python checks off, a complete four-eyes population with balances matching its deposits and seed-determined names, the loader's refusals; 2 search tests — account search by number or name, an escaped code prefix) |
+| Migration 0010 → 0011 → 0010 → 0011, `alembic check` | clean; 13 s to build the indexes on one million customers |
+| Frontend typecheck, Vitest, build | clean; 75 passed; succeeds |
+| Playwright (Chromium, real backend, fresh database) | 16 passed |
+
+Measured in the development container:
+
+| Measurement | Result |
+| --- | ---: |
+| Posting 10,000 entries: single / bulk | 227 / 4,204 entries per second |
+| Loading 1,000,000 customers (5 countries, batches of 10,000) | 1,193 s, 838 per second (about 920/s at the start, 800/s at the end); database 2.2 GB |
+| Full reconciliation over 1,000,312 entries / 2,000,624 lines | 34.6 s, passed |
+| Incremental reconciliation over 40,000 recent entries | 1.1 s, passed |
+
+API at one million customers (median of five, including authentication and JSON):
+
+| Request | Before 0011 | After |
+| --- | ---: | ---: |
+| Customers, first page / search by name / by number | 24 / 218 / 655 ms | 27 / 43 / 25 ms |
+| Accounts, first page / exact number / customer name | 395 / ~440 / ~420 ms | 24 / 21 / 431 ms |
+| Account requests, first page | 532 ms | 27 ms |
+| Cash accounts (General ledger) | 257 ms (`q=1000`) | 6 ms (`code_prefix=1000-`) |
+| Journal entries, first page; analytics overview | 38; 27 ms | 38; 29 ms |
+
+Broad substring searches that match a large share of a table (a common surname, a
+fragment every account number shares, `q=1000` on the chart of accounts) still take
+0.4–0.8 s; trigram indexes help selective searches, not those.
 
 ## Phase 12: what exists
 
@@ -540,8 +587,14 @@ next item of Milestone A.
   named person, delegation or escalation routing beyond the overdue flag.
 - Postings go one entry at a time through the ORM (about 200 entries per second in the
   development container); bulk loading for generated data is still to come (roadmap
-  Milestone A). Reconciliation runs synchronously in the request; incremental runs keep it
-  short, but nothing runs it on a schedule yet.
+  Milestone A). Since Phase 13 generated data loads in bulk (`load-population`) and other
+  callers may use `ledger.post_entries`, but simulation runs still create their customers
+  through the services. Reconciliation runs synchronously in the request: a full run over
+  a million customers takes about 35 s, so it belongs in a background job (next step);
+  incremental runs keep routine checks short.
+- Broad substring searches (patterns most rows contain) take 0.4–0.8 s at a million
+  customers; a dedicated search index is future work. Employee and user searches have no
+  trigram indexes yet (those tables are small).
 
 - Permissions are role-wide: a regional executive or department manager is not yet limited
   to their own region or department.

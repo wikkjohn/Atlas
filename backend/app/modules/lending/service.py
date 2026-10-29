@@ -316,8 +316,9 @@ def list_loans(
         query = query.where(Loan.status == status)
     if q:
         pattern = f"%{q.strip()}%"
-        query = query.join(Customer, Customer.id == Loan.customer_id).where(
-            Loan.loan_number.ilike(pattern) | Customer.name.ilike(pattern)
+        query = query.where(  # one indexed subquery per table (see list_accounts)
+            Loan.loan_number.ilike(pattern)
+            | Loan.customer_id.in_(select(Customer.id).where(Customer.name.ilike(pattern)))
         )
     return paginate(db, query, params)
 

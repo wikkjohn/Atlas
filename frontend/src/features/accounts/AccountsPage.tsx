@@ -480,7 +480,7 @@ function LedgerTab() {
   const [currency, setCurrency] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const reconciliation = useReconciliation();
-  const accounts = useLedgerAccounts({ currency: currency || undefined, q: "1000", limit: 20 });
+  const accounts = useLedgerAccounts({ currency: currency || undefined, code_prefix: "1000-", limit: 20 });
   const entries = useJournalEntries({ currency: currency || undefined, limit: 25 });
   const report = reconciliation.data;
 

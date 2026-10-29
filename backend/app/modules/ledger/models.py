@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.core.models import UUIDPrimaryKey
+from app.core.models import UUIDPrimaryKey, trigram_index
 
 JOURNAL_ENTRY_NUMBER_SEQUENCE = Sequence("journal_entry_number_seq", start=1)
 # Upper bound for one line, far below bigint so sums of many lines cannot overflow.
@@ -58,6 +58,8 @@ class EntryStatus(StrEnum):
 class LedgerAccount(UUIDPrimaryKey, Base):
     __tablename__ = "ledger_accounts"
     __table_args__ = (
+        trigram_index("ledger_accounts", "code"),
+        trigram_index("ledger_accounts", "name"),
         CheckConstraint(
             "account_type IN ('asset', 'liability', 'equity', 'income', 'expense')",
             name="account_type_valid",

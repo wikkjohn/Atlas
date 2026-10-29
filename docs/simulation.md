@@ -175,6 +175,17 @@ seed, configuration hash and software version, and whether its digest matches.
 seeds give equal digests and different seeds different ones; `scripts/validate_system.py
 --login auditor` checks every repeated configuration of a running stack.
 
+## Bulk population (Phase 13)
+
+`python -m app.cli load-population --customers N [--seed S] [--batch B]` adds N synthetic,
+KYC-verified, low-risk individual customers spread evenly over the active countries, each
+with an approved current-account request (requested by `employee`, decided by `manager`:
+four-eyes), the open account in the country's currency and an opening deposit of 50–25,000
+posted through the ledger's bulk path. Names, birth dates and deposits come from
+`case_random(seed, index, "population")`. It needs the demo users (`seed-demo`) and refuses
+to run in staging or production. Simulation runs still create their own customers through
+the services.
+
 ## Synthetic data only
 
 Applicant names pair common given names and surnames from fixed lists; sanctions cases use

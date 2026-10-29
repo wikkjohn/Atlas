@@ -103,6 +103,41 @@ class SimulationRunSummary(BaseModel):
     tool_id: str | None
     tool_version: str | None
     batch_id: uuid.UUID | None
+    # Where the run's workflow history is: present, archived or purged (Phase 15).
+    history_state: str
+
+
+class ArchiveOut(BaseModel):
+    """An archive (or purge) of a run's workflow history."""
+
+    id: uuid.UUID
+    run_id: uuid.UUID
+    run_number: int
+    kind: str
+    location: str | None
+    rows: int
+    bytes: int
+    tables: dict[str, int]  # rows per table
+    created_by_username: str | None
+    created_at: datetime
+
+
+class PartitionUsage(BaseModel):
+    table: str
+    realm: str
+    rows_estimate: int
+    bytes: int
+
+
+class HistoryOverview(BaseModel):
+    """How much room workflow history takes, live and simulated, and what is archived."""
+
+    partitions: list[PartitionUsage]
+    runs_by_history_state: dict[str, int]
+    archive_directory: str
+    archive_bytes: int
+    recent_archives: list[ArchiveOut]
+    retention_schedule_enabled: bool | None
 
 
 class SimulationRunDetail(SimulationRunSummary):
@@ -112,6 +147,7 @@ class SimulationRunDetail(SimulationRunSummary):
     simulated_end: datetime | None
     staff_unit_id: uuid.UUID | None
     reproductions: list[Reproduction]
+    archive: ArchiveOut | None
 
 
 class CaseResultOut(BaseModel):

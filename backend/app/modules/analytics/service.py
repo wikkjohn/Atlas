@@ -5,7 +5,7 @@ the runs recorded, through the same cost function experiments use."""
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import Account
@@ -19,12 +19,19 @@ from app.modules.experiments.evaluation import costs
 from app.modules.experiments.models import Experiment, ExperimentEvaluation, ExperimentStatus
 from app.modules.workflows import registry
 from app.modules.workflows.models import (
+    STEP_RUN_EXECUTION,
+    Realm,
     RunStatus,
     WorkflowEvent,
     WorkflowExecution,
     WorkflowStepRun,
 )
-from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
+from app.simulation.models import (
+    SimulationArchive,
+    SimulationCaseResult,
+    SimulationRun,
+    SimulationStatus,
+)
 from app.simulation.workloads import WORKLOADS
 
 ESCALATION_STEPS = sorted({step for w in WORKLOADS.values() for step in w.escalation_steps})
@@ -75,7 +82,9 @@ def simulation_costs(db: Session, assumptions: CostAssumptions) -> tuple[float, 
         db.execute(
             select(WorkflowExecution.simulation_run_id, func.count())
             .where(
-                WorkflowExecution.simulation_run_id.in_(runs), WorkflowExecution.status == "failed"
+                WorkflowExecution.realm == Realm.SIMULATION,
+                WorkflowExecution.simulation_run_id.in_(runs),
+                WorkflowExecution.status == "failed",
             )
             .group_by(WorkflowExecution.simulation_run_id)
         ).all()
@@ -83,8 +92,15 @@ def simulation_costs(db: Session, assumptions: CostAssumptions) -> tuple[float, 
     timeouts = dict(
         db.execute(
             select(WorkflowExecution.simulation_run_id, func.count())
-            .join(WorkflowEvent, WorkflowEvent.execution_id == WorkflowExecution.id)
+            .join(
+                WorkflowEvent,
+                and_(
+                    WorkflowEvent.execution_id == WorkflowExecution.id,
+                    WorkflowEvent.realm == WorkflowExecution.realm,
+                ),
+            )
             .where(
+                WorkflowExecution.realm == Realm.SIMULATION,
                 WorkflowExecution.simulation_run_id.in_(runs),
                 WorkflowEvent.event_type == "step.timed_out",
             )
@@ -98,6 +114,15 @@ def simulation_costs(db: Session, assumptions: CostAssumptions) -> tuple[float, 
         .group_by(AIToolInvocation.simulation_run_id, AIToolInvocation.status)
     ).all():
         calls.setdefault(run_id, {})[status] = n
+    # Runs whose history was archived or purged: the counts saved when it was removed.
+    for run_id, summary in db.execute(
+        select(SimulationArchive.run_id, SimulationArchive.summary).where(
+            SimulationArchive.run_id.in_(runs), SimulationArchive.restored_at.is_(None)
+        )
+    ).all():
+        failed[run_id] = summary["failed_executions"]
+        timeouts[run_id] = summary["document_timeouts"]
+        calls[run_id] = summary["ai_calls"]
     total = 0.0
     for run_id, row in per_run.items():
         statuses = calls.get(run_id, {})
@@ -141,7 +166,7 @@ def overview(db: Session) -> Overview:
     definitions = registry.all_definitions()
     workflow_ids = {d.workflow_id for d in definitions}
 
-    live = WorkflowExecution.simulation_run_id.is_(None)
+    live = WorkflowExecution.realm == Realm.LIVE
     outcomes = dict(
         db.execute(
             select(WorkflowExecution.status, func.count())
@@ -152,7 +177,7 @@ def overview(db: Session) -> Overview:
     simulated_outcomes = dict(
         db.execute(
             select(WorkflowExecution.status, func.count())
-            .where(WorkflowExecution.simulation_run_id.is_not(None))
+            .where(WorkflowExecution.realm == Realm.SIMULATION)
             .group_by(WorkflowExecution.status)
         ).all()
     )
@@ -160,7 +185,7 @@ def overview(db: Session) -> Overview:
         db,
         select(func.count())
         .select_from(WorkflowStepRun)
-        .join(WorkflowExecution, WorkflowExecution.id == WorkflowStepRun.execution_id)
+        .join(WorkflowExecution, STEP_RUN_EXECUTION)
         .where(
             live,
             WorkflowStepRun.status == RunStatus.WAITING,
@@ -183,7 +208,7 @@ def overview(db: Session) -> Overview:
 
     accounts = _count(db, select(func.count()).select_from(Account))
     simulated_customers = select(func.cast(WorkflowExecution.business_key, Customer.id.type)).where(
-        WorkflowExecution.simulation_run_id.is_not(None),
+        WorkflowExecution.realm == Realm.SIMULATION,
         WorkflowExecution.business_key.is_not(None),
     )
     simulated_accounts = _count(
@@ -192,6 +217,12 @@ def overview(db: Session) -> Overview:
         .select_from(Account)
         .where(Account.customer_id.in_(simulated_customers)),
     )
+    # Plus those of runs whose history was archived or purged (counted when it was removed).
+    simulated_accounts += db.execute(
+        select(
+            func.coalesce(func.sum(SimulationArchive.summary["accounts"].as_integer()), 0)
+        ).where(SimulationArchive.restored_at.is_(None))
+    ).scalar_one()
 
     runs_by_status = dict(
         db.execute(select(SimulationRun.status, func.count()).group_by(SimulationRun.status)).all()

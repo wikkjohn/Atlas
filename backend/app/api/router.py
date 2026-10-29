@@ -25,10 +25,13 @@ from app.modules.organizations.router import router as organizations_router
 from app.modules.payments.router import router as payments_router
 from app.modules.workflows import catalog  # noqa: F401  (registers every workflow)
 from app.modules.workflows.router import definitions_router, executions_router, tasks_router
+from app.observability.router import metrics_router
+from app.observability.router import router as observability_router
 from app.simulation.router import router as simulations_router
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(system.router)
+api_router.include_router(metrics_router)
 
 v1_router = APIRouter(prefix="/api/v1")
 for module_router in (
@@ -55,5 +58,6 @@ for module_router in (
     audit_router,
     jobs_router,
     schedules_router,
+    observability_router,
 ):
     v1_router.include_router(module_router)

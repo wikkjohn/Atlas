@@ -84,6 +84,46 @@ export interface SimulationRunSummary {
   tool_id: string | null;
   tool_version: string | null;
   batch_id: string | null;
+  history_state: HistoryState;
+}
+
+/** Where a run's workflow history is: in the database, in archive files, or removed. */
+export type HistoryState = "present" | "archived" | "purged";
+
+export interface SimulationArchive {
+  id: string;
+  run_id: string;
+  run_number: number;
+  kind: "archive" | "purge";
+  location: string | null;
+  rows: number;
+  bytes: number;
+  tables: Record<string, number>;
+  created_by_username: string | null;
+  created_at: string;
+}
+
+export interface PartitionUsage {
+  table: string;
+  realm: "live" | "simulation";
+  rows_estimate: number;
+  bytes: number;
+}
+
+export interface HistoryOverview {
+  partitions: PartitionUsage[];
+  runs_by_history_state: Record<HistoryState, number>;
+  archive_directory: string;
+  archive_bytes: number;
+  recent_archives: SimulationArchive[];
+  retention_schedule_enabled: boolean | null;
+}
+
+export interface QueuedJob {
+  job_id: string;
+  job_number: number;
+  kind: string;
+  status: string;
 }
 
 export interface StartSuite {
@@ -160,6 +200,7 @@ export interface SimulationRunDetail extends SimulationRunSummary {
   simulated_end: string | null;
   staff_unit_id: string | null;
   reproductions: Reproduction[];
+  archive: SimulationArchive | null;
 }
 
 export interface CaseResult {

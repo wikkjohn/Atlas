@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { every } from "@/features/settings/JobsPanel";
 import type { Role, UserAccount } from "@/types/enterprise";
 import type { Job, JobSchedule } from "@/types/jobs";
+import type { ObservabilityOverview, SlowQueryGroup } from "@/types/observability";
+import type { HistoryOverview } from "@/types/simulations";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
@@ -74,8 +76,44 @@ const schedules: JobSchedule[] = [
   },
 ];
 
+const observability: ObservabilityOverview = {
+  process: { version: "0.15.0", pid: 42, uptime_seconds: 3600, jobs_execution: "worker", slow_query_ms: 250 },
+  requests: [
+    { method: "GET", route: "/api/v1/customers", count: 120, errors: 0, by_status: { "2xx": 120 }, avg_ms: 21, p50_ms: 18, p95_ms: 43, max_ms: 90 },
+    { method: "POST", route: "/api/v1/simulations", count: 3, errors: 1, by_status: { "2xx": 2, "5xx": 1 }, avg_ms: 80, p50_ms: 70, p95_ms: 140, max_ms: 140 },
+  ],
+  queue: { due: 4, scheduled_later: 2, running: 1, oldest_due_seconds: 95 },
+  throughput: [{ kind: "simulation.execute", finished: 6, succeeded: 5, failed: 1, per_minute: 0.1, avg_ms: 18_500, p95_ms: 30_000, max_ms: 31_000 }],
+  workers: [
+    { name: "host:101:1", hostname: "host", pid: 101, state: "running", started_at: "2026-10-29T09:00:00Z", last_seen_at: "2026-10-29T10:00:00Z", stopped_at: null, succeeded: 12, failed: 1, retried: 2, current_job_kind: "simulation.execute" },
+    { name: "host:102:1", hostname: "host", pid: 102, state: "lost", started_at: "2026-10-29T09:00:00Z", last_seen_at: "2026-10-29T09:10:00Z", stopped_at: null, succeeded: 3, failed: 0, retried: 0, current_job_kind: null },
+  ],
+  database: { size_bytes: 2_400_000_000, connections: 9, cache_hit_percent: 99.2 },
+};
+
+const slowQueries: SlowQueryGroup[] = [
+  { statement: "SELECT count(*) FROM workflow_events_simulation", context: "job simulation.archive_history", count: 2, avg_ms: 400, max_ms: 500, total_ms: 800, last_seen: "2026-10-29T10:00:00Z" },
+];
+
+const history: HistoryOverview = {
+  partitions: [
+    { table: "workflow_events", realm: "live", rows_estimate: 1365, bytes: 516_096 },
+    { table: "workflow_events", realm: "simulation", rows_estimate: 5_129_739, bytes: 2_200_000_000 },
+  ],
+  runs_by_history_state: { present: 3, archived: 1, purged: 0 },
+  archive_directory: "/app/var/simulation-archive",
+  archive_bytes: 543_679_738,
+  recent_archives: [
+    { id: "a1", run_id: "run-1", run_number: 7, kind: "archive", location: "run-000007-x", rows: 6_807_087, bytes: 543_679_738, tables: { workflow_events: 5_129_739 }, created_by_username: "researcher", created_at: "2026-10-29T10:00:00Z" },
+  ],
+  retention_schedule_enabled: false,
+};
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/observability/overview": () => jsonResponse(observability),
+  "GET /api/v1/observability/slow-queries": () => jsonResponse(slowQueries),
+  "GET /api/v1/simulations/history": () => jsonResponse(history),
   "GET /api/v1/job-schedules": () => jsonResponse(schedules),
   "GET /api/v1/jobs": () =>
     jsonResponse(
@@ -119,6 +157,39 @@ describe("System Settings users and roles", () => {
     await waitFor(() => expect(api.requests.filter((r) => r.method !== "GET")).toHaveLength(2));
     const patch = api.requests.find((r) => r.method === "PATCH");
     expect(patch?.body).toEqual({ enabled: true });
+  });
+
+  it("shows request latency, the job queue, workers and slow queries", async () => {
+    mockApi(routes);
+    renderApp("/settings");
+
+    const panel = await screen.findByRole("region", { name: "Observability" });
+    expect(await within(panel).findByText("oldest waiting 1m 35s")).toBeInTheDocument();
+    const workers = within(panel).getByRole("table", { name: "Workers" });
+    const lost = within(workers).getByText("host:102:1").closest("tr") as HTMLElement;
+    expect(within(lost).getByText("Lost")).toBeInTheDocument();
+    expect(within(workers).getByText("simulation.execute")).toBeInTheDocument();
+    const throughput = within(panel).getByRole("table", { name: "Job throughput" });
+    expect(within(throughput).getByText("18.5 s")).toBeInTheDocument();
+    const requests = within(panel).getByRole("table", { name: "Request latency" });
+    expect(within(requests).getByText("GET /api/v1/customers")).toBeInTheDocument();
+    const slow = await within(panel).findByRole("table", { name: "Slow queries" });
+    expect(within(slow).getByText(/job simulation.archive_history/)).toBeInTheDocument();
+    expect(within(slow).getByText(/2× · avg 400 ms · max 500 ms/)).toBeInTheDocument();
+  });
+
+  it("shows where workflow history is stored and what was archived", async () => {
+    mockApi(routes);
+    renderApp("/settings");
+
+    const panel = await screen.findByRole("region", { name: "Simulation history" });
+    const partitions = await within(panel).findByRole("table", { name: "History partitions" });
+    const events = within(partitions).getByText("Events").closest("tr") as HTMLElement;
+    expect(within(events).getByText("1,365 rows · 504 KB")).toBeInTheDocument();
+    expect(within(events).getByText("5,129,739 rows · 2.0 GB")).toBeInTheDocument();
+    const archives = within(panel).getByRole("table", { name: "Recent archives" });
+    expect(within(archives).getByText("6,807,087 rows · 518 MB")).toBeInTheDocument();
+    expect(within(panel).getByText(/Automatic archiving of runs older than 30 days is off/)).toBeInTheDocument();
   });
 
   it("describes schedule intervals in words", () => {

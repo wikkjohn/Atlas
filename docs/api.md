@@ -28,6 +28,7 @@ every endpoint follows and lists what exists.
 | GET | `/api/health` | 200 healthy/degraded, 503 when the database is down |
 | GET | `/api/system/info` | Version, environment, module roadmap |
 | GET | `/api/system/status` | Database, migration state, Redis |
+| GET | `/api/metrics` | Prometheus text: this API process's requests by route and status, latency histograms, job queue, finished jobs per kind, workers, database size. Needs `Authorization: Bearer $ATLAS_METRICS_TOKEN`; 404 when no token is configured or it does not match (Phase 15) |
 
 ### Auth, users and roles
 
@@ -180,6 +181,15 @@ Payments and loans are created only by their workflows (`POST /api/v1/workflows/
 | PATCH | `/api/v1/job-schedules/{name}` | `jobs:manage` | `{enabled?, interval_seconds?}` (60 s – 7 days); audited |
 | POST | `/api/v1/job-schedules/{name}/run` | `jobs:manage` | Queue the schedule's job now (one active job per schedule); 202 |
 
+### Observability (Phase 15)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/observability/overview` | `observability:read` | `process` (version, uptime, job execution mode, slow-query threshold); `requests` per route template of this API process (count, errors, by status class, avg/p50/p95/max ms over the last 1,000); `queue` (due, scheduled later, running, age of the oldest due job); `throughput` per job kind over the last hour (finished, failed, per minute, avg/p95/max ms); `workers` (running, lost — no report for 60 s — or stopped, with counts and the job each holds); `database` (size, connections, cache hit %) |
+| GET | `/api/v1/observability/slow-queries?limit=&grouped=` | `observability:read` | Statements over `ATLAS_SLOW_QUERY_MS` from the API and every worker, newest first; `grouped=true` groups by statement and route/job, worst total time first |
+
+`observability:read` is held by administrators and auditors.
+
 Simulation, suite, rerun and experiment starts now queue `simulation.execute` /
 `experiment.execute` jobs in the same transaction as the runs; their responses are
 unchanged.
@@ -223,6 +233,19 @@ and, for AI modes, `tool_id` (+ optional `tool_version`, default: highest active
 modes need a scenario version that supports them (`retail-onboarding` v2) and an active
 tool declared compatible with the scenario's workflow (422 otherwise). The run list
 filters by `batch_id` and `mode`.
+
+Phase 15 — workflow history (`simulations:manage`: administrators and AI researchers):
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/simulations/history` | `simulations:manage` | Rows and bytes per workflow-history partition (live, simulation), runs by `history_state`, archive directory and its size, the last 10 archives, whether the retention schedule is on |
+| POST | `/api/v1/simulations/{id}/archive` | `simulations:manage` | Queues `simulation.archive_history` (202, `{job_id, job_number, kind, status}`). Refused (422) unless the run has finished, its history is present and no running experiment uses it. One archive or restore per run at a time |
+| POST | `/api/v1/simulations/{id}/restore` | `simulations:manage` | Queues `simulation.restore_history` (202); only for archived history; the files are checked against their SHA-256 first |
+
+Run summaries carry `history_state` (`present`, `archived`, `purged`); run detail adds
+`archive` (the archive in effect: kind, rows per table, bytes, who and when). Case results
+stay after an archive; their `execution_id` then names an execution that is no longer
+stored until the history is restored.
 
 Runs that stop making progress for 5 minutes (the process running them stopped) are
 reported as failed with an "Interrupted" reason. See [simulation.md](simulation.md).

@@ -16,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -29,6 +30,14 @@ class SimulationStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class HistoryState(StrEnum):
+    """Where a run's case-level workflow history is (Phase 15)."""
+
+    PRESENT = "present"  # in the simulation partitions
+    ARCHIVED = "archived"  # moved to an archive file; can be restored
+    PURGED = "purged"  # removed by a reset without an archive
 
 
 class SimulationRun(UUIDPrimaryKey, Base):
@@ -85,6 +94,9 @@ class SimulationRun(UUIDPrimaryKey, Base):
         Uuid, ForeignKey("ai_tools.id", ondelete="RESTRICT"), nullable=True
     )
     batch_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    history_state: Mapped[str] = mapped_column(
+        String(10), nullable=False, default=HistoryState.PRESENT, server_default="present"
+    )
 
 
 class SimulationCaseResult(UUIDPrimaryKey, Base):
@@ -99,9 +111,9 @@ class SimulationCaseResult(UUIDPrimaryKey, Base):
         Uuid, ForeignKey("simulation_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     case_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    execution_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workflow_executions.id", ondelete="RESTRICT"), nullable=True
-    )
+    # No foreign key: the execution's history can be archived (Phase 15) while this
+    # measured result stays; restoring the archive brings the execution back.
+    execution_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     expected_outcome: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -119,3 +131,47 @@ class SimulationCaseResult(UUIDPrimaryKey, Base):
     ai_recommendation: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ai_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     automated: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+
+
+class SimulationArchive(UUIDPrimaryKey, Base):
+    """One archive (or purge) of a run's workflow history, with what it contained.
+
+    The run's results and per-case outcomes stay in place; the executions, step runs,
+    events and AI tool calls move to compressed COPY files under the archive directory.
+    """
+
+    __tablename__ = "simulation_archives"
+    __table_args__ = (
+        CheckConstraint("kind IN ('archive', 'purge')", name="kind_valid"),
+        CheckConstraint("(kind = 'archive') = (location IS NOT NULL)", name="location_valid"),
+        # At most one archive per run is in effect (not yet restored).
+        Index(
+            "uq_simulation_archives_active_run",
+            "run_id",
+            unique=True,
+            postgresql_where=text("restored_at IS NULL"),
+        ),
+    )
+
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("simulation_runs.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Directory of the archive files, relative to the configured archive root.
+    location: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Per table: rows, bytes, sha256 of the file and the columns it holds.
+    manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # Counts the analytics still need once the history is gone (failed executions, ...).
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    rows: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    restored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    restored_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )

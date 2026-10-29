@@ -74,3 +74,15 @@ export function toMinorUnits(major: number, currency: string): number {
 export function humanize(value: string): string {
   return value.replaceAll("_", " ").replace(/^\w/, (c) => c.toUpperCase());
 }
+
+/** 1536 → "1.5 KB" (binary units, as storage tools report them). */
+export function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}

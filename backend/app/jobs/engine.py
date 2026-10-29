@@ -31,6 +31,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.core.errors import BusinessRuleViolation
 from app.jobs.models import ACTIVE_JOB_STATUSES, Job, JobSchedule, JobStatus
+from app.observability.models import JobWorker
+from app.observability.slow_queries import query_context
 
 logger = logging.getLogger("atlas.jobs")
 
@@ -215,6 +217,7 @@ def run_claimed(factory: sessionmaker[Session], job_id: uuid.UUID, worker: str) 
     beat = threading.Thread(target=_heartbeat, args=(factory, job_id, worker, stop), daemon=True)
     beat.start()
     started = time.perf_counter()
+    context_token = query_context.set(f"job {context.kind}")
     try:
         if spec is None:
             raise PermanentJobError(f"No handler is registered for '{context.kind}'.")
@@ -243,6 +246,7 @@ def run_claimed(factory: sessionmaker[Session], job_id: uuid.UUID, worker: str) 
         else:
             outcome = {"status": JobStatus.FAILED.value, "last_error": error, "finished_at": _now()}
     finally:
+        query_context.reset(context_token)
         stop.set()
         beat.join()
     with factory() as db, db.begin():
@@ -366,10 +370,28 @@ def run_worker(
     database locks make that safe with any number of workers."""
     stop = stop or threading.Event()
     stats = WorkerStats(worker=worker_name())
+    _register(factory, stats)
+    try:
+        _work(factory, stats, stop, poll_seconds, schedules, max_jobs, idle_exit)
+    finally:
+        _report(factory, stats, stopped=True)
+    return stats
+
+
+def _work(
+    factory: sessionmaker[Session],
+    stats: WorkerStats,
+    stop: threading.Event,
+    poll_seconds: float,
+    schedules: bool,
+    max_jobs: int | None,
+    idle_exit: bool,
+) -> None:
     last_upkeep = 0.0
     while not stop.is_set():
         if time.monotonic() - last_upkeep > 5:
             last_upkeep = time.monotonic()
+            _report(factory, stats)
             stats.recovered += recover_stale(factory)
             if schedules:
                 stats.scheduled += len(tick_schedules(factory))
@@ -391,4 +413,40 @@ def run_worker(
             stats.failed += 1
         if max_jobs is not None and stats.succeeded + stats.failed >= max_jobs:
             break
-    return stats
+
+
+# --- Worker registry (observability) ----------------------------------------------------------
+
+
+def _register(factory: sessionmaker[Session], stats: WorkerStats) -> None:
+    now = _now()
+    with factory() as db, db.begin():
+        db.add(
+            JobWorker(
+                name=stats.worker,
+                hostname=socket.gethostname()[:255],
+                pid=os.getpid(),
+                started_at=now,
+                last_seen_at=now,
+                succeeded=0,
+                failed=0,
+                retried=0,
+            )
+        )
+
+
+def _report(factory: sessionmaker[Session], stats: WorkerStats, *, stopped: bool = False) -> None:
+    """Record that the worker is alive (and its counts); a stopped worker says so."""
+    values: dict[str, Any] = {
+        "last_seen_at": _now(),
+        "succeeded": stats.succeeded,
+        "failed": stats.failed,
+        "retried": stats.retried,
+    }
+    if stopped:
+        values["stopped_at"] = values["last_seen_at"]
+    try:
+        with factory() as db, db.begin():
+            db.execute(update(JobWorker).where(JobWorker.name == stats.worker).values(**values))
+    except Exception:  # bookkeeping only: never stop the worker over it
+        logger.exception("could not update the worker registry")

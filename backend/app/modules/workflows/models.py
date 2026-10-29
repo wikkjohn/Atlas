@@ -8,12 +8,15 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     UniqueConstraint,
     Uuid,
+    and_,
     func,
     text,
 )
@@ -33,6 +36,31 @@ class ExecutionStatus(StrEnum):
 
 
 ACTIVE_STATUSES = (ExecutionStatus.RUNNING, ExecutionStatus.WAITING)
+
+
+class Realm(StrEnum):
+    """Which partition a workflow's history lives in (migration 0013).
+
+    Executions, step runs and events are LIST-partitioned on `realm`: the live bank's
+    history and the simulation engine's history are separate tables underneath, so
+    simulation history can be archived or reset without touching the live bank's.
+    """
+
+    LIVE = "live"
+    SIMULATION = "simulation"
+
+
+# The partitions behind each partitioned table (created by migration 0013).
+PARTITIONED_TABLES = ("workflow_executions", "workflow_step_runs", "workflow_events")
+
+
+def partition_name(table: str, realm: Realm | str) -> str:
+    return f"{table}_{Realm(realm).value}"
+
+
+# Database rows are keyed by (id, realm), as PostgreSQL requires the partition key in
+# every unique constraint; the ORM still identifies a row by its id alone.
+_ID_ONLY = {"primary_key": ["id"]}
 
 
 class RunStatus(StrEnum):
@@ -61,18 +89,27 @@ class WorkflowDefinitionRecord(UUIDPrimaryKey, Base):
     )
 
 
-class WorkflowExecution(UUIDPrimaryKey, Base):
+class WorkflowExecution(Base):
     __tablename__ = "workflow_executions"
     __table_args__ = (
         CheckConstraint(
             "status IN ('running', 'waiting', 'completed', 'failed', 'cancelled')",
             name="status_valid",
         ),
+        CheckConstraint(
+            "(realm = 'simulation') = (simulation_run_id IS NOT NULL)", name="realm_matches_run"
+        ),
+        PrimaryKeyConstraint("id", "realm"),
         UniqueConstraint(
-            "initiated_by", "idempotency_key", name="uq_workflow_executions_idempotency"
+            "initiated_by", "idempotency_key", "realm", name="uq_workflow_executions_idempotency"
         ),
         Index("ix_workflow_executions_workflow_status", "workflow_id", "status"),
+        {"postgresql_partition_by": "LIST (realm)"},
     )
+    __mapper_args__ = _ID_ONLY
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=uuid.uuid4)
+    realm: Mapped[str] = mapped_column(String(10), nullable=False)
 
     workflow_id: Mapped[str] = mapped_column(String(20), nullable=False)
     workflow_version: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -101,7 +138,7 @@ class WorkflowExecution(UUIDPrimaryKey, Base):
     )
 
 
-class WorkflowStepRun(UUIDPrimaryKey, Base):
+class WorkflowStepRun(Base):
     """One visit of a step. Retries reuse the row (attempt++); revisits get a new row."""
 
     __tablename__ = "workflow_step_runs"
@@ -110,7 +147,15 @@ class WorkflowStepRun(UUIDPrimaryKey, Base):
             "status IN ('pending', 'waiting', 'completed', 'failed', 'cancelled')",
             name="status_valid",
         ),
-        UniqueConstraint("execution_id", "sequence", name="uq_workflow_step_runs_sequence"),
+        PrimaryKeyConstraint("id", "realm"),
+        UniqueConstraint(
+            "execution_id", "sequence", "realm", name="uq_workflow_step_runs_sequence"
+        ),
+        ForeignKeyConstraint(
+            ["execution_id", "realm"],
+            ["workflow_executions.id", "workflow_executions.realm"],
+            ondelete="RESTRICT",
+        ),
         # The runner and the timer sweep look these up.
         Index(
             "ix_workflow_step_runs_due",
@@ -123,11 +168,13 @@ class WorkflowStepRun(UUIDPrimaryKey, Base):
             "due_at",
             postgresql_where=text("status = 'waiting'"),
         ),
+        {"postgresql_partition_by": "LIST (realm)"},
     )
+    __mapper_args__ = _ID_ONLY
 
-    execution_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("workflow_executions.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=uuid.uuid4)
+    realm: Mapped[str] = mapped_column(String(10), nullable=False)
+    execution_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     step_id: Mapped[str] = mapped_column(String(64), nullable=False)
     step_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -150,19 +197,49 @@ class WorkflowStepRun(UUIDPrimaryKey, Base):
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class WorkflowEvent(UUIDPrimaryKey, Base):
+# Joins a step run to its execution on the full key, so PostgreSQL can prune partitions on
+# both sides when either is filtered by realm.
+STEP_RUN_EXECUTION = and_(
+    WorkflowExecution.id == WorkflowStepRun.execution_id,
+    WorkflowExecution.realm == WorkflowStepRun.realm,
+)
+
+
+class WorkflowEvent(Base):
     """Append-only execution history (a database trigger forbids changes)."""
 
     __tablename__ = "workflow_events"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", "realm"),
+        UniqueConstraint("seq", "realm", name="uq_workflow_events_seq"),
+        # Document timeouts are counted per simulation run (analytics, experiments); they
+        # are rare among millions of events, so a small partial index finds them.
+        Index(
+            "ix_workflow_events_timeouts",
+            "execution_id",
+            postgresql_where=text("event_type = 'step.timed_out'"),
+        ),
+        ForeignKeyConstraint(
+            ["execution_id", "realm"],
+            ["workflow_executions.id", "workflow_executions.realm"],
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["step_run_id", "realm"],
+            ["workflow_step_runs.id", "workflow_step_runs.realm"],
+            ondelete="RESTRICT",
+        ),
+        {"postgresql_partition_by": "LIST (realm)"},
+    )
+    __mapper_args__ = _ID_ONLY
 
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, default=uuid.uuid4)
+    realm: Mapped[str] = mapped_column(String(10), nullable=False)
     # Database-assigned order: events sharing a timestamp still have a stable order.
-    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False, unique=True)
-    execution_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("workflow_executions.id", ondelete="RESTRICT"), nullable=False, index=True
-    )
-    step_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workflow_step_runs.id", ondelete="RESTRICT"), nullable=True
-    )
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    execution_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
+    # Indexed so removing step runs (archiving simulation history) need not scan events.
+    step_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actor_id: Mapped[uuid.UUID | None] = mapped_column(

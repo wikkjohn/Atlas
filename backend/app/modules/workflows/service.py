@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import DomainError, NotFoundError
@@ -13,6 +13,8 @@ from app.modules.workflows import registry
 from app.modules.workflows.definition import StepType, WorkflowDefinition
 from app.modules.workflows.engine import check_task_access
 from app.modules.workflows.models import (
+    STEP_RUN_EXECUTION,
+    Realm,
     RunStatus,
     WorkflowEvent,
     WorkflowExecution,
@@ -128,9 +130,12 @@ def list_executions(
     )
     # Simulated executions are listed only for their own run.
     query = query.where(
-        WorkflowExecution.simulation_run_id == simulation_run_id
+        and_(
+            WorkflowExecution.realm == Realm.SIMULATION,
+            WorkflowExecution.simulation_run_id == simulation_run_id,
+        )
         if simulation_run_id
-        else WorkflowExecution.simulation_run_id.is_(None)
+        else WorkflowExecution.realm == Realm.LIVE
     )
     if workflow_id:
         query = query.where(WorkflowExecution.workflow_id == workflow_id)
@@ -226,11 +231,11 @@ def open_tasks(
     """Open human tasks and approvals, each marked with whether `user` may act on it."""
     rows = db.execute(
         select(WorkflowStepRun, WorkflowExecution)
-        .join(WorkflowExecution, WorkflowExecution.id == WorkflowStepRun.execution_id)
+        .join(WorkflowExecution, STEP_RUN_EXECUTION)
         .where(
             WorkflowStepRun.status == RunStatus.WAITING,
             WorkflowStepRun.step_type.in_([StepType.APPROVAL, StepType.HUMAN_TASK]),
-            WorkflowExecution.simulation_run_id.is_(None),
+            WorkflowExecution.realm == Realm.LIVE,
         )
         .order_by(WorkflowStepRun.due_at.asc().nullslast(), WorkflowStepRun.created_at)
     ).all()
@@ -281,7 +286,7 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
             select(WorkflowExecution.status, func.count())
             .where(
                 WorkflowExecution.workflow_id == workflow_id,
-                WorkflowExecution.simulation_run_id.is_(None),
+                WorkflowExecution.realm == Realm.LIVE,
             )
             .group_by(WorkflowExecution.status)
         ).all()
@@ -291,7 +296,7 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
             select(WorkflowExecution.outcome, func.count())
             .where(
                 WorkflowExecution.workflow_id == workflow_id,
-                WorkflowExecution.simulation_run_id.is_(None),
+                WorkflowExecution.realm == Realm.LIVE,
                 WorkflowExecution.outcome.is_not(None),
             )
             .group_by(WorkflowExecution.outcome)
@@ -305,7 +310,7 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
             )
         ).where(
             WorkflowExecution.workflow_id == workflow_id,
-            WorkflowExecution.simulation_run_id.is_(None),
+            WorkflowExecution.realm == Realm.LIVE,
             WorkflowExecution.completed_at.is_not(None),
         )
     ).scalar_one()
@@ -330,10 +335,10 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
                 func.percentile_cont(0.95).within_group(WorkflowStepRun.duration_ms).label("p95"),
                 func.max(WorkflowStepRun.duration_ms).label("max_ms"),
             )
-            .join(WorkflowExecution, WorkflowExecution.id == WorkflowStepRun.execution_id)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
             .where(
                 WorkflowExecution.workflow_id == workflow_id,
-                WorkflowExecution.simulation_run_id.is_(None),
+                WorkflowExecution.realm == Realm.LIVE,
             )
             .group_by(WorkflowStepRun.step_id)
         ).all()

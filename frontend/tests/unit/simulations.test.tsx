@@ -78,6 +78,8 @@ const completed: SimulationRunDetail = {
   simulated_end: "2026-01-08T16:23:00Z",
   staff_unit_id: "org-1",
   reproductions: [{ id: "run-0", run_number: 6, result_digest: "0123456789abcdef0123", matches: true }],
+  history_state: "present",
+  archive: null,
 };
 
 const mismatch: CaseResult = {
@@ -217,5 +219,33 @@ describe("Simulation Center", () => {
     expect(await screen.findByText("Your role can review runs but not start them.")).toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Start a simulation" })).not.toBeInTheDocument();
     expect(await screen.findByText("Run #7")).toBeInTheDocument();
+  });
+
+  it("archives a run's workflow history and offers to restore it", async () => {
+    let state: "present" | "archived" = "present";
+    const archived = {
+      ...completed,
+      history_state: "archived" as const,
+      archive: { id: "a1", run_id: "run-1", run_number: 7, kind: "archive" as const, location: "run-000007-x", rows: 1_234, bytes: 56_789, tables: { workflow_events: 900 }, created_by_username: "admin", created_at: "2026-10-29T10:00:00Z" },
+    };
+    const api = mockApi({
+      ...baseRoutes,
+      "GET /api/v1/simulations/run-1": () => jsonResponse(state === "present" ? completed : archived),
+      "POST /api/v1/simulations/run-1/archive": () => {
+        state = "archived";
+        return jsonResponse({ job_id: "job-9", job_number: 9, kind: "simulation.archive_history", status: "queued" }, 202);
+      },
+    });
+    renderApp("/simulations?run=run-1");
+
+    const history = await screen.findByRole("region", { name: "Workflow history" });
+    await userEvent.click(within(history).getByRole("button", { name: "Archive history" }));
+
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(await within(history).findByText(/1,234 rows in 55 KB of files/)).toBeInTheDocument();
+    expect(within(history).getByRole("button", { name: "Restore history" })).toBeInTheDocument();
+    expect(within(history).queryByRole("status")).not.toBeInTheDocument(); // the job finished
+    // Results and case outcomes stay.
+    expect(screen.getByRole("table", { name: "Case results" })).toBeInTheDocument();
   });
 });

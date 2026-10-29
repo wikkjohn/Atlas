@@ -135,3 +135,60 @@ def execute_experiment(ctx: JobContext) -> dict:
 )
 def ping(ctx: JobContext) -> dict:
     return {"pong": True}
+
+
+def _run_id(ctx: JobContext) -> uuid.UUID:
+    try:
+        return uuid.UUID(ctx.payload["run_id"])
+    except (KeyError, ValueError) as exc:
+        raise PermanentJobError("The payload needs a run_id.") from exc
+
+
+@job_kind(
+    "simulation.archive_history",
+    description="Archive a simulation run's workflow history to files (payload: run_id)",
+    max_attempts=1,
+)
+def archive_history(ctx: JobContext) -> dict:
+    from app.core.errors import DomainError
+    from app.simulation import history
+
+    try:
+        record = history.archive_run(ctx.factory, _run_id(ctx), ctx.created_by)
+    except DomainError as exc:  # e.g. already archived: retrying would not help
+        raise PermanentJobError(exc.message) from exc
+    return {"run_number": record.manifest["run_number"], "rows": record.rows, "bytes": record.bytes}
+
+
+@job_kind(
+    "simulation.restore_history",
+    description="Restore an archived simulation run's workflow history (payload: run_id)",
+    max_attempts=1,
+)
+def restore_history(ctx: JobContext) -> dict:
+    from app.core.errors import DomainError
+    from app.simulation import history
+
+    try:
+        record = history.restore_run(ctx.factory, _run_id(ctx), ctx.created_by)
+    except DomainError as exc:
+        raise PermanentJobError(exc.message) from exc
+    return {"run_number": record.manifest["run_number"], "rows": record.rows}
+
+
+@job_kind(
+    "simulation.archive_old",
+    description="Archive the workflow history of finished simulation runs older than "
+    "older_than_days (default 30)",
+    max_attempts=2,
+    manual=True,
+)
+def archive_old_history(ctx: JobContext) -> dict:
+    from app.simulation import history
+
+    days = ctx.payload.get("older_than_days", 30)
+    if not isinstance(days, int) or days < 0:
+        raise PermanentJobError("older_than_days must be a whole number of days, 0 or more.")
+    actor = ctx.created_by or _principal(ctx).id
+    archived = history.archive_older_than(ctx.factory, days, actor)
+    return {"archived_runs": archived}

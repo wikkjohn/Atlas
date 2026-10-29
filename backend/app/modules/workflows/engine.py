@@ -48,7 +48,9 @@ from app.modules.workflows.definition import (
 )
 from app.modules.workflows.models import (
     ACTIVE_STATUSES,
+    STEP_RUN_EXECUTION,
     ExecutionStatus,
+    Realm,
     RunStatus,
     WorkflowDefinitionRecord,
     WorkflowEvent,
@@ -188,6 +190,7 @@ class _Driver:
     ) -> None:
         self.db.add(
             WorkflowEvent(
+                realm=self.execution.realm,
                 execution_id=self.execution.id,
                 step_run_id=run.id if run is not None else None,
                 event_type=event_type,
@@ -220,6 +223,7 @@ class _Driver:
         step = self.definition.step(step_id)
         self.execution.step_counter += 1
         run = WorkflowStepRun(
+            realm=self.execution.realm,
             execution_id=self.execution.id,
             sequence=self.execution.step_counter,
             step_id=step.id,
@@ -530,12 +534,14 @@ def start(
     """
     live = now is None
     now = now or utc_now()
+    realm = Realm.SIMULATION if simulation_run_id else Realm.LIVE
     definition = registry.get_definition(workflow_id, version)
     if definition is None:
         raise NotFoundError(f"Workflow {workflow_id} is not registered.")
     if idempotency_key:
         existing = db.execute(
             select(WorkflowExecution).where(
+                WorkflowExecution.realm == realm,
                 WorkflowExecution.initiated_by == initiator.id,
                 WorkflowExecution.idempotency_key == idempotency_key,
             )
@@ -572,6 +578,7 @@ def start(
         updated_at=now,
         step_counter=0,
         simulation_run_id=simulation_run_id,
+        realm=realm,
     )
     try:
         with db.begin_nested():
@@ -581,6 +588,7 @@ def start(
         # A concurrent start with the same key won.
         existing = db.execute(
             select(WorkflowExecution).where(
+                WorkflowExecution.realm == realm,
                 WorkflowExecution.initiated_by == initiator.id,
                 WorkflowExecution.idempotency_key == idempotency_key,
             )
@@ -855,11 +863,11 @@ def run_due(
         candidates = list(
             db.execute(
                 select(WorkflowStepRun.execution_id)
-                .join(WorkflowExecution, WorkflowExecution.id == WorkflowStepRun.execution_id)
+                .join(WorkflowExecution, STEP_RUN_EXECUTION)
                 .where(
                     WorkflowExecution.status.in_(list(ACTIVE_STATUSES)),
                     # Simulated executions run on simulated time; only their run drives them.
-                    WorkflowExecution.simulation_run_id.is_(None),
+                    WorkflowExecution.realm == Realm.LIVE,
                     or_(
                         (WorkflowStepRun.status == RunStatus.PENDING)
                         & or_(

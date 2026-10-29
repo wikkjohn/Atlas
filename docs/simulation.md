@@ -249,11 +249,52 @@ the engine; neither exists yet.
   `cd backend && .venv/bin/python -m app.cli simulate --profile custom --applications 500 --employees 40 --seed 7`
   runs to completion in the foreground and prints the results.
 
+## Workflow history: archive, restore, reset (Phase 15)
+
+A run leaves results (summary, digest, one measured row per case) and workflow history:
+every case's executions, step runs and events and its AI tool calls — roughly 16 step runs
+and 50 events per case. The history lives in the `simulation` partitions of the workflow
+tables, apart from the live bank's.
+
+- **Archive** (Simulation Center → a run → *Archive history*, or
+  `python -m app.cli simulation-history archive --run 7`) runs as a background job. It
+  writes the history to gzip-compressed PostgreSQL COPY files under
+  `ATLAS_SIMULATION_ARCHIVE_DIR` (one directory per run: one file per table and a
+  `manifest.json` with row counts, columns and SHA-256 checksums) and deletes it from the
+  database in the same transaction. Results, case outcomes and the dashboard's figures for
+  the run stay. Refused for unfinished runs and for runs of a running experiment.
+- **Restore** (*Restore history*, or `simulation-history restore --run 7`) verifies the
+  checksums, copies the rows back, and removes the files.
+- **Retention**: `simulation-history archive --older-than-days 30`, or switch on the
+  `simulation-history-retention` schedule (System Settings → Background jobs).
+- **Reset** (`python -m app.cli simulation-history reset --yes [--archive]`) drops and
+  recreates the simulation partitions: every run's history goes at once, without
+  archives unless `--archive` archives each run first. Refused while a run is queued or
+  running. Runs reset this way are marked `purged`; their results stay.
+- `simulation-history status` (or System Settings → Simulation history) shows the size of
+  each partition, runs by state, the archive files and the latest archives.
+
+Measured in the development container on one run of 100,000 cases (100,236 executions,
+1,577,148 step runs, 5,129,739 events; 2.4 GB in the database):
+
+| Operation | Time | Result |
+| --- | ---: | --- |
+| Archive | 119 s | 6,807,087 rows in 519 MB of compressed files; the space is reused after vacuum |
+| Restore | 562 s | every row back (foreign-key checks and index updates dominate) |
+| Reset | 5.0 s | 4.1 GB freed immediately (partitions dropped and recreated) |
+| Row-by-row DELETE before partitioning (for comparison) | events 24 s; step runs > 10 min (stopped) | a missing index on `workflow_events.step_run_id`, now added |
+
+What a reset or archive does **not** remove: customers, accounts, ledger postings, loans,
+payments and simulated staff created by simulated cases. The ledger is append-only, and
+removing postings would rewrite the books; only workflow history is lifecycle-managed.
+`docker compose down -v` still resets everything.
+
 ## Limitations
 
 - Runs write into the same synthetic bank as everything else: simulated customers,
   accounts, ledger postings and staff remain afterwards (staff are grouped in their run's
-  team; executions carry `simulation_run_id`). There is no reset or cleanup command yet.
+  team; executions carry `simulation_run_id`). Since Phase 15 a run's workflow history can
+  be archived, restored or reset (above); the domain records stay.
 - Reviewers work around the clock; there are no shifts, holidays or absences.
 - Arrivals are uniform across the window; no peaks or seasonality.
 - Runs execute as durable background jobs (`simulation.execute`, Phase 14): in the API

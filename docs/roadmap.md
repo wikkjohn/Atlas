@@ -40,15 +40,22 @@ millions of customers and an AI testing laboratory at that scale.
 - [x] Stored account balances maintained in the same transaction as each posting (Phase 12)
 - [x] Incremental reconciliation (only what changed since the last checkpoint) with history
       (Phase 12)
-- [ ] Partition the largest tables (journal lines, workflow step runs, events, audit log)
+- [x] Partition workflow history — executions, step runs, events — into live and
+      simulation partitions (Phase 15; measured: live queries were already fast, the gain
+      is removal: 5 s to drop 100,000 cases' history instead of over ten minutes)
+- [ ] Partition journal lines and the audit log by period: deferred until period close
+      (Finance, Milestone D) and an audit retention policy exist — stored balances already
+      removed the full scans, and an append-only ledger has nothing to drop
 - [x] Bulk loading with COPY for generated data; index and query-plan review (Phase 13)
 - [x] Durable job queue with multiple worker processes, same codebase (Phase 14: in
       PostgreSQL with SKIP LOCKED rather than Redis, so jobs commit with their work)
 - [x] Built-in scheduler: workflow timers, loan servicing, reconciliation (Phase 14;
       statements come with the deposits work in Milestone D)
-- [ ] Reset / archive command for simulation data
+- [x] Archive / restore / reset of simulation workflow history, with a retention schedule
+      (Phase 15; synthetic customers, accounts and postings stay — the ledger is append-only)
 - [ ] Performance test suite with recorded targets (started: `bench-ledger`, Phase 12)
-- [ ] Observability: metrics, slow-query log, worker throughput
+- [x] Observability: request metrics, Prometheus endpoint, slow-query log from every
+      process, worker registry and job throughput (Phase 15)
 - [ ] **Exit:** `department` profile repeatable; 1M customers / 100k applications measured
       (1M customers loaded and measured in Phase 13; 100k applications still to do)
 
@@ -156,4 +163,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 12 (A1) | Stored balances, incremental reconciliation, ledger benchmark | complete |
 | Phase 13 (A2) | Bulk posting, 1M-customer population loader, search and sort indexes | complete |
 | Phase 14 (A3) | Durable job queue, worker processes, schedules; simulations and experiments as jobs | complete |
-| Phase 15 (A4, proposed) | Partitioning with archive / reset of simulation data; observability (metrics, slow queries) | next |
+| Phase 15 (A4) | Partitioned workflow history; archive, restore and reset of simulation history; observability (metrics, slow queries, workers) | complete |
+| Phase 16 (A5, proposed) | Parallel simulation runners across worker processes; performance suite with recorded targets; the 100,000-application measurement that closes Milestone A | next |

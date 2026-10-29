@@ -587,7 +587,7 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
     else:
         _build_banking(db, SyntheticNameGenerator(seed + 1), report)
 
-    from app.modules.workflows.models import WorkflowExecution
+    from app.modules.workflows.models import Realm, WorkflowExecution
 
     if db.execute(select(WorkflowExecution.id).limit(1)).first():
         report.skipped_workflows = True
@@ -597,7 +597,7 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
         select(WorkflowExecution.id)
         .where(
             WorkflowExecution.workflow_id == "WF-0002",
-            WorkflowExecution.simulation_run_id.is_(None),
+            WorkflowExecution.realm == Realm.LIVE,
         )
         .limit(1)
     ).first():

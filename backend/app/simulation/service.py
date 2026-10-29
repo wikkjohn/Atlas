@@ -2,20 +2,33 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessRuleViolation, ConflictError, NotFoundError
 from app.core.pagination import PageParams, paginate
+from app.jobs.models import JobSchedule
 from app.modules.ai_tools.models import AITool, ToolStatus
 from app.modules.ai_tools.service import find_tool
 from app.modules.identity.models import User
-from app.simulation import runner
-from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
+from app.modules.workflows.models import PARTITIONED_TABLES, Realm, partition_name
+from app.simulation import history, runner
+from app.simulation.history import RETENTION_SCHEDULE
+from app.simulation.models import (
+    HistoryState,
+    SimulationArchive,
+    SimulationCaseResult,
+    SimulationRun,
+    SimulationStatus,
+)
 from app.simulation.scenarios import MODES, PROFILES, SCENARIOS, Scenario, get_scenario
 from app.simulation.schemas import (
+    ArchiveOut,
     CaseResultOut,
+    HistoryOverview,
+    PartitionUsage,
     ProfileOut,
     Reproduction,
     ScenarioOut,
@@ -299,6 +312,7 @@ def summary(run: SimulationRun, names: dict[uuid.UUID, str]) -> SimulationRunSum
         tool_id=(run.config.get("ai_tool") or {}).get("tool_id"),
         tool_version=(run.config.get("ai_tool") or {}).get("tool_version"),
         batch_id=run.batch_id,
+        history_state=run.history_state,
     )
 
 
@@ -340,6 +354,80 @@ def detail(db: Session, run: SimulationRun) -> SimulationRunDetail:
         simulated_end=run.simulated_end,
         staff_unit_id=run.staff_unit_id,
         reproductions=reproductions(db, run),
+        archive=active_archive(db, run),
+    )
+
+
+def archive_out(record: SimulationArchive, run_number: int, names: dict) -> ArchiveOut:
+    return ArchiveOut(
+        id=record.id,
+        run_id=record.run_id,
+        run_number=run_number,
+        kind=record.kind,
+        location=record.location,
+        rows=record.rows,
+        bytes=record.bytes,
+        tables={t: e["rows"] for t, e in record.manifest.get("tables", {}).items()},
+        created_by_username=names.get(record.created_by),
+        created_at=record.created_at,
+    )
+
+
+def active_archive(db: Session, run: SimulationRun) -> ArchiveOut | None:
+    record = db.execute(
+        select(SimulationArchive).where(
+            SimulationArchive.run_id == run.id, SimulationArchive.restored_at.is_(None)
+        )
+    ).scalar_one_or_none()
+    if record is None:
+        return None
+    return archive_out(record, run.run_number, _usernames(db, {record.created_by}))
+
+
+def _directory_bytes(root: Path) -> int:
+    if not root.is_dir():
+        return 0
+    return sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+
+
+def history_overview(db: Session) -> HistoryOverview:
+    partitions = []
+    for table in PARTITIONED_TABLES:
+        for realm in Realm:
+            name = partition_name(table, realm)
+            rows, size = db.execute(
+                text(
+                    "SELECT GREATEST(c.reltuples, 0)::bigint, pg_total_relation_size(c.oid) "
+                    "FROM pg_class c WHERE c.oid = CAST(:name AS regclass)"
+                ),
+                {"name": name},
+            ).one()
+            partitions.append(
+                PartitionUsage(table=table, realm=realm.value, rows_estimate=rows, bytes=size)
+            )
+    states = dict(
+        db.execute(
+            select(SimulationRun.history_state, func.count()).group_by(SimulationRun.history_state)
+        ).all()
+    )
+    recent = db.execute(
+        select(SimulationArchive, SimulationRun.run_number)
+        .join(SimulationRun, SimulationRun.id == SimulationArchive.run_id)
+        .order_by(SimulationArchive.created_at.desc())
+        .limit(10)
+    ).all()
+    names = _usernames(db, {r.created_by for r, _ in recent if r.created_by})
+    retention = db.execute(
+        select(JobSchedule.enabled).where(JobSchedule.name == RETENTION_SCHEDULE)
+    ).scalar_one_or_none()
+    root = history.archive_root()
+    return HistoryOverview(
+        partitions=partitions,
+        runs_by_history_state={state.value: states.get(state.value, 0) for state in HistoryState},
+        archive_directory=str(root),
+        archive_bytes=_directory_bytes(root),
+        recent_archives=[archive_out(r, number, names) for r, number in recent],
+        retention_schedule_enabled=retention,
     )
 
 

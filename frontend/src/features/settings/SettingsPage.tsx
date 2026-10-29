@@ -14,6 +14,8 @@ import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
 import { formatTimestamp } from "@/features/dashboard/format";
 import { HealthTiles, PlatformDetails } from "@/features/dashboard/PlatformHealth";
 import { JobsPanel } from "@/features/settings/JobsPanel";
+import { ObservabilityPanel } from "@/features/settings/ObservabilityPanel";
+import { SimulationHistoryPanel } from "@/features/settings/SimulationHistoryPanel";
 import { useCreateUser, useRoles, useUpdateUser, useUsers } from "@/services/enterprise";
 import { useHealth, useSystemInfo, useSystemStatus } from "@/services/queries";
 import type { Role } from "@/types/enterprise";
@@ -295,13 +297,15 @@ export function SettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="System Settings"
-        description="Platform health, build and database details, modules, background jobs, users, roles and permissions."
+        description="Platform health, build and database details, observability, background jobs, simulation history, users, roles and permissions."
         actions={<SyntheticDataBadge />}
       />
       <HealthTiles health={health} status={status} info={info} />
       <PlatformDetails status={status} info={info} />
       <ErrorMessage error={roles.error} />
+      {can("observability:read") && <ObservabilityPanel />}
       {can("jobs:read") && <JobsPanel />}
+      {can("simulations:manage") && <SimulationHistoryPanel />}
       {can("users:read") && roles.data && <UsersPanel roles={roles.data} />}
       {roles.data && <RolesMatrix roles={roles.data} />}
     </div>

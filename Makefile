@@ -36,6 +36,10 @@ workflows: ## Run only the workflow runner (resumes due steps, applies timeouts)
 simulate: ## Run a small simulation (override: make simulate ARGS="--profile department --seed 7")
 	cd $(BACKEND) && .venv/bin/python -m app.cli simulate $(ARGS)
 
+.PHONY: sim-history
+sim-history: ## Simulation workflow history (ARGS="status" | "archive --run 7" | "restore --run 7" | "reset --yes")
+	cd $(BACKEND) && .venv/bin/python -m app.cli simulation-history $(or $(ARGS),status)
+
 .PHONY: backend
 backend: ## Run the API with auto-reload on http://localhost:8000
 	cd $(BACKEND) && .venv/bin/uvicorn app.main:app --reload --port 8000

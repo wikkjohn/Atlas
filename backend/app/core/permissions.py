@@ -36,6 +36,8 @@ class Permission(StrEnum):
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
     SIMULATIONS_READ = "simulations:read"
     SIMULATIONS_RUN = "simulations:run"  # start simulation runs (creates synthetic data)
+    # Archive and restore simulation runs' workflow history.
+    SIMULATIONS_MANAGE = "simulations:manage"
     AI_TOOLS_READ = "ai_tools:read"
     AI_TOOLS_MANAGE = "ai_tools:manage"  # register tools and versions, enable/disable
     AI_TOOLS_INVOKE = "ai_tools:invoke"  # call a tool directly (test console)
@@ -56,6 +58,8 @@ class Permission(StrEnum):
     LOANS_SERVICE = "loans:service"  # run loan servicing (moves the lending business date)
     JOBS_READ = "jobs:read"  # background jobs and their schedules
     JOBS_MANAGE = "jobs:manage"  # queue jobs, change schedules
+    # Request and job metrics, worker processes, the slow-query log, storage use.
+    OBSERVABILITY_READ = "observability:read"
 
 
 class RoleCode(StrEnum):
@@ -151,6 +155,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     RoleCode.AI_RESEARCHER: _BASE
     | {
         Permission.SIMULATIONS_RUN,
+        Permission.SIMULATIONS_MANAGE,
         Permission.AI_TOOLS_MANAGE,
         Permission.AI_TOOLS_INVOKE,
         Permission.EXPERIMENTS_RUN,
@@ -162,6 +167,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.AUDIT_READ,
         Permission.LEDGER_READ,
         Permission.JOBS_READ,
+        Permission.OBSERVABILITY_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {
@@ -180,6 +186,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.LOANS_READ,
             Permission.LOANS_SERVICE,
             Permission.WORKFLOWS_READ,
+            Permission.SIMULATIONS_READ,
+            Permission.SIMULATIONS_MANAGE,
         }
     ),
 }

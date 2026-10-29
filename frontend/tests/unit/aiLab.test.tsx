@@ -141,6 +141,8 @@ const run = (id: string, n: number, mode: SimulationRunDetail["mode"], accuracy:
   simulated_end: null,
   staff_unit_id: null,
   reproductions: [],
+  history_state: "present",
+  archive: null,
 });
 
 const routes = {

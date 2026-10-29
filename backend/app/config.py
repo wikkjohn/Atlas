@@ -2,6 +2,7 @@
 
 import json
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -49,6 +50,16 @@ class Settings(BaseSettings):
     # A running job whose worker has not sent a heartbeat for this long is taken back.
     jobs_stale_after_seconds: int = Field(default=300, ge=30)
 
+    # Simulation history archives (Phase 15): compressed COPY files, one directory per run.
+    # The API and every worker must see the same directory (a shared volume in Docker).
+    simulation_archive_dir: Path = Path("var/simulation-archive")
+
+    # Observability (Phase 15). Statements slower than this are logged and kept in the
+    # slow-query log; 0 turns the log off.
+    slow_query_ms: int = Field(default=250, ge=0)
+    # Bearer token for the Prometheus endpoint `/api/metrics`; unset means it is disabled.
+    metrics_token: SecretStr | None = None
+
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "json"
 
@@ -72,7 +83,7 @@ class Settings(BaseSettings):
             return DEV_JWT_SECRET
         return value
 
-    @field_validator("redis_url", "build_sha", mode="before")
+    @field_validator("redis_url", "build_sha", "metrics_token", mode="before")
     @classmethod
     def _empty_to_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():

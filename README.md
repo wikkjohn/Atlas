@@ -9,7 +9,7 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–11 are complete.** ATLAS runs a synthetic global bank —
+**Current state: Phases 1–15 are complete.** ATLAS runs a synthetic global bank —
 sign-in and role-based permissions, countries, the organization hierarchy, the workforce,
 customers with KYC, approval-gated accounts, a double-entry ledger, domestic payments,
 personal loans with monthly servicing (schedules, interest accrual, collection, arrears,
@@ -22,7 +22,11 @@ Underwriting Assistant); an evaluation engine that
 compares baseline and AI-supported runs under transparent cost assumptions and success
 criteria; and an enterprise dashboard over all of it. The end-to-end demonstration —
 AI-assisted account opening from sign-in to an exported proof-of-concept report — is
-described in [docs/demo.md](docs/demo.md) and automated as a Playwright test. See
+described in [docs/demo.md](docs/demo.md) and automated as a Playwright test. Phases
+12–15 laid the scale foundation of the [roadmap](docs/roadmap.md): stored balances and
+incremental reconciliation, bulk loading of a million customers, durable background jobs
+with worker processes and schedules, partitioned workflow history with archive and reset
+of simulation history, and observability (request metrics, slow-query log, workers). See
 [docs/implementation-status.md](docs/implementation-status.md) for details and known
 limitations.
 
@@ -127,6 +131,7 @@ cannot use. To create a real administrator for a non-demo environment:
 | `make validate`     | Live checks against a running stack (`scripts/validate_system.py`; add `--login auditor` to also reconcile the ledger) |
 | `make seed`         | Create the demo bank and demo sign-ins (idempotent)                |
 | `make simulate`     | Run a small simulation to completion and print its results (`ARGS="--profile custom --applications 500 --employees 40 --seed 7"`) |
+| `make sim-history`  | Simulation workflow history: `ARGS="status"`, `ARGS="archive --run 7"`, `ARGS="archive --older-than-days 30"`, `ARGS="restore --run 7"`, `ARGS="reset --yes"` |
 
 The backend suite **drops and recreates the schema of the test database**. Point
 `ATLAS_TEST_DATABASE_URL` only at a disposable database.
@@ -142,7 +147,7 @@ endpoint are described in [docs/api.md](docs/api.md).
 
 | Area | Endpoints |
 | --- | --- |
-| Platform (public) | `GET /api/health`, `/api/system/info`, `/api/system/status` |
+| Platform (public) | `GET /api/health`, `/api/system/info`, `/api/system/status`; `/api/metrics` (Prometheus, with `ATLAS_METRICS_TOKEN`) |
 | Auth | `POST /api/v1/auth/login`, `GET /api/v1/auth/me` |
 | Users & roles | `/api/v1/users`, `/api/v1/roles` |
 | Countries | `/api/v1/countries` |
@@ -153,11 +158,13 @@ endpoint are described in [docs/api.md](docs/api.md).
 | Accounts | `/api/v1/accounts` (+ `/deposits`, `/withdrawals`, `/transactions`, `/freeze`, `/unfreeze`, `/close`) |
 | Ledger | `/api/v1/ledger/accounts`, `/journal-entries` (+ `/reverse`), `/reconciliation` |
 | Workflows | `/api/v1/workflows` (+ `/{id}/executions`, `/{id}/metrics`), `/workflow-executions` (+ `/history`, `/signals`, `/resume`, `/cancel`), `/workflow-tasks` (+ `/complete`) |
-| Simulations | `/api/v1/simulations` (+ `/scenarios`, `/profiles`, `/suites`, `/{id}/cases`, `/{id}/rerun`) |
+| Simulations | `/api/v1/simulations` (+ `/scenarios`, `/profiles`, `/suites`, `/history`, `/{id}/cases`, `/{id}/rerun`, `/{id}/archive`, `/{id}/restore`) |
 | AI tools | `/api/v1/ai-tools` (+ `/adapters`, `/actions`, `/invocations`, `/{id}/invoke`) |
 | Experiments | `/api/v1/experiments` (+ `/from-runs`, `/{id}/re-evaluate`, `/{id}/report`), `/api/v1/benchmarks` |
 | Analytics | `GET /api/v1/analytics/overview` (dashboard metrics) |
 | Audit | `GET /api/v1/audit-events` (read-only) |
+| Background jobs | `/api/v1/jobs` (+ `/kinds`, `/{id}/cancel`), `/api/v1/job-schedules` (+ `/{name}/run`) |
+| Observability | `GET /api/v1/observability/overview`, `/api/v1/observability/slow-queries` |
 
 Every response carries an `X-Correlation-ID` header. Errors use one envelope:
 `{"error": {"code", "message", "details", "correlation_id"}}`. Create requests accept an
@@ -171,7 +178,9 @@ backend/            FastAPI application, Alembic migrations, pytest suite
   app/core/         Shared platform services (config, database, logging, errors, DI)
   app/modules/      Bounded banking modules (filled in phase by phase)
   app/api/          HTTP routers
-  app/simulation/   Simulation engine (Phase 5)
+  app/simulation/   Simulation engine (Phase 5), history archive/restore/reset (Phase 15)
+  app/jobs/         Durable job queue, workers and schedules (Phase 14)
+  app/observability/ Request metrics, slow-query log, worker registry (Phase 15)
 frontend/           React application, Vitest and Playwright tests
 docs/               Architecture, database, workflow and AI-testing documentation
 scripts/            Operational scripts (seed.py, validate_system.py)

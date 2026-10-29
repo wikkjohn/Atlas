@@ -62,11 +62,14 @@ against `output_schema` (`invalid_output`); otherwise `succeeded`.
 | Adapter | What it does |
 | --- | --- |
 | `rule_based_kyc` | **AGB Intelligent KYC Assistant** (proof of concept). Checks for missing identity document / proof of address, document check digits, name consistency (≤ 2 edits is a typo), date-of-birth match, document expiry, age, sanctions screening result, politically exposed status and large expected deposits. Each finding has a severity; the score gives low/medium/high risk; any critical finding → **reject**, any high or medium → **escalate**, otherwise **approve**; plus a confidence and a written explanation. Deterministic. |
+| `rule_based_payment_screening` | **AGB Payment Fraud Screener** (Phase 9, proof of concept). Reviews payments that WF-0002's screening held: scam phrases in the reference (high), payee on the synthetic watchlist (critical), share of the balance and payment velocity (medium), first payment to the payee and high value (low). Any critical or high finding → **reject**; score ≥ 5 → **escalate**; otherwise **approve** at low risk — behavioural signals alone are common for legitimate first payments. Its blind spot is deliberate and documented: a scam with an ordinary reference looks like a legitimate large payment. Deterministic. |
 | `fault_injection` | Behaves like the KYC assistant but fails, times out or returns malformed output for a configurable share of requests, decided by a hash of the request (reproducible). Exists to test failure handling. |
 
-The demo seed registers `agb-intelligent-kyc-assistant 1.0.0` (all three actions) and
+The demo seed registers `agb-intelligent-kyc-assistant 1.0.0` (all three actions),
 `kyc-fault-injector 1.0.0` (10 % errors, 5 % timeouts, 5 % malformed output; not granted
-`complete_low_risk_review`).
+`complete_low_risk_review`) and `agb-payment-fraud-screener 1.0.0` (`analyze_payment`,
+`recommend_decision`, `complete_low_risk_review`; compatible with WF-0002). Phase 9 adds
+`release_payment` and `approve_loan` to the actions no tool can ever be granted.
 
 ## WF-0001 version 2
 
@@ -94,6 +97,34 @@ Controls that hold regardless of the workflow:
   given to people or employees.
 - High-risk cases, sanctions hits, PEPs and flagged identities always go to compliance
   review; four-eyes still applies to every human decision.
+
+## WF-0002 and the payment fraud screener (Phase 9)
+
+WF-0002 has the same three modes, applied to *held* payments only (straight-through
+payments never reach a tool): `ai_fraud_review` (advisory) and `policy_release`
+(`low-risk-payment-release-v1`), which releases a held payment without a person only when
+automation is enabled, the tool answered, recommends approval at low risk, the payment is
+below the high-value limit, the payee is not on the watchlist and the reference has no
+scam phrase. The policy engine's `payments:release_low_risk` permission is refused by the
+payments service for high-value payments.
+
+What one experiment on `domestic-payments` v1 (seed 42, 100 payments, 25 staff, default
+assumptions) measured:
+
+| | Baseline | AI assisted | AI automated |
+| --- | ---: | ---: | ---: |
+| Manual reviews | 23 | 23 | 11 |
+| Labour hours | 6.57 | 4.25 | 2.11 |
+| Cost per completed case | 4.65 | 3.47 | 1.66 |
+| Accuracy | 96 % | 98 % | 97 % |
+| False approval rate (of should-reject payments) | 20 % | 13 % | 20 % |
+| Policy violations | 0 | 0 | 0 |
+| Verdict | — | not successful | not successful |
+
+Both candidates fail the *compliance thresholds* criterion: the default maximum false
+approval rate (5 %) was set for account opening, and in this scenario the people miss
+quiet scams too. The point is not the verdict but that the platform shows where the risk
+sits: automation removes half of the manual reviews and lets the quiet scams through.
 
 ## Experiment configurations
 

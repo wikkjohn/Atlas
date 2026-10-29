@@ -76,18 +76,32 @@ MODULE_REGISTRY: tuple[ModuleInfo, ...] = (
         "ledger", "Ledger", 3, "available", "Double-entry general ledger in integer minor units."
     ),
     ModuleInfo(
+        "payments",
+        "Payments",
+        9,
+        "available",
+        "Domestic payments between synthetic accounts, posted through the ledger.",
+    ),
+    ModuleInfo(
+        "lending",
+        "Lending",
+        9,
+        "available",
+        "Personal loans: synthetic bureau, pricing, affordability and disbursement.",
+    ),
+    ModuleInfo(
         "workflows",
         "Workflow engine",
         4,
         "available",
-        "Durable, database-backed workflow execution (WF-0001 Retail Account Opening).",
+        "Durable, database-backed workflow execution: account opening, payments, loans.",
     ),
     ModuleInfo(
         "compliance",
         "Compliance",
         4,
         "available",
-        "Compliance rule evaluation and human review routing (inside WF-0001).",
+        "Compliance and fraud rules with human review routing (inside the workflows).",
     ),
     ModuleInfo(
         "simulation",

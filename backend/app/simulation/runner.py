@@ -2,12 +2,14 @@
 
 A run replays a scenario on simulated time through the real workflow engine:
 
-- Synthetic applications arrive across the scenario's arrival window and are started by
-  simulated tellers (`engine.start` with the simulated `now`).
+- The scenario's workload produces synthetic cases with known ground truth (creating any
+  pre-existing customers and accounts they need); the cases arrive across the arrival
+  window and are started by simulated tellers (`engine.start` with the simulated `now`).
 - Approvals are queued to a pool of simulated reviewers. Each reviewer works one case at a
   time; review time is lognormal and the decision matches the ground truth with the
   scenario's accuracy, so queues, waiting time and mistakes emerge from the model.
-- Late documents arrive as `documents_submitted` signals; timeouts fire at their due time.
+- Signals a waiting case expects (e.g. late documents) arrive after the case's delay;
+  timeouts fire at their due time.
 - Events are processed in simulated-time order from a heap; ties keep insertion order. Every
   random draw comes from a per-case stream (`case_random`), so the same scenario version,
   dataset, seed, configuration and software version reproduce the same results.
@@ -34,7 +36,7 @@ from app import __version__
 from app.config import get_settings
 from app.core.errors import ConflictError, DomainError
 from app.core.money import to_minor_units
-from app.core.permissions import RoleCode, permissions_for
+from app.core.permissions import permissions_for
 from app.modules.ai_tools.models import AITool
 from app.modules.countries.models import Country, OperationalStatus
 from app.modules.employees.schemas import EmployeeCreate
@@ -44,7 +46,7 @@ from app.modules.organizations.models import Organization, OrganizationStatus, O
 from app.modules.organizations.schemas import OrganizationCreate
 from app.modules.organizations.service import create_organization
 from app.modules.workflows import engine, registry
-from app.modules.workflows.definition import StepType
+from app.modules.workflows.definition import StepType, resolve
 from app.modules.workflows.models import (
     ACTIVE_STATUSES,
     RunStatus,
@@ -53,30 +55,22 @@ from app.modules.workflows.models import (
 )
 from app.simulation.clock import SimulationClock
 from app.simulation.generators import (
-    ApplicationGenerator,
     StaffGenerator,
-    SyntheticApplication,
     SyntheticStaffMember,
     case_random,
     digest,
 )
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
 from app.simulation.scenarios import MODES, Scenario, get_scenario
+from app.simulation.workloads import STAFF_ROLES, SyntheticCase, history_time, workload_for
 
 logger = logging.getLogger("atlas.simulation")
 
 BATCH_EVENTS = 250  # events per transaction (progress and heartbeat are updated per batch)
 STAFF_DIVISION = "Retail Banking"
 STAFF_DEPARTMENT = "Simulated Operations"
-STAFF_ROLES = {
-    "teller": RoleCode.BANKING_EMPLOYEE,
-    "manager": RoleCode.DEPARTMENT_MANAGER,
-    "compliance": RoleCode.COMPLIANCE_OFFICER,
-}
-# Which simulated staff role reviews each approval step of WF-0001.
-REVIEWER_ROLE = {"account_approval": "manager", "compliance_review": "compliance"}
 # Synthetic annual pay in whole units of the country's currency, by role.
-PAY = {"teller": 0.15, "manager": 0.45, "compliance": 0.35}  # position within the band
+PAY = {"teller": 0.15, "manager": 0.45, "compliance": 0.35, "executive": 0.7}  # in the band
 PAY_BAND = {"JPY": (5_000_000, 24_000_000)}
 DEFAULT_PAY_BAND = (45_000, 200_000)
 
@@ -113,6 +107,11 @@ def resolve_config(
         )
     if mode not in MODES:
         raise SimulationSetupError(f"Unknown mode '{mode}'.")
+    workload = workload_for(scenario)
+    try:
+        workload.validate(scenario)
+    except ValueError as exc:
+        raise SimulationSetupError(str(exc)) from exc
     ai_capable = scenario.config.ai_assistance is not None
     if mode != "baseline" and not ai_capable:
         raise SimulationSetupError(
@@ -137,7 +136,7 @@ def resolve_config(
         "simulated_start": scenario.simulated_start.isoformat(),
         "profile": profile,
         "applications": applications,
-        "customers": applications,  # every application registers one new customer
+        "customers": workload.customers(applications),
         "employees": employees,
         "scenario": scenario.config.model_dump(mode="json", exclude_none=True),
         # The dataset the run draws on: active countries decide where applicants live.
@@ -213,7 +212,7 @@ def create_run(
 
 @dataclass
 class _Case:
-    app: SyntheticApplication
+    app: SyntheticCase
     arrived: int  # simulated seconds since the start
     execution_id: uuid.UUID | None = None
     seen_runs: set[uuid.UUID] = field(default_factory=set)
@@ -222,7 +221,7 @@ class _Case:
     review_seconds: int = 0
     queue_wait_seconds: int = 0
     overdue: int = 0
-    documents_sent: bool = False
+    signal_sent: bool = False
     done: bool = False
 
 
@@ -248,7 +247,10 @@ class _Simulation:
         self.run_number = run.run_number
         self.seed = run.seed
         self.scenario = scenario
+        self.workload = workload_for(scenario)
         self.config = scenario.config
+        # When the pre-existing customers of the population opened their accounts.
+        self.history_at = history_time(scenario.simulated_start)
         self.ai_mode = run.config.get("ai_mode")  # None: the scenario has no AI modes
         self.settings = (
             {"ai_mode": self.ai_mode, "ai_tool_id": str(run.tool_record_id)}
@@ -266,6 +268,7 @@ class _Simulation:
         self.seq = 0
         self.cases: dict[int, _Case] = {}
         self.tellers: list[_Staff] = []
+        self.managers: list[_Staff] = []
         self.pools: dict[str, list[tuple[int, int]]] = {}  # step -> heap of (free_at, staff)
         self.reviewers: dict[str, list[_Staff]] = {}
         self.processed = 0
@@ -336,7 +339,9 @@ class _Simulation:
         assert country is not None
         low, high = PAY_BAND.get(country.default_currency, DEFAULT_PAY_BAND)
 
-        staff = StaffGenerator(self.seed, self.config.staff_mix).generate(self.employees)
+        staff = StaffGenerator(self.seed, self.config.staff_mix, self.workload.job_titles).generate(
+            self.employees
+        )
         for member in staff:
             role = STAFF_ROLES[member.role]
             pay = int(low + (high - low) * PAY[member.role]) // 1000 * 1000
@@ -373,7 +378,9 @@ class _Simulation:
             )
             if member.role == "teller":
                 self.tellers.append(person)
-            for step, reviewer_role in REVIEWER_ROLE.items():
+            if member.role == "manager":
+                self.managers.append(person)
+            for step, reviewer_role in self.workload.reviewer_roles.items():
                 if member.role == reviewer_role:
                     self.reviewers.setdefault(step, []).append(person)
         for step, people in self.reviewers.items():
@@ -381,19 +388,14 @@ class _Simulation:
             heapq.heapify(self.pools[step])
         return team.id
 
+    def population_staff(self) -> tuple[AuthenticatedUser, AuthenticatedUser]:
+        """Who opened the accounts of the population's pre-existing customers."""
+        if not self.tellers or not self.managers:
+            raise SimulationSetupError("The scenario's staff mix needs tellers and managers.")
+        return self.tellers[0].principal, self.managers[0].principal
+
     def schedule_arrivals(self) -> None:
-        generator = ApplicationGenerator(
-            seed=self.seed,
-            mix=self.config.mix.normalized(),
-            countries=self.countries,
-            arrival_window_seconds=int(self.config.arrival_window_hours * 3600),
-            document_delay_seconds=(
-                int(self.config.document_delay_hours[0] * 3600),
-                int(self.config.document_delay_hours[1] * 3600),
-            ),
-            today=self.clock.start.date(),
-        )
-        for app in generator.generate(self.applications):
+        for app in self.workload.cases(self):
             self.cases[app.index] = _Case(app=app, arrived=app.arrival_offset_seconds)
             self.push(app.arrival_offset_seconds, "arrive", app.index)
 
@@ -404,12 +406,11 @@ class _Simulation:
         now = self.at(event.at)
         if event.kind == "arrive":
             teller = self.tellers[case.app.index % len(self.tellers)]
-            payload = {k: v for k, v in case.app.payload.items() if not k.startswith("_")}
             execution, _ = engine.start(
                 self.db,
                 workflow_id=self.scenario.workflow_id,
                 version=self.workflow_version,
-                payload=payload,
+                payload=case.app.payload,
                 initiator=teller.principal,
                 now=now,
                 simulation_run_id=self.run_id,
@@ -431,14 +432,14 @@ class _Simulation:
                 )
             except ConflictError:
                 pass  # the task closed in the meantime (e.g. the case was cancelled)
-        elif event.kind == "documents":
-            late = case.app.payload["_late_document"]
-            assert case.execution_id is not None
+        elif event.kind == "signal":
+            wait = case.app.wait_signal
+            assert case.execution_id is not None and wait is not None
             engine.signal(
                 self.db,
                 case.execution_id,
-                "documents_submitted",
-                {"documents": [late]},
+                wait.signal,
+                wait.payload,
                 self.tellers[case.app.index % len(self.tellers)].principal.id,
                 now=now,
             )
@@ -486,12 +487,12 @@ class _Simulation:
                 self.push(max(at, self.seconds(run.due_at)), "timer", case.app.index, run.id)
             if run.step_type == StepType.APPROVAL:
                 self.assign_review(case, run, at, execution.context)
-            elif run.step_type == StepType.WAIT and not case.documents_sent:
-                delay = case.app.document_delay_seconds
-                if delay is not None and case.app.payload.get("_late_document"):
-                    case.documents_sent = True
-                    self.push(at + delay, "documents", case.app.index)
-                # Otherwise the documents never arrive and the wait times out.
+            elif run.step_type == StepType.WAIT and not case.signal_sent:
+                wait = case.app.wait_signal
+                if wait is not None:
+                    case.signal_sent = True
+                    self.push(at + wait.delay_seconds, "signal", case.app.index)
+                # Otherwise nothing arrives and the wait times out.
             elif run.step_type == StepType.HUMAN_TASK:
                 raise SimulationSetupError(
                     f"The scenario has no simulated behaviour for human task '{run.step_id}'."
@@ -515,7 +516,7 @@ class _Simulation:
         # With an AI recommendation in front of them, reviewers work faster and follow it
         # more often — the scenario's stated assumptions, not measured behaviour. An
         # escalation or an unavailable tool gives no help.
-        ai = context.get("ai_kyc_review") or {}
+        ai = (context.get(self.workload.ai_step) or {}) if self.workload.ai_step else {}
         recommendation = ai.get("recommendation") if ai.get("available") else None
         time_factor, accuracy = 1.0, model.accuracy
         assist = self.config.ai_assistance
@@ -553,7 +554,9 @@ class _Simulation:
             ).scalars()
         )
         context = execution.context
-        ai = context.get("ai_kyc_review") or {}
+        ai = (context.get(self.workload.ai_step) or {}) if self.workload.ai_step else {}
+        shown = registry.present(execution.workflow_id, context)
+        automated_path = self.workload.automated_path
         completed_at = execution.completed_at
         cycle = (
             round((completed_at - self.at(case.arrived)).total_seconds()) if completed_at else None
@@ -566,8 +569,8 @@ class _Simulation:
             expected_outcome=case.app.expected_outcome,
             status=execution.status,
             outcome=execution.outcome,
-            risk_rating=(context.get("assign_risk_rating") or {}).get("rating"),
-            flags=(context.get("evaluate_compliance") or {}).get("flags") or [],
+            risk_rating=shown["risk_rating"],
+            flags=shown["flags"],
             manual_reviews=case.reviews,
             review_seconds=case.review_seconds,
             queue_wait_seconds=case.queue_wait_seconds,
@@ -579,7 +582,7 @@ class _Simulation:
             ai_recommendation=ai.get("recommendation") if ai.get("available") else None,
             ai_status=ai.get("invocation_status")
             or ("unavailable" if ai and ai.get("mode") != "off" else None),
-            automated=bool((context.get("policy_approval") or {}).get("approved")),
+            automated=bool(automated_path and resolve(context, automated_path)[1]),
         )
         self.pending_results.append(result)
         self.case_rows.append(_row(result))

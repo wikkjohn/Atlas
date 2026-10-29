@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatMilliseconds as formatDuration, formatTimestamp } from "@/features/dashboard/format";
+import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
 import { newIdempotencyKey } from "@/services/api";
 import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
@@ -290,6 +291,17 @@ function StartApplicationDialog({ onClose, onStarted }: { onClose: () => void; o
   );
 }
 
+const START_LABELS: Record<string, string> = {
+  "WF-0001": "Start an application",
+  "WF-0002": "Start a payment",
+  "WF-0003": "Start a loan application",
+};
+const START_DIALOGS: Record<string, typeof StartApplicationDialog> = {
+  "WF-0001": StartApplicationDialog,
+  "WF-0002": StartPaymentDialog,
+  "WF-0003": StartLoanDialog,
+};
+
 function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
   const { can } = useAuth();
   const [q, setQ] = useState("");
@@ -330,22 +342,25 @@ function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
           ))}
           {workflows.data?.length === 0 && <li className="text-sm text-slate-500">No workflows match.</li>}
         </ul>
-        {current === "WF-0001" && can("workflows:start") && (
+        {current && START_LABELS[current] && can("workflows:start") && (
           <Button className="w-full" onClick={() => setStarting(true)}>
-            <Play aria-hidden className="h-4 w-4" /> Start an application
+            <Play aria-hidden className="h-4 w-4" /> {START_LABELS[current]}
           </Button>
         )}
       </div>
       <div>{current && <DefinitionView id={current} />}</div>
-      {starting && (
-        <StartApplicationDialog
-          onClose={() => setStarting(false)}
-          onStarted={(id) => {
-            setStarting(false);
-            onStarted(id);
-          }}
-        />
-      )}
+      {starting && current && (() => {
+        const Dialog = START_DIALOGS[current];
+        return Dialog ? (
+          <Dialog
+            onClose={() => setStarting(false)}
+            onStarted={(id) => {
+              setStarting(false);
+              onStarted(id);
+            }}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -402,7 +417,7 @@ function ExecutionView({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold text-slate-900">
-                {e.workflow_id} · {e.applicant ?? "—"}
+                {e.workflow_id} · {e.subject ?? "—"}
               </h3>
               <p className="font-mono text-[11px] text-slate-500">
                 {e.id} · started {formatTimestamp(e.started_at)} by {e.initiated_by_username}
@@ -533,7 +548,7 @@ function ExecutionsTab({ onOpen }: { onOpen: (id: string) => void }) {
               <tr key={x.id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpen(x.id)}>
                 <td className="px-4 py-2.5">
                   <button type="button" className="text-left font-medium text-slate-900 hover:underline">
-                    {x.applicant ?? x.id.slice(0, 8)}
+                    {x.subject ?? x.id.slice(0, 8)}
                   </button>
                   <div className="font-mono text-[11px] text-slate-500">{x.workflow_id}</div>
                 </td>
@@ -571,7 +586,7 @@ function TaskRow({ task, onOpen }: { task: WorkflowTask; onOpen: (id: string) =>
         <div>
           <p className="text-sm font-semibold text-slate-900">{task.step_name}</p>
           <p className="text-sm text-slate-700">
-            {task.applicant} · risk {task.risk_rating ?? "—"}
+            {task.subject ?? "—"} · risk {task.risk_rating ?? "—"}
             {task.flags.length > 0 && <span className="text-rose-700"> · flags: {task.flags.join(", ")}</span>}
           </p>
           <p className="text-xs text-slate-500">
@@ -586,7 +601,7 @@ function TaskRow({ task, onOpen }: { task: WorkflowTask; onOpen: (id: string) =>
         {task.can_act ? (
           <div className="flex flex-col items-end gap-2">
             <input
-              aria-label={`Note for ${task.applicant}`}
+              aria-label={`Note for ${task.subject ?? task.workflow_id}`}
               placeholder="Decision note"
               className="w-56 rounded-lg border border-slate-200 px-2 py-1 text-sm"
               value={note}

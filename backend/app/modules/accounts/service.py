@@ -358,6 +358,12 @@ def get_account(db: Session, account_id: uuid.UUID, *, for_update: bool = False)
     return account
 
 
+def find_account(db: Session, account_number: str) -> Account | None:
+    return db.execute(
+        select(Account).where(Account.account_number == account_number)
+    ).scalar_one_or_none()
+
+
 def list_accounts(
     db: Session,
     params: PageParams,
@@ -366,6 +372,7 @@ def list_accounts(
     customer_id: uuid.UUID | None = None,
     status: str | None = None,
     currency: str | None = None,
+    account_type: str | None = None,
 ) -> tuple[list[Account], int]:
     query = (
         select(Account)
@@ -383,6 +390,8 @@ def list_accounts(
         query = query.where(Account.status == status)
     if currency:
         query = query.where(Account.currency == currency)
+    if account_type:
+        query = query.where(Account.account_type == account_type)
     return paginate(db, query, params)
 
 

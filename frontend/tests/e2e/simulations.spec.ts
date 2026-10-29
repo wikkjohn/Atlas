@@ -15,7 +15,7 @@ test("Simulation Center: start a seeded run, review outcomes, reproduce it exact
   const form = page.getByRole("form", { name: "Start a simulation" });
   await expect(form.getByRole("option", { name: /Future enterprise scale/ })).toBeDisabled();
   await form.getByLabel("Workload").selectOption("custom");
-  await form.getByLabel("Applications").fill("12");
+  await form.getByLabel("Cases").fill("12");
   await form.getByLabel("Simulated staff").fill("5");
   await form.getByLabel("Random seed", { exact: true }).fill(seed);
   await form.getByRole("button", { name: "Start run" }).click();
@@ -61,6 +61,8 @@ test("AI Innovation Lab: try the KYC assistant, see a blocked action, run A/B/C 
 
   // The fault injector was not granted complete_low_risk_review: the call is blocked.
   await registry.getByRole("button", { name: /KYC Fault Injector/ }).click();
+  // Act only once the details show the fault injector, not the previous tool.
+  await expect(details.getByRole("heading", { name: "KYC Fault Injector (test double)" })).toBeVisible();
   const faulty = details.getByRole("form", { name: "Test console" });
   await faulty.getByLabel("Action").selectOption("complete_low_risk_review");
   await faulty.getByRole("button", { name: "Invoke" }).click();
@@ -69,7 +71,7 @@ test("AI Innovation Lab: try the KYC assistant, see a blocked action, run A/B/C 
   // Experiment: the three configurations on the same seeded applications.
   await registry.getByRole("button", { name: /AGB Intelligent KYC Assistant/ }).click();
   const experiment = details.getByRole("form", { name: "Configure an experiment" });
-  await experiment.getByLabel("Applications").fill("15");
+  await experiment.getByLabel("Cases").fill("15");
   await experiment.getByLabel("Staff").fill("5");
   await experiment.getByLabel("Seed").fill(String(1 + Math.floor(Math.random() * 1_000_000)));
   await experiment.getByRole("button", { name: "Start test runs" }).click();
@@ -95,7 +97,7 @@ test("Experiments: baseline vs. AI on one workload → evaluation → report →
   const name = `E2E automated ${Date.now()}`;
   await form.getByLabel("Name").fill(name);
   await form.getByLabel("Candidate configuration").selectOption("ai_automated");
-  await form.getByLabel("Applications").fill("15");
+  await form.getByLabel("Cases").fill("15");
   await form.getByLabel("Staff").fill("5");
   await form.getByLabel("Seed").fill(String(1 + Math.floor(Math.random() * 1_000_000)));
   await form.getByLabel("Reviewer cost per minute").fill("0.9");
@@ -159,7 +161,7 @@ test("DEMO (Part 12): AI-assisted bank account opening, end to end", async ({ pa
   await form.getByLabel("Name").fill(`Demo ${seed}: KYC assistant, AI assisted`);
   await form.getByLabel("AI tool").selectOption({ label: "AGB Intelligent KYC Assistant 1.0.0" });
   await form.getByLabel("Candidate configuration").selectOption("ai_assisted");
-  await form.getByLabel("Applications").fill("100");
+  await form.getByLabel("Cases").fill("100");
   await form.getByLabel("Staff").fill("25");
   await form.getByLabel("Seed").fill(seed);
   await page.getByRole("button", { name: "Run experiment" }).click();
@@ -178,7 +180,7 @@ test("DEMO (Part 12): AI-assisted bank account opening, end to end", async ({ pa
   expect(cells[1]).toBe(cells[2]);
 
   // Step 9 — Review failures: misclassifications, escalations, exceptions, policy violations.
-  await expect(details.getByText(/account decisions checked: 0 violation/)).toBeVisible();
+  await expect(details.getByText(/banking decisions checked: 0 violation/)).toBeVisible();
   await details.getByRole("link", { name: /B — AI assisted — run #/ }).click();
   const run = page.getByRole("region", { name: "Run details" });
   await expect(run.getByRole("region", { name: "AI tool behaviour" })).toContainText("Recommendations:");

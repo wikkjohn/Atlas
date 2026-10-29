@@ -92,9 +92,34 @@ def ledger_checks(
             + (f"failed: {', '.join(failed)}" if failed else "all checks passed"),
         )
     )
+    checks.append(workflow_check(api, login["access_token"], timeout))
     checks.append(simulation_check(api, login["access_token"], timeout))
     checks.append(experiment_check(api, login["access_token"], timeout))
     return checks
+
+
+EXPECTED_WORKFLOWS = {"WF-0001", "WF-0002", "WF-0003"}
+
+
+def workflow_check(api: str, token: str, timeout: float) -> Check:
+    """Every business workflow is registered and the payments and loans books answer."""
+    status, _, workflows = fetch(f"{api}/api/v1/workflows", timeout, token=token)
+    if status != 200:
+        return Check("Business workflows", False, f"HTTP {status}: {workflows}")
+    missing = EXPECTED_WORKFLOWS - {w["workflow_id"] for w in workflows}
+    totals = []
+    for book in ("payments", "loans"):
+        status, _, page = fetch(f"{api}/api/v1/{book}?limit=1", timeout, token=token)
+        if status != 200:
+            return Check("Business workflows", False, f"/{book} answered HTTP {status}")
+        totals.append(f"{page['total']} {book}")
+    return Check(
+        "Business workflows",
+        not missing,
+        f"{len(workflows)} registered"
+        + (f"; missing {', '.join(sorted(missing))}" if missing else "")
+        + f"; {', '.join(totals)}",
+    )
 
 
 def experiment_check(api: str, token: str, timeout: float) -> Check:

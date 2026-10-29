@@ -15,6 +15,8 @@ test("System Settings: an administrator creates a user who then signs in with th
   await form.getByLabel("Initial password").fill(DEMO_PASSWORD);
   await form.getByLabel("Role").selectOption("auditor");
   await admin.getByRole("dialog").getByRole("button", { name: "Create user" }).click();
+  // The dialog closes once the user exists; search only then.
+  await expect(admin.getByRole("dialog")).toHaveCount(0);
 
   await admin.getByLabel("Search users").fill(username);
   const users = admin.getByRole("table", { name: "Users" });

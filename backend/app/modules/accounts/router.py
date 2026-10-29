@@ -15,7 +15,7 @@ from app.core.idempotency import (
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.accounts import service
-from app.modules.accounts.models import AccountStatus, RequestStatus
+from app.modules.accounts.models import AccountStatus, AccountType, RequestStatus
 from app.modules.accounts.schemas import (
     AccountOut,
     AccountRequestCreate,
@@ -146,9 +146,16 @@ def list_accounts(
     customer_id: uuid.UUID | None = None,
     status: AccountStatus | None = None,
     currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
+    account_type: AccountType | None = None,
 ) -> Page[AccountOut]:
     items, total = service.list_accounts(
-        db, page, q=q, customer_id=customer_id, status=status, currency=currency
+        db,
+        page,
+        q=q,
+        customer_id=customer_id,
+        status=status,
+        currency=currency,
+        account_type=account_type,
     )
     return Page(
         items=service.accounts_out(db, items), total=total, limit=page.limit, offset=page.offset

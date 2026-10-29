@@ -1,9 +1,11 @@
 import {
+  ArrowLeftRight,
   Banknote,
   Bot,
   Building2,
   FlaskConical,
   Gauge,
+  HandCoins,
   Globe2,
   LayoutDashboard,
   type LucideIcon,
@@ -28,7 +30,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 8;
+export const IMPLEMENTED_PHASE = 9;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -43,6 +45,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Employees", path: "/employees", icon: Users, phase: 2, permission: "employees:read" },
   { label: "Customers", path: "/customers", icon: UserRound, phase: 3, permission: "customers:read" },
   { label: "Accounts", path: "/accounts", icon: Banknote, phase: 3, permission: "accounts:read" },
+  { label: "Payments", path: "/payments", icon: ArrowLeftRight, phase: 9, permission: "payments:read" },
+  { label: "Lending", path: "/lending", icon: HandCoins, phase: 9, permission: "loans:read" },
   {
     label: "Workflow Explorer",
     path: "/workflows",

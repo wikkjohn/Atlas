@@ -18,7 +18,7 @@ from app.core.errors import DomainError
 from app.core.permissions import RoleCode
 from app.modules.identity.schemas import UserCreate
 from app.modules.identity.service import create_user
-from app.modules.workflows import wf0001  # noqa: F401  (registers WF-0001 for the seed)
+from app.modules.workflows import catalog  # noqa: F401  (registers the workflows for the seed)
 from app.seed import DEFAULT_SEED, DEMO_USERS, seed_demo
 
 DEFAULT_DEMO_PASSWORD = "atlas-demo-password"
@@ -53,6 +53,13 @@ def _seed_demo(args: argparse.Namespace) -> int:
         print("Workflow executions already exist; WF-0001 demo cases unchanged.")
     else:
         print(f"Ran {report.workflow_cases} WF-0001 account-opening cases through the engine.")
+    if report.skipped_payments_and_loans:
+        print("Payment workflow cases already exist (or no accounts); WF-0002/3 cases unchanged.")
+    else:
+        print(
+            f"Ran {report.payment_cases} WF-0002 payments and {report.loan_cases} WF-0003 loan "
+            "applications through the engine."
+        )
     if report.ai_tools:
         print(f"Registered AI tools: {', '.join(report.ai_tools)}")
     print("\nDemo sign-ins (local development only):")
@@ -85,7 +92,7 @@ def _create_user(args: argparse.Namespace) -> int:
 def _run_workflows(args: argparse.Namespace) -> int:
     import time
 
-    from app.modules.workflows import engine  # noqa: F401  (registers WF-0001)
+    from app.modules.workflows import engine  # noqa: F401  (registers the workflows)
 
     while True:
         report = engine.run_due(get_sessionmaker())

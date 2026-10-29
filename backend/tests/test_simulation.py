@@ -33,7 +33,7 @@ from app.simulation.generators import (
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
 from app.simulation.router import get_simulation_sessionmaker
 from app.simulation.runner import create_run, execute_run
-from app.simulation.scenarios import PROFILES, ApplicationMix, get_scenario
+from app.simulation.scenarios import PROFILES, ApplicationMix, get_scenario, normalized
 from tests.factories import auth, make_org_tree, make_user
 
 SCENARIO = get_scenario("retail-onboarding")
@@ -44,7 +44,7 @@ START = datetime(2026, 1, 5, 9, 0, tzinfo=UTC)
 def _generator(seed: int) -> ApplicationGenerator:
     return ApplicationGenerator(
         seed=seed,
-        mix=ApplicationMix().normalized(),
+        mix=normalized(ApplicationMix().model_dump()),
         countries=["DE", "GB", "JP", "SG", "US"],
         arrival_window_seconds=8 * 3600,
         document_delay_seconds=(7200, 172800),
@@ -112,7 +112,7 @@ def test_applications_are_synthetic_and_valid_workflow_input() -> None:
 
 def test_application_mix_follows_the_weights() -> None:
     kinds = Counter(a.kind for a in _generator(3).generate(5000))
-    shares = ApplicationMix().normalized()
+    shares = normalized(ApplicationMix().model_dump())
     for kind, share in shares.items():
         assert abs(kinds[kind] / 5000 - share) < 0.02, kind
 
@@ -338,6 +338,12 @@ def test_api_lists_scenarios_and_profiles(db: Session, client: TestClient) -> No
     scenarios = client.get("/api/v1/simulations/scenarios", headers=headers).json()
     assert scenarios[0]["scenario_id"] == "retail-onboarding"
     assert scenarios[0]["workflow_id"] == "WF-0001"
+    workflows = {s["scenario_id"]: (s["workflow_id"], s["modes"]) for s in scenarios}
+    assert workflows["domestic-payments"] == (
+        "WF-0002",
+        ["baseline", "ai_assisted", "ai_automated"],
+    )
+    assert workflows["personal-loans"] == ("WF-0003", ["baseline"])
     profiles = {
         p["profile_id"]: p
         for p in client.get("/api/v1/simulations/profiles", headers=headers).json()

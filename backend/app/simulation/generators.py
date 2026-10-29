@@ -293,7 +293,7 @@ class ApplicationGenerator:
 @dataclass(frozen=True)
 class SyntheticStaffMember:
     index: int
-    role: str  # teller | manager | compliance
+    role: str  # teller | manager | compliance | executive
     first_name: str
     last_name: str
     job_title: str
@@ -307,9 +307,12 @@ JOB_TITLES = {
 
 
 class StaffGenerator:
-    def __init__(self, seed: int, staff_mix: dict[str, float]) -> None:
+    def __init__(
+        self, seed: int, staff_mix: dict[str, float], job_titles: dict[str, str] | None = None
+    ) -> None:
         self.seed = seed
         self.mix = staff_mix
+        self.titles = job_titles or JOB_TITLES
 
     def generate(self, count: int) -> list[SyntheticStaffMember]:
         roles = sorted(self.mix)
@@ -331,7 +334,7 @@ class StaffGenerator:
                         role=role,
                         first_name=rng.choice(FIRST_NAMES),
                         last_name=rng.choice(LAST_NAMES),
-                        job_title=JOB_TITLES[role],
+                        job_title=self.titles[role],
                     )
                 )
         return members

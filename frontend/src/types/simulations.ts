@@ -8,6 +8,7 @@ export interface Scenario {
   version: number;
   name: string;
   description: string;
+  workload: string;
   workflow_id: string;
   workflow_version: number;
   modes: ExperimentMode[];

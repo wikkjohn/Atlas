@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPatch, apiPost, query } from "@/services/api";
+import { apiGet, apiPatch, apiPost, query, useIdempotencyKey } from "@/services/api";
 import type { AiAction, AiAdapter, AiTool, Invocation, ToolCreate } from "@/types/aiTools";
 import type { Page } from "@/types/enterprise";
 import type { SimulationRunSummary, StartSuite } from "@/types/simulations";
@@ -87,8 +87,12 @@ export function useInvokeTool(id: string) {
 
 export function useStartSuite() {
   const invalidate = useInvalidate();
+  const once = useIdempotencyKey();
   return useMutation({
-    mutationFn: (body: StartSuite) => apiPost<SimulationRunSummary[]>("/api/v1/simulations/suites", body),
-    onSuccess: invalidate,
+    mutationFn: (body: StartSuite) => apiPost<SimulationRunSummary[]>("/api/v1/simulations/suites", body, once.key()),
+    onSuccess: () => {
+      once.renew();
+      invalidate();
+    },
   });
 }

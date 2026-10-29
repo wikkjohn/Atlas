@@ -1,11 +1,14 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, RootModel
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.database import get_sessionmaker
 from app.core.dependencies import DbSession
+from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.identity.dependencies import Authorized
@@ -56,14 +59,72 @@ def list_runs(
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
-def _launch(
-    db: Session, body: StartSimulation, actor_id: uuid.UUID, tasks: BackgroundTasks, factory
-) -> SimulationRunDetail:
-    run = service.start_run(db, body, actor_id)
-    # The background task reads the run in its own session: make it visible first.
+class SuiteRuns(RootModel[list[SimulationRunSummary]]):
+    pass
+
+
+def launch_idempotent(
+    db: Session,
+    request: Request,
+    *,
+    key: str | None,
+    actor_id: uuid.UUID,
+    payload: BaseModel,
+    create,
+    schedule,
+) -> JSONResponse:
+    """Create work and start it in the background, at most once per Idempotency-Key.
+
+    `create` returns (response, ids). The response and the key are committed together
+    before the background task is scheduled; a replay returns the stored response and
+    starts nothing.
+    """
+    started: list = []
+
+    def operation() -> BaseModel:
+        response, ids = create()
+        started.extend(ids)
+        return response
+
+    response = run_idempotent(
+        db,
+        key=key,
+        actor_id=actor_id,
+        method="POST",
+        path=request.url.path,
+        payload=payload,
+        status_code=status.HTTP_202_ACCEPTED,
+        operation=operation,
+    )
+    # The background task reads the new rows in its own session: make them visible first.
     db.commit()
-    tasks.add_task(runner.execute_run, factory, run.id)
-    return service.detail(db, run)
+    if started:
+        schedule(started)
+    return response
+
+
+def _launch(
+    db: Session,
+    request: Request,
+    body: StartSimulation,
+    actor_id: uuid.UUID,
+    tasks: BackgroundTasks,
+    factory,
+    key: str | None,
+) -> JSONResponse:
+    def create():
+        run = service.start_run(db, body, actor_id)
+        return service.detail(db, run), [run.id]
+
+    return launch_idempotent(
+        db,
+        request,
+        key=key,
+        actor_id=actor_id,
+        payload=body,
+        create=create,
+        schedule=lambda ids: tasks.add_task(runner.execute_run, factory, ids[0]),
+    )
 
 
 @router.post(
@@ -74,12 +135,14 @@ def _launch(
 )
 def start_run(
     body: StartSimulation,
+    request: Request,
     db: DbSession,
     actor: Authorized(Permission.SIMULATIONS_RUN),
     tasks: BackgroundTasks,
     factory: SessionFactory,
-) -> SimulationRunDetail:
-    return _launch(db, body, actor.id, tasks, factory)
+    idempotency_key: IdempotencyKey = None,
+):
+    return _launch(db, request, body, actor.id, tasks, factory, idempotency_key)
 
 
 @router.post(
@@ -90,16 +153,27 @@ def start_run(
 )
 def start_suite(
     body: StartSuite,
+    request: Request,
     db: DbSession,
     actor: Authorized(Permission.SIMULATIONS_RUN),
     tasks: BackgroundTasks,
     factory: SessionFactory,
-) -> list[SimulationRunSummary]:
-    runs = service.start_suite(db, body, actor.id)
-    db.commit()
-    tasks.add_task(runner.execute_batch, factory, [r.id for r in runs])
-    names = {actor.id: actor.username}
-    return [service.summary(r, names) for r in runs]
+    idempotency_key: IdempotencyKey = None,
+):
+    def create():
+        runs = service.start_suite(db, body, actor.id)
+        names = {actor.id: actor.username}
+        return SuiteRuns([service.summary(r, names) for r in runs]), [r.id for r in runs]
+
+    return launch_idempotent(
+        db,
+        request,
+        key=idempotency_key,
+        actor_id=actor.id,
+        payload=body,
+        create=create,
+        schedule=lambda ids: tasks.add_task(runner.execute_batch, factory, ids),
+    )
 
 
 @router.get("/{run_id}", response_model=SimulationRunDetail, summary="A run with its results")
@@ -118,13 +192,15 @@ def get_run(
 )
 def rerun(
     run_id: uuid.UUID,
+    request: Request,
     db: DbSession,
     actor: Authorized(Permission.SIMULATIONS_RUN),
     tasks: BackgroundTasks,
     factory: SessionFactory,
-) -> SimulationRunDetail:
+    idempotency_key: IdempotencyKey = None,
+):
     body = service.rerun_body(service.get_run(db, run_id))
-    return _launch(db, body, actor.id, tasks, factory)
+    return _launch(db, request, body, actor.id, tasks, factory, idempotency_key)
 
 
 @router.get(

@@ -18,8 +18,10 @@ from app.modules.employees.router import router as employees_router
 from app.modules.experiments.router import benchmarks_router, experiments_router
 from app.modules.identity.router import auth_router, roles_router, users_router
 from app.modules.ledger.router import router as ledger_router
+from app.modules.lending.router import router as loans_router
 from app.modules.organizations.router import router as organizations_router
-from app.modules.workflows import wf0001  # noqa: F401  (registers WF-0001)
+from app.modules.payments.router import router as payments_router
+from app.modules.workflows import catalog  # noqa: F401  (registers every workflow)
 from app.modules.workflows.router import definitions_router, executions_router, tasks_router
 from app.simulation.router import router as simulations_router
 
@@ -38,6 +40,8 @@ for module_router in (
     requests_router,
     accounts_router,
     ledger_router,
+    payments_router,
+    loans_router,
     definitions_router,
     executions_router,
     tasks_router,

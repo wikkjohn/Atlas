@@ -779,6 +779,10 @@ def cancel(
     driver.finish(
         ExecutionStatus.CANCELLED, outcome="cancelled", error={"reason": reason}, actor_id=actor_id
     )
+    # The workflow closes what it opened (e.g. a pending payment), in the same transaction.
+    cleanup = registry.cancel_handler(execution.workflow_id)
+    if cleanup is not None:
+        cleanup(db, execution, reason, driver.now)
     driver.settle()
     return execution
 

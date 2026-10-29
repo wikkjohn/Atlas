@@ -38,13 +38,14 @@ def scenarios() -> list[ScenarioOut]:
             version=s.version,
             name=s.name,
             description=s.description,
+            workload=s.workload,
             workflow_id=s.workflow_id,
             workflow_version=s.workflow_version,
             modes=list(MODES) if s.config.ai_assistance is not None else ["baseline"],
             simulated_start=s.simulated_start,
             config=s.config.model_dump(mode="json"),
         )
-        for _, s in sorted(SCENARIOS.items())
+        for s in SCENARIOS.values()  # in registration order: retail onboarding first
     ]
 
 

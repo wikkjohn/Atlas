@@ -282,3 +282,71 @@ def application(
         "documents": docs,
         **overrides,
     }
+
+
+# --- Phase 9: payments and loans -----------------------------------------------------------
+
+from app.modules.accounts.service import deposit  # noqa: E402
+from app.modules.lending.service import bureau_report  # noqa: E402
+
+
+def funded_account(
+    db: Session,
+    staff: Staff,
+    *,
+    balance: int = 0,
+    name: str | None = None,
+    born: date = date(1985, 6, 15),
+    country_code: str = "US",
+) -> Account:
+    """An open current account of a new verified customer, with `balance` minor units."""
+    customer = make_customer(db, name=name, born=born, country_code=country_code)
+    account = open_account(db, staff, customer)
+    if balance:
+        deposit(
+            db,
+            account.id,
+            amount=balance,
+            memo="Opening balance (synthetic)",
+            idempotency_key=f"factory-{account.id}",
+            actor_id=staff.employee.id,
+        )
+    return account
+
+
+def payment(debtor: Account, creditor: Account, amount: int, **overrides: object) -> dict:
+    """A valid WF-0002 payment instruction."""
+    return {
+        "debtor_account_number": debtor.account_number,
+        "creditor_account_number": creditor.account_number,
+        "amount": amount,
+        "currency": debtor.currency,
+        "reference": "Invoice 1042",
+        **overrides,
+    }
+
+
+def applicant_with_score(low: int, high: int, born: date = date(1980, 3, 9)) -> str:
+    """A synthetic name whose (deterministic) bureau score lies in [low, high]."""
+    for _ in range(20_000):
+        name = f"Lena {unique_surname()}"
+        if low <= bureau_report(name, born)["score"] <= high:
+            return name
+    raise AssertionError(f"No synthetic name scored {low}-{high}.")
+
+
+def loan_application(
+    customer: Customer, account: Account, amount: int, **overrides: object
+) -> dict:
+    """A valid WF-0003 application with comfortable affordability."""
+    return {
+        "customer_number": customer.customer_number,
+        "disbursement_account_number": account.account_number,
+        "amount": amount,
+        "term_months": 36,
+        "purpose": "home_improvement",
+        "monthly_income": 600_000,
+        "monthly_debt_payments": 20_000,
+        "employment_status": "employed",
+        **overrides,
+    }

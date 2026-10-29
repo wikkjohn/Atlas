@@ -8,7 +8,9 @@ import type {
   Eligibility,
   JournalEntry,
   LedgerAccount,
+  Loan,
   MovementResult,
+  Payment,
   ReconciliationReport,
   StatementLine,
 } from "@/types/banking";
@@ -20,7 +22,7 @@ type Params = Record<string, string | number | boolean | null | undefined>;
 function useInvalidateBanking() {
   const client = useQueryClient();
   return () => {
-    for (const key of ["customers", "accounts", "account-requests", "ledger"]) {
+    for (const key of ["customers", "accounts", "account-requests", "ledger", "payments", "loans"]) {
       void client.invalidateQueries({ queryKey: [key] });
     }
   };
@@ -182,5 +184,23 @@ export function useJournalEntries(params: Params, enabled = true) {
 export function useReconciliation() {
   return useMutation({
     mutationFn: () => apiPost<ReconciliationReport>("/api/v1/ledger/reconciliation", {}),
+  });
+}
+
+// --- Payments and loans (Phase 9) ------------------------------------------------------------
+
+export function usePayments(params: Params) {
+  return useQuery({
+    queryKey: ["payments", params],
+    queryFn: () => apiGet<Page<Payment>>(`/api/v1/payments${query(params)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useLoans(params: Params) {
+  return useQuery({
+    queryKey: ["loans", params],
+    queryFn: () => apiGet<Page<Loan>>(`/api/v1/loans${query(params)}`),
+    placeholderData: keepPreviousData,
   });
 }

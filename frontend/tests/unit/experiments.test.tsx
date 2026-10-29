@@ -193,6 +193,49 @@ describe("Experiments", () => {
     });
   });
 
+  it("runs experiments on the payments scenario with a payment tool", async () => {
+    const scenario = (id: string, name: string, workflow: string) => ({
+      scenario_id: id,
+      version: 1,
+      name,
+      description: `${name} description`,
+      workload: id,
+      workflow_id: workflow,
+      workflow_version: 1,
+      modes: ["baseline", "ai_assisted", "ai_automated"],
+      simulated_start: "2026-01-05T09:00:00Z",
+      config: {},
+    });
+    const screener = { ...tool, id: "tool-9", tool_id: "agb-payment-fraud-screener", tool_name: "AGB Payment Fraud Screener", compatible_workflows: ["WF-0002"] };
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/ai-tools": () => jsonResponse(page([tool, screener])),
+      "GET /api/v1/simulations/scenarios": () =>
+        jsonResponse([
+          scenario("retail-onboarding", "Retail account onboarding", "WF-0001"),
+          scenario("domestic-payments", "Domestic payments (fraud screening)", "WF-0002"),
+          { ...scenario("personal-loans", "Personal loan origination", "WF-0003"), modes: ["baseline"] },
+        ]),
+      "POST /api/v1/experiments": () => jsonResponse({ ...experiment, id: "exp-4", status: "running", evaluation: null }, 202),
+    });
+    renderApp("/experiments");
+    await userEvent.click(await screen.findByRole("button", { name: "New experiment" }));
+    const form = await screen.findByRole("form", { name: "New experiment" });
+    const scenarios = within(form).getByLabelText("Scenario");
+    await within(scenarios).findByRole("option", { name: "Domestic payments (fraud screening)" });
+    // Only scenarios with AI modes can host an experiment.
+    expect(within(scenarios).queryByRole("option", { name: "Personal loan origination" })).not.toBeInTheDocument();
+    await userEvent.selectOptions(scenarios, "domestic-payments");
+    const tools = within(within(form).getByLabelText("AI tool")).getAllByRole("option").map((o) => o.textContent);
+    expect(tools).toEqual(["AGB Payment Fraud Screener 1.0.0"]);
+    await userEvent.click(screen.getByRole("button", { name: "Run experiment" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
+      scenario_id: "domestic-payments",
+      tool_id: "agb-payment-fraud-screener",
+    });
+  }, 20_000);
+
   it("lets read-only roles see experiments without starting them", async () => {
     const reader = { ...employeeUser, permissions: [...employeeUser.permissions, "experiments:read" as const] };
     mockApi({ ...routes, ...authRoutes(reader) });

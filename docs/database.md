@@ -20,6 +20,10 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0002_enterprise_foundation` | 2 | Countries, organizations, roles, users, employees, audit events (with append-only triggers), idempotency keys, `employee_number_seq`; seeds the 8 roles and 5 initial countries |
 | `0003_banking_core` | 3 | Customers, account requests, accounts, ledger accounts, journal entries and lines; customer/account/journal number sequences; ledger balance and immutability triggers |
 | `0004_workflow_engine` | 4 | Workflow definitions (snapshots), executions, step runs, append-only workflow events; customer notifications |
+| `0005_simulation_engine` | 5 | Simulation runs and per-case results; `workflow_executions.simulation_run_id` |
+| `0006_ai_innovation_lab` | 6 | AI tools and invocations; run mode, tool and suite; the `automated_policy` role and the policy-engine service account |
+| `0007_experiments` | 7 | Experiments, raw measurements and derived evaluations |
+| `0008_payments_lending` | 9 | Payments and loans; `payment_number_seq`, `loan_number_seq` |
 
 Common commands (from `backend/`):
 
@@ -209,6 +213,16 @@ Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
 | `experiments` | `experiment_number` (identity), `name`, `scenario_id`, `scenario_version`, `baseline_run_id`, `candidate_run_id` (distinct, both → `simulation_runs`), `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `configuration` (cost assumptions + thresholds), `configuration_hash`, `status` (running, completed, failed), `failure_reason`, `created_by`, `created_at`, `completed_at` |
 | `experiment_measurements` | RAW: one row per experiment and role (baseline, candidate): `run_id`, `metrics` (jsonb), `measurement_digest`, `captured_at` |
 | `experiment_evaluations` | DERIVED: one row per experiment: `evaluation_version`, `costs`, `comparisons`, `criteria`, `verdict`, `conclusion`, `limitations`, `evaluation_digest`, `computed_at` |
+
+### Payments and lending tables (Phase 9)
+
+| Table | Contents |
+| --- | --- |
+| `payments` | `payment_number` (`PAY-…`), `debtor_account_id`, `creditor_account_id` (distinct, → `accounts`), `amount` (minor units, > 0), `currency`, `reference`, `status` (pending, released, rejected), `initiated_by`, `approved_by` (CHECK ≠ `initiated_by`), `journal_entry_id` (set exactly when released; unique), `rejection_reason`, `workflow_execution_id`, `created_at` (business time), `decided_at` |
+| `loans` | `loan_number` (`LN-…`), `customer_id`, `disbursement_account_id`, `ledger_account_id` (the loan receivable, an asset; unique), `principal`, `currency`, `annual_rate_bps`, `term_months` (6–84), `monthly_payment`, `purpose`, `status` (active, repaid), `requested_by`, `underwritten_by` (CHECK ≠ requester), `committee_approved_by` (CHECK ≠ requester and underwriter), `disbursement_entry_id` (unique), `workflow_execution_id`, `disbursed_at`, `created_at` |
+
+Balances are still never stored: a loan's outstanding amount is the balance of its
+receivable ledger account (`1300-LN-…`).
 
 ### `alembic_version`
 

@@ -5,7 +5,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.modules.workflows.definition import HANDLER_TYPES, StepType, WorkflowDefinition
+from app.modules.workflows.definition import (
+    HANDLER_TYPES,
+    StepType,
+    WorkflowDefinition,
+    resolve,
+)
 
 Handler = Callable[[Any], dict[str, Any] | None]
 
@@ -13,6 +18,36 @@ _DEFINITIONS: dict[tuple[str, int], WorkflowDefinition] = {}
 _INPUT_MODELS: dict[tuple[str, int], type[BaseModel]] = {}
 _SERVICE_HANDLERS: dict[str, Handler] = {}
 _AI_HANDLERS: dict[str, Handler] = {}
+_PRESENTERS: dict[str, "Presenter"] = {}
+# Called when an execution is cancelled, so a workflow can close what it opened.
+CancelHandler = Callable[[Any, Any, str, Any], None]  # (db, execution, reason, now)
+_CANCEL_HANDLERS: dict[str, CancelHandler] = {}
+
+
+class Presenter(BaseModel):
+    """How a workflow's cases are named in lists and inboxes: what the case is about
+    (`subject_path`) and its risk (`risk_path`), both dotted paths into the context."""
+
+    subject_path: str
+    risk_path: str | None = None
+    flags_path: str | None = None
+
+    def present(self, context: dict[str, Any]) -> dict[str, Any]:
+        def value(path: str | None) -> Any:
+            return resolve(context, path)[1] if path else None
+
+        return {
+            "subject": value(self.subject_path),
+            "risk_rating": value(self.risk_path),
+            "flags": value(self.flags_path) or [],
+        }
+
+
+def present(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:
+    found = _PRESENTERS.get(workflow_id)
+    if found is None:
+        return {"subject": None, "risk_rating": None, "flags": []}
+    return found.present(context)
 
 
 def service_task(name: str) -> Callable[[Handler], Handler]:
@@ -71,6 +106,26 @@ def get_definition(workflow_id: str, version: int | None = None) -> WorkflowDefi
 
 def input_model(workflow_id: str, version: int) -> type[BaseModel]:
     return _INPUT_MODELS[(workflow_id, version)]
+
+
+def on_cancel(workflow_id: str) -> Callable[[CancelHandler], CancelHandler]:
+    def register(func: CancelHandler) -> CancelHandler:
+        _CANCEL_HANDLERS[workflow_id] = func
+        return func
+
+    return register
+
+
+def cancel_handler(workflow_id: str) -> CancelHandler | None:
+    return _CANCEL_HANDLERS.get(workflow_id)
+
+
+def register_presenter(workflow_id: str, presenter: Presenter) -> None:
+    _PRESENTERS[workflow_id] = presenter
+
+
+def presenter(workflow_id: str) -> Presenter | None:
+    return _PRESENTERS.get(workflow_id)
 
 
 def all_definitions() -> list[WorkflowDefinition]:

@@ -1,7 +1,8 @@
 """Raw measurements of a simulation run, read from what the run recorded.
 
 Sources: the run's configuration, its per-case results, its workflow executions and
-history, the AI tool invocations it made, and the account requests its cases decided.
+history, the AI tool invocations it made, and the banking decisions its cases made (account
+openings, payments or loans, re-checked by the scenario's workload).
 Nothing here uses cost assumptions; wall-clock time is kept apart from everything that
 must reproduce.
 """
@@ -9,19 +10,17 @@ must reproduce.
 import hashlib
 import json
 import math
-import uuid
 from typing import Any
 
-from sqlalchemy import Text, cast, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.permissions import Permission, permissions_for
-from app.modules.accounts.models import AccountRequest
+from app.core.errors import BusinessRuleViolation
 from app.modules.ai_tools.models import AIToolInvocation
-from app.modules.customers.models import Customer, RiskRating
-from app.modules.identity.models import Role, User
 from app.modules.workflows.models import WorkflowEvent, WorkflowExecution
 from app.simulation.models import SimulationCaseResult, SimulationRun
+from app.simulation.scenarios import get_scenario
+from app.simulation.workloads import Workload, workload_for
 
 AI_ERROR_STATUSES = ("failed", "timeout", "invalid_input", "invalid_output")
 
@@ -57,35 +56,13 @@ def workload(run: SimulationRun) -> dict[str, Any]:
     }
 
 
-def _policy_violations(db: Session, run_id: uuid.UUID) -> tuple[int, list[dict[str, Any]]]:
-    """Check every account decision the run's cases made against the authorization rules."""
-    request_id = WorkflowExecution.context["open_account"]["account_request_id"].astext
-    rows = db.execute(
-        select(AccountRequest, Customer.risk_rating, User.role_id, User.username)
-        .join(WorkflowExecution, request_id == cast(AccountRequest.id, Text))
-        .join(Customer, Customer.id == AccountRequest.customer_id)
-        .join(User, User.id == AccountRequest.decided_by)
-        .where(WorkflowExecution.simulation_run_id == run_id)
-    ).all()
-    roles = dict(db.execute(select(Role.id, Role.code)).all())
-    violations: list[dict[str, Any]] = []
-    for request, risk, role_id, username in rows:
-        permissions = permissions_for(roles.get(role_id, ""))
-        found = []
-        if request.decided_by == request.requested_by:
-            found.append("four_eyes")
-        full = Permission.ACCOUNTS_APPROVE in permissions
-        if not full and Permission.ACCOUNTS_APPROVE_LOW_RISK not in permissions:
-            found.append("decider_without_authority")
-        if not full and risk != RiskRating.LOW:
-            found.append("limited_approver_beyond_low_risk")
-        if risk == RiskRating.HIGH and Permission.CUSTOMERS_REVIEW not in permissions:
-            found.append("high_risk_without_compliance")
-        for rule in found:
-            violations.append(
-                {"rule": rule, "account_request_id": str(request.id), "decided_by": username}
-            )
-    return len(rows), violations
+def _workload(run: SimulationRun) -> Workload:
+    scenario = get_scenario(run.scenario_id, run.scenario_version)
+    if scenario is None:
+        raise BusinessRuleViolation(
+            f"Scenario {run.scenario_id} v{run.scenario_version} is no longer registered."
+        )
+    return workload_for(scenario)
 
 
 def measure(db: Session, run: SimulationRun) -> dict[str, Any]:
@@ -127,7 +104,9 @@ def measure(db: Session, run: SimulationRun) -> dict[str, Any]:
     for c in cases:
         if c.ai_recommendation:
             recommendations[c.ai_recommendation] = recommendations.get(c.ai_recommendation, 0) + 1
-    decisions, violations = _policy_violations(db, run.id)
+    simulated = _workload(run)
+    controls = simulated.check_controls(db, run.id)
+    decisions, violations = controls.decisions, controls.violations
     overdue = sum(c.overdue_tasks for c in cases)
     fingerprint = [(c.case_index, c.kind, c.expected_outcome) for c in cases]
 
@@ -153,7 +132,7 @@ def measure(db: Session, run: SimulationRun) -> dict[str, Any]:
         "manual_reviews": sum(c.manual_reviews for c in cases),
         "review_seconds": sum(c.review_seconds for c in cases),
         "queue_wait_seconds": sum(c.queue_wait_seconds for c in cases),
-        "escalations": sum("compliance_review" in c.path for c in cases),
+        "escalations": sum(any(s in c.path for s in simulated.escalation_steps) for c in cases),
         "automated_approvals": sum(c.automated for c in cases),
         "overdue_tasks": overdue,
         "document_timeouts": document_timeouts,

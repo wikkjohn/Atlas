@@ -5,7 +5,7 @@ the runs recorded, through the same cost function experiments use."""
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.accounts.models import Account
@@ -25,6 +25,9 @@ from app.modules.workflows.models import (
     WorkflowStepRun,
 )
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
+from app.simulation.workloads import WORKLOADS
+
+ESCALATION_STEPS = sorted({step for w in WORKLOADS.values() for step in w.escalation_steps})
 
 AI_ERRORS = ("failed", "timeout", "invalid_input", "invalid_output")
 
@@ -52,7 +55,10 @@ def simulation_costs(db: Session, assumptions: CostAssumptions) -> tuple[float, 
                 func.count().filter(case.status == "completed").label("completed"),
                 func.coalesce(func.sum(case.review_seconds), 0).label("review_seconds"),
                 func.count().filter(case.automated.is_(True)).label("automated"),
-                func.count().filter(case.path.contains(["compliance_review"])).label("escalations"),
+                # Escalation steps are workflow-specific, so their union counts each run's own.
+                func.count()
+                .filter(or_(*(case.path.contains([step]) for step in ESCALATION_STEPS)))
+                .label("escalations"),
                 func.coalesce(func.sum(case.overdue_tasks), 0).label("overdue"),
                 func.count()
                 .filter(case.outcome == "approved", case.expected_outcome == "rejected")
@@ -282,7 +288,7 @@ def overview(db: Session) -> Overview:
             label="Average process duration",
             value=round(avg_sim_seconds / 3600, 2) if avg_sim_seconds is not None else None,
             unit="hours",
-            detail="Simulated WF-0001 cases, arrival to decision"
+            detail="Simulated cases of every workflow, arrival to decision"
             + (
                 f"; live cases {float(avg_live_ms) / 1000:,.1f} s"
                 if avg_live_ms is not None

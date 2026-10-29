@@ -89,3 +89,69 @@ Tested scenarios: normal approval, approver rejection, high-risk compliance revi
 sanctions hit, underage (invalid), forged documents, missing documents (resume and
 timeout), approvals cannot be skipped, initiator cannot approve, duplicate start, failing
 account-opening step, history and metrics.
+
+## WF-0002 Domestic Payment (Phase 9)
+
+A customer pays another account at the bank in the same currency. Business owner:
+Payments Operations. Input: debtor and creditor account numbers, amount (minor units),
+currency, reference (≤ 140 characters) and channel.
+
+| # | Step | Type | Notes |
+| --- | --- | --- | --- |
+| 1 | Customer instructs payment | service_task | Records receipt and the case summary ("1,250.50 USD to …") |
+| 2 | Validate accounts and amount | service_task | Both accounts exist, are open and in the currency, are different, amount ≤ 1,000,000; creates the `pending` payment record → else reject (no record) |
+| 3 | Check available funds | service_task | Balance from the ledger; not enough → reject |
+| 4 | Fraud and sanctions screening | service_task | Signals: payee on the synthetic watchlist (5), scam phrase in the reference (3), ≥ 80 % of the balance (2), ≥ 3 other payments in 24 h (2), first payment to this payee (1). Held at score ≥ 3 or any watchlist hit |
+| 5 | Route the payment | decision | Held → AI review; high value (≥ 10,000) → approval; else release (straight-through) |
+| — | AI fraud screener review (advisory) | ai_task | Off / assisted / automated, like WF-0001 v2; never decides |
+| — | Policy engine: low-risk release check | service_task | Automated mode only: tool says approve at low risk, not high value, no watchlist hit, no scam phrase → release by the policy engine; otherwise a person decides |
+| 6 | Fraud review of a held payment | approval | `payments:review` (compliance), never the initiator; 4 h overdue flag. Approve → release (or high-value approval), reject → reject |
+| 7 | High-value approval (four-eyes) | approval | `payments:approve` (managers), never the initiator or the fraud reviewer; 2 h overdue flag |
+| 8 | Post the payment to the ledger | service_task | The payments service re-checks everything under row locks (see below); a refusal → reject |
+| — | Reject the payment | service_task | Payment `rejected` with the reasons |
+| 9 | Send simulated customer notification | service_task | To the paying customer |
+
+The **payments service** is the only code that moves money between customer accounts and
+re-applies its controls for any caller: both accounts open and in the payment's currency
+(locked in id order, so two payments cannot deadlock), enough funds, and for a high-value
+payment an approver other than the initiator holding `payments:approve`. Below the limit a
+fraud reviewer (`payments:review`) or the policy engine (`payments:release_low_risk`) may
+clear a held payment. The database refuses a payment approved by its initiator, and a
+released payment without its journal entry.
+
+![WF-0002 in the Workflow Explorer](images/10-wf0002.png)
+![Payments](images/08-payments.png)
+
+## WF-0003 Personal Loan Origination (Phase 9)
+
+An existing, KYC-verified customer applies for an unsecured personal loan. Business owner:
+Retail Lending. Input: customer number, disbursement account, amount, term (6–84 months),
+purpose, declared monthly income and existing monthly repayments, employment status.
+
+| # | Step | Type | Notes |
+| --- | --- | --- | --- |
+| 1 | Customer submits loan application | service_task | Records receipt |
+| 2 | Validate customer, account and product limits | service_task | Customer exists, KYC verified, age ≥ 18; account is theirs and open; 1,000–50,000 → else decline |
+| 3 | Synthetic credit bureau check | service_task | Deterministic score 300–850 from the name and date of birth, recent defaults, open credit lines (retried on transient failure) |
+| 4 | Price the loan and assess affordability | service_task | Rate by score band (6.90 % ≥ 760, 8.90 % ≥ 700, 11.90 % ≥ 640, 15.90 % ≥ 580); level monthly instalment; debt-to-income including the new loan; committee needed above 25,000 |
+| 5 | Apply the credit policy | service_task | Automatic decline: score < 580, ≥ 2 recent defaults, unemployed, debt-to-income > 45 %. Everything else is referred, with flags (near-prime score, debt-to-income > 35 %, self-employed income, committee) |
+| 6 | Underwriting review | approval | `loans:approve` (managers), never the initiator; 24 h overdue flag |
+| 7 | Credit committee approval | approval | Loans above 25,000: `loans:approve_large` (regional and global executives), never the initiator or the underwriter; 48 h overdue flag |
+| 8 | Book the loan and disburse the funds | service_task | The lending service re-checks KYC, ownership, limits and the four-eyes and committee rules, then posts loan receivable → customer account in one entry; failures → technical failure |
+| — | Decline the application | service_task | Reasons recorded and audited |
+| 9 | Send simulated customer notification | service_task | Loan number, amount and instalment, or the decline reasons |
+
+![Lending](images/09-lending.png)
+
+## Shared workflow plumbing (Phase 9)
+
+- **Presenters** (`registry.register_presenter`) say how a workflow's cases are named in
+  lists and inboxes: a `subject` (applicant, payment summary, borrower), a risk and flags,
+  each a path into the execution context. Execution and task lists return `subject`.
+
+  ![One task inbox for every workflow](images/11-task-inbox.png)
+
+- **Advisory AI steps** (`workflows/advisory.py`) share one implementation of the
+  off/assisted/automated modes and the safe escalation when a tool gives no usable answer.
+- **`workflows/catalog.py`** imports every business workflow so its definitions and
+  handlers are registered wherever the application or the CLI starts.

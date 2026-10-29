@@ -32,7 +32,14 @@ export type Permission =
   | "accounts:approve_low_risk"
   | "experiments:read"
   | "experiments:run"
-  | "analytics:read";
+  | "analytics:read"
+  | "payments:read"
+  | "payments:review"
+  | "payments:approve"
+  | "payments:release_low_risk"
+  | "loans:read"
+  | "loans:approve"
+  | "loans:approve_large";
 
 export interface Page<T> {
   items: T[];

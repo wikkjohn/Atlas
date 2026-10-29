@@ -31,7 +31,14 @@ from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.workflows.definition import WorkflowDefinition
 from app.modules.workflows.engine import StepContext, StepError
-from app.modules.workflows.registry import ai_task, register_definition, service_task
+from app.modules.workflows.principals import POLICY_ENGINE_USERNAME
+from app.modules.workflows.registry import (
+    Presenter,
+    ai_task,
+    register_definition,
+    register_presenter,
+    service_task,
+)
 
 WORKFLOW_ID = "WF-0001"
 VERSION = 1
@@ -539,6 +546,14 @@ def notify_customer(ctx: StepContext) -> dict:
 
 
 register_definition(DEFINITION, RetailAccountApplication)
+register_presenter(
+    WORKFLOW_ID,
+    Presenter(
+        subject_path="input.applicant_name",
+        risk_path="assign_risk_rating.rating",
+        flags_path="evaluate_compliance.flags",
+    ),
+)
 
 
 # --- Version 2: AI Innovation Lab (Phase 6) -----------------------------------------------
@@ -553,7 +568,6 @@ register_definition(DEFINITION, RetailAccountApplication)
 #   itself never approves anything.
 
 VERSION_2 = 2
-POLICY_ENGINE_USERNAME = "atlas-policy-engine"
 POLICY_ID = "low-risk-automation-v1"
 POLICY_MAX_MONTHLY_DEPOSITS = 25_000
 AI_MODES = ("off", "assisted", "automated")

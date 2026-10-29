@@ -3,9 +3,11 @@
 from app.modules.ai_tools.adapters.base import AIToolAdapter
 from app.modules.ai_tools.adapters.fault_injection import FaultInjectionAdapter
 from app.modules.ai_tools.adapters.kyc_assistant import KycAssistantAdapter
+from app.modules.ai_tools.adapters.payment_screening import PaymentScreeningAdapter
 
 ADAPTERS: dict[str, AIToolAdapter] = {
-    adapter.key: adapter for adapter in (KycAssistantAdapter(), FaultInjectionAdapter())
+    adapter.key: adapter
+    for adapter in (KycAssistantAdapter(), PaymentScreeningAdapter(), FaultInjectionAdapter())
 }
 
 

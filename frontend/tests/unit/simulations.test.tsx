@@ -11,6 +11,7 @@ const scenario: Scenario = {
   version: 1,
   name: "Retail account onboarding",
   description: "A working day of synthetic retail applications.",
+  workload: "retail_onboarding",
   workflow_id: "WF-0001",
   workflow_version: 1,
   modes: ["baseline"],
@@ -127,8 +128,8 @@ describe("Simulation Center", () => {
     expect(enterprise).toBeDisabled();
 
     await userEvent.selectOptions(within(form).getByLabelText("Workload"), "custom");
-    await userEvent.clear(within(form).getByLabelText("Applications"));
-    await userEvent.type(within(form).getByLabelText("Applications"), "40");
+    await userEvent.clear(within(form).getByLabelText("Cases"));
+    await userEvent.type(within(form).getByLabelText("Cases"), "40");
     await userEvent.clear(within(form).getByLabelText("Random seed"));
     await userEvent.type(within(form).getByLabelText("Random seed"), "1234");
     await userEvent.click(within(form).getByRole("button", { name: "Start run" }));
@@ -146,6 +147,34 @@ describe("Simulation Center", () => {
       employees: 10,
     });
     expect(await screen.findByRole("progressbar", { name: "Run #8 progress" })).toBeInTheDocument();
+  });
+
+  it("retries a failed start with the same Idempotency-Key, then uses a fresh one", async () => {
+    const queued = { ...completed, id: "run-2", run_number: 8, status: "queued", results: null, reproductions: [], percent_complete: 0, progress: { cases_total: 50 } };
+    let attempts = 0;
+    const api = mockApi({
+      ...baseRoutes,
+      "POST /api/v1/simulations": () =>
+        ++attempts === 1
+          ? jsonResponse({ error: { code: "conflict", message: "Simulation run #7 is still in progress." } }, 409)
+          : jsonResponse(queued, 202),
+      "GET /api/v1/simulations/run-2": () => jsonResponse(queued),
+    });
+    renderApp("/simulations");
+    const form = await screen.findByRole("form", { name: "Start a simulation" });
+    const start = within(form).getByRole("button", { name: "Start run" });
+
+    await userEvent.click(start);
+    expect(await screen.findByText(/still in progress/)).toBeInTheDocument();
+    await userEvent.click(start);
+    await screen.findByRole("progressbar", { name: "Run #8 progress" });
+    await userEvent.click(start);
+    await waitFor(() => expect(api.requests.filter((r) => r.method === "POST")).toHaveLength(3));
+
+    const keys = api.requests.filter((r) => r.method === "POST").map((r) => r.headers["Idempotency-Key"]);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]); // the retry of the same start
+    expect(keys[2]).not.toBe(keys[0]); // a new start after success
   });
 
   it("rejects an invalid seed before sending anything", async () => {

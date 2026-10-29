@@ -126,7 +126,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         )}
       </Field>
       {modes.length > 1 && (
-        <Field label="Mode" hint="All modes use the same applications and staff for a given seed.">
+        <Field label="Mode" hint="All modes use the same cases and staff for a given seed.">
           {(props) => (
             <select
               {...props}
@@ -163,7 +163,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         label="Workload"
         hint={
           profile === "custom"
-            ? "Choose the number of applications and simulated staff."
+            ? "Choose the number of cases and simulated staff."
             : selected
               ? `${selected.applications.toLocaleString()} applications · ${selected.customers.toLocaleString()} customers · ${selected.employees.toLocaleString()} staff${selected.runnable ? "" : ` — ${selected.note}`}`
               : undefined
@@ -188,7 +188,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
       </Field>
       {profile === "custom" && (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Applications" hint="1 – 10,000">
+          <Field label="Cases" hint="1 – 10,000 applications, payments or loan requests">
             {(props) => (
               <input
                 {...props}

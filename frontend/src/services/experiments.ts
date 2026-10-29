@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiDownload, apiGet, apiPost, query } from "@/services/api";
+import { apiDownload, apiGet, apiPost, query, useIdempotencyKey } from "@/services/api";
 import type { Page } from "@/types/enterprise";
 import type {
   BenchmarkRow,
@@ -36,9 +36,11 @@ export const useBenchmarks = () =>
 
 export function useCreateExperiment() {
   const client = useQueryClient();
+  const once = useIdempotencyKey();
   return useMutation({
-    mutationFn: (body: ExperimentCreate) => apiPost<ExperimentDetail>("/api/v1/experiments", body),
+    mutationFn: (body: ExperimentCreate) => apiPost<ExperimentDetail>("/api/v1/experiments", body, once.key()),
     onSuccess: () => {
+      once.renew();
       void client.invalidateQueries({ queryKey: ["experiments"] });
       void client.invalidateQueries({ queryKey: ["simulations"] });
     },

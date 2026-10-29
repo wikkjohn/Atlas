@@ -190,9 +190,9 @@ def criteria(
         "The comparison uses equivalent workloads",
         not differences and same_cases and bm["mode"] == "baseline",
         "Same scenario, workflow version, seed, sizes, dataset, assumptions and software; "
-        "identical applications with identical ground truth."
+        "identical cases with identical ground truth."
         if not differences and same_cases
-        else f"Differs in: {', '.join(differences) or 'the generated applications'}.",
+        else f"Differs in: {', '.join(differences) or 'the generated cases'}.",
     )
 
     gains = {
@@ -244,7 +244,7 @@ def criteria(
         "authorization_controls",
         "Authorization controls remain effective",
         violations <= t.max_policy_violations and bm["policy_violations"] == 0,
-        f"{cm['decisions_checked']} account decisions checked: {violations} violation(s) "
+        f"{cm['decisions_checked']} banking decisions checked: {violations} violation(s) "
         f"(max {t.max_policy_violations}); {cm['ai']['blocked']} unauthorized tool action(s) "
         "were blocked.",
     )

@@ -51,6 +51,21 @@ export function formatMoney(minorUnits: number, currency: string): string {
   }
 }
 
+/** Exact amount with all of the currency's minor digits (payments and statements). */
+export function formatExactMoney(minorUnits: number, currency: string): string {
+  const digits = currencyDigits(currency);
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(minorUnits / 10 ** digits);
+  } catch {
+    return `${minorUnits} ${currency}`;
+  }
+}
+
 /** Convert a whole-number major amount typed by a user into minor units. */
 export function toMinorUnits(major: number, currency: string): number {
   return Math.round(major * 10 ** currencyDigits(currency));

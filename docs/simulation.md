@@ -11,7 +11,8 @@ every approved case opens a real (synthetic) account through the Phase 3 service
 | Concept | Where | What it is |
 | --- | --- | --- |
 | Simulation clock | `clock.py` | Timezone-aware simulated time that only moves forward. Each scenario starts at a fixed moment (`2026-01-05 09:00 UTC` for `retail-onboarding`), so simulated timestamps are reproducible. |
-| Scenario | `scenarios.py` | Versioned definition of *what* is simulated: the workflow, the application mix, arrival window, document delays, reviewer behaviour and staff mix. |
+| Scenario | `scenarios.py` | Versioned definition of *what* is simulated: the workload, the workflow, the case mix, arrival window, document delays, reviewer behaviour and staff mix. |
+| Workload | `workloads.py` | How a scenario's cases are made and checked (Phase 9): the case generator with its ground truth and any pre-existing customers and accounts the cases need, which staff role decides each approval step, where the AI step and the automated decision live in the context, and the authorization check of every decision. One per business workflow: `retail_onboarding`, `domestic_payments`, `personal_loans`. |
 | Profile | `scenarios.py` | *How much*: small (100 applications / 100 customers / 25 staff), department (10,000 / 10,000 / 500), enterprise (1,000,000 / 150,000 — a configuration target, see below), or a custom size (up to 10,000 / 500). |
 | Generators | `generators.py` | Synthetic applications with known ground truth and synthetic staff. Every random draw uses its own `random.Random` derived from the seed and the case index — never the global random state. |
 | Runner | `runner.py` | Discrete-event loop that drives the workflow engine (below). |
@@ -29,12 +30,15 @@ every approved case opens a real (synthetic) account through the Phase 3 service
    Tellers are banking employees, managers department managers, compliance analysts
    compliance officers. Each has a service-account user that holds the role's permissions
    but can never sign in (its password hash is not a valid hash).
-3. **Applications arrive** at seeded times across the arrival window and are started by a
-   teller (round robin) with `engine.start(now=<simulated time>)`.
+3. **Cases arrive** at seeded times across the arrival window and are started by a
+   teller (round robin) with `engine.start(now=<simulated time>)`. Before that, workloads
+   whose cases need existing customers create them (see *Workloads* below).
 4. **Events are processed in simulated-time order** (a heap ordered by time, then insertion
    order). After each event the runner inspects the case and schedules what happens next:
-   - an **approval** is queued to its reviewer pool (`account_approval` → managers,
-     `compliance_review` → compliance analysts). Each reviewer handles one case at a time
+   - an **approval** is queued to its reviewer pool, chosen by the workload
+     (`account_approval` → managers, `compliance_review` → compliance analysts in
+     onboarding; `fraud_review` → compliance, `payment_approval` → managers in payments;
+     `underwriting_review` → managers, `credit_committee` → executives in lending). Each reviewer handles one case at a time
      (the earliest-free reviewer takes the next case), review time is lognormal around the
      scenario's mean, and the decision matches the ground truth with the scenario's
      accuracy — so queues, waiting time and mistakes emerge from the model;
@@ -79,6 +83,64 @@ Scenarios pin their workflow version, so a scenario version always means the sam
 v2 adds the `ai_assistance` assumptions (review time and accuracy with AI advice) to its
 configuration. Suites run several modes on the same seed one after another. See
 [ai-testing.md](ai-testing.md#experiment-configurations).
+
+## Workloads (Phase 9)
+
+| Scenario | Workload | Workflow | Modes |
+| --- | --- | --- | --- |
+| `domestic-payments` v1 | `domestic_payments` | WF-0002 v1 | baseline, ai_assisted, ai_automated (AGB Payment Fraud Screener) |
+| `personal-loans` v1 | `personal_loans` | WF-0003 v1 | baseline |
+
+**Population.** Payments and loans need customers who already bank with ATLAS. Before the
+cases arrive the workload creates them through the normal services — a KYC-verified, low
+risk customer and a current account requested by a simulated teller and approved by a
+simulated manager, dated a week before the scenario starts, and for payers a synthetic
+cash deposit. Payees come from a pool per country (12 people, plus the four synthetic
+watchlist names when a case needs them). A payment to a *known* payee is preceded by a
+small released payment last week, so screening sees an existing relationship.
+
+### Case types (domestic-payments v1)
+
+| Case type | Share | Ground truth | What happens in WF-0002 |
+| --- | --- | --- | --- |
+| `routine` | 50 % | release | known payee, 2–20 % of the balance: straight-through |
+| `new_payee` | 15 % | release | first payment, ≤ 30 % of the balance: straight-through |
+| `high_value` | 8 % | release | 10,000–40,000 to a known payee: manager approval |
+| `large_share` | 7 % | release | 85–98 % of the balance to a new payee: held, fraud review |
+| `scam` | 8 % | reject | scam phrase in the reference: held, fraud review |
+| `quiet_scam` | 4 % | reject | looks exactly like `large_share`: held; only a person can tell |
+| `watchlisted_payee` | 3 % | reject | payee on the synthetic watchlist: held, high risk |
+| `insufficient_funds` | 5 % | reject | refused automatically |
+
+Fraud review: 20 minutes, 90 % accuracy; high-value approval: 8 minutes, 97 %. Staff: 40 %
+operations officers, 30 % managers, 30 % fraud analysts. The `quiet_scam` cases are the
+point of the scenario: a rule-based screener rates them low risk, so automated release
+lets them through where a person sometimes stops them.
+
+### Case types (personal-loans v1)
+
+| Case type | Share | Ground truth | What happens in WF-0003 |
+| --- | --- | --- | --- |
+| `prime` | 40 % | approve | score 720–850, 5,000–20,000: underwriter |
+| `near_prime` | 15 % | approve | score 640–719 (flagged): underwriter |
+| `self_employed` | 5 % | approve | self-employed income (flagged): underwriter |
+| `large_loan` | 10 % | approve | 26,000–50,000: underwriter, then credit committee |
+| `poor_credit` | 10 % | decline | score < 560: declined automatically |
+| `overextended` | 10 % | decline | existing debts 45–60 % of income: declined automatically |
+| `inflated_income` | 10 % | decline | passes every rule; only an underwriter can catch it |
+
+Applicants are drawn until the synthetic bureau score fits the case type. Underwriting:
+25 minutes, 93 % accuracy; credit committee: 30 minutes, 97 %. Staff: 40 % lending
+officers, 45 % underwriters (department managers), 15 % committee members (regional
+executives).
+
+### Measured (Phase 9, development container)
+
+| Run | Cases / staff | Wall time | Outcome |
+| --- | --- | --- | --- |
+| `domestic-payments` baseline, seed 7 | 100 / 25 | 35.8 s (incl. population) | 99 % correct; 63 % straight-through; 37 manual reviews |
+| `domestic-payments` AI automated, seed 7 | 100 / 25 | — | 95 % correct: all 5 quiet scams released by the policy engine; 21 manual reviews |
+| `personal-loans` baseline, seed 42 | 100 / 25 | 17.2 s | 93 % correct (7 false declines, 0 false approvals); 91 manual reviews |
 
 ## Reproducibility
 
@@ -175,6 +237,8 @@ the engine; neither exists yet.
 - Arrivals are uniform across the window; no peaks or seasonality.
 - Background runs execute inside the API process (FastAPI background tasks). A restart
   interrupts a run; it is then reported as interrupted and must be started again.
-- One scenario exists (`retail-onboarding`, v1 and v2, WF-0001).
+- Three scenarios exist (`retail-onboarding` v1/v2, `domestic-payments` v1,
+  `personal-loans` v1). Payment payers are one customer per case, so the velocity signal
+  never fires in simulations (it is covered by tests).
 - Workflow steps take no simulated time; only waiting for people and documents does. An
   automated case therefore completes the moment it arrives.

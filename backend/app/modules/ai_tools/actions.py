@@ -9,6 +9,8 @@ for one cannot be registered.
 GRANTABLE_ACTIONS: dict[str, str] = {
     "analyze_application": "Analyse a synthetic application and its documents (read-only).",
     "analyze_payment": "Analyse a synthetic payment and its screening signals (read-only).",
+    "analyze_credit_application": "Analyse a synthetic loan application, its bureau file "
+    "and affordability (read-only).",
     "recommend_decision": "Recommend approve, reject or escalate (advisory only).",
     "complete_low_risk_review": "Complete a designated low-risk review task; the workflow "
     "policy engine decides whether the case may proceed without a person.",

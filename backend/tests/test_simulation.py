@@ -343,7 +343,8 @@ def test_api_lists_scenarios_and_profiles(db: Session, client: TestClient) -> No
         "WF-0002",
         ["baseline", "ai_assisted", "ai_automated"],
     )
-    assert workflows["personal-loans"] == ("WF-0003", ["baseline"])
+    # The latest version (v2, Phase 11) supports AI modes.
+    assert workflows["personal-loans"] == ("WF-0003", ["baseline", "ai_assisted", "ai_automated"])
     profiles = {
         p["profile_id"]: p
         for p in client.get("/api/v1/simulations/profiles", headers=headers).json()

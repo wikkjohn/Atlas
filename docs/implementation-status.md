@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 10.
+Last updated: Phase 11.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -15,6 +15,36 @@ Last updated: Phase 10.
 | — | End-to-end demonstration (Part 12) | **Complete** — [demo.md](demo.md), automated in Playwright |
 | 9 | Additional business workflows: payments and lending | **Complete** |
 | 10 | Loan servicing and collections | **Complete** |
+| 11 | AI underwriting for personal loans | **Complete** |
+
+## Phase 11: what exists
+
+- **AGB Credit Underwriting Assistant** (`rule_based_credit_underwriting`, registered by
+  the seed for WF-0003): declared income against the bureau's income estimate, bureau
+  file and affordability → risk, explanation, approve / reject / escalate. New grantable
+  action `analyze_credit_application`; `approve_loan` stays forbidden.
+- **Synthetic income estimate** (`lending.income_estimate`): a deterministic monthly
+  income per synthetic person, like the bureau score.
+- **WF-0003 v2:** income verification, an advisory AI step for referred applications
+  (off / assisted / automated) and the `low-risk-loan-underwriting-v1` policy. Live
+  applications run v2 with AI off.
+- **`loans:approve_low_risk`** (policy engine only): the lending service lets it
+  underwrite loans up to 15,000 that need no committee, and nothing else; the simulation's
+  control check applies the same rule.
+- **`personal-loans` v2** with AI modes, so experiments run on loans; v1 is unchanged.
+- **UI:** the AI Lab console offers the assistant a sample referred application.
+
+## Phase 11: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 293 passed (new: 6 — the assistant's rules and blind spot, v2 income check with AI off, automated underwriting of small clean loans only (inflated income, above the automation limit and self-employed go to a person), the lending service limiting the policy engine to the automation limit, scenario v2 against its workload, an automated experiment that rejects every inflated income and is evaluated successful with no violations) |
+| Ruff lint + format check; `alembic check` | clean (no schema change in Phase 11) |
+| Frontend typecheck, production build | clean; succeeds |
+| Vitest | 75 passed (new: the AI Lab console offers the assistant a referred loan application) |
+| Playwright (Chromium, real backend, fresh database) | 16 passed |
+| Docker Compose stack | `validate_system.py` 10/10 (v0.11.0); seed registers the assistant; an AI-automated `personal-loans` v2 run completes in the container |
+| Experiments (seed 42, 100 / 25) | assisted and automated both successful — see [ai-testing.md](ai-testing.md) |
 
 ## Phase 10: what exists
 
@@ -438,8 +468,9 @@ Last updated: Phase 10.
   date. The credit bureau is a deterministic function of name and date of birth.
 - Workflow definitions are authored in code (registered at import); there is no visual
   designer or upload API. Four business workflows exist (WF-0001 to WF-0004).
-- WF-0003 has no AI step yet, so `personal-loans` runs baseline only. Live WF-0002 cases
-  run with AI off; the UI offers AI modes only through simulations and experiments.
+- Live WF-0002 and WF-0003 cases run with AI off; the UI offers AI modes only through
+  simulations and experiments. The income estimate behind the loan assistant is synthetic
+  and more reliable than real income estimators.
 - The default success thresholds were tuned for account opening; in `domestic-payments`
   even the baseline exceeds the 5 % maximum false approval rate (quiet scams), so
   experiments there fail the compliance-threshold criterion unless the thresholds are

@@ -40,6 +40,7 @@ export type Permission =
   | "loans:read"
   | "loans:approve"
   | "loans:approve_large"
+  | "loans:approve_low_risk"
   | "loans:repay"
   | "loans:service";
 

@@ -63,13 +63,16 @@ against `output_schema` (`invalid_output`); otherwise `succeeded`.
 | --- | --- |
 | `rule_based_kyc` | **AGB Intelligent KYC Assistant** (proof of concept). Checks for missing identity document / proof of address, document check digits, name consistency (≤ 2 edits is a typo), date-of-birth match, document expiry, age, sanctions screening result, politically exposed status and large expected deposits. Each finding has a severity; the score gives low/medium/high risk; any critical finding → **reject**, any high or medium → **escalate**, otherwise **approve**; plus a confidence and a written explanation. Deterministic. |
 | `rule_based_payment_screening` | **AGB Payment Fraud Screener** (Phase 9, proof of concept). Reviews payments that WF-0002's screening held: scam phrases in the reference (high), payee on the synthetic watchlist (critical), share of the balance and payment velocity (medium), first payment to the payee and high value (low). Any critical or high finding → **reject**; score ≥ 5 → **escalate**; otherwise **approve** at low risk — behavioural signals alone are common for legitimate first payments. Its blind spot is deliberate and documented: a scam with an ordinary reference looks like a legitimate large payment. Deterministic. |
+| `rule_based_credit_underwriting` | **AGB Credit Underwriting Assistant** (Phase 11, proof of concept). Reviews loan applications WF-0003's credit policy refers to an underwriter: declared income against the synthetic bureau's income estimate (≥ 1.4× → high, ≥ 1.15× → medium), a recent default, a near-prime score (< 660) and a debt-to-income above 35 % (medium), self-employed income, five or more credit lines and a committee-size loan (low). Any high finding → **reject**; score ≥ 4 → **escalate**; a single medium finding → **approve** at medium risk; otherwise **approve** at low risk. Its blind spot is the same income rule: an honest self-employed applicant whose irregular income runs well above the estimate looks inflated. Deterministic. |
 | `fault_injection` | Behaves like the KYC assistant but fails, times out or returns malformed output for a configurable share of requests, decided by a hash of the request (reproducible). Exists to test failure handling. |
 
 The demo seed registers `agb-intelligent-kyc-assistant 1.0.0` (all three actions),
 `kyc-fault-injector 1.0.0` (10 % errors, 5 % timeouts, 5 % malformed output; not granted
 `complete_low_risk_review`) and `agb-payment-fraud-screener 1.0.0` (`analyze_payment`,
 `recommend_decision`, `complete_low_risk_review`; compatible with WF-0002). Phase 9 adds
-`release_payment` and `approve_loan` to the actions no tool can ever be granted.
+`release_payment` and `approve_loan` to the actions no tool can ever be granted. Phase 11
+registers `agb-credit-underwriting-assistant 1.0.0` (`analyze_credit_application`,
+`recommend_decision`, `complete_low_risk_review`; compatible with WF-0003).
 
 ## WF-0001 version 2
 
@@ -125,6 +128,38 @@ Both candidates fail the *compliance thresholds* criterion: the default maximum 
 approval rate (5 %) was set for account opening, and in this scenario the people miss
 quiet scams too. The point is not the verdict but that the platform shows where the risk
 sits: automation removes half of the manual reviews and lets the quiet scams through.
+
+## WF-0003 v2 and the credit underwriting assistant (Phase 11)
+
+WF-0003 v2 adds `verify_income` (declared income ÷ the synthetic bureau's income estimate,
+`lending.income_estimate`), then — for applications the credit policy refers, never for
+automatic declines — `ai_underwriting_review` (advisory) and `policy_underwrite`
+(`low-risk-loan-underwriting-v1`). The policy engine underwrites a loan without a person
+only when automation is enabled, the tool answered, recommends approval at low risk, the
+credit policy raised no flag, the loan is within the automation limit (15,000, never a
+committee loan), declared income is at most 1.15× the estimate and the applicant is
+salaried or retired. The lending service accepts the policy engine's
+`loans:approve_low_risk` permission only within the automation limit, whoever calls it.
+
+What two experiments on `personal-loans` v2 (seed 42, 100 applications, 25 staff, default
+assumptions) measured — the baseline is the same run in both:
+
+| | Baseline | AI assisted | AI automated |
+| --- | ---: | ---: | ---: |
+| Manual reviews | 91 | 92 | 59 |
+| Labour hours | 35.6 | 21.7 | 15.2 |
+| Cost per completed case | 18.91 | 11.89 | 8.59 |
+| Accuracy | 93 % | 98 % | 98 % |
+| False approval rate | 0 % | 0 % | 0 % |
+| False rejection rate | 9.2 % | 2.6 % | 2.6 % |
+| Policy violations | 0 | 0 | 0 |
+| Verdict | — | successful | successful |
+
+Unlike the fraud screener, this tool's main rule matches the scenario's main risk
+(inflated incomes), so the simulated underwriters follow mostly correct advice. That
+rests on the scenario's stated assumptions about reviewers and on a synthetic income
+estimate that is better than real ones; it shows the platform working, not that such a
+tool would perform like this on real applications.
 
 ## Experiment configurations
 

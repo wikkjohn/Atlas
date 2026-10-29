@@ -141,6 +141,17 @@ purpose, declared monthly income and existing monthly repayments, employment sta
 | — | Decline the application | service_task | Reasons recorded and audited |
 | 9 | Send simulated customer notification | service_task | Loan number, amount and instalment, or the decline reasons |
 
+### Version 2 (Phase 11)
+
+Live applications start on v2. After affordability, **Verify income against the bureau
+estimate** (`verify_income`) records the declared income ÷ the synthetic bureau's income
+estimate. A referred application then goes through **AI underwriting assistant review**
+(`ai_task`, off / assisted / automated; with AI off it records `{"mode": "off"}`) and
+**Route the referred application**: in automated mode, a low-risk approval request goes to
+**Policy engine: low-risk underwriting check** (`low-risk-loan-underwriting-v1`), which
+either underwrites the loan as the policy engine (then disbursement) or sends it to the
+underwriter. Everything else is unchanged; see [ai-testing.md](ai-testing.md).
+
 ![Lending](images/09-lending.png)
 
 ## WF-0004 Loan Collections (Phase 10)

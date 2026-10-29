@@ -2,7 +2,9 @@
 
 `originate` is the only way a loan comes into existence. It re-applies every control,
 whoever calls it: the customer is KYC-verified, the disbursement account is theirs, open
-and in their currency, the underwriter holds `loans:approve` and did not apply, and a loan
+and in their currency, the underwriter holds `loans:approve` (or, for a loan within the
+automation limit and below the committee limit, the policy engine's
+`loans:approve_low_risk`) and did not apply, and a loan
 above the credit-committee limit also has an approval by a third person holding
 `loans:approve_large`. The principal is then posted from the loan receivable to the
 customer's account in one balanced ledger entry.
@@ -44,6 +46,7 @@ LOANS_RECEIVABLE_PREFIX = "1300"
 MIN_PRINCIPAL_MAJOR = 1_000
 MAX_PRINCIPAL_MAJOR = 50_000
 COMMITTEE_LIMIT_MAJOR = 25_000  # above this, the credit committee must also approve
+AUTOMATION_LIMIT_MAJOR = 15_000  # the policy engine may underwrite up to this
 MIN_TERM, MAX_TERM = 6, 84
 # Product pricing by bureau score band: (minimum score, annual rate in basis points).
 PRICING = ((760, 690), (700, 890), (640, 1190), (580, 1590))
@@ -66,6 +69,15 @@ def bureau_report(name: str, date_of_birth: date) -> dict:
         "recent_defaults": defaults,
         "open_credit_lines": digest[3] % 6,
     }
+
+
+def income_estimate(name: str, date_of_birth: date) -> int:
+    """The synthetic bureau's estimate of the applicant's gross monthly income, in major
+    units (2,500 to 12,000). Like real income estimators it is a model, not a payslip:
+    self-employed and irregular earners can legitimately declare more."""
+    key = f"income|{' '.join(name.casefold().split())}|{date_of_birth.isoformat()}"
+    digest = hashlib.sha256(key.encode()).digest()
+    return 2_500 + int.from_bytes(digest[:2], "big") % 9_501
 
 
 # --- Pricing and affordability ------------------------------------------------------------
@@ -94,6 +106,13 @@ def principal_limits(currency: str) -> tuple[int, int]:
 
 def needs_committee(principal: int, currency: str) -> bool:
     return principal > to_minor_units(COMMITTEE_LIMIT_MAJOR, currency)
+
+
+def within_automation_limit(principal: int, currency: str) -> bool:
+    """Small enough for the policy engine to underwrite (never a committee loan)."""
+    return principal <= to_minor_units(AUTOMATION_LIMIT_MAJOR, currency) and not needs_committee(
+        principal, currency
+    )
 
 
 def debt_to_income(
@@ -125,9 +144,13 @@ def _check_deciders(
             {"rule": "four_eyes"},
         )
     if not underwriter.can(Permission.LOANS_APPROVE):
-        raise PermissionDeniedError(
-            "The underwriter lacks loans:approve.", {"rule": "underwriter_without_authority"}
-        )
+        if not (
+            underwriter.can(Permission.LOANS_APPROVE_LOW_RISK)
+            and within_automation_limit(principal, currency)
+        ):
+            raise PermissionDeniedError(
+                "The underwriter lacks loans:approve.", {"rule": "underwriter_without_authority"}
+            )
     if needs_committee(principal, currency):
         if committee is None:
             raise PermissionDeniedError(

@@ -654,6 +654,24 @@ DEMO_AI_TOOLS = [
         "permissions": ["payments:read"],
         "compatible_workflows": ["WF-0002"],
     },
+    {
+        "tool_id": "agb-credit-underwriting-assistant",
+        "tool_name": "AGB Credit Underwriting Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews loan applications the credit policy refers to an "
+        "underwriter: declared income against the bureau's estimate, the bureau file and "
+        "affordability, with a risk classification, explanation and an approve, reject or "
+        "escalate recommendation. Advisory: it never approves or declines a loan.",
+        "adapter": "rule_based_credit_underwriting",
+        "allowed_actions": [
+            "analyze_credit_application",
+            "recommend_decision",
+            "complete_low_risk_review",
+        ],
+        "permissions": ["loans:read"],
+        "compatible_workflows": ["WF-0003"],
+    },
 ]
 
 

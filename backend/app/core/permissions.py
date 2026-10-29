@@ -50,6 +50,8 @@ class Permission(StrEnum):
     LOANS_READ = "loans:read"
     LOANS_APPROVE = "loans:approve"  # underwriting decisions (never one's own application)
     LOANS_APPROVE_LARGE = "loans:approve_large"  # credit committee: large loans, write-offs
+    # Policy engine: underwrite small, clean loans the AI assistant rates low risk.
+    LOANS_APPROVE_LOW_RISK = "loans:approve_low_risk"
     LOANS_REPAY = "loans:repay"  # record a borrower's arrears repayment or early payoff
     LOANS_SERVICE = "loans:service"  # run loan servicing (moves the lending business date)
 
@@ -161,6 +163,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.ACCOUNTS_APPROVE_LOW_RISK,
             Permission.PAYMENTS_READ,
             Permission.PAYMENTS_RELEASE_LOW_RISK,
+            Permission.LOANS_READ,
+            Permission.LOANS_APPROVE_LOW_RISK,
         }
     ),
 }

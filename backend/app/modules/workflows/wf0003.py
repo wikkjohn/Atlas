@@ -6,6 +6,12 @@ affordability, declines applications that break the credit policy outright and s
 rest to an underwriter. Loans above the committee limit also need a credit committee
 approval by a third person. Disbursement goes through the lending service, which
 re-applies the KYC, ownership, limit and four-eyes controls before posting to the ledger.
+
+Version 2 (Phase 11) checks the declared income against the synthetic bureau's income
+estimate and adds an optional AI underwriting assistant (off, assisted or automated) for
+referred applications. In automated mode the policy engine may underwrite a small, clean
+loan the assistant rates low risk, but only when every policy check passes; everything
+else still goes to an underwriter.
 """
 
 import uuid
@@ -15,17 +21,20 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.audit import record_audit_event
+from app.core.money import to_minor_units
 from app.modules.accounts.models import AccountStatus
 from app.modules.accounts.service import find_account
 from app.modules.customers.models import Customer, CustomerNotification, KycStatus
 from app.modules.customers.service import age_in_years
 from app.modules.lending import service as lending
 from app.modules.lending.models import LoanPurpose
+from app.modules.workflows import advisory
 from app.modules.workflows.definition import WorkflowDefinition
 from app.modules.workflows.engine import StepContext, StepError
-from app.modules.workflows.principals import principal
+from app.modules.workflows.principals import policy_engine, principal
 from app.modules.workflows.registry import (
     Presenter,
+    ai_task,
     register_definition,
     register_presenter,
     service_task,
@@ -314,7 +323,10 @@ def credit_policy(ctx: StepContext) -> dict:
 
 @service_task("wf0003.disburse_loan")
 def disburse_loan(ctx: StepContext) -> dict:
-    underwriter_id = ctx.get("underwriting_review.actor_id")
+    # A person underwrote it, or (v2, automated mode) the policy engine did.
+    underwriter_id = ctx.get("underwriting_review.actor_id") or ctx.get(
+        "policy_underwrite.approver_id"
+    )
     if not underwriter_id:
         raise StepError("no_approval", "No underwriting approval was recorded.")
     committee_id = ctx.get("credit_committee.actor_id")
@@ -405,3 +417,173 @@ register_presenter(
         flags_path="credit_policy.flags",
     ),
 )
+
+
+# --- Version 2: income verification, AI underwriting assistant, policy engine -------------
+
+VERSION_2 = 2
+POLICY_ID = "low-risk-loan-underwriting-v1"
+POLICY_MAX_INCOME_RATIO = 1.15  # declared income / bureau estimate
+
+
+def _definition_v2() -> WorkflowDefinition:
+    data = DEFINITION.model_dump(mode="json", exclude_none=True)
+    data["version"] = VERSION_2
+    data["description"] += (
+        " Version 2 verifies the declared income against the bureau's estimate and adds an "
+        "optional AI underwriting assistant (off, assisted or automated) with a policy "
+        "engine that may underwrite small, clean loans when every policy check passes."
+    )
+    steps = []
+    for step in data["steps"]:
+        if step["id"] == "affordability":
+            step["next"] = "verify_income"
+            steps += [
+                step,
+                {
+                    "id": "verify_income",
+                    "type": "service_task",
+                    "name": "Verify income against the bureau estimate",
+                    "handler": "wf0003.verify_income",
+                    "next": "credit_policy",
+                },
+            ]
+            continue
+        if step["id"] == "credit_policy":
+            step["transitions"] = [
+                {
+                    "to": "decline_application",
+                    "when": _when("credit_policy.decision", "eq", "decline"),
+                },
+                {"to": "ai_underwriting_review"},
+            ]
+            steps += [
+                step,
+                {
+                    "id": "ai_underwriting_review",
+                    "type": "ai_task",
+                    "name": "AI underwriting assistant review (advisory)",
+                    "handler": "wf0003.underwriting_assistant",
+                    "next": "route_referral",
+                },
+                {
+                    "id": "route_referral",
+                    "type": "decision",
+                    "name": "Route the referred application",
+                    "transitions": [
+                        {
+                            "to": "policy_underwrite",
+                            "when": _when("ai_underwriting_review.automation_requested", "truthy"),
+                        },
+                        {"to": "underwriting_review"},
+                    ],
+                },
+                {
+                    "id": "policy_underwrite",
+                    "type": "service_task",
+                    "name": "Policy engine: low-risk underwriting check",
+                    "handler": "wf0003.policy_underwrite",
+                    "transitions": [
+                        {
+                            "to": "disburse_loan",
+                            "when": _when("policy_underwrite.approved", "truthy"),
+                        },
+                        {"to": "underwriting_review"},
+                    ],
+                },
+            ]
+            continue
+        steps.append(step)
+    data["steps"] = steps
+    return WorkflowDefinition.model_validate(data)
+
+
+@service_task("wf0003.verify_income")
+def verify_income(ctx: StepContext) -> dict:
+    customer = ctx.db.get(Customer, uuid.UUID(ctx.get("validate_application.customer_id")))
+    if customer is None:
+        raise StepError("customer_missing", "The customer record disappeared.")
+    currency = ctx.get("validate_application.currency")
+    estimate = to_minor_units(
+        lending.income_estimate(customer.name, customer.date_of_birth_or_incorporation),
+        currency,
+    )
+    declared = ctx.input["monthly_income"]
+    return {
+        "source": "atlas-synthetic-income-estimator-v1",
+        "estimated_monthly_income": estimate,
+        "declared_monthly_income": declared,
+        "declared_to_estimate": round(declared / estimate, 2),
+    }
+
+
+@ai_task("wf0003.underwriting_assistant")
+def underwriting_assistant(ctx: StepContext) -> dict:
+    data = ctx.input
+    payload = {
+        "application": {
+            "amount": data["amount"],
+            "currency": ctx.get("validate_application.currency"),
+            "term_months": data["term_months"],
+            "purpose": data["purpose"],
+            "employment_status": data["employment_status"],
+            "monthly_income": data["monthly_income"],
+            "monthly_debt_payments": data["monthly_debt_payments"],
+        },
+        "bureau": {
+            "score": ctx.get("credit_check.score"),
+            "recent_defaults": ctx.get("credit_check.recent_defaults") or 0,
+            "open_credit_lines": ctx.get("credit_check.open_credit_lines") or 0,
+        },
+        "affordability": {
+            "annual_rate_bps": ctx.get("affordability.annual_rate_bps"),
+            "monthly_payment": ctx.get("affordability.monthly_payment"),
+            "debt_to_income": ctx.get("affordability.debt_to_income"),
+            "committee_required": bool(ctx.get("affordability.committee_required")),
+        },
+        "income": {
+            "estimated_monthly_income": ctx.get("verify_income.estimated_monthly_income"),
+            "declared_to_estimate": ctx.get("verify_income.declared_to_estimate"),
+        },
+        "as_of": ctx.now.date().isoformat(),
+    }
+    return advisory.review(ctx, assisted_action="recommend_decision", payload=payload)
+
+
+@service_task("wf0003.policy_underwrite")
+def policy_underwrite(ctx: StepContext) -> dict:
+    ai = ctx.get("ai_underwriting_review") or {}
+    ratio = ctx.get("verify_income.declared_to_estimate")
+    checks = {
+        "automation_enabled": (ctx.get("_settings") or {}).get("ai_mode") == "automated",
+        "tool_result_available": bool(ai.get("available")),
+        "tool_recommends_approval": ai.get("recommendation") == "approve",
+        "tool_risk_low": ai.get("risk_classification") == "low",
+        "no_credit_policy_flags": not (ctx.get("credit_policy.flags") or []),
+        "within_automation_limit": lending.within_automation_limit(
+            ctx.input["amount"], ctx.get("validate_application.currency")
+        ),
+        "income_verified": ratio is not None and ratio <= POLICY_MAX_INCOME_RATIO,
+        "salaried_or_retired": ctx.input["employment_status"] in ("employed", "retired"),
+    }
+    failed = [name for name, passed in checks.items() if not passed]
+    result = {"policy": POLICY_ID, "checks": checks, "failed_checks": failed}
+    if failed:
+        return {**result, "approved": False}
+    engine_user = policy_engine(ctx)
+    if engine_user is None:
+        return {**result, "approved": False, "failed_checks": ["policy_engine_unavailable"]}
+    record_audit_event(
+        ctx.db,
+        actor_id=engine_user.id,
+        action="workflow.policy_approved",
+        entity_type="workflow_execution",
+        entity_id=ctx.execution.id,
+        metadata={"policy": POLICY_ID, "tool_invocation": ai.get("invocation_id")},
+    )
+    # The lending service re-checks: this principal may underwrite small loans only.
+    return {**result, "approved": True, "approver_id": str(engine_user.id)}
+
+
+DEFINITION_V2 = _definition_v2()
+register_definition(DEFINITION_V2, LoanApplication)

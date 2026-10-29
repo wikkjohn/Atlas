@@ -11,8 +11,9 @@ from app.core.dependencies import DbSession
 from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
+from app.jobs import engine as jobs
 from app.modules.identity.dependencies import Authorized
-from app.simulation import runner, service
+from app.simulation import service
 from app.simulation.models import SimulationStatus
 from app.simulation.schemas import (
     CaseResultOut,
@@ -73,11 +74,11 @@ def launch_idempotent(
     create,
     schedule,
 ) -> JSONResponse:
-    """Create work and start it in the background, at most once per Idempotency-Key.
+    """Create work and its background job, at most once per Idempotency-Key.
 
-    `create` returns (response, ids). The response and the key are committed together
-    before the background task is scheduled; a replay returns the stored response and
-    starts nothing.
+    `create` returns (response, job ids) after queueing the job in the same transaction,
+    so the work, its job and the stored response commit together. `schedule` then runs the
+    jobs in this process unless dedicated workers take them; a replay starts nothing.
     """
     started: list = []
 
@@ -114,7 +115,10 @@ def _launch(
 ) -> JSONResponse:
     def create():
         run = service.start_run(db, body, actor_id)
-        return service.detail(db, run), [run.id]
+        job = jobs.enqueue(
+            db, "simulation.execute", {"run_ids": [str(run.id)]}, created_by=actor_id
+        )
+        return service.detail(db, run), [job.id]
 
     return launch_idempotent(
         db,
@@ -123,7 +127,7 @@ def _launch(
         actor_id=actor_id,
         payload=body,
         create=create,
-        schedule=lambda ids: tasks.add_task(runner.execute_run, factory, ids[0]),
+        schedule=lambda job_ids: jobs.dispatch(tasks, factory, job_ids),
     )
 
 
@@ -163,7 +167,10 @@ def start_suite(
     def create():
         runs = service.start_suite(db, body, actor.id)
         names = {actor.id: actor.username}
-        return SuiteRuns([service.summary(r, names) for r in runs]), [r.id for r in runs]
+        job = jobs.enqueue(
+            db, "simulation.execute", {"run_ids": [str(r.id) for r in runs]}, created_by=actor.id
+        )
+        return SuiteRuns([service.summary(r, names) for r in runs]), [job.id]
 
     return launch_idempotent(
         db,
@@ -172,7 +179,7 @@ def start_suite(
         actor_id=actor.id,
         payload=body,
         create=create,
-        schedule=lambda ids: tasks.add_task(runner.execute_batch, factory, ids),
+        schedule=lambda job_ids: jobs.dispatch(tasks, factory, job_ids),
     )
 
 

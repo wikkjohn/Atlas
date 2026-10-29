@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 13.
+Last updated: Phase 14.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -18,6 +18,45 @@ Last updated: Phase 13.
 | 11 | AI underwriting for personal loans | **Complete** |
 | 12 | Scale foundation, step 1: stored balances and incremental reconciliation ([roadmap](roadmap.md) Milestone A) | **Complete** |
 | 13 | Scale foundation, step 2: bulk loading, one million customers, search indexes | **Complete** |
+| 14 | Scale foundation, step 3: durable background jobs, workers and schedules | **Complete** |
+
+## Phase 14: what exists
+
+- **Durable job queue** (`jobs`, migration 0012) in PostgreSQL: queued in the caller's
+  transaction, claimed with `FOR UPDATE SKIP LOCKED`, heartbeats, retries with
+  exponential backoff, recovery of jobs whose worker stopped, dedupe keys.
+- **Worker** (`python -m app.cli worker [--processes N] [--drain] [--no-schedules]`,
+  `make worker`, a `worker` service in Docker Compose).
+- **Schedules** (`job_schedules`): incremental reconciliation every 15 minutes, full
+  reconciliation daily, workflow timers every minute, loan servicing daily (off by
+  default), run as the new `atlas-scheduler` service account (`system_scheduler` role).
+- **Simulations and experiments are jobs**: queued with their runs in one transaction; run
+  by a worker, or by the API itself when `ATLAS_JOBS_EXECUTION=inline` (the default
+  outside Docker Compose).
+- **API and UI:** jobs, kinds, schedules (switch, change, run now), cancel; a Background
+  jobs panel in System Settings. New permissions `jobs:read` (administrators, auditors)
+  and `jobs:manage` (administrators).
+
+## Phase 14: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 313 passed (new: 9 job tests — run once with a result, dedupe keys, retry with backoff then success, permanent failure, recovery of a lost worker whose late report is ignored (mutation-checked), at most one job per schedule, four parallel workers sharing 120 jobs with real commits and none run twice, reconciliation and servicing jobs including the scheduler principal and the skip rule, API permissions, schedule changes, run-now, manual kinds only, cancel) |
+| Migration 0011 → 0012 → 0011 → 0012, `alembic check` | clean |
+| Frontend typecheck, Vitest, build | clean; 77 passed (new: the Background jobs panel, interval wording); succeeds |
+| Playwright, fresh database (inline jobs) | 16 passed; the simulations and experiments it starts ran as jobs |
+| Docker Compose with the worker service | `validate_system.py` 10/10; the worker ran the schedules on start; Playwright 16 passed with every simulation and experiment run by the worker container |
+
+Queue throughput in the development container (5,000 `system.ping` jobs, `worker --drain`,
+including process start-up):
+
+| Worker processes | Throughput | Jobs per process |
+| ---: | ---: | --- |
+| 1 | 117 jobs/s | 5,000 |
+| 4 | 379 jobs/s | 1,256 / 1,252 / 1,249 / 1,243 |
+
+The queue costs about 8 ms per job (claim, load, heartbeat thread, completion); real jobs
+are dominated by their own work.
 
 ## Phase 13: what exists
 
@@ -567,11 +606,13 @@ next item of Milestone A.
   changed for the scenario.
 - Simulation runs write into the same synthetic bank (customers, accounts, ledger postings
   and staff remain); there is no reset command. Simulated reviewers work around the clock;
-  arrivals are uniform. Background runs live in the API process, so a restart interrupts
-  them (reported as interrupted). See [simulation.md](simulation.md) for measured
-  throughput and why the enterprise profile is only a target.
-- The workflow runner is a polling CLI process; there is no in-API background scheduler, so
-  timeouts and retries fire only while `make workflows` (or the CLI) runs.
+  arrivals are uniform. Since Phase 14 runs are durable jobs; a run whose worker stops is
+  still reported as interrupted and is not resumed (`simulation.execute` is not retried).
+  See [simulation.md](simulation.md) for measured throughput and why the enterprise
+  profile is only a target.
+- Schedules fire only while a worker runs (`make worker`, or the Docker Compose worker);
+  intervals are fixed periods from the last run, not calendar times (no cron expressions,
+  no business calendars).
 - The only AI tool implementation is rule-based; no external model provider is connected
   (an adapter for one implements the same contract). Adapter timeouts cancel async work;
   CPU-bound synchronous code inside an adapter cannot be interrupted.

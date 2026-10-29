@@ -1,7 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { every } from "@/features/settings/JobsPanel";
 import type { Role, UserAccount } from "@/types/enterprise";
+import type { Job, JobSchedule } from "@/types/jobs";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
@@ -27,8 +29,61 @@ const account = (partial: Partial<UserAccount>): UserAccount => ({
   ...partial,
 });
 
+const job = (partial: Partial<Job>): Job => ({
+  id: "job-1",
+  job_number: 41,
+  kind: "ledger.reconcile",
+  payload: { mode: "incremental" },
+  status: "succeeded",
+  attempts: 1,
+  max_attempts: 2,
+  run_at: "2026-10-29T10:00:00Z",
+  result: { ok: true, duration_ms: 1840 },
+  last_error: null,
+  locked_by: null,
+  schedule_name: "ledger-incremental-reconciliation",
+  created_by_username: null,
+  created_at: "2026-10-29T10:00:00Z",
+  started_at: "2026-10-29T10:00:00Z",
+  finished_at: "2026-10-29T10:00:02Z",
+  ...partial,
+});
+
+const schedules: JobSchedule[] = [
+  {
+    id: "s1",
+    name: "ledger-incremental-reconciliation",
+    description: "Check what was posted since the last reconciliation",
+    kind: "ledger.reconcile",
+    payload: { mode: "incremental" },
+    interval_seconds: 900,
+    enabled: true,
+    next_run_at: "2026-10-29T10:15:00Z",
+    last_job: job({}),
+  },
+  {
+    id: "s2",
+    name: "loan-servicing",
+    description: "Service the loan book up to today",
+    kind: "lending.service_loans",
+    payload: {},
+    interval_seconds: 86_400,
+    enabled: false,
+    next_run_at: "2026-10-29T10:00:00Z",
+    last_job: null,
+  },
+];
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/job-schedules": () => jsonResponse(schedules),
+  "GET /api/v1/jobs": () =>
+    jsonResponse(
+      page([
+        job({}),
+        job({ id: "job-2", job_number: 42, kind: "simulation.execute", status: "failed", result: null, last_error: "RuntimeError: boom", schedule_name: null, created_by_username: "researcher" }),
+      ]),
+    ),
   "GET /api/v1/roles": () => jsonResponse(roles),
   "GET /api/v1/users": (r: { search: URLSearchParams }) =>
     jsonResponse(
@@ -41,6 +96,41 @@ const routes = {
 };
 
 describe("System Settings users and roles", () => {
+  it("shows background job schedules and lets an administrator switch and run them", async () => {
+    const api = mockApi({
+      ...routes,
+      "PATCH /api/v1/job-schedules/loan-servicing": () => jsonResponse({ ...schedules[1], enabled: true }),
+      "POST /api/v1/job-schedules/ledger-incremental-reconciliation/run": () => jsonResponse(job({ id: "job-3", job_number: 43, status: "queued" }), 202),
+    });
+    renderApp("/settings");
+
+    const table = await screen.findByRole("table", { name: "Job schedules" });
+    const recon = (await within(table).findByText("ledger-incremental-reconciliation")).closest("tr") as HTMLElement;
+    expect(within(recon).getByText("every 15 min")).toBeInTheDocument();
+    expect(within(recon).getByText("Succeeded")).toBeInTheDocument();
+    const servicing = within(table).getByText("loan-servicing").closest("tr") as HTMLElement;
+    expect(within(servicing).getByText("Off")).toBeInTheDocument();
+    const recent = screen.getByRole("table", { name: "Recent jobs" });
+    expect(await within(recent).findByText("RuntimeError: boom")).toBeInTheDocument();
+    expect(within(recent).getByText("1.8 s")).toBeInTheDocument();
+
+    await userEvent.click(within(servicing).getByLabelText("Enable loan-servicing"));
+    await userEvent.click(within(recon).getByRole("button", { name: "Run ledger-incremental-reconciliation now" }));
+    await waitFor(() => expect(api.requests.filter((r) => r.method !== "GET")).toHaveLength(2));
+    const patch = api.requests.find((r) => r.method === "PATCH");
+    expect(patch?.body).toEqual({ enabled: true });
+  });
+
+  it("describes schedule intervals in words", () => {
+    expect([every(60), every(900), every(3600), every(7200), every(86_400)]).toEqual([
+      "every minute",
+      "every 15 min",
+      "hourly",
+      "every 2 h",
+      "daily",
+    ]);
+  });
+
   it("lets an administrator change roles, deactivate users and create accounts", async () => {
     const api = mockApi({
       ...routes,

@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr(DEV_JWT_SECRET)
     access_token_ttl_minutes: int = Field(default=60, ge=1, le=24 * 60)
 
+    # Background jobs (Phase 14). "inline": the API runs the jobs it queues itself (no
+    # worker process needed); "worker": dedicated `python -m app.cli worker` processes do.
+    jobs_execution: Literal["inline", "worker"] = "inline"
+    # A running job whose worker has not sent a heartbeat for this long is taken back.
+    jobs_stale_after_seconds: int = Field(default=300, ge=30)
+
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "json"
 

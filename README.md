@@ -86,9 +86,11 @@ optionally Redis.
    make frontend   # http://localhost:5173
    ```
 
-Run `make help` to see every command. `make workflows` runs the workflow runner, which
-resumes due steps (e.g. retries) and applies timeouts; leave it running in a third terminal
-if you want timers to fire.
+Run `make help` to see every command. `make worker` runs the background-job worker: it
+runs the schedules (incremental and nightly reconciliation, workflow timers, optional loan
+servicing) and any job the API queued; leave it running in a third terminal if you want
+schedules to fire. Without it, the API still runs the simulations, experiments and jobs it
+queues itself. Docker Compose starts a worker service.
 
 ## Signing in
 

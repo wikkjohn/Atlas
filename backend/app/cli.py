@@ -7,6 +7,7 @@
     python -m app.cli service-loans --as-of 2026-12-31 --as-user admin   # loan servicing run
     python -m app.cli bench-ledger --accounts 2000 --entries 50000      # ledger benchmark
     python -m app.cli load-population --customers 100000 --seed 2026    # bulk customers
+    python -m app.cli worker --processes 2                              # background jobs
 """
 
 import argparse
@@ -238,6 +239,48 @@ def _load_population(args: argparse.Namespace) -> int:
     return 0
 
 
+def _worker_process(index: int, schedules: bool, drain: bool) -> None:
+    """One worker process: runs jobs until SIGTERM / Ctrl-C (or, with drain, until idle)."""
+    import signal
+    import threading
+
+    from app.jobs import engine, handlers  # noqa: F401  (registers the job kinds)
+
+    stop = threading.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: stop.set())
+    stats = engine.run_worker(
+        get_sessionmaker(), stop=stop, schedules=schedules and index == 0, idle_exit=drain
+    )
+    print(
+        f"Worker {stats.worker}: {stats.succeeded} succeeded, {stats.failed} failed, "
+        f"{stats.retried} retried, {stats.recovered} recovered, {stats.scheduled} scheduled.",
+        flush=True,
+    )
+
+
+def _worker(args: argparse.Namespace) -> int:
+    import multiprocessing
+
+    if args.processes == 1:
+        _worker_process(0, not args.no_schedules, args.drain)
+        return 0
+    context = multiprocessing.get_context("spawn")
+    processes = [
+        context.Process(target=_worker_process, args=(i, not args.no_schedules, args.drain))
+        for i in range(args.processes)
+    ]
+    for process in processes:
+        process.start()
+    try:
+        for process in processes:
+            process.join()
+    except KeyboardInterrupt:
+        for process in processes:
+            process.join()
+    return 0 if all(p.exitcode == 0 for p in processes) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -302,6 +345,16 @@ def main(argv: list[str] | None = None) -> int:
     population.add_argument("--seed", type=int, default=2026)
     population.add_argument("--batch", type=int, default=5_000)
     population.set_defaults(handler=_load_population)
+
+    worker = commands.add_parser(
+        "worker", help="Run background jobs and their schedules (stop with Ctrl-C / SIGTERM)"
+    )
+    worker.add_argument("--processes", type=int, default=1, help="Worker processes to start")
+    worker.add_argument(
+        "--no-schedules", action="store_true", help="Run queued jobs only; do not tick schedules"
+    )
+    worker.add_argument("--drain", action="store_true", help="Exit when no job is due")
+    worker.set_defaults(handler=_worker)
 
     args = parser.parse_args(argv)
     return args.handler(args)

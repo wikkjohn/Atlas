@@ -268,6 +268,26 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   not replace the services for single customers; it exists so the platform can be tested
   at the volumes in the roadmap.
 
+## Background jobs (Phase 14, roadmap Milestone A)
+
+- **A durable queue in PostgreSQL** (`jobs`), not Redis: a job is queued in the same
+  transaction as the work that needs it (a simulation run and its job commit together, or
+  neither does), and workers claim jobs with `SELECT … FOR UPDATE SKIP LOCKED`, so any
+  number of worker processes share the queue and no job runs twice.
+- **Workers** (`python -m app.cli worker [--processes N]`, the `worker` service in Docker
+  Compose) run one job at a time each, with a heartbeat every 10 seconds; failures retry
+  with exponential backoff up to the kind's `max_attempts`; a job whose worker stops
+  heart-beating for five minutes is taken back (`recover_stale`), and the stopped worker's
+  late report is ignored because completion only applies while the job is still its own.
+- **Schedules** (`job_schedules`): every worker ticks them; a due schedule queues its job
+  with a dedupe key, so at most one job per schedule is active.
+- **Inline execution.** With `ATLAS_JOBS_EXECUTION=inline` (the default for local
+  development, tests and CI) the API runs the jobs it just queued in the same process
+  after responding; Docker Compose sets `worker`, so its worker service runs them.
+- **Job kinds:** `ledger.reconcile`, `workflows.run_due`, `lending.service_loans` (as the
+  `atlas-scheduler` service account), `simulation.execute`, `experiment.execute`,
+  `system.ping`. Kinds marked manual can be queued by hand through the API.
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from

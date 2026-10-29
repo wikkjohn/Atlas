@@ -152,6 +152,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "loans:approve_low_risk",
   "loans:repay",
   "loans:service",
+  "jobs:read",
+  "jobs:manage",
 ];
 
 function user(role: string, roleName: string, permissions: Permission[]): CurrentUser {

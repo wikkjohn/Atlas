@@ -256,8 +256,10 @@ the engine; neither exists yet.
   team; executions carry `simulation_run_id`). There is no reset or cleanup command yet.
 - Reviewers work around the clock; there are no shifts, holidays or absences.
 - Arrivals are uniform across the window; no peaks or seasonality.
-- Background runs execute inside the API process (FastAPI background tasks). A restart
-  interrupts a run; it is then reported as interrupted and must be started again.
+- Runs execute as durable background jobs (`simulation.execute`, Phase 14): in the API
+  process when no worker is configured, otherwise in `python -m app.cli worker`
+  processes. A run whose process stops is reported as interrupted and must be started
+  again; the job is not retried.
 - Three scenarios exist (`retail-onboarding` v1/v2, `domestic-payments` v1,
   `personal-loans` v1/v2). Payment payers are one customer per case, so the velocity signal
   never fires in simulations (it is covered by tests).

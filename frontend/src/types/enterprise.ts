@@ -26,6 +26,7 @@ export type Permission =
   | "workflows:manage"
   | "simulations:read"
   | "simulations:run"
+  | "simulations:manage"
   | "ai_tools:read"
   | "ai_tools:manage"
   | "ai_tools:invoke"
@@ -44,7 +45,8 @@ export type Permission =
   | "loans:repay"
   | "loans:service"
   | "jobs:read"
-  | "jobs:manage";
+  | "jobs:manage"
+  | "observability:read";
 
 export interface Page<T> {
   items: T[];

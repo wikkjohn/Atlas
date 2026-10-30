@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 14.
+Last updated: Phase 15.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -19,6 +19,54 @@ Last updated: Phase 14.
 | 12 | Scale foundation, step 1: stored balances and incremental reconciliation ([roadmap](roadmap.md) Milestone A) | **Complete** |
 | 13 | Scale foundation, step 2: bulk loading, one million customers, search indexes | **Complete** |
 | 14 | Scale foundation, step 3: durable background jobs, workers and schedules | **Complete** |
+| 15 | Scale foundation, step 4: partitioned workflow history, simulation history archive/reset, observability | **Complete** |
+
+## Phase 15: what exists
+
+- **Partitioned workflow history** (migration 0013): executions, step runs and events are
+  LIST-partitioned into `live` and `simulation`; keys `(id, realm)`; queries that know
+  their realm read one partition; live history can never be deleted.
+- **Archive, restore, reset of simulation history** (`app/simulation/history.py`):
+  per-run archive to compressed COPY files with a checksummed manifest (results and case
+  outcomes stay; the dashboard keeps counting the run), restore, reset of all simulation
+  history by dropping the partitions, archive of runs older than N days and a (disabled)
+  retention schedule. As background jobs from the API (`simulations:manage`, new: held by
+  administrators and AI researchers), and `python -m app.cli simulation-history
+  status|archive|restore|reset`.
+- **Observability** (`app/observability`): request counts and latency by route template,
+  the slow-query log from the API and every worker (`slow_queries`, threshold
+  `ATLAS_SLOW_QUERY_MS`), the worker registry (`job_workers`), queue depth and lag, job
+  throughput per kind, database size; `GET /api/v1/observability/overview` and
+  `/slow-queries` (`observability:read`, new: administrators and auditors); Prometheus text
+  at `/api/metrics` behind `ATLAS_METRICS_TOKEN`.
+- **UI:** System Settings gains Observability and Simulation history panels; the
+  Simulation Center run view shows where the run's history is and archives or restores it.
+- **Found with the new slow-query log:** the dashboard's per-run timeout count scanned
+  every event (≈ 200 ms at 100,000 simulated cases); a partial index brought the whole
+  overview from ~340 ms to ~140 ms.
+- **Docker Compose:** a shared `simulation-archive` volume for the API and the worker;
+  `ATLAS_SLOW_QUERY_MS` and `ATLAS_METRICS_TOKEN` pass through.
+
+## Phase 15: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 327 passed (new: 9 history tests — realm routing and the realm/run check, archive then restore returns every row exactly (compared column by column), dashboard costs unchanged by an archive, refusals (unfinished, twice, not archived), corrupted file refused by checksum, live events undeletable even with the purge setting and simulation events undeletable without it, reset keeps the live bank and new runs work on the recreated partitions, reset with archive and its refusal while runs are active, retention by age, API with jobs and permissions; 5 observability tests — routes counted by template not raw path, slow statements logged without parameters, overview with worker and throughput and grouped slow queries, worker registry, Prometheus endpoint and its token) |
+| Migrations | `alembic check` clean; 0012 → 0014 → 0012 → 0014 on an empty database; 0014 → 0012 → 0014 on 100,000 simulated cases (downgrade 25 s, upgrade 40 s, every row and the event sequence kept) |
+| Frontend typecheck, Vitest, build | clean; 80 passed (new: Observability panel, Simulation history panel, archive from the run view); succeeds |
+| Playwright, fresh database (inline jobs) | 18 passed (new: archive a run's history and restore it; administrators see observability and simulation history) |
+| Docker Compose with the worker service | archive and restore ran in the worker container with the files in the shared volume; CLI reset in the worker container; `/api/metrics` 404 without a token and served with one; Playwright 18 passed |
+
+Measured in the development container on 100,000 simulated cases (100,236 executions,
+1.6M step runs, 5.1M events, 2.4 GB):
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Live executions list / task inbox / WF-0001 metrics / timer sweep | 3.4 / 3.3 / 4.4 / 2.5 ms | 3.9 / 3.7 / 4.7 / 2.0 ms (unchanged: indexes were enough) |
+| Remove one run's history | row-by-row DELETE: events 24 s, step runs > 10 min (stopped) | reset 5.0 s; archive 119 s (to 519 MB of files) |
+| Restore an archived run | — | 562 s |
+| Enterprise overview (dashboard API) | ~340 ms | ~140 ms (partial index on timeout events) |
+| Migration 0013 | — | 41 s up, 25 s down |
 
 ## Phase 14: what exists
 
@@ -605,7 +653,12 @@ next item of Milestone A.
   experiments there fail the compliance-threshold criterion unless the thresholds are
   changed for the scenario.
 - Simulation runs write into the same synthetic bank (customers, accounts, ledger postings
-  and staff remain); there is no reset command. Simulated reviewers work around the clock;
+  and staff remain). Since Phase 15 a run's workflow history can be archived, restored or
+  reset, but the domain records it created stay (the ledger is append-only). Restoring a
+  large archive is slow (about 9 minutes for 100,000 cases). Request metrics are per API
+  process and reset when it restarts; job, worker and slow-query figures come from the
+  database and cover every process. Journal lines and the audit log are not partitioned
+  yet (deferred until period close and an audit retention policy exist). Simulated reviewers work around the clock;
   arrivals are uniform. Since Phase 14 runs are durable jobs; a run whose worker stops is
   still reported as interrupted and is not resumed (`simulation.execute` is not retried).
   See [simulation.md](simulation.md) for measured throughput and why the enterprise
@@ -648,8 +701,8 @@ next item of Milestone A.
 - Stored idempotency keys are never pruned.
 - `app/core/events.py` (event dispatcher) is deferred to Phase 4, where workflows need it.
 - Redis is connected and health-checked but not used by any feature yet.
-- `scripts/reset_demo.py` does not exist yet; simulation data accumulates in the
-  development database (`docker compose down -v` resets everything).
+- `scripts/reset_demo.py` does not exist; `python -m app.cli simulation-history reset`
+  clears simulation workflow history, and `docker compose down -v` resets everything.
 - Charts are built from plain HTML/CSS (no charting library); only paired-bar charts exist so far.
 - The frontend Docker image runs the Vite dev server; a production static image is not yet
   defined.

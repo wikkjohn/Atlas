@@ -8,10 +8,13 @@
     python -m app.cli bench-ledger --accounts 2000 --entries 50000      # ledger benchmark
     python -m app.cli load-population --customers 100000 --seed 2026    # bulk customers
     python -m app.cli worker --processes 2                              # background jobs
+    python -m app.cli simulation-history archive --older-than-days 30   # archive old runs
+    python -m app.cli simulation-history reset --archive --yes          # clear sim history
 """
 
 import argparse
 import getpass
+import json
 import os
 import sys
 
@@ -244,14 +247,20 @@ def _worker_process(index: int, schedules: bool, drain: bool) -> None:
     import signal
     import threading
 
+    from app.core.database import get_engine
     from app.jobs import engine, handlers  # noqa: F401  (registers the job kinds)
+    from app.observability.slow_queries import SLOW_QUERIES
 
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())
+    SLOW_QUERIES.install(
+        get_engine(), source=f"worker:{os.getpid()}", threshold_ms=get_settings().slow_query_ms
+    )
     stats = engine.run_worker(
         get_sessionmaker(), stop=stop, schedules=schedules and index == 0, idle_exit=drain
     )
+    SLOW_QUERIES.stop(get_engine())  # write what is still queued
     print(
         f"Worker {stats.worker}: {stats.succeeded} succeeded, {stats.failed} failed, "
         f"{stats.retried} retried, {stats.recovered} recovered, {stats.scheduled} scheduled.",
@@ -279,6 +288,61 @@ def _worker(args: argparse.Namespace) -> int:
         for process in processes:
             process.join()
     return 0 if all(p.exitcode == 0 for p in processes) else 1
+
+
+def _run_number_id(db, run_number: int):
+    from sqlalchemy import select
+
+    from app.simulation.models import SimulationRun
+
+    run_id = db.execute(
+        select(SimulationRun.id).where(SimulationRun.run_number == run_number)
+    ).scalar_one_or_none()
+    if run_id is None:
+        raise DomainError(f"There is no simulation run {run_number}.")
+    return run_id
+
+
+def _simulation_history(args: argparse.Namespace) -> int:
+    from app.simulation import history, service
+
+    factory = get_sessionmaker()
+    try:
+        if args.action == "status":
+            with factory() as db:
+                overview = service.history_overview(db)
+            print(json.dumps(overview.model_dump(mode="json"), indent=2))
+        elif args.action == "archive":
+            if args.older_than_days is not None:
+                archived = history.archive_older_than(factory, args.older_than_days, None)
+                print(f"Archived the history of {len(archived)} run(s): {archived}")
+            else:
+                with factory() as db:
+                    run_id = _run_number_id(db, args.run)
+                record = history.archive_run(factory, run_id, None)
+                print(
+                    f"Archived run {args.run}: {record.rows:,} rows, {record.bytes:,} bytes in "
+                    f"{history.archive_root() / record.location}"
+                )
+        elif args.action == "restore":
+            with factory() as db:
+                run_id = _run_number_id(db, args.run)
+            record = history.restore_run(factory, run_id, None)
+            print(f"Restored run {args.run}: {record.rows:,} rows.")
+        elif args.action == "reset":
+            if not args.yes:
+                print("Reset removes the workflow history of every simulation run; pass --yes.")
+                return 1
+            report = history.reset(factory, None, archive=args.archive)
+            print(
+                f"Reset: archived {len(report.archived)} run(s) first, dropped the history of "
+                f"{len(report.purged)} run(s) ({report.rows:,} rows, "
+                f"{report.bytes_freed:,} bytes)."
+            )
+    except DomainError as exc:
+        print(f"Refused: {exc.message}")
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -355,6 +419,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     worker.add_argument("--drain", action="store_true", help="Exit when no job is due")
     worker.set_defaults(handler=_worker)
+
+    sim_history = commands.add_parser(
+        "simulation-history",
+        help="Archive, restore or reset simulation runs' workflow history (results stay)",
+    )
+    actions = sim_history.add_subparsers(dest="action", required=True)
+    actions.add_parser("status", help="Storage used by workflow history and recent archives")
+    archive = actions.add_parser("archive", help="Archive one run, or every run older than N days")
+    which = archive.add_mutually_exclusive_group(required=True)
+    which.add_argument("--run", type=int, help="Run number")
+    which.add_argument("--older-than-days", type=int)
+    restore = actions.add_parser("restore", help="Restore an archived run's history")
+    restore.add_argument("--run", type=int, required=True, help="Run number")
+    reset = actions.add_parser(
+        "reset", help="Drop the history of every simulation run (instant; live history stays)"
+    )
+    reset.add_argument("--archive", action="store_true", help="Archive each run first")
+    reset.add_argument("--yes", action="store_true", help="Confirm")
+    sim_history.set_defaults(handler=_simulation_history)
 
     args = parser.parse_args(argv)
     return args.handler(args)

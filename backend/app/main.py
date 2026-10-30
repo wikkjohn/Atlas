@@ -8,9 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__, models  # noqa: F401  (registers all tables)
 from app.api.router import api_router, v1_router
 from app.config import get_settings
+from app.core.database import get_engine
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import CORRELATION_HEADER, CorrelationIdMiddleware
+from app.observability.middleware import RequestMetricsMiddleware
+from app.observability.slow_queries import SLOW_QUERIES
 
 
 def create_app() -> FastAPI:
@@ -40,9 +43,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=[CORRELATION_HEADER],
     )
+    # Added last, so outermost: it sees every request's final status (errors included)
+    # and, through the shared scope, the route the router matched.
+    app.add_middleware(RequestMetricsMiddleware)
     register_error_handlers(app)
     app.include_router(api_router)
     app.include_router(v1_router)
+
+    SLOW_QUERIES.install(get_engine(), source="api", threshold_ms=settings.slow_query_ms)
 
     logging.getLogger("atlas").info(
         "application created",

@@ -24,6 +24,12 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0006_ai_innovation_lab` | 6 | AI tools and invocations; run mode, tool and suite; the `automated_policy` role and the policy-engine service account |
 | `0007_experiments` | 7 | Experiments, raw measurements and derived evaluations |
 | `0008_payments_lending` | 9 | Payments and loans; `payment_number_seq`, `loan_number_seq` |
+| `0009_loan_servicing` | 10 | Repayment schedules, servicing runs, loan collections fields |
+| `0010_stored_balances` | 12 | Stored ledger balances (maintained by trigger) and reconciliation history |
+| `0011_search_indexes` | 13 | `pg_trgm` trigram indexes and two-column sort indexes |
+| `0012_background_jobs` | 14 | Job queue, schedules, the scheduler service role and user |
+| `0013_partitioned_history` | 15 | Workflow executions, step runs and events become LIST-partitioned on `realm` (live, simulation); keys `(id, realm)`; `ai_tool_invocations.execution_realm`; events guard allows purging simulation rows only |
+| `0014_archives_observability` | 15 | `simulation_archives`, `simulation_runs.history_state`, `job_workers`, `slow_queries`; the (disabled) history retention schedule |
 
 Common commands (from `backend/`):
 
@@ -185,6 +191,46 @@ Ledger triggers (migration 0003):
 The migration also adds the `system_scheduler` service role and the `atlas-scheduler`
 user (unusable password), whom scheduled jobs act as.
 
+### Partitioned workflow history (Phase 15, migration `0013_partitioned_history`)
+
+`workflow_executions`, `workflow_step_runs` and `workflow_events` are partitioned by LIST
+on a new `realm` column into `<table>_live` and `<table>_simulation`. Indexes, checks and
+row triggers are declared on the parent and exist on both partitions.
+
+- Primary keys are `(id, realm)`; the unique constraints carry `realm` too
+  (`uq_workflow_executions_idempotency (initiated_by, idempotency_key, realm)`,
+  `uq_workflow_step_runs_sequence (execution_id, sequence, realm)`,
+  `uq_workflow_events_seq (seq, realm)`). Foreign keys between the three tables are
+  `(execution_id, realm)` and `(step_run_id, realm)`, so a step or event is always in its
+  execution's partition.
+- `ck_workflow_executions_realm_matches_run`: `realm = 'simulation'` exactly when
+  `simulation_run_id` is set.
+- New indexes: `ix_workflow_events_step_run_id` (removing step runs no longer scans every
+  event) and `ix_workflow_events_timeouts (execution_id) WHERE event_type =
+  'step.timed_out'` (the dashboard's per-run timeout count; 340 → 140 ms at 100,000
+  simulated cases).
+- `ai_tool_invocations.execution_realm` is a stored generated column (`live` or
+  `simulation` from `simulation_run_id`) for the composite foreign key to executions.
+  `simulation_case_results.execution_id` has no foreign key any more: a run's history can
+  be archived while its measured results stay.
+- `workflow_events_append_only()` still refuses UPDATE and TRUNCATE everywhere and DELETE
+  of live events; it allows DELETE of simulation events only when the transaction has set
+  `atlas.simulation_history_purge = 'on'` (the archive and reset commands do).
+- Measured on 100,000 simulated cases (100,236 executions, 1.6M step runs, 5.1M events):
+  upgrade 41 s, downgrade 25 s, every row kept.
+
+### Simulation archives and observability (Phase 15, migration `0014_archives_observability`)
+
+| Table | Contents |
+| --- | --- |
+| `simulation_archives` | One archive (`kind` = archive, with `location` under `ATLAS_SIMULATION_ARCHIVE_DIR`) or purge (`kind` = purge, by a reset) of a run's workflow history: `manifest` (jsonb: per table rows, columns, file, bytes, SHA-256), `summary` (jsonb: accounts, executions, failed executions, document timeouts, AI calls by status — what the dashboard still needs), `rows`, `bytes`, `created_by`, `created_at`, `restored_at`, `restored_by`. At most one archive per run is in effect (`restored_at IS NULL`) |
+| `simulation_runs.history_state` | `present` (in the simulation partitions), `archived` or `purged` |
+| `job_workers` | One row per worker process: `name` (unique), `hostname`, `pid`, `started_at`, `last_seen_at` (every ~5 s), `stopped_at`, `succeeded`, `failed`, `retried` |
+| `slow_queries` | `id` (identity), `occurred_at`, `duration_ms`, `statement` (no parameters, at most 4,000 characters), `source` (api or worker), `context` (route or job kind), `correlation_id`. The newest 5,000 rows are kept |
+
+The migration adds the `simulation-history-retention` schedule (daily, off): it archives
+runs older than 30 days.
+
 ### Search and sort indexes (Phase 13, migration `0011_search_indexes`)
 
 The `pg_trgm` extension and GIN trigram indexes for substring searches:
@@ -213,7 +259,7 @@ sorts both columns descending so the index is read backwards. No table changes.
 | `customer_notifications` | Simulated messages (`customer_id`, `channel`, `subject`, `body`, `workflow_execution_id`) |
 
 `workflow_executions.simulation_run_id` (Phase 5, nullable, indexed) links executions a
-simulation drove.
+simulation drove. Since Phase 15 these tables are partitioned by `realm` (see above).
 
 ### Simulation tables (Phase 5)
 

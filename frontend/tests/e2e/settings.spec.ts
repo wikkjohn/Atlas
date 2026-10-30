@@ -38,3 +38,13 @@ test("System Settings: an administrator creates a user who then signs in with th
   await auditor.reload();
   await expect(auditor.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
+
+test("System Settings: administrators see observability and simulation history", async ({ page }) => {
+  await signIn(page, "admin", "/settings");
+  const observability = page.getByRole("region", { name: "Observability" });
+  await expect(observability.getByText("Jobs due")).toBeVisible();
+  // This very page load went through the API, so the request table has rows.
+  await expect(observability.getByRole("table", { name: "Request latency" }).getByText(/GET \/api\/v1\//).first()).toBeVisible();
+  const history = page.getByRole("region", { name: "Simulation history" });
+  await expect(history.getByRole("table", { name: "History partitions" }).getByText("Events")).toBeVisible();
+});

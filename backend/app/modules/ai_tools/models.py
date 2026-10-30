@@ -5,8 +5,10 @@ from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     String,
     Text,
@@ -79,6 +81,11 @@ class AIToolInvocation(UUIDPrimaryKey, Base):
             " 'blocked')",
             name="status_valid",
         ),
+        ForeignKeyConstraint(
+            ["execution_id", "execution_realm"],
+            ["workflow_executions.id", "workflow_executions.realm"],
+            ondelete="RESTRICT",
+        ),
     )
 
     tool_record_id: Mapped[uuid.UUID] = mapped_column(
@@ -96,11 +103,19 @@ class AIToolInvocation(UUIDPrimaryKey, Base):
     invoked_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
-    execution_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workflow_executions.id", ondelete="RESTRICT"), nullable=True, index=True
-    )
+    execution_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
     simulation_run_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("simulation_runs.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    # The partition of the execution, derived for the foreign key: executions are keyed by
+    # (id, realm), and a call made inside a simulation belongs to a simulated execution.
+    execution_realm: Mapped[str | None] = mapped_column(
+        String(10),
+        Computed(
+            "CASE WHEN execution_id IS NULL THEN NULL"
+            " WHEN simulation_run_id IS NULL THEN 'live' ELSE 'simulation' END",
+            persisted=True,
+        ),
     )
     # Business time of the call (simulated time inside simulations).
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

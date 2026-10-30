@@ -43,7 +43,10 @@ Conditions are structured, never `eval`: `{"path": "a.b", "op": "eq", "value": â
 
 - **Persisted state.** Executions, step runs (one row per visit; retries reuse it with
   `attempt` + 1) and an append-only event history (`workflow_events`, protected by a
-  trigger, ordered by a database sequence) are all in PostgreSQL.
+  trigger, ordered by a database sequence) are all in PostgreSQL. Since Phase 15 the
+  three tables are partitioned into live and simulation history (`realm`); live history
+  can never be deleted, simulation history only by the archive and reset commands
+  ([simulation.md](simulation.md#workflow-history-archive-restore-reset-phase-15)).
 - **Atomic steps.** A handler runs inside a savepoint with its state transition. If it
   raises, its writes are rolled back and only the failure is recorded; if the process
   dies, the whole transaction rolls back and the step is still `pending`.

@@ -13,7 +13,9 @@ RUN pip install .
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && useradd --create-home atlas
+# The archive directory exists (owned by the app user) so a fresh named volume inherits it.
+RUN chmod +x docker-entrypoint.sh && useradd --create-home atlas \
+    && mkdir -p /app/var/simulation-archive && chown -R atlas /app/var
 USER atlas
 
 EXPOSE 8000

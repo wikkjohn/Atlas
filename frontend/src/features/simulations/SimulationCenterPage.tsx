@@ -1,5 +1,5 @@
 import { CheckCircle2, Dices, Play, RotateCcw, XCircle } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useAuth } from "@/app/auth";
@@ -12,6 +12,7 @@ import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
 import { formatMilliseconds, formatTimestamp } from "@/features/dashboard/format";
+import { RunHistory } from "@/features/simulations/RunHistory";
 import { humanize } from "@/services/format";
 import {
   useProfiles,
@@ -25,6 +26,7 @@ import {
 import { useAiTools } from "@/services/aiTools";
 import {
   type ExperimentMode,
+  type HistoryState,
   MODE_LABELS,
   type ProfileId,
   type SimulationRunDetail,
@@ -358,10 +360,21 @@ function Cases({ runId }: { runId: string }) {
   );
 }
 
+// How long the page polls for a queued archive or restore to finish.
+const HISTORY_WAIT_MS = 10 * 60_000;
+
 function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => void }) {
   const { can } = useAuth();
-  const run = useSimulationRun(id);
+  // The history state when an archive or restore was queued, until it changes.
+  const [waitingFrom, setWaitingFrom] = useState<{ state: HistoryState; since: number } | null>(null);
+  const run = useSimulationRun(id, waitingFrom !== null);
   const rerun = useRerunSimulation();
+  const historyState = run.data?.history_state;
+  useEffect(() => {
+    if (!waitingFrom) return;
+    const timeout = Date.now() - waitingFrom.since > HISTORY_WAIT_MS;
+    if (timeout || (historyState && historyState !== waitingFrom.state)) setWaitingFrom(null);
+  }, [historyState, waitingFrom, run.dataUpdatedAt]);
   if (run.error) return <ErrorMessage error={run.error} />;
   const r = run.data;
   if (!r) return <p className="text-sm text-slate-500">Loading…</p>;
@@ -520,6 +533,11 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
             </div>
           </section>
 
+          <RunHistory
+            run={r}
+            waiting={waitingFrom !== null}
+            onQueued={() => setWaitingFrom({ state: r.history_state, since: Date.now() })}
+          />
           <Cases runId={r.id} />
         </>
       )}

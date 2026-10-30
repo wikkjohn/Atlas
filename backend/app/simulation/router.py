@@ -13,10 +13,11 @@ from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.jobs import engine as jobs
 from app.modules.identity.dependencies import Authorized
-from app.simulation import service
-from app.simulation.models import SimulationStatus
+from app.simulation import history, service
+from app.simulation.models import SimulationRun, SimulationStatus
 from app.simulation.schemas import (
     CaseResultOut,
+    HistoryOverview,
     ProfileOut,
     ScenarioOut,
     SimulationRunDetail,
@@ -58,6 +59,17 @@ def list_runs(
     service.reap_stale(db)
     items, total = service.list_runs(db, page, status=status, batch_id=batch_id, mode=mode)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@router.get(
+    "/history",
+    response_model=HistoryOverview,
+    summary="Storage used by workflow history (live and simulated) and recent archives",
+)
+def history_overview(
+    db: DbSession, _: Authorized(Permission.SIMULATIONS_MANAGE)
+) -> HistoryOverview:
+    return service.history_overview(db)
 
 
 class SuiteRuns(RootModel[list[SimulationRunSummary]]):
@@ -228,3 +240,62 @@ def list_cases(
     service.get_run(db, run_id)
     items, total = service.list_cases(db, run_id, page, kind=kind, mismatched=mismatched)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+class QueuedJob(BaseModel):
+    job_id: uuid.UUID
+    job_number: int
+    kind: str
+    status: str
+
+
+def _queue_history_job(
+    db: Session, kind: str, run: SimulationRun, actor_id: uuid.UUID, tasks, factory
+) -> QueuedJob:
+    # One archive or restore per run at a time.
+    job = jobs.enqueue(
+        db,
+        kind,
+        {"run_id": str(run.id)},
+        created_by=actor_id,
+        dedupe_key=f"simulation-history:{run.id}",
+    )
+    db.commit()
+    jobs.dispatch(tasks, factory, [job.id])
+    return QueuedJob(job_id=job.id, job_number=job.job_number, kind=job.kind, status=job.status)
+
+
+@router.post(
+    "/{run_id}/archive",
+    response_model=QueuedJob,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Archive the run's workflow history to files (a background job); results stay",
+)
+def archive_history(
+    run_id: uuid.UUID,
+    db: DbSession,
+    actor: Authorized(Permission.SIMULATIONS_MANAGE),
+    tasks: BackgroundTasks,
+    factory: SessionFactory,
+) -> QueuedJob:
+    run = service.get_run(db, run_id)
+    history.check_archivable(db, run)  # refuse now rather than in a failed job
+    return _queue_history_job(db, "simulation.archive_history", run, actor.id, tasks, factory)
+
+
+@router.post(
+    "/{run_id}/restore",
+    response_model=QueuedJob,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Restore the run's archived workflow history (a background job)",
+)
+def restore_history(
+    run_id: uuid.UUID,
+    db: DbSession,
+    actor: Authorized(Permission.SIMULATIONS_MANAGE),
+    tasks: BackgroundTasks,
+    factory: SessionFactory,
+) -> QueuedJob:
+    run = service.get_run(db, run_id)
+    history.check_restorable(run)
+    return _queue_history_job(db, "simulation.restore_history", run, actor.id, tasks, factory)

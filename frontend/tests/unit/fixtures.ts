@@ -137,6 +137,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "workflows:manage",
   "simulations:read",
   "simulations:run",
+  "simulations:manage",
   "ai_tools:read",
   "ai_tools:manage",
   "ai_tools:invoke",
@@ -154,6 +155,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "loans:service",
   "jobs:read",
   "jobs:manage",
+  "observability:read",
 ];
 
 function user(role: string, roleName: string, permissions: Permission[]): CurrentUser {

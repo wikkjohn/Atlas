@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessRuleViolation
 from app.modules.ai_tools.models import AIToolInvocation
-from app.modules.workflows.models import WorkflowEvent, WorkflowExecution
+from app.modules.workflows.models import Realm, WorkflowEvent, WorkflowExecution
 from app.simulation.models import SimulationCaseResult, SimulationRun
 from app.simulation.scenarios import get_scenario
 from app.simulation.workloads import Workload, workload_for
@@ -79,15 +79,18 @@ def measure(db: Session, run: SimulationRun) -> dict[str, Any]:
     completed = [c for c in cases if c.status == "completed"]
 
     execution_ids = select(WorkflowExecution.id).where(
-        WorkflowExecution.simulation_run_id == run.id
+        WorkflowExecution.realm == Realm.SIMULATION, WorkflowExecution.simulation_run_id == run.id
     )
     failed_executions = db.execute(
         select(func.count()).where(
-            WorkflowExecution.simulation_run_id == run.id, WorkflowExecution.status == "failed"
+            WorkflowExecution.realm == Realm.SIMULATION,
+            WorkflowExecution.simulation_run_id == run.id,
+            WorkflowExecution.status == "failed",
         )
     ).scalar_one()
     document_timeouts = db.execute(
         select(func.count()).where(
+            WorkflowEvent.realm == Realm.SIMULATION,
             WorkflowEvent.execution_id.in_(execution_ids),
             WorkflowEvent.event_type == "step.timed_out",
         )

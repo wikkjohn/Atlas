@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from sqlalchemy import Text, cast, select
+from sqlalchemy import Text, and_, cast, select
 from sqlalchemy.orm import Session
 
 from app.core.money import to_minor_units
@@ -32,7 +32,7 @@ from app.modules.lending import service as lending
 from app.modules.lending.models import Loan
 from app.modules.payments import service as payments
 from app.modules.payments.models import Payment, PaymentStatus
-from app.modules.workflows.models import WorkflowExecution
+from app.modules.workflows.models import Realm, WorkflowExecution
 from app.simulation.generators import (
     FIRST_NAMES,
     LAST_NAMES,
@@ -112,6 +112,13 @@ def _roles(db: Session) -> dict[uuid.UUID, frozenset[Permission]]:
     }
 
 
+def _in_run(run_id: uuid.UUID):
+    """The run's executions, all in the simulation partition."""
+    return and_(
+        WorkflowExecution.realm == Realm.SIMULATION, WorkflowExecution.simulation_run_id == run_id
+    )
+
+
 def _pick(rng, mix: dict[str, float]) -> str:
     kinds = sorted(mix)
     return rng.choices(kinds, weights=[mix[k] for k in kinds])[0]
@@ -174,7 +181,7 @@ class RetailOnboarding(Workload):
             .join(WorkflowExecution, request_id == cast(AccountRequest.id, Text))
             .join(Customer, Customer.id == AccountRequest.customer_id)
             .join(User, User.id == AccountRequest.decided_by)
-            .where(WorkflowExecution.simulation_run_id == run_id)
+            .where(_in_run(run_id))
         ).all()
         roles = _roles(db)
         check = ControlCheck(decisions=len(rows))
@@ -422,7 +429,7 @@ class DomesticPayments(Workload):
             .join(WorkflowExecution, WorkflowExecution.id == Payment.workflow_execution_id)
             .outerjoin(User, User.id == Payment.approved_by)
             .where(
-                WorkflowExecution.simulation_run_id == run_id,
+                _in_run(run_id),
                 Payment.status == PaymentStatus.RELEASED,
             )
         ).all()
@@ -556,7 +563,7 @@ class PersonalLoans(Workload):
             .join(WorkflowExecution, WorkflowExecution.id == Loan.workflow_execution_id)
             .join(underwriter, underwriter.c.id == Loan.underwritten_by)
             .outerjoin(committee, committee.c.id == Loan.committee_approved_by)
-            .where(WorkflowExecution.simulation_run_id == run_id)
+            .where(_in_run(run_id))
         ).all()
         roles = _roles(db)
         check = ControlCheck(decisions=len(rows))

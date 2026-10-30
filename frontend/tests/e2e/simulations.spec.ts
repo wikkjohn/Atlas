@@ -37,6 +37,29 @@ test("Simulation Center: start a seeded run, review outcomes, reproduce it exact
   await expect(details.getByText(`Run ${original}: identical results`)).toBeVisible();
 });
 
+test("Simulation Center: archive a run's workflow history, then restore it", async ({ page }) => {
+  test.setTimeout(180_000);
+  await signIn(page, "researcher", "/simulations");
+  const form = page.getByRole("form", { name: "Start a simulation" });
+  await form.getByLabel("Workload").selectOption("custom");
+  await form.getByLabel("Cases").fill("8");
+  await form.getByLabel("Simulated staff").fill("5");
+  await form.getByLabel("Random seed", { exact: true }).fill(String(1 + Math.floor(Math.random() * 1_000_000)));
+  await form.getByRole("button", { name: "Start run" }).click();
+  const details = page.getByRole("region", { name: "Run details" });
+  await expect(details.getByText("Completed", { exact: true })).toBeVisible({ timeout: 120_000 });
+
+  // Archiving moves the history to files (a background job); results stay.
+  const history = details.getByRole("region", { name: "Workflow history" });
+  await history.getByRole("button", { name: "Archive history" }).click();
+  await expect(history.getByText(/^Archived .* rows in .* of files/)).toBeVisible({ timeout: 60_000 });
+  await expect(details.getByText("8 / 8")).toBeVisible();
+  await expect(details.getByRole("table", { name: "Case results" }).getByRole("row")).toHaveCount(9);
+
+  await history.getByRole("button", { name: "Restore history" }).click();
+  await expect(history.getByRole("button", { name: "Archive history" })).toBeVisible({ timeout: 60_000 });
+});
+
 test("Simulation Center: read-only roles see runs but cannot start them", async ({ page }) => {
   await signIn(page, "auditor", "/simulations");
   await expect(page.getByText("Your role can review runs but not start them.")).toBeVisible();

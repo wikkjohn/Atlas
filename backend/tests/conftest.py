@@ -16,6 +16,9 @@ os.environ["ATLAS_ENVIRONMENT"] = "test"
 os.environ["ATLAS_LOG_FORMAT"] = "text"
 os.environ["ATLAS_CORS_ORIGINS"] = "http://localhost:5173"
 os.environ.setdefault("ATLAS_REDIS_URL", "")
+# The slow-query log writes on its own connection, outside the per-test transaction; tests
+# exercise it directly instead (tests/test_observability.py).
+os.environ["ATLAS_SLOW_QUERY_MS"] = "0"
 
 from collections.abc import Iterator  # noqa: E402
 
@@ -28,6 +31,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 from alembic import command  # noqa: E402
 from app.core.database import build_engine, get_db, get_engine  # noqa: E402
 from app.core.system import alembic_config  # noqa: E402
+from app.jobs import engine as jobs_engine  # noqa: E402
 from app.main import create_app  # noqa: E402
 
 UNREACHABLE_DATABASE_URL = "postgresql+psycopg://atlas:atlas@127.0.0.1:1/atlas"
@@ -47,6 +51,14 @@ def migrated_database() -> Iterator[None]:
     migrate("base")
     migrate("head")
     yield
+
+
+@pytest.fixture(autouse=True)
+def no_job_heartbeats(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jobs in tests run on the test's single connection; a job's heartbeat thread would
+    use that connection from a second thread once the job ran longer than the interval
+    (10 s), interleaving its savepoints with the job's. (Recovery tests set heartbeat_at.)"""
+    monkeypatch.setattr(jobs_engine, "HEARTBEAT_SECONDS", 3600)
 
 
 @pytest.fixture

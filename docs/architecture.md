@@ -286,7 +286,42 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   after responding; Docker Compose sets `worker`, so its worker service runs them.
 - **Job kinds:** `ledger.reconcile`, `workflows.run_due`, `lending.service_loans` (as the
   `atlas-scheduler` service account), `simulation.execute`, `experiment.execute`,
-  `system.ping`. Kinds marked manual can be queued by hand through the API.
+  `system.ping`; since Phase 15 also `simulation.archive_history`,
+  `simulation.restore_history` and `simulation.archive_old`. Kinds marked manual can be
+  queued by hand through the API.
+
+## Simulation data lifecycle and observability (Phase 15, roadmap Milestone A)
+
+- **Partitioned workflow history** (migration 0013). `workflow_executions`,
+  `workflow_step_runs` and `workflow_events` are LIST-partitioned on `realm`: `live` (the
+  bank's own cases) and `simulation`. Keys are `(id, realm)` because PostgreSQL requires
+  the partition key in every unique constraint; the ORM still identifies rows by `id`.
+  Queries that know their realm (the task inbox, the timer sweep, metrics, a run's cases)
+  filter on it, so only one partition is read.
+- **Why partitions, measured.** With 100,000 simulated cases (1.6M step runs, 5.1M
+  events) next to the live bank, the live queries already took 2–5 ms before partitioning
+  and still do: their indexes were enough. What partitioning changes is removal:
+  deleting that history row by row took 24 s for the events alone and over ten minutes
+  for the step runs; dropping and recreating the simulation partitions takes 5 s.
+- **Archive, restore, reset** (`app/simulation/history.py`). Archive writes one run's
+  executions, step runs, events and AI tool calls to gzip-compressed COPY files with a
+  manifest (rows, columns, SHA-256 per file), then deletes them in the same transaction;
+  results and per-case outcomes stay, and the counts the dashboard needs are kept on the
+  archive record. Restore checks the checksums and copies the rows back. Reset drops the
+  simulation partitions (optionally archiving every run first). Live history stays
+  append-only without exception: the events guard allows deletes only of simulation rows
+  and only in a transaction that sets `atlas.simulation_history_purge`.
+- **What is not archived.** Customers, accounts, ledger postings and staff created by
+  simulated cases stay: the ledger is append-only, and removing them would rewrite the
+  books. Only workflow history is lifecycle-managed.
+- **Observability** (`app/observability`). A middleware counts requests by route
+  template and status class with a latency histogram (per API process); SQLAlchemy engine
+  events time every statement and queue those over `ATLAS_SLOW_QUERY_MS` (default 250),
+  which a background thread writes to `slow_queries` on its own connection, with the
+  route or job they ran for and no parameters. Workers register in `job_workers` and
+  report every 5 seconds. `GET /api/v1/observability/overview` combines them with queue
+  depth, lag and per-kind throughput from `jobs`; `/api/metrics` serves Prometheus text
+  when `ATLAS_METRICS_TOKEN` is set.
 
 ## Planned design for later phases
 

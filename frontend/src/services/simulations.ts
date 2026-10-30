@@ -4,7 +4,9 @@ import { apiGet, apiPost, query, useIdempotencyKey } from "@/services/api";
 import type { Page } from "@/types/enterprise";
 import type {
   CaseResult,
+  HistoryOverview,
   Profile,
+  QueuedJob,
   Scenario,
   SimulationRunDetail,
   SimulationRunSummary,
@@ -38,13 +40,30 @@ export const useSimulationRuns = (offset: number, limit: number) =>
     refetchInterval: (q) => (q.state.data?.items.some((r) => active(r.status)) ? POLL_MS : false),
   });
 
-export const useSimulationRun = (id: string | null) =>
+/** `watch` keeps polling, e.g. while a queued archive or restore job has yet to finish. */
+export const useSimulationRun = (id: string | null, watch = false) =>
   useQuery({
     queryKey: ["simulations", "run", id],
     queryFn: () => apiGet<SimulationRunDetail>(`/api/v1/simulations/${id}`),
     enabled: Boolean(id),
-    refetchInterval: (q) => (active(q.state.data?.status) ? POLL_MS : false),
+    refetchInterval: (q) => (watch || active(q.state.data?.status) ? POLL_MS : false),
   });
+
+export const useHistoryOverview = () =>
+  useQuery({
+    queryKey: ["simulations", "history"],
+    queryFn: () => apiGet<HistoryOverview>("/api/v1/simulations/history"),
+  });
+
+/** Queue the archive (or restore) of a run's workflow history as a background job. */
+export function useHistoryAction() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "archive" | "restore" }) =>
+      apiPost<QueuedJob>(`/api/v1/simulations/${id}/${action}`, {}),
+    onSuccess: invalidate,
+  });
+}
 
 export const useSimulationCases = (
   id: string | null,

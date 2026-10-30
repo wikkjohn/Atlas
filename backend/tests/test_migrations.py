@@ -3,6 +3,7 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import inspect
 
 from app.core.database import Base, build_engine
+from app.models import COMPARE_OPTIONS
 from tests.conftest import TEST_DATABASE_URL, migrate
 
 
@@ -23,7 +24,9 @@ def test_models_match_migrations() -> None:
     engine = build_engine(TEST_DATABASE_URL)
     try:
         with engine.connect() as conn:
-            diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+            diff = compare_metadata(
+                MigrationContext.configure(conn, opts=COMPARE_OPTIONS), Base.metadata
+            )
     finally:
         engine.dispose()
 

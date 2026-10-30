@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from sqlalchemy import Text, and_, cast, select
+from sqlalchemy import Text, Uuid, and_, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.core.money import to_minor_units
@@ -110,6 +110,20 @@ def _roles(db: Session) -> dict[uuid.UUID, frozenset[Permission]]:
     return {
         role_id: permissions_for(code) for role_id, code in db.execute(select(Role.id, Role.code))
     }
+
+
+# Workflows whose business key is the id of the customer the case is about (WF-0002 keys
+# payments by payment number, WF-0004 by loan id).
+CUSTOMER_KEYED_WORKFLOWS = ("WF-0001", "WF-0003")
+
+
+def customer_keyed(executions_filter):
+    """Customer ids of the executions matching `executions_filter` that key on one."""
+    return select(func.cast(WorkflowExecution.business_key, Uuid)).where(
+        executions_filter,
+        WorkflowExecution.workflow_id.in_(CUSTOMER_KEYED_WORKFLOWS),
+        WorkflowExecution.business_key.is_not(None),
+    )
 
 
 def _in_run(run_id: uuid.UUID):

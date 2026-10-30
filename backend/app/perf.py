@@ -116,24 +116,56 @@ def _admin_headers(db: Session) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+async def _asgi_get(app: Any, path: str, headers: dict[str, str]) -> int:
+    """One GET straight into the ASGI application (no server, no test client): the time
+    the platform itself takes, without network or HTTP parsing."""
+    status = 0
+
+    async def receive() -> dict[str, Any]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: dict[str, Any]) -> None:
+        nonlocal status
+        if message["type"] == "http.response.start":
+            status = message["status"]
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"host", b"perf")]
+        + [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+        "client": ("127.0.0.1", 0),
+        "server": ("perf", 80),
+    }
+    await app(scope, receive, send)
+    return status
+
+
 def _api(path: str) -> Callable[[Context], tuple[float, dict[str, Any]]]:
     def measure(ctx: Context) -> tuple[float, dict[str, Any]]:
-        from fastapi.testclient import TestClient
+        import asyncio
 
         from app.main import create_app
 
         with ctx.factory() as db:
             headers = _admin_headers(db)
+        app = create_app()
         samples = []
-        with TestClient(create_app()) as client:
-            for i in range(ctx.size(20, 60) + 3):
-                start = time.perf_counter()
-                response = client.get(path, headers=headers)
-                elapsed = (time.perf_counter() - start) * 1000
-                if response.status_code != 200:
-                    raise RuntimeError(f"GET {path} returned {response.status_code}")
-                if i >= 3:  # the first requests warm caches and pools
-                    samples.append(elapsed)
+        for i in range(ctx.size(20, 60) + 3):
+            start = time.perf_counter()
+            status = asyncio.run(_asgi_get(app, path, headers))
+            elapsed = (time.perf_counter() - start) * 1000
+            if status != 200:
+                raise RuntimeError(f"GET {path} returned {status}")
+            if i >= 3:  # the first requests warm caches and pools
+                samples.append(elapsed)
         ordered = sorted(samples)
         p95 = ordered[max(0, round(0.95 * len(ordered)) - 1)]
         return round(p95, 1), {"median_ms": round(statistics.median(samples), 1)}

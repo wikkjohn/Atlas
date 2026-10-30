@@ -142,3 +142,29 @@ def test_service_accounts_keep_their_role_but_can_be_switched_off(
     assert "Service accounts keep their role" in response.text
     off = client.patch(f"/api/v1/users/{engine.id}", json={"is_active": False}, headers=headers)
     assert off.status_code == 200 and off.json()["is_active"] is False
+
+
+def test_overview_with_payment_simulations_whose_keys_are_not_customer_ids(
+    client: TestClient, db: Session, db_connection: Connection
+) -> None:
+    """WF-0002 keys executions by payment number ("PAY-…"); counting simulated accounts
+    once cast every simulated business key to a customer id and failed."""
+    from app.simulation import history
+    from app.simulation.runner import create_run, execute_run
+    from app.simulation.scenarios import get_scenario
+
+    def factory() -> Session:
+        return Session(bind=db_connection, join_transaction_mode="create_savepoint")
+
+    make_org_tree(db)
+    researcher = make_user(db, RoleCode.AI_RESEARCHER)
+    run = create_run(
+        db, get_scenario("domestic-payments"), profile="custom", applications=6, employees=8,
+        seed=3, created_by=researcher.id,
+    )  # fmt: skip
+    db.commit()
+    execute_run(factory, run.id)
+
+    response = client.get("/api/v1/analytics/overview", headers=auth(researcher))
+    assert response.status_code == 200
+    assert history.summarize(db, run.id)["accounts"] == 0  # payments open no accounts

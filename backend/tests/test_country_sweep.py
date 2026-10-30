@@ -15,7 +15,7 @@ from app.simulation.generators import ApplicationGenerator
 from app.simulation.models import SimulationCaseResult, SimulationRun
 from app.simulation.runner import SimulationSetupError, create_run
 from app.simulation.scenarios import ScenarioConfig, get_scenario
-from app.simulation.sweep import report, sweep
+from app.simulation.sweep import case_kinds, report, sweep
 from tests.factories import make_org_tree, make_user
 
 TODAY = date(2026, 3, 2)
@@ -137,6 +137,11 @@ def test_the_sweep_passes_in_operating_and_launched_countries(db: Session, facto
 
     db.expire_all()
     for result in results:
+        # Every kind of the scenario's mix occurs, as `case_kinds` predicted from the seed.
+        scenario = get_scenario(result.scenario)
+        assert set(result.kinds) == set(scenario.config.mix)
+        predicted = case_kinds(scenario, result.seed, result.cases)
+        assert {k: predicted.count(k) for k in set(predicted)} == result.kinds
         run = db.execute(
             select(SimulationRun).where(SimulationRun.run_number == result.run_number)
         ).scalar_one()

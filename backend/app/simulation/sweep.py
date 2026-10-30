@@ -11,6 +11,7 @@ country, with that country's applicants, payers and staff only, and checks each 
 
 import time
 import uuid
+import zlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 
@@ -18,12 +19,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.countries.models import Country, OperationalStatus
+from app.simulation.generators import case_random
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
 from app.simulation.runner import create_run, execute_run
-from app.simulation.scenarios import get_scenario
+from app.simulation.scenarios import Scenario, get_scenario, normalized
 from app.simulation.workloads import workload_for
 
 SCENARIOS = ("global-onboarding", "global-payments")
+# The random stream each workload draws a case's kind from (its first draw).
+KIND_STREAM = {"retail_onboarding": "application", "domestic_payments": "payment"}
 
 
 @dataclass
@@ -31,6 +35,7 @@ class SweepResult:
     country: str
     scenario: str
     run_number: int
+    seed: int
     status: str
     cases: int
     completed: int
@@ -40,6 +45,31 @@ class SweepResult:
     seconds: float
     problems: list[str] = field(default_factory=list)
     kinds: dict[str, int] = field(default_factory=dict)  # cases of each kind
+
+
+def case_kinds(scenario: Scenario, seed: int, cases: int) -> list[str]:
+    """The kind of each case a run of `scenario` with this seed generates, without running it:
+    a case's kind is the first draw of its own random stream."""
+    mix = normalized(scenario.config.mix)
+    kinds = sorted(mix)
+    weights = [mix[k] for k in kinds]
+    stream = KIND_STREAM[scenario.workload]
+    return [
+        case_random(seed, index, stream).choices(kinds, weights=weights)[0]
+        for index in range(cases)
+    ]
+
+
+def covering_seed(scenario: Scenario, cases: int, start: int) -> int:
+    """The first seed from `start` whose cases include every kind of the scenario's mix, so
+    each run exercises all of them (rare kinds would otherwise be missed at small sizes)."""
+    wanted = set(scenario.config.mix)
+    if cases < len(wanted):
+        raise ValueError(f"{cases} cases cannot cover {len(wanted)} kinds.")
+    for seed in range(start, start + 100_000):
+        if set(case_kinds(scenario, seed, cases)) == wanted:
+            return seed
+    raise ValueError("No seed covers every kind; use more cases.")
 
 
 def active_countries(db: Session) -> list[str]:
@@ -64,6 +94,8 @@ def run_one(
 ) -> SweepResult:
     scenario = get_scenario(scenario_id)
     assert scenario is not None
+    # Each country starts its search from its own seed, so countries see different cases.
+    seed = covering_seed(scenario, cases, seed + zlib.crc32(country.encode()) % 1_000_000)
     started = time.perf_counter()
     with factory() as db, db.begin():
         run = create_run(
@@ -111,10 +143,15 @@ def run_one(
                 for i, kind, expected, outcome in mismatched
             ]
         problems += [f"control violation: {v['rule']}" for v in violations]
+        kinds = {kind: entry["cases"] for kind, entry in results.get("by_kind", {}).items()}
+        missing = sorted(set(scenario.config.mix) - set(kinds))
+        if missing:
+            problems.append(f"kinds not exercised: {', '.join(missing)}")
         return SweepResult(
             country=country,
             scenario=scenario_id,
             run_number=run_number,
+            seed=seed,
             status=run.status,
             cases=cases,
             completed=completed,
@@ -123,7 +160,7 @@ def run_one(
             passed=not problems,
             seconds=round(time.perf_counter() - started, 2),
             problems=problems,
-            kinds={kind: entry["cases"] for kind, entry in results.get("by_kind", {}).items()},
+            kinds=kinds,
         )
 
 

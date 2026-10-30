@@ -12,7 +12,6 @@ from app.modules.accounts.models import Account
 from app.modules.ai_tools.models import AITool, AIToolInvocation, ToolStatus
 from app.modules.analytics.schemas import Metric, Overview, RecentExperiment, RecentRun
 from app.modules.countries.models import Country, OperationalStatus
-from app.modules.customers.models import Customer
 from app.modules.employees.models import Employee
 from app.modules.experiments.assumptions import CostAssumptions
 from app.modules.experiments.evaluation import costs
@@ -32,7 +31,7 @@ from app.simulation.models import (
     SimulationRun,
     SimulationStatus,
 )
-from app.simulation.workloads import WORKLOADS
+from app.simulation.workloads import WORKLOADS, customer_keyed
 
 ESCALATION_STEPS = sorted({step for w in WORKLOADS.values() for step in w.escalation_steps})
 
@@ -207,10 +206,7 @@ def overview(db: Session) -> Overview:
     ).scalar_one()
 
     accounts = _count(db, select(func.count()).select_from(Account))
-    simulated_customers = select(func.cast(WorkflowExecution.business_key, Customer.id.type)).where(
-        WorkflowExecution.realm == Realm.SIMULATION,
-        WorkflowExecution.business_key.is_not(None),
-    )
+    simulated_customers = customer_keyed(WorkflowExecution.realm == Realm.SIMULATION)
     simulated_accounts = _count(
         db,
         select(func.count())

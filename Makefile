@@ -36,6 +36,10 @@ workflows: ## Run only the workflow runner (resumes due steps, applies timeouts)
 simulate: ## Run a small simulation (override: make simulate ARGS="--profile department --seed 7")
 	cd $(BACKEND) && .venv/bin/python -m app.cli simulate $(ARGS)
 
+.PHONY: perf
+perf: ## Performance suite against recorded targets (ARGS="--quick"; use a scratch database)
+	cd $(BACKEND) && .venv/bin/python -m app.cli perf $(ARGS)
+
 .PHONY: sim-history
 sim-history: ## Simulation workflow history (ARGS="status" | "archive --run 7" | "restore --run 7" | "reset --yes")
 	cd $(BACKEND) && .venv/bin/python -m app.cli simulation-history $(or $(ARGS),status)

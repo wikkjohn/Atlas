@@ -29,19 +29,21 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import event, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import __version__
 from app.config import get_settings
-from app.core.errors import ConflictError, DomainError
+from app.core.errors import BusinessRuleViolation, ConflictError, DomainError
 from app.core.money import to_minor_units
 from app.core.permissions import permissions_for
 from app.modules.ai_tools.models import AITool
 from app.modules.countries.models import Country, OperationalStatus
 from app.modules.employees.schemas import EmployeeCreate
 from app.modules.employees.service import create_employee
+from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser, create_service_account
+from app.modules.ledger.models import BALANCE_SHARDS
 from app.modules.organizations.models import Organization, OrganizationStatus, OrganizationType
 from app.modules.organizations.schemas import OrganizationCreate
 from app.modules.organizations.service import create_organization
@@ -60,8 +62,13 @@ from app.simulation.generators import (
     case_random,
     digest,
 )
-from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
-from app.simulation.scenarios import MODES, Scenario, get_scenario
+from app.simulation.models import (
+    SimulationCaseResult,
+    SimulationRun,
+    SimulationShard,
+    SimulationStatus,
+)
+from app.simulation.scenarios import MAX_SHARDS, MODES, Scenario, get_scenario
 from app.simulation.workloads import STAFF_ROLES, SyntheticCase, history_time, workload_for
 
 logger = logging.getLogger("atlas.simulation")
@@ -75,8 +82,8 @@ PAY_BAND = {"JPY": (5_000_000, 24_000_000)}
 DEFAULT_PAY_BAND = (45_000, 200_000)
 
 
-class SimulationSetupError(DomainError):
-    """The run cannot start: the reason is shown to the user."""
+class SimulationSetupError(BusinessRuleViolation):
+    """The run cannot start: the reason is shown to the user (422 from the API)."""
 
 
 def software_version() -> str:
@@ -98,6 +105,7 @@ def resolve_config(
     employees: int,
     mode: str = "baseline",
     tool: AITool | None = None,
+    shards: int = 1,
 ) -> dict[str, Any]:
     """The complete configuration of a run; stored with it and hashed to compare runs."""
     definition = registry.get_definition(scenario.workflow_id, scenario.workflow_version)
@@ -142,6 +150,11 @@ def resolve_config(
         # The dataset the run draws on: active countries decide where applicants live.
         "dataset": {"countries": countries, "watchlist": "synthetic-watchlist-v1"},
     }
+    if shards > 1:
+        _check_shards(scenario, workload, applications, employees, shards)
+        # Part of the configuration (and its hash): each shard has its own staff and
+        # queues, so a sharded run is a different model from a single-process one.
+        config["shards"] = shards
     if ai_capable:
         config["mode"] = mode
         config["ai_mode"] = MODES[mode]
@@ -161,6 +174,32 @@ def resolve_config(
     return config
 
 
+def _role_counts(scenario: Scenario, employees: int) -> dict[str, int]:
+    workload = workload_for(scenario)
+    members = StaffGenerator(0, scenario.config.staff_mix, workload.job_titles).generate(employees)
+    counts: dict[str, int] = {}
+    for member in members:
+        counts[member.role] = counts.get(member.role, 0) + 1
+    return counts
+
+
+def _check_shards(
+    scenario: Scenario, workload: Any, applications: int, employees: int, shards: int
+) -> None:
+    if shards > MAX_SHARDS:
+        raise SimulationSetupError(f"A run has at most {MAX_SHARDS} shards.")
+    if shards > applications:
+        raise SimulationSetupError("A run cannot have more shards than cases.")
+    # Every shard needs at least one member of every role (tellers, each reviewer role).
+    short = {role: n for role, n in _role_counts(scenario, employees).items() if n < shards}
+    if short:
+        raise SimulationSetupError(
+            f"{shards} shards need at least {shards} staff of each role; this staff size has "
+            + ", ".join(f"{n} {role}(s)" for role, n in sorted(short.items()))
+            + ". Add staff or use fewer shards."
+        )
+
+
 def create_run(
     db: Session,
     scenario: Scenario,
@@ -173,6 +212,7 @@ def create_run(
     mode: str = "baseline",
     tool: AITool | None = None,
     batch_id: uuid.UUID | None = None,
+    shards: int = 1,
 ) -> SimulationRun:
     config = resolve_config(
         db,
@@ -182,6 +222,7 @@ def create_run(
         employees=employees,
         mode=mode,
         tool=tool if mode != "baseline" else None,
+        shards=shards,
     )
     run = SimulationRun(
         scenario_id=scenario.scenario_id,
@@ -241,8 +282,12 @@ class _Event:
 
 
 class _Simulation:
-    def __init__(self, db: Session, run: SimulationRun, scenario: Scenario) -> None:
+    def __init__(self, db: Session, run: SimulationRun, scenario: Scenario, shard: int = 0) -> None:
         self.db = db
+        # A sharded run's slice: its cases are `index % shards == shard`, and it has its
+        # own share of every role's staff, so slices never wait on each other.
+        self.shards = run.config.get("shards", 1)
+        self.shard = shard
         self.run_id = run.id
         self.run_number = run.run_number
         self.seed = run.seed
@@ -264,6 +309,7 @@ class _Simulation:
         self.applications = run.config["applications"]
         self.employees = run.config["employees"]
         self.countries = run.config["dataset"]["countries"]
+        self.case_indices = range(shard, self.applications, self.shards)
         self.events: list[_Event] = []
         self.seq = 0
         self.cases: dict[int, _Case] = {}
@@ -276,6 +322,7 @@ class _Simulation:
         self.completed = 0
         self.case_rows: list[tuple] = []
         self.pending_results: list[SimulationCaseResult] = []
+        self.positions: dict[str, int] = {}  # members of each role enlisted so far
 
     # Time ---------------------------------------------------------------------------------
 
@@ -339,10 +386,7 @@ class _Simulation:
         assert country is not None
         low, high = PAY_BAND.get(country.default_currency, DEFAULT_PAY_BAND)
 
-        staff = StaffGenerator(self.seed, self.config.staff_mix, self.workload.job_titles).generate(
-            self.employees
-        )
-        for member in staff:
+        for member in self.staff_members():
             role = STAFF_ROLES[member.role]
             pay = int(low + (high - low) * PAY[member.role]) // 1000 * 1000
             employee = create_employee(
@@ -367,26 +411,58 @@ class _Simulation:
                 employee_id=employee.id,
                 actor_id=None,
             )
-            person = _Staff(
-                member,
-                AuthenticatedUser(
-                    id=user.id,
-                    username=user.username,
-                    role=role.value,
-                    permissions=permissions_for(role.value),
-                ),
-            )
-            if member.role == "teller":
-                self.tellers.append(person)
-            if member.role == "manager":
-                self.managers.append(person)
-            for step, reviewer_role in self.workload.reviewer_roles.items():
-                if member.role == reviewer_role:
-                    self.reviewers.setdefault(step, []).append(person)
+            self.enlist(member, user.id, user.username)
+        self.open_pools()
+        return team.id
+
+    def staff_members(self) -> list[SyntheticStaffMember]:
+        return StaffGenerator(self.seed, self.config.staff_mix, self.workload.job_titles).generate(
+            self.employees
+        )
+
+    def enlist(self, member: SyntheticStaffMember, user_id: uuid.UUID, username: str) -> None:
+        """Give this simulation (or shard) the member, if they work in it."""
+        position = self.positions.get(member.role, 0)
+        self.positions[member.role] = position + 1
+        if position % self.shards != self.shard:
+            return  # another shard's: every role is dealt round-robin to the shards
+        role = STAFF_ROLES[member.role]
+        person = _Staff(
+            member,
+            AuthenticatedUser(
+                id=user_id, username=username, role=role.value, permissions=permissions_for(role)
+            ),
+        )
+        if member.role == "teller":
+            self.tellers.append(person)
+        if member.role == "manager":
+            self.managers.append(person)
+        for step, reviewer_role in self.workload.reviewer_roles.items():
+            if member.role == reviewer_role:
+                self.reviewers.setdefault(step, []).append(person)
+
+    def open_pools(self) -> None:
         for step, people in self.reviewers.items():
             self.pools[step] = [(0, i) for i in range(len(people))]
             heapq.heapify(self.pools[step])
-        return team.id
+
+    def load_staff(self) -> None:
+        """A shard's staff: hired once for the whole run, before the shards started."""
+        members = self.staff_members()
+        names = {f"sim{self.run_number}-{m.index:05d}": m for m in members}
+        users = dict(
+            self.db.execute(
+                select(User.username, User.id).where(User.username.in_(list(names)))
+            ).all()
+        )
+        if len(users) != len(names):
+            raise SimulationSetupError(
+                f"Run {self.run_number}'s simulated staff are missing ({len(users)} of "
+                f"{len(names)} found)."
+            )
+        for name, member in names.items():
+            self.enlist(member, users[name], name)
+        self.open_pools()
 
     def population_staff(self) -> tuple[AuthenticatedUser, AuthenticatedUser]:
         """Who opened the accounts of the population's pre-existing customers."""
@@ -606,13 +682,75 @@ class _Simulation:
         db = self.db
         db.add_all(self.pending_results)
         self.pending_results = []
-        run = db.get(SimulationRun, self.run_id)
-        assert run is not None
-        run.progress = self.progress(wall_start)
-        run.heartbeat_at = datetime.now(UTC)
+        if self.shards > 1:
+            self.shard_checkpoint(wall_start)
+        else:
+            run = db.get(SimulationRun, self.run_id)
+            assert run is not None
+            run.progress = self.progress(wall_start)
+            run.heartbeat_at = datetime.now(UTC)
         db.commit()
         # Keep the session small: nothing loaded so far is needed again.
         db.expunge_all()
+
+    def shard_checkpoint(self, wall_start: float) -> None:
+        """Record this shard's progress, and the run's across all its shards."""
+        db = self.db
+        status = db.execute(
+            select(SimulationRun.status).where(SimulationRun.id == self.run_id)
+        ).scalar_one()
+        if status != SimulationStatus.RUNNING:
+            raise ShardAborted(f"the run is {status}")
+        now = datetime.now(UTC)
+        db.execute(
+            update(SimulationShard)
+            .where(SimulationShard.run_id == self.run_id, SimulationShard.shard == self.shard)
+            .values(
+                cases_started=self.started,
+                cases_completed=self.completed,
+                events_processed=self.processed,
+                simulated_end=self.clock.now,
+                heartbeat_at=now,
+            )
+        )
+        totals = db.execute(
+            select(
+                func.sum(SimulationShard.cases_started),
+                func.sum(SimulationShard.cases_completed),
+                func.sum(SimulationShard.events_processed),
+                func.max(SimulationShard.simulated_end),
+                func.count().filter(SimulationShard.status == "completed"),
+                func.count(),
+            ).where(SimulationShard.run_id == self.run_id)
+        ).one()
+        # Last: the run row is shared by every shard, so it is locked only until commit.
+        db.execute(
+            update(SimulationRun)
+            .where(SimulationRun.id == self.run_id)
+            .values(
+                heartbeat_at=now,
+                progress={
+                    "cases_total": self.applications,
+                    "cases_started": int(totals[0]),
+                    "cases_completed": int(totals[1]),
+                    "events_processed": int(totals[2]),
+                    "simulated_now": totals[3].isoformat() if totals[3] else None,
+                    "shards": {"total": totals[5], "completed": totals[4]},
+                },
+            )
+        )
+
+    def totals(self) -> "RunTotals":
+        return RunTotals(
+            applications=self.applications,
+            staff={
+                "tellers": len(self.tellers),
+                **{f"{step}_reviewers": len(people) for step, people in self.reviewers.items()},
+            },
+            simulated_seconds=self.clock.elapsed.total_seconds(),
+            ai_mode=self.ai_mode,
+            events_processed=self.processed,
+        )
 
     def progress(self, wall_start: float) -> dict[str, Any]:
         return {
@@ -664,7 +802,22 @@ def _hours(seconds: float | None) -> float | None:
     return None if seconds is None else round(seconds / 3600, 3)
 
 
-def summarize(rows: list[tuple], sim: _Simulation, wall_ms: int) -> dict[str, Any]:
+class ShardAborted(Exception):
+    """Another shard failed the run; this one stops at its next checkpoint."""
+
+
+@dataclass(frozen=True)
+class RunTotals:
+    """What a run's summary needs beyond its case rows (one process, or all shards)."""
+
+    applications: int
+    staff: dict[str, int]
+    simulated_seconds: float
+    ai_mode: str | None
+    events_processed: int
+
+
+def summarize(rows: list[tuple], sim: RunTotals, wall_ms: int) -> dict[str, Any]:
     by_kind: dict[str, dict[str, int]] = {}
     outcomes: dict[str, int] = {}
     ratings: dict[str, int] = {}
@@ -739,14 +892,11 @@ def summarize(rows: list[tuple], sim: _Simulation, wall_ms: int) -> dict[str, An
             "avg": _hours(sum(waits) / len(waits)) if waits else None,
             "p95": _hours(_percentile(waits, 0.95)),
         },
-        "staff": {
-            "tellers": len(sim.tellers),
-            **{f"{step}_reviewers": len(people) for step, people in sim.reviewers.items()},
-        },
-        "simulated_hours": _hours(sim.clock.elapsed.total_seconds()),
+        "staff": sim.staff,
+        "simulated_hours": _hours(sim.simulated_seconds),
         "ai": _ai_summary(rows, sim.ai_mode),
         "execution": {
-            "events_processed": sim.processed,
+            "events_processed": sim.events_processed,
             "workflow_steps_completed": sum(len(r[12]) for r in rows),
             "wall_ms": wall_ms,
             "cases_per_second": round(finished / (wall_ms / 1000), 2) if wall_ms else None,
@@ -787,14 +937,18 @@ def _ai_summary(rows: list[tuple], ai_mode: str | None) -> dict[str, Any] | None
 # --- Entry point ------------------------------------------------------------------------------
 
 
-def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> None:
-    """Run a queued simulation to completion. Failures are recorded on the run, not raised."""
+def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> list[uuid.UUID]:
+    """Run a queued simulation to completion. Failures are recorded on the run, not raised.
+
+    A sharded run is only prepared here (staff hired, one `simulation.shard` job queued per
+    shard); the ids of those jobs are returned for the caller to run or leave to workers.
+    """
     wall_start = time.monotonic()
     db = session_factory()
     try:
         run = db.get(SimulationRun, run_id)
         if run is None or run.status != SimulationStatus.QUEUED:
-            return
+            return []
         scenario = get_scenario(run.scenario_id, run.scenario_version)
         if scenario is None:
             raise SimulationSetupError(
@@ -807,6 +961,8 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> No
         run.status = SimulationStatus.RUNNING.value
         run.started_at = run.heartbeat_at = datetime.now(UTC)
         db.commit()
+        if run.config.get("shards", 1) > 1:
+            return _prepare_shards(db, run, scenario)
 
         sim = _Simulation(db, run, scenario)
         team_id = sim.hire_staff()
@@ -818,7 +974,7 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> No
         rows = sorted(sim.case_rows)
         run = db.get(SimulationRun, run_id)
         assert run is not None
-        run.results = summarize(rows, sim, wall_ms)
+        run.results = summarize(rows, sim.totals(), wall_ms)
         run.result_digest = digest(rows)
         run.simulated_end = sim.clock.now
         run.wall_ms = wall_ms
@@ -844,12 +1000,197 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> No
         mark_failed(session_factory, run_id, reason, wall_start)
     finally:
         db.close()
+    return []
 
 
-def execute_batch(session_factory: sessionmaker[Session], run_ids: list[uuid.UUID]) -> None:
-    """Run a suite's runs one after another (each records its own outcome)."""
+# --- Sharded runs -----------------------------------------------------------------------------
+
+
+def _prepare_shards(db: Session, run: SimulationRun, scenario: Scenario) -> list[uuid.UUID]:
+    """Hire the whole run's staff once, then queue one job per shard."""
+    from app.jobs import engine as jobs
+    from app.jobs import handlers  # noqa: F401  (registers simulation.shard)
+
+    sim = _Simulation(db, run, scenario)
+    run.staff_unit_id = sim.hire_staff()
+    shards = run.config["shards"]
+    job_ids = []
+    for shard in range(shards):
+        db.add(
+            SimulationShard(
+                run_id=run.id,
+                shard=shard,
+                status="queued",
+                cases_total=len(range(shard, sim.applications, shards)),
+                cases_started=0,
+                cases_completed=0,
+                events_processed=0,
+            )
+        )
+        job = jobs.enqueue(
+            db,
+            "simulation.shard",
+            {"run_id": str(run.id), "shard": shard},
+            created_by=run.created_by,
+            dedupe_key=f"simulation-shard:{run.id}:{shard}",
+        )
+        job_ids.append(job.id)
+    run.progress = {**run.progress, "shards": {"total": shards, "completed": 0}}
+    db.commit()
+    logger.info("sharded simulation run prepared", extra={"run": run.run_number, "shards": shards})
+    return job_ids
+
+
+def execute_shard(
+    session_factory: sessionmaker[Session], run_id: uuid.UUID, shard: int, worker: str = ""
+) -> str:
+    """Simulate one shard of a run; the last shard to finish merges the results.
+
+    Returns the shard's final status. A failure fails the whole run, and the other shards
+    stop at their next checkpoint.
+    """
+    wall_start = time.monotonic()
+    db = session_factory()
+    # Each shard adds its ledger lines to its own one of every account's balance rows, so
+    # shards never wait on (or deadlock over) a busy account such as a cash account.
+    pin = f"SET LOCAL atlas.balance_shard = '{shard % BALANCE_SHARDS}'"
+    event.listen(db, "after_begin", lambda _s, _t, conn: conn.exec_driver_sql(pin))
+    try:
+        run = db.get(SimulationRun, run_id)
+        if run is None or run.status != SimulationStatus.RUNNING:
+            db.rollback()  # end this read before recording the outcome in its own transaction
+            return _shard_done(session_factory, run_id, shard, "failed", "The run is not running.")
+        scenario = get_scenario(run.scenario_id, run.scenario_version)
+        if scenario is None:
+            raise SimulationSetupError(
+                f"Scenario {run.scenario_id} v{run.scenario_version} is not registered."
+            )
+        db.execute(
+            update(SimulationShard)
+            .where(SimulationShard.run_id == run_id, SimulationShard.shard == shard)
+            .values(status="running", started_at=datetime.now(UTC), worker=worker[:100] or None)
+        )
+        db.commit()
+
+        sim = _Simulation(db, run, scenario, shard)
+        sim.load_staff()
+        sim.schedule_arrivals()
+        sim.run(wall_start)
+        db.execute(
+            update(SimulationShard)
+            .where(SimulationShard.run_id == run_id, SimulationShard.shard == shard)
+            .values(
+                status="completed",
+                completed_at=datetime.now(UTC),
+                wall_ms=round((time.monotonic() - wall_start) * 1000),
+            )
+        )
+        db.commit()
+    except ShardAborted as exc:
+        db.rollback()
+        return _shard_done(session_factory, run_id, shard, "failed", f"Stopped: {exc}.")
+    except Exception as exc:  # recorded on the shard and the run
+        db.rollback()
+        reason = exc.message if isinstance(exc, DomainError) else f"{type(exc).__name__}: {exc}"
+        logger.exception("simulation shard failed", extra={"run_id": str(run_id), "shard": shard})
+        _shard_done(session_factory, run_id, shard, "failed", reason)
+        mark_failed(session_factory, run_id, f"Shard {shard} failed: {reason}", wall_start)
+        return "failed"
+    finally:
+        db.close()
+    merge_shards(session_factory, run_id)
+    return "completed"
+
+
+def _shard_done(
+    session_factory: sessionmaker[Session], run_id: uuid.UUID, shard: int, status: str, error: str
+) -> str:
+    with session_factory() as db, db.begin():
+        db.execute(
+            update(SimulationShard)
+            .where(SimulationShard.run_id == run_id, SimulationShard.shard == shard)
+            .values(status=status, error=error[:2000], completed_at=datetime.now(UTC))
+        )
+    return status
+
+
+def merge_shards(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> bool:
+    """Once every shard has completed: results, digest and status of the whole run.
+
+    Each finishing shard calls this; the run row's lock makes exactly one of them merge.
+    """
+    with session_factory() as db, db.begin():
+        run = db.execute(
+            select(SimulationRun).where(SimulationRun.id == run_id).with_for_update()
+        ).scalar_one_or_none()
+        if run is None or run.status != SimulationStatus.RUNNING:
+            return False
+        shards = list(
+            db.execute(select(SimulationShard).where(SimulationShard.run_id == run_id)).scalars()
+        )
+        if not shards or any(s.status != "completed" for s in shards):
+            return False
+        rows = sorted(
+            _row(r)
+            for r in db.execute(
+                select(SimulationCaseResult).where(SimulationCaseResult.run_id == run_id)
+            ).scalars()
+        )
+        scenario = get_scenario(run.scenario_id, run.scenario_version)
+        assert scenario is not None
+        workload = workload_for(scenario)
+        roles = _role_counts(scenario, run.config["employees"])
+        end = max(s.simulated_end or run.simulated_start for s in shards)
+        totals = RunTotals(
+            applications=run.config["applications"],
+            staff={
+                "tellers": roles.get("teller", 0),
+                **{
+                    f"{step}_reviewers": roles.get(role, 0)
+                    for step, role in workload.reviewer_roles.items()
+                },
+            },
+            simulated_seconds=(end - run.simulated_start).total_seconds(),
+            ai_mode=run.config.get("ai_mode"),
+            events_processed=sum(s.events_processed for s in shards),
+        )
+        now = datetime.now(UTC)
+        wall_ms = round((now - (run.started_at or now)).total_seconds() * 1000)
+        run.results = summarize(rows, totals, wall_ms)
+        run.results["execution"]["shards"] = [
+            {"shard": s.shard, "cases": s.cases_total, "wall_ms": s.wall_ms, "worker": s.worker}
+            for s in sorted(shards, key=lambda s: s.shard)
+        ]
+        run.result_digest = digest(rows)
+        run.simulated_end = end
+        run.wall_ms = wall_ms
+        run.completed_at = now
+        run.progress = {
+            **run.progress,
+            "cases_completed": len(rows),
+            "shards": {"total": len(shards), "completed": len(shards)},
+        }
+        if len(rows) < totals.applications:
+            run.status = SimulationStatus.FAILED.value
+            run.failure_reason = (
+                f"{totals.applications - len(rows)} case(s) were still open when no simulated "
+                "event remained (the scenario cannot finish them)."
+            )
+        else:
+            run.status = SimulationStatus.COMPLETED.value
+    logger.info("sharded simulation run merged", extra={"run_id": str(run_id), "wall_ms": wall_ms})
+    return True
+
+
+def execute_batch(
+    session_factory: sessionmaker[Session], run_ids: list[uuid.UUID]
+) -> list[uuid.UUID]:
+    """Run a suite's runs one after another (each records its own outcome). Returns the
+    shard jobs queued for sharded runs."""
+    queued: list[uuid.UUID] = []
     for run_id in run_ids:
-        execute_run(session_factory, run_id)
+        queued += execute_run(session_factory, run_id)
+    return queued
 
 
 def mark_failed(

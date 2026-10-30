@@ -41,7 +41,6 @@ from app.core.audit import record_audit_event
 from app.core.errors import BusinessRuleViolation, ConflictError, NotFoundError
 from app.modules.accounts.models import Account
 from app.modules.ai_tools.models import AIToolInvocation
-from app.modules.customers.models import Customer
 from app.modules.experiments.models import Experiment, ExperimentStatus
 from app.modules.workflows.models import (
     PARTITIONED_TABLES,
@@ -56,6 +55,7 @@ from app.simulation.models import (
     SimulationRun,
     SimulationStatus,
 )
+from app.simulation.workloads import customer_keyed
 
 logger = logging.getLogger("atlas.simulation.history")
 
@@ -151,9 +151,7 @@ def summarize(db: Session, run_id: uuid.UUID) -> dict[str, Any]:
         ).all()
     )
     # Accounts of the customers the run's cases created (the dashboard counts them).
-    customers = select(func.cast(WorkflowExecution.business_key, Customer.id.type)).where(
-        in_run, WorkflowExecution.business_key.is_not(None)
-    )
+    customers = customer_keyed(in_run)
     accounts = db.execute(
         select(func.count()).select_from(Account).where(Account.customer_id.in_(customers))
     ).scalar_one()

@@ -53,11 +53,14 @@ millions of customers and an AI testing laboratory at that scale.
       statements come with the deposits work in Milestone D)
 - [x] Archive / restore / reset of simulation workflow history, with a retention schedule
       (Phase 15; synthetic customers, accounts and postings stay — the ledger is append-only)
-- [ ] Performance test suite with recorded targets (started: `bench-ledger`, Phase 12)
+- [x] Performance test suite with recorded targets (`python -m app.cli perf`, in CI;
+      Phase 16 — see [performance.md](performance.md))
+- [x] Simulation runs split into parallel shards across worker processes (Phase 16)
 - [x] Observability: request metrics, Prometheus endpoint, slow-query log from every
       process, worker registry and job throughput (Phase 15)
-- [ ] **Exit:** `department` profile repeatable; 1M customers / 100k applications measured
-      (1M customers loaded and measured in Phase 13; 100k applications still to do)
+- [x] **Exit:** `department` profile repeatable (twice with identical digests, Phase 16);
+      1M customers loaded and measured (Phase 13); 100,000 applications in 73 minutes on
+      8 shards (Phase 16)
 
 ## Milestone B — Workflow factory
 
@@ -164,4 +167,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 13 (A2) | Bulk posting, 1M-customer population loader, search and sort indexes | complete |
 | Phase 14 (A3) | Durable job queue, worker processes, schedules; simulations and experiments as jobs | complete |
 | Phase 15 (A4) | Partitioned workflow history; archive, restore and reset of simulation history; observability (metrics, slow queries, workers) | complete |
-| Phase 16 (A5, proposed) | Parallel simulation runners across worker processes; performance suite with recorded targets; the 100,000-application measurement that closes Milestone A | next |
+| Phase 16 (A5) | Sharded simulation runs across worker processes; performance suite with recorded targets; 100,000 applications measured — Milestone A done (journal-line and audit-log partitioning deferred, see above) | complete |
+| Phase 17 (B1, proposed) | Milestone B begins: database-stored, versioned workflow definitions next to code-registered ones, with an import API and full validation | next |

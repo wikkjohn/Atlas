@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 15.
+Last updated: Phase 16.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -20,6 +20,55 @@ Last updated: Phase 15.
 | 13 | Scale foundation, step 2: bulk loading, one million customers, search indexes | **Complete** |
 | 14 | Scale foundation, step 3: durable background jobs, workers and schedules | **Complete** |
 | 15 | Scale foundation, step 4: partitioned workflow history, simulation history archive/reset, observability | **Complete** |
+| 16 | Scale foundation, step 5: sharded simulation runs, performance suite, 100,000 applications — roadmap Milestone A complete | **Complete** |
+
+## Phase 16: what exists
+
+- **Sharded simulation runs.** `shards` (1–8) splits a run's cases (`case_index % shards`)
+  and, round-robin per role, its staff into slices; each slice is a `simulation.shard`
+  job any worker process runs; the last to finish merges the results (migration 0015,
+  `simulation_shards`). Same seed and shard count, same digest; outcomes match a
+  single-process run, queueing does not (each shard has its own team). The `large`
+  profile (100,000 applications, 5,000 staff) needs at least 4 shards. API `shards`,
+  `shard_progress`; `simulate --shards N`; start form and per-shard progress in the UI.
+- **No deadlocks between shards.** The stored-balance trigger now honours
+  `SET LOCAL atlas.balance_shard`; each shard pins its own balance row of every account
+  (hence at most 8 shards). Without it, parallel payment shards deadlocked on the cash
+  account.
+- **Performance suite** (`python -m app.cli perf [--quick]`, `make perf`): ledger postings,
+  API p95 latency, job throughput, simulation throughput single and sharded, each against a
+  recorded target; JSON results; a CI job runs the quick profile on every push.
+- **Docker Compose:** the worker service runs 4 processes (`ATLAS_WORKER_PROCESSES`), is
+  marked as a worker, and forwards SIGTERM so each process finishes its job on `docker
+  stop`.
+- **Fixed along the way:**
+  - Request transactions committed *after* the response was sent (FastAPI's default
+    scope for yield dependencies): a client refetching at once could read the state from
+    before its own write — the cause of the end-to-end tests' intermittent "approved but
+    still listed" failures since Phase 11 — and a failing commit was reported as success.
+    The session dependency now uses `scope="function"`; a test checks the order.
+  - The dashboard (and the Phase 15 archive summary) failed once a payments simulation
+    existed: simulated business keys were all cast to customer ids, but WF-0002 keys
+    payments by payment number.
+  - `SimulationSetupError` is a 422 business-rule error like the other refusals to start.
+
+## Phase 16: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 338 passed (new: 6 shard tests — shard order does not change the digest and outcomes match a single run, staff dealt round-robin with nobody in two shards (mutation-checked), merge happens once, a failing shard fails the run and stops the others, staff and shard-count validation, pinned balance row; API with profiles, reruns and inline shards; 3 performance-suite tests; the dashboard with a payments simulation (fails without the fix); the transaction committing before the response (fails without the fix)) |
+| Migration 0014 → 0015 → 0014 → 0015, `alembic check` | clean |
+| Single-process results unchanged | a 300-case run reproduced its pre-change digest exactly |
+| Sharded workloads | retail, payments and loans each twice in 8 shards with identical digests; full reconciliation passed |
+| Frontend typecheck, Vitest, build | clean; 81 passed (new: the large profile's minimum shards and per-shard progress); succeeds |
+| Playwright, fresh database (inline jobs) | 19 passed (new: a run in 2 parallel shards) |
+| Docker Compose | `validate_system.py` 10/10; a 4-shard run spread over the 4 worker processes with the same digest twice; graceful stop of all 4 processes; Playwright 19 passed |
+| Performance suite | full and quick profiles pass locally; quick profile passes in CI |
+
+Measured: see [performance.md](performance.md) — 2,000 cases in 334 s on one process and
+80 s on 4 shards (4.2×); the department profile in 6 min 39 s twice with identical
+digests; **100,000 applications in 73 min 18 s** on 8 shards (22.7 cases/s, 96.65 %
+accuracy), archived in 3 min 37 s.
 
 ## Phase 15: what exists
 
@@ -658,7 +707,11 @@ next item of Milestone A.
   large archive is slow (about 9 minutes for 100,000 cases). Request metrics are per API
   process and reset when it restarts; job, worker and slow-query figures come from the
   database and cover every process. Journal lines and the audit log are not partitioned
-  yet (deferred until period close and an audit retention policy exist). Simulated reviewers work around the clock;
+  yet (deferred until period close and an audit retention policy exist). Sharded runs
+  (Phase 16) use separate teams per shard, so their queueing differs from a
+  single-process run; at most 8 shards; suites and experiments run single-process. One
+  process still runs about 6 cases/s (≈190 SQL statements per case); the engine's writes
+  are not batched. Simulated reviewers work around the clock;
   arrivals are uniform. Since Phase 14 runs are durable jobs; a run whose worker stops is
   still reported as interrupted and is not resumed (`simulation.execute` is not retried).
   See [simulation.md](simulation.md) for measured throughput and why the enterprise

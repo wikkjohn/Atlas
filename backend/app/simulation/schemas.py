@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.simulation.scenarios import MAX_CUSTOM_APPLICATIONS, MAX_CUSTOM_EMPLOYEES
+from app.simulation.scenarios import MAX_CUSTOM_APPLICATIONS, MAX_CUSTOM_EMPLOYEES, MAX_SHARDS
 
 MAX_SEED = 2**53 - 1  # exact in JavaScript too
 
@@ -31,12 +31,13 @@ class ProfileOut(BaseModel):
     status: Literal["verified", "target"]
     runnable: bool
     note: str
+    min_shards: int
 
 
 class StartSimulation(BaseModel):
     scenario_id: str = "retail-onboarding"
     scenario_version: int | None = Field(default=None, ge=1, description="Defaults to latest")
-    profile: Literal["small", "department", "enterprise", "custom"] = "small"
+    profile: Literal["small", "department", "large", "enterprise", "custom"] = "small"
     seed: int = Field(default=42, ge=0, le=MAX_SEED)
     applications: int | None = Field(
         default=None, ge=1, le=MAX_CUSTOM_APPLICATIONS, description="Custom profile only"
@@ -48,6 +49,12 @@ class StartSimulation(BaseModel):
     tool_id: str | None = Field(default=None, max_length=64, description="AI modes only")
     tool_version: str | None = Field(
         default=None, max_length=40, description="Defaults to the highest active version"
+    )
+    shards: int = Field(
+        default=1,
+        ge=1,
+        le=MAX_SHARDS,
+        description="Parallel slices, each simulated by a worker process with its own staff",
     )
 
 
@@ -103,8 +110,22 @@ class SimulationRunSummary(BaseModel):
     tool_id: str | None
     tool_version: str | None
     batch_id: uuid.UUID | None
+    shards: int
     # Where the run's workflow history is: present, archived or purged (Phase 15).
     history_state: str
+
+
+class ShardOut(BaseModel):
+    shard: int
+    status: str
+    cases_total: int
+    cases_completed: int
+    events_processed: int
+    worker: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    wall_ms: int | None
+    error: str | None
 
 
 class ArchiveOut(BaseModel):
@@ -148,6 +169,7 @@ class SimulationRunDetail(SimulationRunSummary):
     staff_unit_id: uuid.UUID | None
     reproductions: list[Reproduction]
     archive: ArchiveOut | None
+    shard_progress: list[ShardOut]
 
 
 class CaseResultOut(BaseModel):

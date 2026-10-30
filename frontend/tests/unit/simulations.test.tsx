@@ -20,9 +20,10 @@ const scenario: Scenario = {
 };
 
 const profiles: Profile[] = [
-  { profile_id: "small", name: "Small test", applications: 100, customers: 100, employees: 25, status: "verified", runnable: true, note: "" },
-  { profile_id: "department", name: "Department test", applications: 10000, customers: 10000, employees: 500, status: "verified", runnable: true, note: "" },
-  { profile_id: "enterprise", name: "Future enterprise scale", applications: 1000000, customers: 1000000, employees: 150000, status: "target", runnable: false, note: "A configuration target only." },
+  { profile_id: "small", name: "Small test", applications: 100, customers: 100, employees: 25, status: "verified", runnable: true, note: "", min_shards: 1 },
+  { profile_id: "department", name: "Department test", applications: 10000, customers: 10000, employees: 500, status: "verified", runnable: true, note: "", min_shards: 1 },
+  { profile_id: "large", name: "Large test (sharded)", applications: 100000, customers: 100000, employees: 5000, status: "verified", runnable: true, note: "", min_shards: 4 },
+  { profile_id: "enterprise", name: "Future enterprise scale", applications: 1000000, customers: 1000000, employees: 150000, status: "target", runnable: false, note: "A configuration target only.", min_shards: 1 },
 ];
 
 const completed: SimulationRunDetail = {
@@ -80,6 +81,8 @@ const completed: SimulationRunDetail = {
   reproductions: [{ id: "run-0", run_number: 6, result_digest: "0123456789abcdef0123", matches: true }],
   history_state: "present",
   archive: null,
+  shards: 1,
+  shard_progress: [],
 };
 
 const mismatch: CaseResult = {
@@ -147,6 +150,7 @@ describe("Simulation Center", () => {
       seed: 1234,
       applications: 40,
       employees: 10,
+      shards: 1,
     });
     expect(await screen.findByRole("progressbar", { name: "Run #8 progress" })).toBeInTheDocument();
   });
@@ -247,5 +251,60 @@ describe("Simulation Center", () => {
     expect(within(history).queryByRole("status")).not.toBeInTheDocument(); // the job finished
     // Results and case outcomes stay.
     expect(screen.getByRole("table", { name: "Case results" })).toBeInTheDocument();
+  });
+
+  it("runs the large profile as parallel shards and shows each shard's progress", async () => {
+    const running = {
+      ...completed,
+      id: "run-3",
+      run_number: 9,
+      status: "running",
+      results: null,
+      reproductions: [],
+      percent_complete: 40,
+      profile: "large",
+      applications: 100000,
+      employees: 5000,
+      shards: 4,
+      progress: { cases_total: 100000, cases_completed: 40000, shards: { total: 4, completed: 1 } },
+      shard_progress: [0, 1, 2, 3].map((shard) => ({
+        shard,
+        status: shard === 0 ? "completed" : "running",
+        cases_total: 25000,
+        cases_completed: shard === 0 ? 25000 : 5000,
+        events_processed: 1000,
+        worker: `host:${shard}`,
+        started_at: "2026-10-30T00:00:00Z",
+        completed_at: null,
+        wall_ms: shard === 0 ? 600_000 : null,
+        error: null,
+      })),
+    };
+    const api = mockApi({
+      ...baseRoutes,
+      "POST /api/v1/simulations": () => jsonResponse(running, 202),
+      "GET /api/v1/simulations/run-3": () => jsonResponse(running),
+    });
+    renderApp("/simulations");
+
+    const form = await screen.findByRole("form", { name: "Start a simulation" });
+    await within(form).findByRole("option", { name: /Large test/ });
+    await userEvent.selectOptions(within(form).getByLabelText("Workload"), "large");
+    const shards = within(form).getByLabelText("Parallel shards");
+    expect(shards).toHaveValue(4); // the profile's minimum
+    await userEvent.clear(shards);
+    await userEvent.type(shards, "2");
+    expect(within(form).getByRole("button", { name: "Start run" })).toBeDisabled();
+    await userEvent.clear(shards);
+    await userEvent.type(shards, "8");
+    await userEvent.click(within(form).getByRole("button", { name: "Start run" }));
+
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({ profile: "large", shards: 8 });
+    const table = await screen.findByRole("table", { name: "Shards" });
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(within(table).getByText("25,000 / 25,000 cases")).toBeInTheDocument();
+    expect(within(table).getByText("10.0 min")).toBeInTheDocument();
+    expect(screen.getByText(/5,000 staff · 4 shards/)).toBeInTheDocument();
   });
 });

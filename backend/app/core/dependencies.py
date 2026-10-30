@@ -15,4 +15,8 @@ from app.core.database import get_db, get_engine
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 EngineDep = Annotated[Engine, Depends(get_engine)]
-DbSession = Annotated[Session, Depends(get_db)]
+# scope="function": the request's transaction commits (or rolls back) before the response
+# is sent. With FastAPI's default ("request") scope the commit ran after the client already
+# had its response — a client refetching at once could read the state from before its own
+# write, and a commit that failed was still reported as a success.
+DbSession = Annotated[Session, Depends(get_db, scope="function")]

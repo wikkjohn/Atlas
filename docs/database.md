@@ -30,6 +30,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0012_background_jobs` | 14 | Job queue, schedules, the scheduler service role and user |
 | `0013_partitioned_history` | 15 | Workflow executions, step runs and events become LIST-partitioned on `realm` (live, simulation); keys `(id, realm)`; `ai_tool_invocations.execution_realm`; events guard allows purging simulation rows only |
 | `0014_archives_observability` | 15 | `simulation_archives`, `simulation_runs.history_state`, `job_workers`, `slow_queries`; the (disabled) history retention schedule |
+| `0015_simulation_shards` | 16 | `simulation_shards`; the stored-balance trigger honours `atlas.balance_shard` |
 
 Common commands (from `backend/`):
 
@@ -230,6 +231,19 @@ row triggers are declared on the parent and exist on both partitions.
 
 The migration adds the `simulation-history-retention` schedule (daily, off): it archives
 runs older than 30 days.
+
+### Simulation shards (Phase 16, migration `0015_simulation_shards`)
+
+| Table | Contents |
+| --- | --- |
+| `simulation_shards` | One slice of a sharded run (unique `run_id`, `shard`): `status` (queued, running, completed, failed), `cases_total`, `cases_started`, `cases_completed`, `events_processed`, `simulated_end`, `worker`, `started_at`, `heartbeat_at`, `completed_at`, `wall_ms`, `error`. Deleted with its run |
+
+`journal_lines_maintain_balance()` now adds a line to balance row
+`atlas.balance_shard & 7` when the transaction has set that (`SET LOCAL`), and to
+`hashtext(line id) & 7` otherwise, as before. Each simulation shard pins its own row, so
+two shards' long transactions never lock the same balance row of a busy account (a
+currency's cash account) — without it, parallel payment shards deadlocked. Reads and
+reconciliation sum all eight rows and are unchanged.
 
 ### Search and sort indexes (Phase 13, migration `0011_search_indexes`)
 

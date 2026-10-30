@@ -21,6 +21,7 @@ from app.simulation.models import (
     SimulationArchive,
     SimulationCaseResult,
     SimulationRun,
+    SimulationShard,
     SimulationStatus,
 )
 from app.simulation.scenarios import MODES, PROFILES, SCENARIOS, Scenario, get_scenario
@@ -32,6 +33,7 @@ from app.simulation.schemas import (
     ProfileOut,
     Reproduction,
     ScenarioOut,
+    ShardOut,
     SimulationRunDetail,
     SimulationRunSummary,
     StartSimulation,
@@ -73,6 +75,7 @@ def profiles() -> list[ProfileOut]:
             status=p.status,
             runnable=p.status == "verified",
             note=p.note,
+            min_shards=p.min_shards,
         )
         for p in PROFILES.values()
     ]
@@ -141,6 +144,16 @@ def _resolve_tool(
     return tool
 
 
+def _check_profile_shards(body: StartSimulation) -> None:
+    profile = PROFILES.get(body.profile)
+    if profile is not None and body.shards < profile.min_shards:
+        raise BusinessRuleViolation(
+            f"The {profile.name} profile runs as at least {profile.min_shards} parallel shards; "
+            "one process would take hours.",
+            {"profile": profile.profile_id, "min_shards": profile.min_shards},
+        )
+
+
 def _resolve(body: StartSimulation | StartSuite) -> tuple[Scenario, int, int]:
     scenario = get_scenario(body.scenario_id, body.scenario_version)
     if scenario is None:
@@ -188,6 +201,7 @@ def _ensure_idle(db: Session) -> None:
 
 def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> SimulationRun:
     scenario, applications, employees = _resolve(body)
+    _check_profile_shards(body)
     tool = _resolve_tool(db, scenario, [body.mode], body.tool_id, body.tool_version)
     _ensure_idle(db)
     return runner.create_run(
@@ -200,6 +214,7 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
         created_by=actor_id,
         mode=body.mode,
         tool=tool,
+        shards=body.shards,
     )
 
 
@@ -240,6 +255,7 @@ def rerun_body(run: SimulationRun) -> StartSimulation:
         mode=run.mode,  # type: ignore[arg-type]
         tool_id=tool.get("tool_id"),
         tool_version=tool.get("tool_version"),
+        shards=run.config.get("shards", 1),
     )
 
 
@@ -312,6 +328,7 @@ def summary(run: SimulationRun, names: dict[uuid.UUID, str]) -> SimulationRunSum
         tool_id=(run.config.get("ai_tool") or {}).get("tool_id"),
         tool_version=(run.config.get("ai_tool") or {}).get("tool_version"),
         batch_id=run.batch_id,
+        shards=run.config.get("shards", 1),
         history_state=run.history_state,
     )
 
@@ -355,6 +372,25 @@ def detail(db: Session, run: SimulationRun) -> SimulationRunDetail:
         staff_unit_id=run.staff_unit_id,
         reproductions=reproductions(db, run),
         archive=active_archive(db, run),
+        shard_progress=[
+            ShardOut(
+                shard=sh.shard,
+                status=sh.status,
+                cases_total=sh.cases_total,
+                cases_completed=sh.cases_completed,
+                events_processed=sh.events_processed,
+                worker=sh.worker,
+                started_at=sh.started_at,
+                completed_at=sh.completed_at,
+                wall_ms=sh.wall_ms,
+                error=sh.error,
+            )
+            for sh in db.execute(
+                select(SimulationShard)
+                .where(SimulationShard.run_id == run.id)
+                .order_by(SimulationShard.shard)
+            ).scalars()
+        ],
     )
 
 

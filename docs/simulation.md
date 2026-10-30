@@ -219,6 +219,8 @@ department; wall time includes hiring the simulated staff):
 | --- | --- | --- | --- | --- |
 | small | 100 / 25 | 24.7 s | 4.0 cases/s | 293 events, 1,466 workflow steps |
 | department | 10,000 / 500 | 35 min 16 s | 4.7 cases/s | 29,632 events, 146,246 workflow steps; all 10,000 cases completed |
+| department, 8 shards (Phase 16) | 10,000 / 500 | 6 min 39 s | 25.0 cases/s | identical digest on a second run |
+| large, 8 shards (Phase 16) | 100,000 / 5,000 | 73 min 18 s | 22.7 cases/s | 96.65 % accuracy, 91,086 manual reviews |
 | enterprise | 1,000,000 / 150,000 | not run | — | configuration target only |
 
 The cost is dominated by the workflow engine's durability: each case is ~15 committed step
@@ -233,10 +235,10 @@ simulated review labour; median cycle time 12 minutes, p95 28 hours (late docume
 
 **The enterprise profile is a configuration target, not a verified capability.** At the
 measured throughput a million applications would take days in one process, and hiring
-150,000 simulated staff is untested. The API refuses to start it. Reaching that scale needs
-parallel runners (partitioning cases across processes while keeping per-case random
-streams, which already makes results independent of processing order) and bulk paths in
-the engine; neither exists yet.
+150,000 simulated staff is untested. The API refuses to start it. Phase 16 added parallel
+shards (below), which carried a 100,000-application run in 73 minutes on 4 vCPUs (the
+`large` profile); a million would still need more machines than one development container
+and bulk paths in the workflow engine.
 
 ## Running simulations
 
@@ -248,6 +250,34 @@ the engine; neither exists yet.
 - **CLI:** `make simulate` or
   `cd backend && .venv/bin/python -m app.cli simulate --profile custom --applications 500 --employees 40 --seed 7`
   runs to completion in the foreground and prints the results.
+
+## Parallel shards (Phase 16)
+
+A run can be split into up to 8 **shards** (`shards` in the API, *Parallel shards* in the
+Simulation Center, `simulate --shards N` on the command line). Shard *k* simulates the
+cases whose index is `k` modulo the shard count, with every role's staff dealt
+round-robin to the shards, so each shard is a complete, smaller bank team with its own
+queues. Each shard is a `simulation.shard` background job: worker processes run them in
+parallel (Docker Compose starts 4 worker processes; `python -m app.cli worker
+--processes N` locally; `simulate --shards N` starts its own processes). Without worker
+processes the API runs the shards itself, one after another.
+
+- **Same decisions, different queues.** A case's applicant, documents, reviewer decisions
+  and review times come from the case's own random stream, so outcomes and ground-truth
+  accuracy are identical to a single-process run with the same seed. Queue waiting and
+  cycle times are longer, because N small teams do not share their slack: in a
+  2,000-case run with 100 staff the average queue wait went from 0.02 h (1 shard) to
+  0.13 h (4) and 0.23 h (8); see [performance.md](performance.md).
+- **Reproducible.** The same scenario, seed and shard count give the same digest whichever
+  worker runs which shard and in whatever order. The shard count is part of the
+  configuration hash, so a sharded run never counts as a reproduction of a single-process
+  one.
+- **Staff.** Every shard needs at least one member of every role, so the run's staff must
+  have at least `shards` of each (the API says which role is short).
+- **The `large` profile** — 100,000 applications, 5,000 staff — runs with at least 4
+  shards. Measured results: [performance.md](performance.md).
+- **Failure.** If one shard fails, the run fails with that shard's reason; the others stop
+  at their next checkpoint.
 
 ## Workflow history: archive, restore, reset (Phase 15)
 

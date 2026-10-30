@@ -10,6 +10,8 @@
     python -m app.cli worker --processes 2                              # background jobs
     python -m app.cli simulation-history archive --older-than-days 30   # archive old runs
     python -m app.cli simulation-history reset --archive --yes          # clear sim history
+    python -m app.cli simulate --profile large --shards 8               # 100k cases, parallel
+    python -m app.cli perf --quick                                      # performance suite
 """
 
 import argparse
@@ -133,6 +135,7 @@ def _simulate(args: argparse.Namespace) -> int:
             seed=args.seed,
             applications=args.applications,
             employees=args.employees,
+            shards=args.shards,
         )
         with factory() as db, db.begin():
             actor = db.execute(
@@ -147,7 +150,11 @@ def _simulate(args: argparse.Namespace) -> int:
         print(f"Could not start the simulation: {exc}")
         return 1
     print(f"Simulation run #{number} started ({args.profile}, seed {args.seed}).")
-    runner.execute_run(factory, run_id)
+    shard_jobs = runner.execute_run(factory, run_id)
+    if shard_jobs:
+        processes = max(1, min(args.processes or len(shard_jobs), len(shard_jobs)))
+        print(f"{len(shard_jobs)} shards queued; running them in {processes} worker process(es).")
+        _run_workers(processes)
     with factory() as db:
         run = db.get(SimulationRun, run_id)
         assert run is not None
@@ -268,8 +275,23 @@ def _worker_process(index: int, schedules: bool, drain: bool) -> None:
     )
 
 
+def _run_workers(processes: int) -> None:
+    """Drain the job queue with worker processes (no schedules), then return."""
+    import multiprocessing
+
+    context = multiprocessing.get_context("spawn")
+    workers = [
+        context.Process(target=_worker_process, args=(i, False, True)) for i in range(processes)
+    ]
+    for process in workers:
+        process.start()
+    for process in workers:
+        process.join()
+
+
 def _worker(args: argparse.Namespace) -> int:
     import multiprocessing
+    import signal
 
     if args.processes == 1:
         _worker_process(0, not args.no_schedules, args.drain)
@@ -281,6 +303,9 @@ def _worker(args: argparse.Namespace) -> int:
     ]
     for process in processes:
         process.start()
+    # SIGTERM (docker stop) reaches only this parent: pass it on, so every worker finishes
+    # its current job and stops instead of being killed mid-job.
+    signal.signal(signal.SIGTERM, lambda *_: [p.terminate() for p in processes if p.is_alive()])
     try:
         for process in processes:
             process.join()
@@ -345,6 +370,21 @@ def _simulation_history(args: argparse.Namespace) -> int:
     return 0
 
 
+def _perf(args: argparse.Namespace) -> int:
+    from app import perf
+
+    report = perf.run(
+        get_sessionmaker(),
+        "quick" if args.quick else "full",
+        args.only.split(",") if args.only else None,
+    )
+    print(perf.render(report))
+    if args.output:
+        perf.save(report, args.output)
+        print(f"Results written to {args.output}")
+    return 0 if report["passed"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -370,7 +410,9 @@ def main(argv: list[str] | None = None) -> int:
     simulate = commands.add_parser("simulate", help="Run one simulation to completion")
     simulate.add_argument("--scenario", default="retail-onboarding")
     simulate.add_argument(
-        "--profile", default="small", choices=["small", "department", "enterprise", "custom"]
+        "--profile",
+        default="small",
+        choices=["small", "department", "large", "enterprise", "custom"],
     )
     simulate.add_argument("--scenario-version", type=int, help="Defaults to the latest")
     simulate.add_argument(
@@ -383,6 +425,12 @@ def main(argv: list[str] | None = None) -> int:
     simulate.add_argument("--applications", type=int, help="Custom profile only")
     simulate.add_argument("--employees", type=int, help="Custom profile only")
     simulate.add_argument("--as-user", default="admin", help="User the run is recorded against")
+    simulate.add_argument(
+        "--shards", type=int, default=1, help="Parallel slices, each run by its own process"
+    )
+    simulate.add_argument(
+        "--processes", type=int, help="Worker processes for the shards (default: one per shard)"
+    )
     simulate.set_defaults(handler=_simulate)
 
     service = commands.add_parser(
@@ -419,6 +467,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     worker.add_argument("--drain", action="store_true", help="Exit when no job is due")
     worker.set_defaults(handler=_worker)
+
+    perf_parser = commands.add_parser(
+        "perf", help="Performance suite: key paths against recorded targets (scratch DB only)"
+    )
+    perf_parser.add_argument("--quick", action="store_true", help="Smaller sizes (CI)")
+    perf_parser.add_argument("--only", help="Comma-separated benchmark names")
+    perf_parser.add_argument("--output", help="Write the results as JSON to this file")
+    perf_parser.set_defaults(handler=_perf)
 
     sim_history = commands.add_parser(
         "simulation-history",

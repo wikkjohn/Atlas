@@ -106,11 +106,33 @@ def service_loans(ctx: JobContext) -> dict:
     max_attempts=1,  # an interrupted run is reported as interrupted, not re-run
 )
 def execute_simulations(ctx: JobContext) -> dict:
+    from app.config import get_settings
+    from app.jobs import engine
     from app.simulation import runner
 
     run_ids = [uuid.UUID(r) for r in ctx.payload["run_ids"]]
-    runner.execute_batch(ctx.factory, run_ids)
-    return {"runs": len(run_ids)}
+    shard_jobs = runner.execute_batch(ctx.factory, run_ids)
+    if shard_jobs and get_settings().jobs_execution == "inline":
+        # No worker processes: this process runs the shards itself, one after another.
+        for job_id in shard_jobs:
+            engine.run_now(ctx.factory, job_id)
+    return {"runs": len(run_ids), "shard_jobs": len(shard_jobs)}
+
+
+@job_kind(
+    "simulation.shard",
+    description="Simulate one shard of a sharded simulation run (payload: run_id, shard)",
+    max_attempts=1,  # a shard that stops fails its run, like an interrupted run
+)
+def execute_simulation_shard(ctx: JobContext) -> dict:
+    from app.simulation import runner
+
+    try:
+        run_id, shard = uuid.UUID(ctx.payload["run_id"]), int(ctx.payload["shard"])
+    except (KeyError, ValueError) as exc:
+        raise PermanentJobError("The payload needs run_id and shard.") from exc
+    status = runner.execute_shard(ctx.factory, run_id, shard, worker=ctx.worker)
+    return {"shard": shard, "status": status}
 
 
 @job_kind(

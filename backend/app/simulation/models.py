@@ -175,3 +175,34 @@ class SimulationArchive(UUIDPrimaryKey, Base):
     restored_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
+
+
+class SimulationShard(UUIDPrimaryKey, Base):
+    """One slice of a sharded run (Phase 16): its cases are `case_index % shards == shard`,
+    simulated by one worker process with its own share of the staff."""
+
+    __tablename__ = "simulation_shards"
+    __table_args__ = (
+        UniqueConstraint("run_id", "shard", name="uq_simulation_shards_run_shard"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'completed', 'failed')", name="status_valid"
+        ),
+    )
+
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("simulation_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    shard: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    cases_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    cases_started: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cases_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    events_processed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # Simulated time the shard's last event happened at.
+    simulated_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    wall_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

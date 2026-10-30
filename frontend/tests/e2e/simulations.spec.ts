@@ -60,6 +60,27 @@ test("Simulation Center: archive a run's workflow history, then restore it", asy
   await expect(history.getByRole("button", { name: "Archive history" })).toBeVisible({ timeout: 60_000 });
 });
 
+test("Simulation Center: a run in parallel shards, each with its own staff", async ({ page }) => {
+  test.setTimeout(180_000);
+  await signIn(page, "researcher", "/simulations");
+  const form = page.getByRole("form", { name: "Start a simulation" });
+  await form.getByLabel("Workload").selectOption("custom");
+  await form.getByLabel("Cases").fill("12");
+  await form.getByLabel("Simulated staff").fill("12");
+  await form.getByLabel("Parallel shards").fill("2");
+  await form.getByLabel("Random seed", { exact: true }).fill(String(1 + Math.floor(Math.random() * 1_000_000)));
+  await form.getByRole("button", { name: "Start run" }).click();
+
+  const details = page.getByRole("region", { name: "Run details" });
+  // The run's status comes first; each shard has its own status pill further down.
+  await expect(details.getByText("Completed", { exact: true }).first()).toBeVisible({ timeout: 120_000 });
+  await expect(details.getByText("12 / 12")).toBeVisible();
+  await expect(details.getByText(/12 staff · 2 shards/)).toBeVisible();
+  await details.getByText("Ran as 2 parallel shards").click();
+  const shards = details.getByRole("table", { name: "Shards" });
+  await expect(shards.getByText("6 / 6 cases")).toHaveCount(2);
+});
+
 test("Simulation Center: read-only roles see runs but cannot start them", async ({ page }) => {
   await signIn(page, "auditor", "/simulations");
   await expect(page.getByText("Your role can review runs but not start them.")).toBeVisible();

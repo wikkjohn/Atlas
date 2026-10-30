@@ -66,15 +66,18 @@ services:
       retries: 10
 
   worker:
-    # Background jobs and their schedules (scale with: docker compose up --scale worker=3).
+    # Background jobs and their schedules: 4 processes, so a sharded simulation runs 4
+    # shards at a time (more: ATLAS_WORKER_PROCESSES, or docker compose up --scale worker=N).
     build: ./backend
-    command: ["python", "-m", "app.cli", "worker"]
+    command: ["sh", "-c", "exec python -m app.cli worker --processes ${ATLAS_WORKER_PROCESSES:-4}"]
     environment:
       ATLAS_ENVIRONMENT: development
       ATLAS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-atlas}:${POSTGRES_PASSWORD:-atlas}@postgres:5432/${POSTGRES_DB:-atlas}
       ATLAS_REDIS_URL: redis://redis:6379/0
       ATLAS_LOG_FORMAT: ${ATLAS_LOG_FORMAT:-json}
       ATLAS_JWT_SECRET: ${ATLAS_JWT_SECRET:-}
+      # This is a worker: shard jobs a sharded run queues are left to the worker processes.
+      ATLAS_JOBS_EXECUTION: worker
       ATLAS_SIMULATION_ARCHIVE_DIR: /app/var/simulation-archive
       ATLAS_SLOW_QUERY_MS: ${ATLAS_SLOW_QUERY_MS:-250}
     volumes:

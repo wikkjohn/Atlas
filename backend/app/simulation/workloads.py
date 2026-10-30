@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from sqlalchemy import Text, and_, cast, select
+from sqlalchemy import Text, Uuid, and_, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.core.money import to_minor_units
@@ -112,6 +112,20 @@ def _roles(db: Session) -> dict[uuid.UUID, frozenset[Permission]]:
     }
 
 
+# Workflows whose business key is the id of the customer the case is about (WF-0002 keys
+# payments by payment number, WF-0004 by loan id).
+CUSTOMER_KEYED_WORKFLOWS = ("WF-0001", "WF-0003")
+
+
+def customer_keyed(executions_filter):
+    """Customer ids of the executions matching `executions_filter` that key on one."""
+    return select(func.cast(WorkflowExecution.business_key, Uuid)).where(
+        executions_filter,
+        WorkflowExecution.workflow_id.in_(CUSTOMER_KEYED_WORKFLOWS),
+        WorkflowExecution.business_key.is_not(None),
+    )
+
+
 def _in_run(run_id: uuid.UUID):
     """The run's executions, all in the simulation partition."""
     return and_(
@@ -153,7 +167,7 @@ class RetailOnboarding(Workload):
             today=sim.clock.start.date(),
         )
         out = []
-        for app in generator.generate(sim.applications):
+        for app in generator.generate_indices(sim.case_indices):
             late = app.payload.get("_late_document")
             payload = {k: v for k, v in app.payload.items() if not k.startswith("_")}
             signal = (
@@ -352,7 +366,7 @@ class DomesticPayments(Workload):
             return watchlisted[(country, name)]
 
         out: list[SyntheticCase] = []
-        for index in range(sim.applications):
+        for index in sim.case_indices:
             rng = case_random(sim.seed, index, "payment")
             kind = _pick(rng, mix)
             country = rng.choice(sim.countries)
@@ -493,7 +507,7 @@ class PersonalLoans(Workload):
         today = sim.clock.start.date()
         window = int(sim.config.arrival_window_hours * 3600)
         out: list[SyntheticCase] = []
-        for index in range(sim.applications):
+        for index in sim.case_indices:
             rng = case_random(sim.seed, index, "loan")
             kind = _pick(rng, mix)
             country = rng.choice(sim.countries)

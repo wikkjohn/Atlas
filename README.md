@@ -9,7 +9,7 @@ experiments.
 > **All data is synthetic.** ATLAS never connects to real payment networks, financial
 > institutions, customer databases or credit decisioning systems.
 
-**Current state: Phases 1–15 are complete.** ATLAS runs a synthetic global bank —
+**Current state: Phases 1–16 are complete.** ATLAS runs a synthetic global bank —
 sign-in and role-based permissions, countries, the organization hierarchy, the workforce,
 customers with KYC, approval-gated accounts, a double-entry ledger, domestic payments,
 personal loans with monthly servicing (schedules, interest accrual, collection, arrears,
@@ -23,10 +23,12 @@ compares baseline and AI-supported runs under transparent cost assumptions and s
 criteria; and an enterprise dashboard over all of it. The end-to-end demonstration —
 AI-assisted account opening from sign-in to an exported proof-of-concept report — is
 described in [docs/demo.md](docs/demo.md) and automated as a Playwright test. Phases
-12–15 laid the scale foundation of the [roadmap](docs/roadmap.md): stored balances and
+12–16 laid the scale foundation of the [roadmap](docs/roadmap.md): stored balances and
 incremental reconciliation, bulk loading of a million customers, durable background jobs
 with worker processes and schedules, partitioned workflow history with archive and reset
-of simulation history, and observability (request metrics, slow-query log, workers). See
+of simulation history, observability (request metrics, slow-query log, workers), and
+simulations split into parallel shards with a performance suite
+([docs/performance.md](docs/performance.md)). See
 [docs/implementation-status.md](docs/implementation-status.md) for details and known
 limitations.
 
@@ -130,7 +132,8 @@ cannot use. To create a real administrator for a non-demo environment:
 | `make lint`         | Ruff lint and format check (backend)                               |
 | `make validate`     | Live checks against a running stack (`scripts/validate_system.py`; add `--login auditor` to also reconcile the ledger) |
 | `make seed`         | Create the demo bank and demo sign-ins (idempotent)                |
-| `make simulate`     | Run a small simulation to completion and print its results (`ARGS="--profile custom --applications 500 --employees 40 --seed 7"`) |
+| `make simulate`     | Run a small simulation to completion and print its results (`ARGS="--profile custom --applications 500 --employees 40 --seed 7"`; add `--shards 4` to run in parallel processes) |
+| `make perf`         | Performance suite against recorded targets (`ARGS="--quick"`; run it against a scratch database) |
 | `make sim-history`  | Simulation workflow history: `ARGS="status"`, `ARGS="archive --run 7"`, `ARGS="archive --older-than-days 30"`, `ARGS="restore --run 7"`, `ARGS="reset --yes"` |
 
 The backend suite **drops and recreates the schema of the test database**. Point

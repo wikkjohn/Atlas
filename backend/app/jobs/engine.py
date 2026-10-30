@@ -51,6 +51,7 @@ class JobContext:
     payload: dict[str, Any]
     attempt: int
     created_by: uuid.UUID | None
+    worker: str = ""  # the process running it (for the job's own records)
 
 
 Handler = Callable[[JobContext], dict[str, Any] | None]
@@ -210,6 +211,7 @@ def run_claimed(factory: sessionmaker[Session], job_id: uuid.UUID, worker: str) 
             payload=dict(job.payload),
             attempt=job.attempts,
             created_by=job.created_by,
+            worker=worker,
         )
         attempts, max_attempts = job.attempts, job.max_attempts
     spec = REGISTRY.get(context.kind)

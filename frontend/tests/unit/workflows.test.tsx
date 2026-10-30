@@ -5,7 +5,7 @@ import { syntheticDocumentNumber } from "@/services/workflows";
 import type { ExecutionDetail, WorkflowDefinition, WorkflowMetrics, WorkflowTask } from "@/types/workflows";
 
 import { germany } from "./enterprise-fixtures";
-import { healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
+import { healthyRoutes, jsonResponse, mockApi, page, type RecordedRequest } from "./fixtures";
 import { renderApp } from "./render";
 
 const definition: WorkflowDefinition = {
@@ -297,5 +297,58 @@ describe("Workflow Explorer", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     const posts = api.requests.filter((r) => r.method === "POST" && r.path === "/api/v1/workflow-definitions");
     expect(posts.at(-1)?.body).toEqual({ definition: { workflow_id: "WF-1002" } });
+  });
+
+  it("previews and generates template variants, then opens one in the catalogue", async () => {
+    const template = {
+      id: "t1", template_id: "TPL-PAPER-STATEMENT", version: 1, name: "Paper statement request",
+      description: "One workflow per country and product.", status: "active", content_hash: "h",
+      id_range: [2000, 2999],
+      parameters: { type: "object", properties: { country_code: { type: "string" }, account_type: { type: "string", enum: ["current", "savings"] }, fee: { type: "integer", minimum: 1, maximum: 10000 } } },
+      example: { country_code: "GB", account_type: "current", fee: 5 },
+      imported_by_username: "admin", imported_at: "2026-10-30T10:00:00Z", variants: 1,
+    };
+    const generated = (dry: boolean) => ({
+      template_id: "TPL-PAPER-STATEMENT", template_version: 1, dry_run: dry, stored: !dry,
+      created: 1, updated: 0, unchanged: 1, invalid: 0,
+      results: [
+        { variant_key: '{"account_type":"current","country_code":"GB","fee":5}', params: {}, workflow_id: "WF-2000", version: 1, status: "unchanged", errors: [] },
+        { variant_key: '{"account_type":"current","country_code":"JP","fee":5}', params: {}, workflow_id: "WF-2001", version: 1, status: "created", errors: [] },
+      ],
+    });
+    const variant = { ...definition, workflow_id: "WF-2000", name: "Paper Statements — United Kingdom, current accounts", source: "stored", template_id: "TPL-PAPER-STATEMENT", origin: { template_id: "TPL-PAPER-STATEMENT", template_version: 1, variant_key: "k" } };
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflow-templates": () => jsonResponse([template]),
+        "GET /api/v1/workflow-templates/TPL-PAPER-STATEMENT/variants": () =>
+          jsonResponse([{ workflow_id: "WF-2000", variant_key: '{"account_type":"current","country_code":"GB","fee":5}', params: {}, template_version: 1, definition_version: 1, generated_at: "2026-10-30T10:00:00Z" }]),
+        "POST /api/v1/workflow-templates/TPL-PAPER-STATEMENT/generate": (request: RecordedRequest) =>
+          jsonResponse(generated(Boolean((request.body as { dry_run: boolean }).dry_run))),
+        "GET /api/v1/workflows": (request: RecordedRequest) => jsonResponse(request.search.get("q") === "WF-2000" ? [variant] : [definition]),
+        "GET /api/v1/workflows/WF-2000": () => jsonResponse(variant),
+        "GET /api/v1/workflows/WF-2000/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-2000", steps: [] }),
+        "GET /api/v1/workflow-definitions/handlers": () => jsonResponse([]),
+      }),
+    );
+    renderApp("/workflows?tab=templates");
+
+    const parameters = await screen.findByRole("table", { name: "Template parameters" });
+    expect(within(parameters).getByText("current | savings")).toBeInTheDocument();
+    expect(within(parameters).getByText("integer 1–10000")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Generate variants" }));
+    const dialog = screen.getByRole("dialog", { name: "Generate variants of TPL-PAPER-STATEMENT" });
+    expect(within(dialog).getByLabelText("Parameter sets (JSON)")).toHaveValue(JSON.stringify({ fixed: template.example }, null, 2));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Preview" }));
+    expect(await within(dialog).findByRole("status")).toHaveTextContent("Preview (nothing stored): 1 new, 0 updated, 1 unchanged, 0 invalid");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Stored: 1 new"));
+    const posts = api.requests.filter((r) => r.method === "POST").map((r) => (r.body as { dry_run: boolean }).dry_run);
+    expect(posts).toEqual([true, false]);
+    await userEvent.keyboard("{Escape}");
+
+    const variants = screen.getByRole("table", { name: "Template variants" });
+    await userEvent.click(await within(variants).findByText("WF-2000 v1"));
+    expect(await screen.findByText(/Generated from TPL-PAPER-STATEMENT v1/)).toBeInTheDocument();
   });
 });

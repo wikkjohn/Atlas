@@ -180,6 +180,14 @@ class Presentation(BaseModel):
         }
 
 
+class Origin(BaseModel):
+    """The template and parameters a generated variant was rendered from."""
+
+    template_id: str
+    template_version: int
+    variant_key: str
+
+
 def problem(location: str, code: str, message: str) -> dict[str, str]:
     return {"location": location, "code": code, "message": message}
 
@@ -196,6 +204,8 @@ class WorkflowDefinition(BaseModel):
     steps: list[StepDefinition]
     # Stored definitions carry their presentation; code registers a Presenter instead.
     presentation: Presentation | None = None
+    # Set on variants generated from a template (Phase 19): where this definition came from.
+    origin: "Origin | None" = None
 
     model_config = {"arbitrary_types_allowed": True}
 

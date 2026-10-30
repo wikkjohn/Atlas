@@ -282,3 +282,55 @@ class WorkflowEvent(Base):
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class WorkflowTemplateRecord(UUIDPrimaryKey, Base):
+    """A versioned workflow template (Phase 19): a definition body with `{{param}}`
+    placeholders, the parameters' JSON Schema and the workflow ids its variants may take.
+    Immutable once imported, like stored definitions; only `status` changes."""
+
+    __tablename__ = "workflow_templates"
+    __table_args__ = (
+        UniqueConstraint("template_id", "version", name="uq_workflow_templates_id_version"),
+        CheckConstraint("status IN ('active', 'retired')", name="status_valid"),
+    )
+
+    template_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default=DefinitionStatus.ACTIVE, server_default="active"
+    )
+    imported_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class WorkflowVariant(UUIDPrimaryKey, Base):
+    """One generated variant of a template: its parameters (`variant_key` is their
+    canonical form) and the workflow id it was given. The id never changes, so
+    regenerating a template updates the same workflows with new versions."""
+
+    __tablename__ = "workflow_variants"
+    __table_args__ = (
+        UniqueConstraint("template_id", "variant_key", name="uq_workflow_variants_key"),
+        UniqueConstraint("workflow_id", name="uq_workflow_variants_workflow_id"),
+    )
+
+    template_id: Mapped[str] = mapped_column(String(40), nullable=False)
+    variant_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    workflow_id: Mapped[str] = mapped_column(String(20), nullable=False)
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    template_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    generated_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )

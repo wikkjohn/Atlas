@@ -372,6 +372,11 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   service), so their business rules, idempotency and audit apply unchanged. A handler that
   moves money must sit behind an approval's approve route on every path — a graph check at
   import, because a stored definition is written by people, not reviewed code.
+- **Templates (Phase 19).** A template renders one stored definition per parameter set;
+  each variant goes through exactly the same validation and import path as a hand-written
+  definition, so the factory adds no second set of rules. Variant ids are stable per
+  parameter set (`workflow_variants`), which makes regeneration an update of the same
+  workflows rather than a flood of new ones.
 - **Not yet.** Stored definitions do not run on schedules or in simulations.
 
 ## Planned design for later phases

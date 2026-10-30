@@ -11,6 +11,7 @@ export interface WorkflowSummary {
   step_count: number;
   source: "code" | "stored";
   status: "active" | "retired";
+  template_id?: string | null;
 }
 
 export interface StepDefinition {
@@ -34,6 +35,7 @@ export interface WorkflowDefinition extends WorkflowSummary {
   start: string;
   input_schema: JsonSchema;
   presentation?: { subject_path: string; risk_path?: string; flags_path?: string } | null;
+  origin?: { template_id: string; template_version: number; variant_key: string } | null;
   steps: StepDefinition[];
   transition_rules: Record<string, unknown>[];
   approval_policies: Record<string, unknown>[];
@@ -212,4 +214,57 @@ export interface LibraryHandler {
   effect: HandlerEffect;
   requires_approval: boolean;
   params_schema: Record<string, unknown>;
+}
+
+// --- Templates and variants (Phase 19) ------------------------------------------------------
+
+export interface WorkflowTemplate {
+  id: string;
+  template_id: string;
+  version: number;
+  name: string;
+  description: string;
+  status: "active" | "retired";
+  content_hash: string;
+  id_range: [number, number];
+  parameters: JsonSchema;
+  example: Record<string, unknown>;
+  imported_by_username: string | null;
+  imported_at: string;
+  variants: number;
+}
+
+export interface WorkflowVariant {
+  workflow_id: string;
+  variant_key: string;
+  params: Record<string, unknown>;
+  template_version: number;
+  definition_version: number;
+  generated_at: string;
+}
+
+export interface GenerationSpec {
+  grid?: Record<string, unknown[]>;
+  variants?: Record<string, unknown>[];
+  fixed?: Record<string, unknown>;
+  dry_run?: boolean;
+}
+
+export interface GenerationResult {
+  template_id: string;
+  template_version: number;
+  dry_run: boolean;
+  stored: boolean;
+  created: number;
+  updated: number;
+  unchanged: number;
+  invalid: number;
+  results: {
+    variant_key: string;
+    params: Record<string, unknown>;
+    workflow_id: string | null;
+    version: number | null;
+    status: "created" | "updated" | "unchanged" | "invalid";
+    errors: DefinitionProblem[];
+  }[];
 }

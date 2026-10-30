@@ -151,6 +151,14 @@ def workflow_ids(db: Session) -> set[str]:
     return {d.workflow_id for d in registry.all_definitions()} | set(stored)
 
 
+def stored_version_count(db: Session) -> int:
+    from sqlalchemy import func
+
+    return db.execute(
+        select(func.count()).where(WorkflowDefinitionRecord.source == DefinitionSource.STORED)
+    ).scalar_one()
+
+
 def forget() -> None:
     """Drop the in-memory copies (tests roll stored definitions back between cases)."""
     _PARSED.clear()

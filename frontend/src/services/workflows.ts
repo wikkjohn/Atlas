@@ -5,6 +5,8 @@ import type { Page } from "@/types/enterprise";
 import type {
   ExecutionDetail,
   ExecutionSummary,
+  GenerationResult,
+  GenerationSpec,
   ImportResult,
   LibraryHandler,
   StoredDefinition,
@@ -14,6 +16,8 @@ import type {
   WorkflowMetrics,
   WorkflowSummary,
   WorkflowTask,
+  WorkflowTemplate,
+  WorkflowVariant,
 } from "@/types/workflows";
 
 type Params = Record<string, string | number | boolean | null | undefined>;
@@ -21,16 +25,19 @@ type Params = Record<string, string | number | boolean | null | undefined>;
 function useInvalidate() {
   const client = useQueryClient();
   return () => {
-    for (const key of ["workflows", "workflow-definitions", "workflow-executions", "workflow-tasks", "customers", "accounts", "payments", "loans"]) {
+    for (const key of ["workflows", "workflow-definitions", "workflow-templates", "workflow-executions", "workflow-tasks", "customers", "accounts", "payments", "loans"]) {
       void client.invalidateQueries({ queryKey: [key] });
     }
   };
 }
 
+/** The catalogue is capped: thousands of generated variants are found by searching. */
+export const CATALOGUE_LIMIT = 200;
+
 export const useWorkflows = (q?: string) =>
   useQuery({
     queryKey: ["workflows", "list", q],
-    queryFn: () => apiGet<WorkflowSummary[]>(`/api/v1/workflows${query({ q })}`),
+    queryFn: () => apiGet<WorkflowSummary[]>(`/api/v1/workflows${query({ q, limit: CATALOGUE_LIMIT })}`),
   });
 
 export const useWorkflowDefinition = (id: string | null) =>
@@ -149,5 +156,31 @@ export function useSetDefinitionStatus() {
     mutationFn: ({ workflowId, version, action }: { workflowId: string; version: number; action: "retire" | "reactivate" }) =>
       apiPost<StoredDefinition>(`/api/v1/workflow-definitions/${workflowId}/versions/${version}/${action}`, {}),
     onSuccess: invalidate,
+  });
+}
+
+// --- Templates (Phase 19) -------------------------------------------------------------------
+
+export const useTemplates = () =>
+  useQuery({
+    queryKey: ["workflow-templates", "list"],
+    queryFn: () => apiGet<WorkflowTemplate[]>("/api/v1/workflow-templates"),
+  });
+
+export const useTemplateVariants = (templateId: string | null) =>
+  useQuery({
+    queryKey: ["workflow-templates", "variants", templateId],
+    queryFn: () => apiGet<WorkflowVariant[]>(`/api/v1/workflow-templates/${templateId}/variants`),
+    enabled: Boolean(templateId),
+  });
+
+export function useGenerateVariants(templateId: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (spec: GenerationSpec) =>
+      apiPost<GenerationResult>(`/api/v1/workflow-templates/${templateId}/generate`, spec),
+    onSuccess: (result) => {
+      if (result.stored) invalidate();
+    },
   });
 }

@@ -130,3 +130,29 @@ test("WF-1002 (stored definition): a paper-statement fee is charged only after a
   await expect(done.getByText("Sent", { exact: true })).toBeVisible();
   await expect(done.getByRole("row", { name: /Charge the paper-statement fee/ })).toContainText("completed");
 });
+
+test("Templates: the paper-statement template's variants, a preview, and a generated workflow", async ({ browser }) => {
+  const admin = await as(browser, "admin", "/workflows?tab=templates");
+  await expect(admin.getByRole("list", { name: "Templates" })).toContainText("TPL-PAPER-STATEMENT");
+  const variants = admin.getByRole("table", { name: "Template variants" });
+  await expect(variants.getByRole("row")).toHaveCount(11); // header + 10 seeded variants
+
+  // A preview of the seeded grid stores nothing and finds every variant unchanged.
+  await admin.getByRole("button", { name: "Generate variants" }).click();
+  const dialog = admin.getByRole("dialog", { name: "Generate variants of TPL-PAPER-STATEMENT" });
+  await dialog.getByLabel("Parameter sets (JSON)").fill(
+    JSON.stringify({
+      grid: { country_code: ["DE", "GB", "JP", "SG", "US"], account_type: ["current", "savings"] },
+      fixed: { fee: 5, approval_permission: "accounts:manage", screen_customers: true },
+    }),
+  );
+  await dialog.getByRole("button", { name: "Preview" }).click();
+  await expect(dialog.getByRole("status")).toHaveText("Preview (nothing stored): 0 new, 0 updated, 10 unchanged, 0 invalid");
+  await admin.keyboard.press("Escape");
+
+  // Each variant is an ordinary workflow, here Japan's with its own currency.
+  await variants.getByRole("row").filter({ hasText: '"country_code":"JP"' }).filter({ hasText: '"current"' }).click();
+  await expect(admin.getByText(/Generated from TPL-PAPER-STATEMENT v1/)).toBeVisible();
+  await expect(admin.getByRole("heading", { name: "Paper Statements — Japan, current accounts" })).toBeVisible();
+  await expect(admin.getByRole("row", { name: /Charge the paper-statement fee \(5 JPY\)/ })).toContainText("Moves money");
+});

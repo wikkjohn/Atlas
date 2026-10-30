@@ -31,6 +31,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0013_partitioned_history` | 15 | Workflow executions, step runs and events become LIST-partitioned on `realm` (live, simulation); keys `(id, realm)`; `ai_tool_invocations.execution_realm`; events guard allows purging simulation rows only |
 | `0014_archives_observability` | 15 | `simulation_archives`, `simulation_runs.history_state`, `job_workers`, `slow_queries`; the (disabled) history retention schedule |
 | `0015_simulation_shards` | 16 | `simulation_shards`; the stored-balance trigger honours `atlas.balance_shard` |
+| `0017_workflow_templates` | 19 | `workflow_templates`, `workflow_variants` |
 | `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
 
 Common commands (from `backend/`):
@@ -245,6 +246,16 @@ runs older than 30 days.
 two shards' long transactions never lock the same balance row of a busy account (a
 currency's cash account) — without it, parallel payment shards deadlocked. Reads and
 reconciliation sum all eight rows and are unchanged.
+
+### Workflow templates (Phase 19, migration `0017_workflow_templates`)
+
+| Table | Contents |
+| --- | --- |
+| `workflow_templates` | Each template version (unique `template_id`, `version`): `name`, `document` (jsonb: parameters, example, id range, body), `content_hash`, `status` (active, retired), `imported_by`, `imported_at`. Immutable but for `status` |
+| `workflow_variants` | One row per parameter set ever generated (unique `template_id`, `variant_key`; unique `workflow_id`): `params`, the `template_version` and `definition_version` it was last generated at, `generated_by`. The id never changes |
+
+Generated definitions are ordinary stored rows in `workflow_definitions` whose JSON carries
+`origin`. Downgrading drops both tables; the generated definitions stay as stored ones.
 
 ### Stored workflow definitions (Phase 17, migration `0016_stored_definitions`)
 

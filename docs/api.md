@@ -223,6 +223,22 @@ unchanged.
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | No new executions on that version; running ones finish on it |
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/reactivate` | `workflows:define` | Startable again |
 
+#### Workflow templates (Phase 19)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/workflow-templates` | `workflows:read` | Every template version: parameters, example, id range, variants generated |
+| GET | `/api/v1/workflow-templates/{id}?version=` | `workflows:read` | One version with its body |
+| GET | `/api/v1/workflow-templates/{id}/variants` | `workflows:read` | Generated workflows: id, variant key, parameters, template and definition versions |
+| POST | `/api/v1/workflow-templates/validate` | `workflows:define` | `{template}` → `{valid, template_id, version, existing, errors[], warnings[], preview}` |
+| POST | `/api/v1/workflow-templates` | `workflows:define` | `{template}` → 201 (200 when identical); 422 `template_invalid` with every error |
+| POST | `/api/v1/workflow-templates/{id}/render` | `workflows:read` | `{params, version?}` → `{definition, report}`; stores nothing |
+| POST | `/api/v1/workflow-templates/{id}/generate` | `workflows:define` | `{grid?, variants?, fixed?, version?, dry_run}` → `{stored, created, updated, unchanged, invalid, results[]}`; all stored or none; at most 1,000 sets per request (the CLI has no limit) |
+| POST | `/api/v1/workflow-templates/{id}/versions/{v}/retire` · `/reactivate` | `workflows:define` | A retired version generates nothing; its workflows stay |
+
+`GET /api/v1/workflows` also takes `source`, `template_id` and `limit`, and summaries carry
+`template_id`; a generated definition's detail carries `origin`.
+
 Starting a stored workflow uses the same `POST /api/v1/workflows/{id}/executions`; its input
 is checked against the definition's JSON Schema, errors in the same format. Starting a
 retired version (or a workflow whose versions are all retired) returns 409.

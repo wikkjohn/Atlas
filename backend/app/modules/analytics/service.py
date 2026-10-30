@@ -163,7 +163,7 @@ def overview(db: Session) -> Overview:
         .where(Country.operational_status == OperationalStatus.ACTIVE),
     )
     workflow_ids = store.workflow_ids(db)
-    versions = len(registry.all_definitions()) + len(store.stored_records(db))
+    versions = len(registry.all_definitions()) + store.stored_version_count(db)
 
     live = WorkflowExecution.realm == Realm.LIVE
     outcomes = dict(

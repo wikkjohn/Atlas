@@ -42,13 +42,23 @@ def import_definition(
             f"The definition has {len(report.errors)} problem(s); nothing was imported.",
             {"errors": report.errors, "warnings": report.warnings},
         )
+    record, created = store_validated(db, report, actor_id)
+    return record, created, report
+
+
+def store_validated(
+    db: Session, report: validation.Report, actor_id: uuid.UUID | None
+) -> tuple[WorkflowDefinitionRecord, bool]:
+    """Store a definition `validation.validate` passed (with the database). Returns
+    (record, created); an identical, already stored version is returned unchanged."""
+    assert report.valid and report.existing is not None
     definition = report.definition
     assert definition is not None
     if report.existing == "identical":
         record = store.stored_record(db, definition.workflow_id, definition.version)
         if record is None:  # identical to a code snapshot: cannot happen for a valid id
             raise ConflictError(f"{definition.workflow_id} v{definition.version} exists.")
-        return record, False, report
+        return record, False
     record = WorkflowDefinitionRecord(
         workflow_id=definition.workflow_id,
         version=definition.version,
@@ -78,9 +88,14 @@ def import_definition(
             "version": record.version,
             "content_hash": record.content_hash,
             "warnings": len(report.warnings),
+            **(
+                {"template_id": definition.origin.template_id}
+                if definition.origin is not None
+                else {}
+            ),
         },
     )
-    return record, True, report
+    return record, True
 
 
 def set_status(

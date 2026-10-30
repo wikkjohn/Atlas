@@ -9,11 +9,12 @@ from app.core.errors import DomainError, NotFoundError
 from app.core.pagination import PageParams, paginate
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
-from app.modules.workflows import library, registry, store, validation
+from app.modules.workflows import library, registry, store, templates, validation
 from app.modules.workflows.definition import StepType, WorkflowDefinition
 from app.modules.workflows.engine import check_task_access
 from app.modules.workflows.models import (
     STEP_RUN_EXECUTION,
+    DefinitionSource,
     DefinitionStatus,
     Realm,
     RunStatus,
@@ -21,16 +22,25 @@ from app.modules.workflows.models import (
     WorkflowEvent,
     WorkflowExecution,
     WorkflowStepRun,
+    WorkflowTemplateRecord,
+    WorkflowVariant,
 )
 from app.modules.workflows.schemas import (
     ExecutionDetail,
     ExecutionSummary,
+    GenerationOut,
     LibraryHandlerOut,
+    RenderOut,
     StepMetric,
     StepRunOut,
     StoredDefinitionOut,
     TaskOut,
+    TemplateDetail,
+    TemplateOut,
+    TemplateReportOut,
     ValidationReportOut,
+    VariantOut,
+    VariantResultOut,
     WorkflowDefinitionOut,
     WorkflowEventOut,
     WorkflowMetrics,
@@ -55,40 +65,80 @@ def summary(
         step_count=len(definition.steps),
         source=source,
         status=status,
+        template_id=definition.origin.template_id if definition.origin else None,
     )
 
 
-def _catalogue(db: Session) -> dict[str, tuple[WorkflowDefinition, list[int], str, str]]:
-    """Each workflow's latest (active) definition, its versions, source and status."""
-    found: dict[str, tuple[WorkflowDefinition, list[int], str, str]] = {}
+def _catalogue(db: Session) -> dict[str, WorkflowSummary]:
+    """Each workflow's latest (active) version as a summary. Stored ones are summarised in
+    SQL from their JSON, without loading or parsing whole definitions (thousands of
+    generated variants are listed this way)."""
+    found: dict[str, WorkflowSummary] = {}
     for definition in registry.all_definitions():  # sorted by version, so last wins
-        versions = [*found.get(definition.workflow_id, (None, []))[1], definition.version]
-        found[definition.workflow_id] = (definition, versions, "code", "active")
-    by_workflow: dict[str, list[WorkflowDefinitionRecord]] = {}
-    for record in store.stored_records(db):
-        by_workflow.setdefault(record.workflow_id, []).append(record)
-    for workflow_id, records in by_workflow.items():
-        active = [r for r in records if r.status == DefinitionStatus.ACTIVE]
-        shown = (active or records)[-1]
-        found[workflow_id] = (
-            store.parsed(shown),
-            [r.version for r in records],
-            "stored",
-            shown.status,
+        previous = found.get(definition.workflow_id)
+        versions = [*(previous.versions if previous else []), definition.version]
+        found[definition.workflow_id] = summary(definition, versions)
+    d = WorkflowDefinitionRecord.definition
+    rows = db.execute(
+        select(
+            WorkflowDefinitionRecord.workflow_id,
+            WorkflowDefinitionRecord.version,
+            WorkflowDefinitionRecord.status,
+            WorkflowDefinitionRecord.name,
+            d["description"].astext,
+            d["business_owner"].astext,
+            d["trigger_type"].astext,
+            func.jsonb_array_length(d["steps"]),
+            d["origin"]["template_id"].astext,
+        )
+        .where(WorkflowDefinitionRecord.source == DefinitionSource.STORED)
+        .order_by(WorkflowDefinitionRecord.workflow_id, WorkflowDefinitionRecord.version)
+    ).all()
+    by_workflow: dict[str, list] = {}
+    for row in rows:
+        by_workflow.setdefault(row[0], []).append(row)
+    for workflow_id, versions in by_workflow.items():
+        active = [r for r in versions if r[2] == DefinitionStatus.ACTIVE]
+        shown = (active or versions)[-1]
+        found[workflow_id] = WorkflowSummary(
+            workflow_id=workflow_id,
+            name=shown[3],
+            version=shown[1],
+            versions=[r[1] for r in versions],
+            description=shown[4] or "",
+            business_owner=shown[5] or "",
+            trigger_type=shown[6] or "api",
+            step_count=shown[7] or 0,
+            source="stored",
+            status=shown[2],
+            template_id=shown[8],
         )
     return dict(sorted(found.items()))
 
 
-def list_workflows(db: Session, q: str | None = None) -> list[WorkflowSummary]:
-    items = [summary(*entry) for entry in _catalogue(db).values()]
+def list_workflows(
+    db: Session,
+    q: str | None = None,
+    *,
+    source: str | None = None,
+    template_id: str | None = None,
+    limit: int | None = None,
+) -> list[WorkflowSummary]:
+    items = list(_catalogue(db).values())
+    if source:
+        items = [w for w in items if w.source == source]
+    if template_id:
+        items = [w for w in items if w.template_id == template_id]
     if q:
         needle = q.casefold()
         items = [
             w
             for w in items
-            if needle in f"{w.workflow_id} {w.name} {w.description} {w.business_owner}".casefold()
+            if needle
+            in f"{w.workflow_id} {w.name} {w.description} {w.business_owner} "
+            f"{w.template_id or ''}".casefold()
         ]
-    return items
+    return items[:limit] if limit else items
 
 
 def get_definition(db: Session, workflow_id: str, version: int | None = None) -> WorkflowDefinition:
@@ -99,14 +149,24 @@ def get_definition(db: Session, workflow_id: str, version: int | None = None) ->
 
 
 def definition_out(db: Session, definition: WorkflowDefinition) -> WorkflowDefinitionOut:
-    entry = _catalogue(db).get(definition.workflow_id)
-    versions, source = (entry[1], entry[2]) if entry else ([definition.version], "code")
-    status = "active"
-    if source == "stored":
-        record = store.stored_record(db, definition.workflow_id, definition.version)
-        status = record.status if record else "active"
+    if store.is_code(definition.workflow_id):
+        versions = [d.version for d in registry.all_definitions()
+                    if d.workflow_id == definition.workflow_id]  # fmt: skip
+        source, status = "code", "active"
+    else:
+        rows = db.execute(
+            select(WorkflowDefinitionRecord.version, WorkflowDefinitionRecord.status)
+            .where(
+                WorkflowDefinitionRecord.workflow_id == definition.workflow_id,
+                WorkflowDefinitionRecord.source == DefinitionSource.STORED,
+            )
+            .order_by(WorkflowDefinitionRecord.version)
+        ).all()
+        versions = [v for v, _ in rows]
+        source, status = "stored", dict(rows).get(definition.version, "active")
     return WorkflowDefinitionOut(
         **summary(definition, versions, source, status).model_dump(),
+        origin=definition.origin.model_dump() if definition.origin else None,
         start=definition.start,
         input_schema=definition.input_schema,
         presentation=(
@@ -467,3 +527,128 @@ def report_out(report: validation.Report) -> ValidationReportOut:
         warnings=report.warnings,
         effects=report.effects,
     )
+
+
+# --- Templates (Phase 19) --------------------------------------------------------------------
+
+
+def template_out(
+    db: Session, record: WorkflowTemplateRecord, detail: bool = False
+) -> TemplateOut | TemplateDetail:
+    document = record.document
+    variants = db.execute(
+        select(func.count()).where(WorkflowVariant.template_id == record.template_id)
+    ).scalar_one()
+    fields = dict(
+        id=record.id,
+        template_id=record.template_id,
+        version=record.version,
+        name=record.name,
+        description=document["description"],
+        status=record.status,
+        content_hash=record.content_hash,
+        id_range=tuple(document["id_range"]),
+        parameters=document["parameters"],
+        example=document["example"],
+        imported_by_username=_usernames(db, {record.imported_by}).get(record.imported_by)
+        if record.imported_by
+        else None,
+        imported_at=record.imported_at,
+        variants=variants,
+    )
+    return TemplateDetail(**fields, body=document["body"]) if detail else TemplateOut(**fields)
+
+
+def list_templates(db: Session) -> list[TemplateOut]:
+    records = db.execute(
+        select(WorkflowTemplateRecord).order_by(
+            WorkflowTemplateRecord.template_id, WorkflowTemplateRecord.version
+        )
+    ).scalars()
+    return [template_out(db, r) for r in records]
+
+
+def template_report_out(report: templates.TemplateReport) -> TemplateReportOut:
+    t = report.template
+    return TemplateReportOut(
+        valid=report.valid,
+        template_id=t.template_id if t else None,
+        version=t.version if t else None,
+        existing=report.existing if report.valid else None,
+        errors=report.errors,
+        warnings=report.warnings,
+        preview=report.preview,
+    )
+
+
+def generation_out(report: templates.GenerationReport) -> GenerationOut:
+    return GenerationOut(
+        template_id=report.template_id,
+        template_version=report.template_version,
+        dry_run=report.dry_run,
+        stored=not report.dry_run and report.valid,
+        created=report.count("created"),
+        updated=report.count("updated"),
+        unchanged=report.count("unchanged"),
+        invalid=report.count("invalid"),
+        results=[
+            VariantResultOut(
+                variant_key=r.variant_key,
+                params=r.params,
+                workflow_id=r.workflow_id,
+                version=r.version,
+                status=r.status,
+                errors=r.errors,
+            )
+            for r in report.results
+        ],
+    )
+
+
+def variants_out(db: Session, template_id: str) -> list[VariantOut]:
+    rows = db.execute(
+        select(WorkflowVariant)
+        .where(WorkflowVariant.template_id == template_id)
+        .order_by(WorkflowVariant.workflow_id)
+    ).scalars()
+    return [
+        VariantOut(
+            workflow_id=v.workflow_id,
+            variant_key=v.variant_key,
+            params=v.params,
+            template_version=v.template_version,
+            definition_version=v.definition_version,
+            generated_at=v.generated_at,
+        )
+        for v in rows
+    ]
+
+
+def render_out(
+    db: Session, template_id: str, params: dict, version: int | None = None
+) -> RenderOut:
+    """Preview one variant: the rendered definition and its validation report."""
+    record = templates.template_record(db, template_id, version)
+    template = templates.TemplateDocument.model_validate(record.document)
+    errors = templates._params_errors(template, params)
+    known = db.execute(
+        select(WorkflowVariant.workflow_id).where(
+            WorkflowVariant.template_id == template_id,
+            WorkflowVariant.variant_key == templates.variant_key(params),
+        )
+    ).scalar_one_or_none()
+    workflow_id = known or f"WF-{template.id_range[0]:04d}"
+    if errors:
+        report = validation.Report()
+        for message in errors:
+            report.error("params", "invalid_params", message)
+        return RenderOut(definition=None, report=report_out(report))
+    try:
+        document = templates.render(db, template, params, workflow_id=workflow_id, version=1)
+    except templates.RenderError as exc:
+        report = validation.Report()
+        report.error(exc.location, "render_error", exc.message)
+        return RenderOut(definition=None, report=report_out(report))
+    report = validation.validate(db, document, versions=False, generated=True)
+    report.errors = [e for e in report.errors if e["code"] != "owned_by_template"]
+    return RenderOut(definition=document, report=report_out(report))

@@ -313,3 +313,61 @@ why (`_failure.message`) and no money moved.
 - **CLI** — `python -m app.cli workflows list | validate FILE | import FILE [--as-user]
   | export WF-ID [--version] [--output]`.
 - **API** — see `docs/api.md` (*Workflow definitions*).
+
+## Templates and variants (Phase 19)
+
+A **template** turns one stored workflow into a family. It is a definition body with
+`{{param}}` placeholders, a JSON Schema for the parameters, an example parameter set and the
+range of workflow ids its variants may take (`templates.py`, `examples/TPL-*.json`):
+
+```json
+{"template_id": "TPL-PAPER-STATEMENT", "version": 1, "name": "…", "description": "…",
+ "id_range": [2000, 2999], "parameters": {"type": "object", "properties": {…}},
+ "example": {"country_code": "GB", "account_type": "current", "fee": 5, …},
+ "body": {"name": "Paper Statements — {{country.name}}, {{account_type}} accounts", …}}
+```
+
+| In the body | Becomes |
+| --- | --- |
+| `"{{fee}}"` (the whole string) | the parameter's value with its type: a number, list or boolean |
+| `"… {{account_type}} …"` | the value as text inside the string |
+| `{{country.name}}`, `.currency`, `.region`, `.code`, `.minor_exponent` | reference data of the `country_code` parameter's country |
+| `"{{fee\|minor}}"` | a whole major-unit amount in minor units of the country's currency (5 → 500 GBP, 5 JPY) |
+| `"$include": "{{flag}}"` on a step | the step only when the flag is true; otherwise every route to it goes to its `next` |
+
+**Importing a template** validates it fully: shape and id range (1000–9999, not overlapping
+code workflows); the parameter schema; every placeholder names a declared parameter or a
+country field (unused parameters are a warning); the body leaves `workflow_id`, `version`
+and `origin` to the generator; the example satisfies the schema; and **the example, rendered,
+passes the full definition validation** — so a template whose fee could bypass its approval
+is refused like a definition would be, with locations such as `example → steps.charge_fee`.
+Versions are immutable and increasing.
+
+**Generating** takes a `grid` (every combination), explicit `variants`, and `fixed` values,
+and for each parameter set renders, validates and imports a definition:
+
+- **Deterministic.** A parameter set's canonical JSON is its `variant_key`. Sets are
+  processed in key order and the first generation gives each the lowest free id in the
+  template's range (skipping ids any other workflow holds); `workflow_variants` records it,
+  and every later generation reuses it, whatever order the sets are given in.
+- **Versioned.** Regenerating unchanged content is a no-op (`unchanged`); a changed result —
+  a new template version, say — becomes the next version of the same workflow (`updated`).
+  Running cases stay on the version they started on.
+- **All or nothing.** If any variant is invalid (bad parameters, render error, validation
+  error, no free id), nothing is stored and the report lists each problem. `dry_run` shows
+  the outcome without storing.
+- **Owned.** A generated workflow carries `origin` (template, version, variant key). Only
+  the generator may set `origin`, and a variant's workflow id cannot be imported by hand
+  (`owned_by_template`): it changes by changing the template and regenerating.
+
+`seed-demo` imports `TPL-PAPER-STATEMENT` (WF-1002 as a template: country, product, fee,
+approving permission, optional watchlist screening) and generates WF-2000–WF-2009: five
+countries × current and savings accounts. The Workflow Explorer's **Templates** tab shows
+templates, their parameters and generated workflows, and (for `workflows:define`) a generate
+dialog with preview; catalogue entries show the template they came from. The CLI:
+`workflows templates | import-template FILE | generate TEMPLATE --grid FILE [--dry-run]`.
+
+At scale (development container, see `docs/performance.md`): 5,040 variants of one template
+were generated in 52.5 s for 4,500 new ones (about 86 per second, each fully validated and
+imported), a dry run over all of them takes 33 s, and the catalogue lists 5,056 workflows in
+0.27–0.42 s.

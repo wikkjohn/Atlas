@@ -15,6 +15,8 @@
     python -m app.cli workflows validate my-workflow.json               # check a definition
     python -m app.cli workflows import my-workflow.json --as-user admin # store a definition
     python -m app.cli workflows export WF-1001 --output wf-1001.json    # any definition
+    python -m app.cli workflows import-template my-template.json        # store a template
+    python -m app.cli workflows generate TPL-PAPER-STATEMENT --grid grid.json  # variants
 """
 
 import argparse
@@ -76,6 +78,10 @@ def _seed_demo(args: argparse.Namespace) -> int:
         print(f"Registered AI tools: {', '.join(report.ai_tools)}")
     if report.stored_definitions:
         print(f"Imported stored workflow definitions: {', '.join(report.stored_definitions)}")
+    if report.templates:
+        print(f"Imported workflow templates: {', '.join(report.templates)}")
+    if report.generated_variants:
+        print(f"Generated {report.generated_variants} workflow variant(s) from templates.")
     print("\nDemo sign-ins (local development only):")
     for username, _, label in DEMO_USERS:
         print(f"  {username:<12} {label}")
@@ -354,6 +360,65 @@ def _workflows(args: argparse.Namespace) -> int:
                         f"{w.workflow_id}  v{w.version:<3} {w.source:<6} {w.status:<7} "
                         f"{w.name} (versions {', '.join(map(str, w.versions))})"
                     )
+        elif args.action == "templates":
+            with factory() as db:
+                for t in service.list_templates(db):
+                    print(
+                        f"{t.template_id}  v{t.version:<3} {t.status:<7} ids "
+                        f"{t.id_range[0]}-{t.id_range[1]}  {t.variants} variant(s)  {t.name}"
+                    )
+        elif args.action == "import-template":
+            from app.modules.workflows import templates
+
+            with open(args.file) as f:
+                document = json.load(f)
+            with factory() as db, db.begin():
+                actor = db.execute(
+                    select(User.id).where(User.username == args.as_user)
+                ).scalar_one_or_none()
+                if actor is None:
+                    print(f"No user '{args.as_user}'.")
+                    return 2
+                report = templates.validate_template(db, document)
+                for kind, items in (("error", report.errors), ("warning", report.warnings)):
+                    for p in items:
+                        print(f"  {kind:<7} {p['location']}: {p['message']} [{p['code']}]")
+                if not report.valid:
+                    return 1
+                record, created, _ = templates.import_template(db, document, actor)
+                verb = "Imported" if created else "Already stored (unchanged):"
+                print(f"{verb} {record.template_id} v{record.version}")
+        elif args.action == "generate":
+            import time
+
+            from app.modules.workflows import templates
+
+            with open(args.grid) as f:
+                spec = json.load(f)
+            param_sets = templates.expand(spec.get("grid"), spec.get("variants"), spec.get("fixed"))
+            started = time.perf_counter()
+            with factory() as db, db.begin():
+                actor = db.execute(
+                    select(User.id).where(User.username == args.as_user)
+                ).scalar_one_or_none()
+                report = templates.generate(
+                    db, args.template_id, param_sets, actor, dry_run=args.dry_run, limit=None
+                )
+            seconds = time.perf_counter() - started
+            for r in report.results:
+                if r.status == "invalid":
+                    for p in r.errors:
+                        print(f"  invalid {r.variant_key}: {p['location']}: {p['message']}")
+            counts = ", ".join(
+                f"{report.count(s)} {s}" for s in ("created", "updated", "unchanged", "invalid")
+            )
+            stored = "dry run" if args.dry_run else ("stored" if report.valid else "NOT stored")
+            print(
+                f"{args.template_id} v{report.template_version}: {len(report.results)} "
+                f"variant(s): {counts} — {stored} in {seconds:.1f} s"
+            )
+            if not report.valid:
+                return 1
         elif args.action == "export":
             with factory() as db:
                 document = authoring.export(db, args.workflow_id, args.version)
@@ -570,6 +635,21 @@ def main(argv: list[str] | None = None) -> int:
     wf_import = wf_actions.add_parser("import", help="Validate and store a definition file")
     wf_import.add_argument("file")
     wf_import.add_argument("--as-user", default="admin", help="Recorded as the importer")
+    wf_actions.add_parser("templates", help="Every template version")
+    wf_template = wf_actions.add_parser("import-template", help="Validate and store a template")
+    wf_template.add_argument("file")
+    wf_template.add_argument("--as-user", default="admin", help="Recorded as the importer")
+    wf_generate = wf_actions.add_parser(
+        "generate", help="Generate variants of a template from a grid file (all or none)"
+    )
+    wf_generate.add_argument("template_id")
+    wf_generate.add_argument(
+        "--grid",
+        required=True,
+        help='JSON file: {"grid": {...}, "variants": [...], "fixed": {...}}',
+    )
+    wf_generate.add_argument("--dry-run", action="store_true")
+    wf_generate.add_argument("--as-user", default="admin", help="Recorded as the generator")
     wf_export = wf_actions.add_parser("export", help="Write a definition as an importable file")
     wf_export.add_argument("workflow_id")
     wf_export.add_argument("--version", type=int)

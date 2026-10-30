@@ -13,10 +13,12 @@ import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatMilliseconds as formatDuration, formatTimestamp } from "@/features/dashboard/format";
 import { EffectBadge, ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
+import { TemplatesTab } from "@/features/workflows/TemplatesTab";
 import { newIdempotencyKey } from "@/services/api";
 import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
 import {
+  CATALOGUE_LIMIT,
   exportDefinition,
   syntheticDocumentNumber,
   useCompleteTask,
@@ -34,7 +36,7 @@ import {
 } from "@/services/workflows";
 import type { ExecutionDetail, ExecutionStatus, StepRun, WorkflowSummary, WorkflowTask } from "@/types/workflows";
 
-type Tab = "catalogue" | "executions" | "tasks";
+type Tab = "catalogue" | "templates" | "executions" | "tasks";
 const PAGE_SIZE = 25;
 
 const EXECUTION_TONE: Record<ExecutionStatus, Tone> = {
@@ -61,11 +63,14 @@ function TypeTag({ type }: { type: string }) {
 
 // --- Catalogue ------------------------------------------------------------------------------
 
-function SourceBadges({ workflow }: { workflow: Pick<WorkflowSummary, "source" | "status"> }) {
+function SourceBadges({ workflow }: { workflow: Pick<WorkflowSummary, "source" | "status" | "template_id"> }) {
   return (
     <>
-      {workflow.source === "stored" && (
+      {workflow.source === "stored" && !workflow.template_id && (
         <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">Stored</span>
+      )}
+      {workflow.template_id && (
+        <span className="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-800">{workflow.template_id}</span>
       )}
       {workflow.status === "retired" && (
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Retired</span>
@@ -138,7 +143,11 @@ function DefinitionView({ id }: { id: string }) {
           <p className="mt-1 text-sm text-slate-600">{d.description}</p>
           <p className="mt-1 text-xs text-slate-500">
             Owner: {d.business_owner} · Trigger: {d.trigger_type} ·{" "}
-            {d.source === "stored" ? "Stored definition (imported as data)" : "Registered in code"}
+            {d.origin
+              ? `Generated from ${d.origin.template_id} v${d.origin.template_version}`
+              : d.source === "stored"
+                ? "Stored definition (imported as data)"
+                : "Registered in code"}
           </p>
         </div>
         <DefinitionActions workflowId={d.workflow_id} version={d.version} source={d.source} status={d.status} />
@@ -368,11 +377,11 @@ const START_DIALOGS: Record<string, typeof StartApplicationDialog> = {
   "WF-0003": StartLoanDialog,
 };
 
-function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
+function CatalogueTab({ onStarted, initial }: { onStarted: (id: string) => void; initial: string | null }) {
   const { can } = useAuth();
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initial ?? "");
   const workflows = useWorkflows(q || undefined);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(initial);
   const [starting, setStarting] = useState(false);
   const [importing, setImporting] = useState(false);
   const current = selected ?? workflows.data?.[0]?.workflow_id ?? null;
@@ -414,6 +423,9 @@ function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
           ))}
           {workflows.data?.length === 0 && <li className="text-sm text-slate-500">No workflows match.</li>}
         </ul>
+        {workflows.data?.length === CATALOGUE_LIMIT && (
+          <p className="text-xs text-slate-500">Showing the first {CATALOGUE_LIMIT}; search to find the others.</p>
+        )}
         {current && (START_LABELS[current] || storedStartable) && can("workflows:start") && (
           <Button className="w-full" onClick={() => setStarting(true)}>
             <Play aria-hidden className="h-4 w-4" /> {START_LABELS[current] ?? "Start a case"}
@@ -758,6 +770,7 @@ export function WorkflowExplorerPage() {
   };
   const tabs: { id: Tab; label: string }[] = [
     { id: "catalogue", label: "Catalogue" },
+    { id: "templates", label: "Templates" },
     { id: "executions", label: "Executions" },
     { id: "tasks", label: "Task inbox" },
   ];
@@ -775,14 +788,21 @@ export function WorkflowExplorerPage() {
             role="tab"
             type="button"
             aria-selected={tab === t.id}
-            onClick={() => set({ tab: t.id === "catalogue" ? null : t.id })}
+            onClick={() => set({ tab: t.id === "catalogue" ? null : t.id, workflow: null })}
             className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${tab === t.id ? "border-navy-900 text-navy-900" : "border-transparent text-slate-500 hover:text-slate-800"}`}
           >
             {t.label}
           </button>
         ))}
       </div>
-      {tab === "catalogue" && <CatalogueTab onStarted={(id) => set({ tab: "executions", execution: id })} />}
+      {tab === "catalogue" && (
+        <CatalogueTab
+          key={params.get("workflow") ?? "catalogue"}
+          initial={params.get("workflow")}
+          onStarted={(id) => set({ tab: "executions", execution: id })}
+        />
+      )}
+      {tab === "templates" && <TemplatesTab onOpenWorkflow={(workflowId) => set({ tab: null, workflow: workflowId })} />}
       {tab === "executions" && <ExecutionsTab onOpen={(id) => set({ execution: id })} />}
       {tab === "tasks" && <TasksTab onOpen={(id) => set({ execution: id })} />}
       {openId && <ExecutionView key={openId} id={openId} onClose={() => set({ execution: null })} />}

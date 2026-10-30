@@ -7,8 +7,9 @@ from app.core.permissions import RoleCode
 from app.modules.employees.models import EmploymentStatus
 
 NAME_PATTERN = r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ' -]*$"
-# Up to 1 trillion minor units.
-MAX_COMPENSATION = 10**12
+# Up to 10^15 minor units: enough for high-denomination currencies such as the Lebanese pound
+# (Phase 27), and still exact as a JavaScript number.
+MAX_COMPENSATION = 10**15
 
 
 class EmployeeCreate(BaseModel):

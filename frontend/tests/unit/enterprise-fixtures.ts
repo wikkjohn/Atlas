@@ -33,6 +33,7 @@ function org(partial: Partial<Organization> & Pick<Organization, "id" | "name" |
     currency: null,
     region: null,
     status: "active",
+    generated_from: null,
     child_count: 0,
     employee_count: 0,
     created_at: "2026-10-27T00:00:00Z",

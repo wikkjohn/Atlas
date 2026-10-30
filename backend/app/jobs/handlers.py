@@ -240,3 +240,40 @@ def fx_daily(ctx: JobContext) -> dict:
             "revaluation": run.run_number,
             "posted_usd_cents": run.posted,
         }
+
+
+@job_kind(
+    "organizations.generate",
+    description="Launch countries and build their subsidiaries from the blueprint "
+    "(payload: country_codes, staff)",
+    max_attempts=1,
+)
+def generate_subsidiaries(ctx: JobContext) -> dict:
+    from app.core.errors import DomainError
+    from app.modules.countries.models import Country
+    from app.modules.organizations import blueprint
+
+    principal = _principal(ctx)
+    if not principal.can(Permission.ORGANIZATIONS_MANAGE):
+        raise PermanentJobError("The job's principal may not create organizations.")
+    codes = ctx.payload.get("country_codes")
+    if not isinstance(codes, list) or not all(isinstance(c, str) for c in codes):
+        raise PermanentJobError("country_codes must be a list of country codes.")
+    staff = bool(ctx.payload.get("staff", True))
+    totals = {"organizations_created": 0, "employees_hired": 0}
+    launched, failed = [], {}
+    # One transaction per country: a failure leaves the countries before it in place.
+    for code in codes:
+        try:
+            with ctx.factory() as db, db.begin():
+                country = db.execute(
+                    select(Country).where(Country.iso_country_code == code)
+                ).scalar_one()
+                result = blueprint.launch_country(db, country, principal.id, staff=staff)
+        except DomainError as exc:
+            failed[code] = exc.message
+            continue
+        launched.append(code)
+        totals["organizations_created"] += result.organizations_created
+        totals["employees_hired"] += result.employees_hired
+    return {"countries": len(codes), "launched": launched, "failed": failed, **totals}

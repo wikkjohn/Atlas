@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 26.
+Last updated: Phase 27.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -31,6 +31,42 @@ Last updated: Phase 26.
 | 24 | Global footprint, step 2: multi-currency — FX rates, conversions, cross-currency payments, revaluation ([fx.md](fx.md)) | **Complete** |
 | 25 | Global footprint, step 3: country rules engine ([country-rules.md](country-rules.md)) | **Complete** |
 | 26 | Global footprint, step 4: business calendars ([business-calendars.md](business-calendars.md)) | **Complete** |
+| 27 | Global footprint, step 5: generated country subsidiaries ([subsidiaries.md](subsidiaries.md)) | **Complete** |
+
+## Phase 27: what exists
+
+- **Subsidiary blueprint** (version 1): 3 divisions, 4 departments and 4 teams with 24
+  synthetic staff, paid in the country's currency on a dollar band converted at the FX
+  anchor rates; names from a seed fixed per country.
+- **Launching a country:** activates a planned country, adds its regional headquarters
+  when the region has none, and builds whatever the subsidiary is missing; staff only for
+  new units; generated units record `generated_from` (migration 0024); audited.
+- **API, job, UI and CLI:** `GET /organizations/blueprint` (with coverage by region),
+  `POST /organizations/generate` (an `organizations.generate` job, one transaction per
+  country), the *Country subsidiaries* panel on the Organization page, and
+  `python -m app.cli subsidiaries coverage|generate`.
+- **Measured:** all 115 planned countries launched in 31 s (1,381 organizations, 2,760
+  staff); a second run created nothing.
+- **Employee pay limit** raised to 10¹⁵ minor units (the Lebanese pound band needs more
+  than the previous 10¹²).
+
+## Phase 27: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 551 passed (new: 6 — the blueprint, with every currency's pay band within the employee limit; launching Kenya: activation, the new Middle East & Africa headquarters, 12 generated units, 24 staff paid in KES, audit events; completing a partly built subsidiary and launching again without duplicates; refusals (no global bank, suspended country, unknown codes) and generation targets; reproducible staff names; the generation API and job with permissions) |
+| Frontend Vitest / typecheck / build | 95 passed (new: coverage and a generation job with a failed country) / clean / built |
+| Playwright on a fresh database | 29 passed locally (new: an administrator launches Kenya and opens its generated subsidiary). In CI the first push failed: the new test ran in parallel with the simulation test, launched Kenya between a run and its reproduction, and the reproduction (rightly) reported different results because its dataset had gained a country. The test now runs last in the serial simulations file; 29 passed again on a fresh database |
+| Migration 0024 | Upgrade, downgrade and upgrade again; `alembic check` clean |
+| Full generation (CLI, demo database) | 115 of 115 planned countries launched in 31.0 s: 1,381 organizations, 2,760 staff; a second run did nothing. The first attempt stopped at Lebanon on the employee pay limit (fixed by raising the limit, see above) |
+
+## Phase 27: known limitations
+
+- One blueprint for every country, whatever its size; names are not country-specific.
+- Launching does not start customers, products or simulation workloads in a country; that
+  is the Milestone C exit (Phase 28).
+- Simulations hire staff in the first active country by code, so on a fully launched
+  database that is the United Arab Emirates instead of Germany.
 
 ## Phase 26: what exists
 

@@ -30,6 +30,7 @@ from app.modules.employees.service import create_employee
 from app.modules.identity.models import User
 from app.modules.identity.schemas import UserCreate
 from app.modules.identity.service import AuthenticatedUser, create_user
+from app.modules.organizations.blueprint import STRUCTURE
 from app.modules.organizations.models import Organization, OrganizationType
 from app.modules.organizations.schemas import OrganizationCreate
 from app.modules.organizations.service import create_organization
@@ -49,16 +50,6 @@ SUBSIDIARY_NAMES = {
     "DE": "ATLAS Bank Deutschland",
     "SG": "ATLAS Bank Singapore",
     "JP": "ATLAS Bank Japan",
-}
-
-# division -> department -> teams
-STRUCTURE = {
-    "Retail Banking": {
-        "Customer Onboarding": ["KYC Review", "Account Services"],
-        "Branch Network": [],
-    },
-    "Compliance & Risk": {"Financial Crime Compliance": ["Sanctions Screening"]},
-    "Technology & Operations": {"AI Innovation Lab": ["Model Evaluation"]},
 }
 
 # Annual salary bands in whole units of each country's currency (synthetic).

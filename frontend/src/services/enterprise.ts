@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPatch, apiPost, query } from "@/services/api";
+import type { Job } from "@/types/jobs";
 import type {
   AuditEvent,
   Country,
@@ -14,6 +15,7 @@ import type {
   Employee,
   Organization,
   Page,
+  SubsidiaryBlueprint,
   Role,
   UserAccount,
   UserCreate,
@@ -139,6 +141,20 @@ export function useUpdateOrganization() {
 }
 
 // --- Employees ---------------------------------------------------------------------------
+
+export function useSubsidiaryBlueprint() {
+  return useQuery({
+    queryKey: ["organizations", "blueprint"],
+    queryFn: () => apiGet<SubsidiaryBlueprint>("/api/v1/organizations/blueprint"),
+  });
+}
+
+export function useGenerateSubsidiaries() {
+  return useMutation({
+    mutationFn: (body: { country_codes?: string[]; region?: string; staff: boolean }) =>
+      apiPost<Job>("/api/v1/organizations/generate", body),
+  });
+}
 
 export function useEmployees(params: Params, enabled = true) {
   return useQuery({

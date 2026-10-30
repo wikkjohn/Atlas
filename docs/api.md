@@ -65,6 +65,8 @@ every endpoint follows and lists what exists.
 | GET | `/api/v1/organizations/{id}` | `organizations:read` | Includes `child_count`, `employee_count`, inherited `currency` |
 | GET | `/api/v1/organizations/{id}/ancestors` | `organizations:read` | Path from the global bank |
 | PATCH | `/api/v1/organizations/{id}` | `organizations:manage` | `name`, `status` |
+| GET | `/api/v1/organizations/blueprint` | `organizations:read` | The subsidiary blueprint and coverage by region (Phase 27) |
+| POST | `/api/v1/organizations/generate` | `organizations:manage` | `{country_codes?, region?, staff}`: launch countries and generate their subsidiaries; 202 with an `organizations.generate` job ([subsidiaries.md](subsidiaries.md)) |
 
 Hierarchy rules: global bank (exactly one, the only root) → regional headquarters (has a
 region) → country subsidiary (one per country; the country must be **active** and in the

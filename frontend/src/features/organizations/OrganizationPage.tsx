@@ -10,6 +10,7 @@ import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
 import { StatusPill } from "@/components/StatusPill";
+import { SubsidiariesPanel } from "@/features/organizations/SubsidiariesPanel";
 import { CHILD_TYPE, ORG_TYPE_LABELS, REGION_LABELS } from "@/services/format";
 import {
   useAncestors,
@@ -268,6 +269,7 @@ function OrganizationDetail({ id }: { id: string }) {
     ["Currency", org.currency ?? "—"],
     ["Sub-units", String(org.child_count)],
     ["Staff (direct)", String(org.employee_count)],
+    ["Built", org.generated_from ? `Generated (${org.generated_from})` : "By hand"],
   ];
 
   return (
@@ -409,6 +411,11 @@ export function OrganizationPage() {
               <p className="text-sm text-slate-500">Select a unit.</p>
             )}
           </Panel>
+        </div>
+      )}
+      {root && (
+        <div className="mt-6">
+          <SubsidiariesPanel />
         </div>
       )}
       {creatingRoot && <AddUnitDialog parent={null} onClose={() => setCreatingRoot(false)} />}

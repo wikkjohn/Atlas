@@ -69,6 +69,7 @@ def to_out(db: Session, organizations: list[Organization]) -> list[OrganizationO
             currency=o.country.default_currency if o.country else None,
             region=o.region,
             status=o.status,
+            generated_from=o.generated_from,
             child_count=children.get(o.id, 0),
             employee_count=employees.get(o.id, 0),
             created_at=o.created_at,

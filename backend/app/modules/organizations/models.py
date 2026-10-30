@@ -82,5 +82,7 @@ class Organization(UUIDPrimaryKey, Timestamps, Base):
     # Set for every type below the global bank; inherited from the regional headquarters.
     region: Mapped[str | None] = mapped_column(String(30), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # The blueprint an organization was generated from (Phase 27); null when built by hand.
+    generated_from: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     country: Mapped[Country | None] = relationship(lazy="joined")

@@ -680,6 +680,54 @@ def _reference(args: argparse.Namespace) -> int:
     return 0
 
 
+def _subsidiaries(args: argparse.Namespace) -> int:
+    """Generated country subsidiaries (Phase 27): show coverage, or launch countries."""
+    import time
+
+    from app.core.errors import DomainError
+    from app.modules.countries.models import Region
+    from app.modules.organizations import blueprint
+
+    factory = get_sessionmaker()
+    if args.action == "coverage":
+        with factory() as db:
+            for row in blueprint.coverage(db):
+                print(f"{row['region']:<20} {row['subsidiaries']:>3}/{row['countries']:<3} "
+                      f"with a subsidiary ({row['generated']} generated)")  # fmt: skip
+        return 0
+    with factory() as db:
+        region = Region(args.region) if args.region else None
+        codes = [c.upper() for c in args.country] or None
+        try:
+            countries = [c.iso_country_code for c in blueprint.targets(db, codes, region)]
+        except DomainError as exc:
+            print(exc.message)
+            return 2
+    started, failed, staff = time.perf_counter(), 0, 0
+    for code in countries:
+        try:
+            with factory() as db, db.begin():
+                from sqlalchemy import select
+
+                from app.modules.countries.models import Country
+
+                country = db.execute(
+                    select(Country).where(Country.iso_country_code == code)
+                ).scalar_one()
+                result = blueprint.launch_country(db, country, None, staff=not args.no_staff)
+        except DomainError as exc:
+            failed += 1
+            print(f"{code}: {exc.message}")
+            continue
+        staff += result.employees_hired
+        launched = " (launched)" if result.activated else ""
+        print(f"{code}: {result.organizations_created} organizations, "
+              f"{result.employees_hired} staff{launched}")  # fmt: skip
+    print(f"{len(countries) - failed} of {len(countries)} countries, {staff} staff, "
+          f"{time.perf_counter() - started:.1f} s")  # fmt: skip
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -844,6 +892,21 @@ def main(argv: list[str] | None = None) -> int:
     ref_show.add_argument("code", help="ISO 3166 alpha-2 code")
     ref_show.add_argument("--year", type=int, default=2026)
     reference.set_defaults(handler=_reference)
+
+    subsidiaries = commands.add_parser(
+        "subsidiaries", help="Country subsidiaries generated from the blueprint"
+    )
+    sub_actions = subsidiaries.add_subparsers(dest="action", required=True)
+    sub_actions.add_parser("coverage", help="Countries with a subsidiary, by region")
+    sub_generate = sub_actions.add_parser(
+        "generate", help="Launch countries and build their subsidiaries (default: all without one)"
+    )
+    sub_generate.add_argument("--country", action="append", default=[], help="ISO code; repeatable")
+    sub_generate.add_argument(
+        "--region", choices=["americas", "europe", "middle_east_africa", "asia_pacific"]
+    )
+    sub_generate.add_argument("--no-staff", action="store_true", help="Build units only")
+    subsidiaries.set_defaults(handler=_subsidiaries)
 
     args = parser.parse_args(argv)
     return args.handler(args)

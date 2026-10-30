@@ -37,6 +37,7 @@ class OrganizationOut(BaseModel):
     currency: str | None
     region: str | None
     status: str
+    generated_from: str | None = None
     child_count: int
     employee_count: int
     created_at: datetime

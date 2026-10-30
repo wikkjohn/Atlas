@@ -1,20 +1,27 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, status
+from pydantic import BaseModel, Field
 
+from app.core.audit import record_audit_event
 from app.core.dependencies import DbSession
+from app.core.errors import BusinessRuleViolation
 from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
+from app.jobs import engine
+from app.jobs.router import JobOut, _job_out
+from app.modules.countries.models import Region
 from app.modules.identity.dependencies import Authorized
-from app.modules.organizations import service
+from app.modules.organizations import blueprint, service
 from app.modules.organizations.models import OrganizationStatus, OrganizationType
 from app.modules.organizations.schemas import (
     OrganizationCreate,
     OrganizationOut,
     OrganizationUpdate,
 )
+from app.simulation.router import SessionFactory
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -69,6 +76,60 @@ def create_organization(
         status_code=status.HTTP_201_CREATED,
         operation=lambda: service.to_out(db, [service.create_organization(db, body, actor.id)])[0],
     )
+
+
+class GenerateRequest(BaseModel):
+    country_codes: list[str] | None = Field(
+        default=None,
+        max_length=200,
+        description="Countries to launch; omitted, every country without a subsidiary "
+        "(in `region`, if given).",
+    )
+    region: Region | None = None
+    staff: bool = Field(default=True, description="Hire the blueprint's synthetic staff")
+
+
+@router.get("/blueprint", summary="The subsidiary blueprint and coverage by region (Phase 27)")
+def get_blueprint(db: DbSession, _: Authorized(Permission.ORGANIZATIONS_READ)) -> dict:
+    return {**blueprint.describe(), "coverage": blueprint.coverage(db)}
+
+
+@router.post(
+    "/generate",
+    response_model=JobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Launch countries and generate their subsidiaries (a background job)",
+)
+def generate_subsidiaries(
+    body: GenerateRequest,
+    db: DbSession,
+    actor: Authorized(Permission.ORGANIZATIONS_MANAGE),
+    tasks: BackgroundTasks,
+    factory: SessionFactory,
+) -> JobOut:
+    codes = sorted({c.upper() for c in body.country_codes}) if body.country_codes else None
+    countries = blueprint.targets(db, codes, body.region)
+    if not countries:
+        raise BusinessRuleViolation("Every country in scope already has a subsidiary.")
+    payload = {"country_codes": [c.iso_country_code for c in countries], "staff": body.staff}
+    job = engine.enqueue(
+        db,
+        "organizations.generate",
+        payload,
+        created_by=actor.id,
+        dedupe_key="organizations.generate",
+    )
+    record_audit_event(
+        db,
+        actor_id=actor.id,
+        action="job.queued",
+        entity_type="job",
+        entity_id=job.id,
+        metadata={"kind": job.kind, "payload": job.payload},
+    )
+    db.commit()
+    engine.dispatch(tasks, factory, [job.id])
+    return _job_out(job, {actor.id: actor.username})
 
 
 @router.get("/{organization_id}", response_model=OrganizationOut, summary="Get an organization")

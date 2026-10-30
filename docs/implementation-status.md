@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 17.
+Last updated: Phase 18.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -22,6 +22,26 @@ Last updated: Phase 17.
 | 15 | Scale foundation, step 4: partitioned workflow history, simulation history archive/reset, observability | **Complete** |
 | 16 | Scale foundation, step 5: sharded simulation runs, performance suite, 100,000 applications — roadmap Milestone A complete | **Complete** |
 | 17 | Workflow factory, step 1: stored, versioned workflow definitions with an import API and full validation | **Complete** |
+| 18 | Workflow factory, step 2: domain step-handler library with declared effects; money moves only behind an approval | **Complete** |
+
+## Phase 18: what exists
+
+- **Domain handlers** for stored definitions: `customers.lookup`, `customers.notify` (real
+  notification rows, `{path}` templates), `customers.set_risk_rating`,
+  `compliance.screen_name` (the WF-0001/0002 watchlist, now in `compliance/screening.py`),
+  `accounts.lookup` (ownership check, balance), `accounts.charge_fee` (debits the account,
+  credits `FEE-INCOME-<ccy>`, no overdraft, idempotent per step run) and `ai.review` (an AI
+  task through the invocation service; escalates when no usable answer comes back).
+- **Declared effects** (reads, writes, moves money, advisory) in the handlers API, the
+  validation report (`effects`) and the Workflow Explorer (badges per step, a summary when
+  validating).
+- **Approval before money:** validation refuses a definition in which a money-moving
+  handler is reachable without passing an approval's approve route (skipping the approval,
+  its reject route, or a condition unrelated to the decision all count as unapproved).
+  Also new: handler-kind checks for service vs. AI steps, database checks (the AI tool
+  exists and may perform the action).
+- **Examples:** WF-1001 v2 (finds and screens the customer, writes to them) and WF-1002
+  Paper Statement Request (fee after four-eyes approval), imported by `seed-demo`.
 
 ## Phase 17: what exists
 
@@ -43,6 +63,25 @@ Last updated: Phase 17.
   export, retire/reactivate.
 - **WF-1001 Customer Address Change**, imported by `seed-demo`: routing by reason,
   colleague or compliance four-eyes approval, `on_failure` route, synthetic letters.
+
+## Phase 18: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 358 passed (new: 10 — library effects; examples valid with effects; approval rule: skipped approval, reject route, unrelated condition refused, `decision == approve` accepted (mutation-checked); handler kinds, params and AI-tool checks; AI advice and safe escalation; fee charged once after approval with income credited, letter text, retry replays the posting (mutation-checked); e-mail, declined, another customer's account, unknown customer; insufficient funds; WF-1001 v2 with screening to compliance and unknown customer; risk rating and the handlers/validate API). Two Phase 17 assertions updated for the intended changes (AI steps allowed; `effects` in reports) |
+| Code definition hashes | unchanged (WF-0001 and WF-0002 now import the shared watchlist; their definitions did not change) |
+| Frontend Vitest / typecheck / build | 83 passed / clean / built |
+| Playwright on a fresh database | 21 passed (new: WF-1002 fee after approval; WF-1001 test now on v2 with a real customer) |
+| Live check | Re-seeding a Phase 17 database added WF-1001 v2 and WF-1002; a WF-1002 case over HTTP charged 5.00 only after the manager approved (balance −500), and a full ledger reconciliation passed |
+
+## Phase 18: known limitations
+
+- Customers have no address fields, so WF-1001 v2 still keeps the new address in the case.
+- Domain handlers act as the system; the approver is recorded on the approval step, not on
+  the posting itself.
+- `ai.review` passes context values to the tool as they are; mapping into a tool's nested
+  input needs that structure in the case input.
+- No payment, loan or account-opening handlers yet; those workflows remain in code.
 
 ## Phase 17: verified results
 

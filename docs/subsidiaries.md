@@ -108,6 +108,9 @@ first full run partway through.
 
 ## Limitations
 
+- A simulation run draws its applicants from the active countries. A run repeated after a
+  launch therefore uses a different dataset and reports that its results differ.
+
 - There is one blueprint. Every country gets the same structure, whatever its size or
   market.
 - Staff names come from the same name list as the rest of the simulation; they are not

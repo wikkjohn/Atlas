@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 
 import type { CaseResult, Profile, Scenario, SimulationRunDetail } from "@/types/simulations";
 
+import { japan } from "./enterprise-fixtures";
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
 
@@ -110,6 +111,7 @@ const mismatch: CaseResult = {
 
 const baseRoutes = {
   ...healthyRoutes,
+  "GET /api/v1/countries": () => jsonResponse(page([japan])),
   "GET /api/v1/simulations/scenarios": () => jsonResponse([scenario]),
   "GET /api/v1/simulations/profiles": () => jsonResponse(profiles),
   "GET /api/v1/simulations": () => jsonResponse(page([completed])),
@@ -137,6 +139,7 @@ describe("Simulation Center", () => {
     await userEvent.type(within(form).getByLabelText("Cases"), "40");
     await userEvent.clear(within(form).getByLabelText("Random seed"));
     await userEvent.type(within(form).getByLabelText("Random seed"), "1234");
+    await userEvent.selectOptions(await within(form).findByLabelText("Country"), "Japan");
     await userEvent.click(within(form).getByRole("button", { name: "Start run" }));
 
     await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
@@ -151,6 +154,7 @@ describe("Simulation Center", () => {
       applications: 40,
       employees: 10,
       shards: 1,
+      country: "JP",
     });
     expect(await screen.findByRole("progressbar", { name: "Run #8 progress" })).toBeInTheDocument();
   });

@@ -158,3 +158,35 @@ def test_the_sweep_passes_in_operating_and_launched_countries(db: Session, facto
                     assert "payment_approval" in path, (result.country, path)
                 elif kind == "routine":
                     assert "payment_approval" not in path, (result.country, path)
+
+
+def test_the_api_starts_a_run_in_one_country_and_reruns_it_there(app, db: Session, factory) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.simulation.router import get_simulation_sessionmaker
+    from tests.factories import auth
+
+    make_org_tree(db)
+    researcher = auth(make_user(db, RoleCode.AI_RESEARCHER))
+    db.commit()
+    app.dependency_overrides[get_simulation_sessionmaker] = lambda: factory
+    with TestClient(app) as client:
+        body = {
+            "scenario_id": "global-payments",
+            "profile": "custom",
+            "applications": 6,
+            "employees": 6,
+            "seed": 3,
+            "country": "JP",
+        }
+        started = client.post("/api/v1/simulations", json=body, headers=researcher)
+        assert started.status_code == 202, started.text
+        dataset = started.json()["config"]["dataset"]
+        assert dataset["countries"] == ["JP"] and dataset["rules"]["JP"]["high_value_major"]
+        again = client.post(f"/api/v1/simulations/{started.json()['id']}/rerun", headers=researcher)
+        assert again.status_code == 202, again.text
+        assert again.json()["config"]["dataset"] == dataset
+        refused = client.post(
+            "/api/v1/simulations", json={**body, "country": "KE"}, headers=researcher
+        )
+        assert refused.status_code == 422 and "Not active countries: KE" in refused.text

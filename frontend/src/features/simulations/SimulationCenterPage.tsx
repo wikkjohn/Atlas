@@ -13,6 +13,7 @@ import { StatusPill, type Tone } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
 import { formatMilliseconds, formatTimestamp } from "@/features/dashboard/format";
 import { RunHistory } from "@/features/simulations/RunHistory";
+import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
 import {
   useProfiles,
@@ -79,6 +80,8 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [applications, setApplications] = useState("50");
   const [employees, setEmployees] = useState("10");
   const [shards, setShards] = useState("1");
+  const [country, setCountry] = useState("");
+  const activeCountries = useCountries({ status: "active" });
 
   const selected = profiles.data?.find((p) => p.profile_id === profile);
   const scenarioList = scenarios.data ?? [];
@@ -121,6 +124,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         applications: profile === "custom" ? Number(applications) : null,
         employees: profile === "custom" ? Number(employees) : null,
         shards: shardValue,
+        country: country || null,
       },
       { onSuccess: (run) => onStarted(run.id) },
     );
@@ -255,6 +259,21 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
             value={shards}
             onChange={(e) => setShards(e.target.value)}
           />
+        )}
+      </Field>
+      <Field
+        label="Country"
+        hint="Only this country's customers, with staff from its subsidiary. Scenarios with country rules make their cases follow its rules."
+      >
+        {(props) => (
+          <select {...props} className={inputClass} value={country} onChange={(e) => setCountry(e.target.value)}>
+            <option value="">Every active country</option>
+            {activeCountries.data?.items.map((c) => (
+              <option key={c.id} value={c.iso_country_code}>
+                {c.country_name}
+              </option>
+            ))}
+          </select>
         )}
       </Field>
       <Field label="Random seed" hint="The same seed reproduces the same run." error={seedError}>

@@ -251,6 +251,26 @@ def create_run(
 # --- Runtime state ----------------------------------------------------------------------------
 
 
+def business_offset(start: datetime, offset: int, country_code: str | None) -> int:
+    """The arrival offset moved to the next business day of the country (same local time)
+    when it falls on a weekend or holiday there (Phase 26). Uses the reference data, not
+    the database, so a scenario's arrivals do not depend on later rule edits."""
+    if not country_code:
+        return offset
+    from zoneinfo import ZoneInfo
+
+    from app.modules.reference import calendar, data
+
+    country = data.BY_CODE[country_code]
+    profile, zone = data.profile(country), ZoneInfo(country.timezone)
+    at = start + timedelta(seconds=offset)
+    for _ in range(31):
+        if calendar.is_business_day(profile, at.astimezone(zone).date()):
+            break
+        at += timedelta(days=1)
+    return int((at - start).total_seconds())
+
+
 @dataclass
 class _Case:
     app: SyntheticCase
@@ -472,8 +492,13 @@ class _Simulation:
 
     def schedule_arrivals(self) -> None:
         for app in self.workload.cases(self):
-            self.cases[app.index] = _Case(app=app, arrived=app.arrival_offset_seconds)
-            self.push(app.arrival_offset_seconds, "arrive", app.index)
+            offset = business_offset(
+                self.scenario.simulated_start,
+                app.arrival_offset_seconds,
+                self.config.business_calendar,
+            )
+            self.cases[app.index] = _Case(app=app, arrived=offset)
+            self.push(offset, "arrive", app.index)
 
     # Events -------------------------------------------------------------------------------
 

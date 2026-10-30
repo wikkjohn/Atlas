@@ -69,6 +69,9 @@ class ScenarioConfig(BaseModel):
     )
     # Present when the scenario supports AI experiment modes.
     ai_assistance: AIAssistanceModel | None = None
+    # A country whose business days cases arrive on (Phase 26): an arrival on a weekend or
+    # holiday there moves to the same time on the next business day. None: any day.
+    business_calendar: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
 
 
 class Scenario(BaseModel):
@@ -185,6 +188,41 @@ register_scenario(
             },
             staff_mix={"teller": 0.4, "manager": 0.3, "compliance": 0.3},
             ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)
+
+register_scenario(
+    Scenario(
+        scenario_id="payments-easter",
+        version=1,
+        name="Payments over the Easter weekend (business calendar)",
+        description="The domestic-payments workload instructed across four days from Maundy "
+        "Thursday 2026, on the UK business calendar: customers arrive on Thursday and the "
+        "rest of their payments wait for Tuesday, because Good Friday, the weekend and Easter "
+        "Monday are not business days (Phase 26).",
+        workload="domestic_payments",
+        workflow_id="WF-0002",
+        workflow_version=1,
+        simulated_start=datetime(2026, 4, 2, 8, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=96.0,
+            document_delay_hours=None,
+            mix={
+                "routine": 0.55,
+                "new_payee": 0.15,
+                "high_value": 0.08,
+                "large_share": 0.07,
+                "scam": 0.07,
+                "watchlisted_payee": 0.03,
+                "insufficient_funds": 0.05,
+            },
+            reviewers={
+                "fraud_review": ReviewerModel(mean_minutes=20, accuracy=0.90),
+                "payment_approval": ReviewerModel(mean_minutes=8, accuracy=0.97),
+            },
+            staff_mix={"teller": 0.4, "manager": 0.3, "compliance": 0.3},
+            business_calendar="GB",
         ),
     )
 )

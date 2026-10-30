@@ -316,8 +316,34 @@ def recover_stale(factory: sessionmaker[Session], *, stale_after: timedelta | No
         return len(stale)
 
 
+def _business_run(db: Session, schedule: JobSchedule, at: datetime) -> datetime:
+    """`at`, moved forward by whole days until it falls on a business day of the schedule's
+    calendar country (in that country's local time); unchanged without a calendar."""
+    if not schedule.business_calendar:
+        return at
+    from zoneinfo import ZoneInfo
+
+    from app.modules.countries.models import Country
+    from app.modules.reference import calendar
+
+    country = db.execute(
+        select(Country).where(Country.iso_country_code == schedule.business_calendar)
+    ).scalar_one_or_none()
+    if country is None:
+        return at
+    profile = country.calendar_profile()
+    zone = ZoneInfo(country.default_timezone)
+    for _ in range(31):
+        if calendar.is_business_day(profile, at.astimezone(zone).date()):
+            return at
+        at += timedelta(days=1)
+    return at
+
+
 def tick_schedules(factory: sessionmaker[Session]) -> list[uuid.UUID]:
-    """Queue the job of every due, enabled schedule. Returns the ids of new jobs."""
+    """Queue the job of every due, enabled schedule. Returns the ids of new jobs. A schedule
+    with a business calendar that falls due on a weekend or holiday is moved to the next
+    business day instead (Phase 26)."""
     queued: list[uuid.UUID] = []
     with factory() as db, db.begin():
         due = list(
@@ -330,6 +356,10 @@ def tick_schedules(factory: sessionmaker[Session]) -> list[uuid.UUID]:
             ).scalars()
         )
         for schedule in due:
+            business = _business_run(db, schedule, schedule.next_run_at)
+            if business != schedule.next_run_at:
+                schedule.next_run_at = business
+                continue
             job = enqueue(
                 db,
                 schedule.kind,
@@ -340,7 +370,9 @@ def tick_schedules(factory: sessionmaker[Session]) -> list[uuid.UUID]:
             if job.id != schedule.last_job_id:
                 queued.append(job.id)
             schedule.last_job_id = job.id
-            schedule.next_run_at = _now() + timedelta(seconds=schedule.interval_seconds)
+            schedule.next_run_at = _business_run(
+                db, schedule, _now() + timedelta(seconds=schedule.interval_seconds)
+            )
     return queued
 
 

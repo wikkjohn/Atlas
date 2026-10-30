@@ -13,6 +13,7 @@ from app.core.pagination import Page, PageParamsDep, paginate
 from app.core.permissions import Permission
 from app.jobs import engine
 from app.jobs.models import Job, JobSchedule, JobStatus
+from app.modules.countries.models import Country
 from app.modules.identity.dependencies import Authorized
 from app.modules.identity.models import User
 from app.simulation.router import SessionFactory
@@ -60,6 +61,7 @@ class ScheduleOut(BaseModel):
     payload: dict[str, Any]
     interval_seconds: int
     enabled: bool
+    business_calendar: str | None = None
     next_run_at: datetime
     last_job: JobOut | None
 
@@ -67,6 +69,8 @@ class ScheduleOut(BaseModel):
 class ScheduleUpdate(BaseModel):
     enabled: bool | None = None
     interval_seconds: int | None = Field(default=None, ge=60, le=7 * 24 * 3600)
+    # A country code to run on its business days only; "" clears it (Phase 26).
+    business_calendar: str | None = Field(default=None, pattern=r"^([A-Z]{2})?$")
 
 
 def _usernames(db, ids) -> dict[uuid.UUID, str]:
@@ -193,6 +197,7 @@ def _schedule_out(db, schedule: JobSchedule) -> ScheduleOut:
         payload=schedule.payload,
         interval_seconds=schedule.interval_seconds,
         enabled=schedule.enabled,
+        business_calendar=schedule.business_calendar,
         next_run_at=schedule.next_run_at,
         last_job=_job_out(last, _usernames(db, [last.created_by])) if last else None,
     )
@@ -227,6 +232,18 @@ def update_schedule(
     if body.interval_seconds is not None and body.interval_seconds != schedule.interval_seconds:
         changes["interval_seconds"] = [schedule.interval_seconds, body.interval_seconds]
         schedule.interval_seconds = body.interval_seconds
+    if body.business_calendar is not None:
+        calendar = body.business_calendar or None
+        if (
+            calendar is not None
+            and not db.execute(
+                select(Country.id).where(Country.iso_country_code == calendar)
+            ).first()
+        ):
+            raise BusinessRuleViolation(f"No country {calendar}.", {"business_calendar": calendar})
+        if calendar != schedule.business_calendar:
+            changes["business_calendar"] = [schedule.business_calendar, calendar]
+            schedule.business_calendar = calendar
     if changes:
         record_audit_event(
             db,

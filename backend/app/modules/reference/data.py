@@ -11,7 +11,7 @@ the last weekday before / first weekday after a date. Address styles name a line
 from dataclasses import dataclass, field
 from typing import Any
 
-VERSION = "2026.1"
+VERSION = "2026.2"
 
 SAT_SUN = (6, 7)
 FRI_SAT = (5, 6)
@@ -1047,3 +1047,30 @@ def profile(country: CountryData) -> dict[str, Any]:
         "observance": country.observance,
         "holidays": [dict(h) for h in country.holidays],
     }
+
+
+# --- Dated holidays of lunar calendars (Phase 26, data version 2026.2) ------------------------
+
+from dataclasses import replace as _replace  # noqa: E402
+
+from app.modules.reference.dated import DATED, FIRST_YEAR, LAST_YEAR  # noqa: E402
+
+_DATED_NOTE = (
+    f"Lunar-calendar holidays are dated for {FIRST_YEAR}–{LAST_YEAR} (as published or "
+    "expected; some may move by a day) and not computed outside those years."
+)
+_SUPERSEDED = ("not computed", "follow the Hebrew calendar", "lunar holidays")
+
+
+def _with_dated(country: CountryData) -> CountryData:
+    rules = DATED.get(country.code)
+    if not rules:
+        return country
+    notes = tuple(n for n in country.notes if not any(s in n for s in _SUPERSEDED))
+    if country.code == "CN":
+        notes += ("The working weekends that make up for holidays are not modelled.",)
+    return _replace(country, holidays=country.holidays + tuple(rules), notes=(*notes, _DATED_NOTE))
+
+
+COUNTRIES = [_with_dated(c) for c in COUNTRIES]
+BY_CODE = {c.code: c for c in COUNTRIES}

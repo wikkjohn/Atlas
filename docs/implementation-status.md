@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 24.
+Last updated: Phase 25.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -29,6 +29,43 @@ Last updated: Phase 24.
 | 22 | Workflow factory, step 6: catalogue search, ownership, review lifecycle; the Milestone B exit run — roadmap Milestone B complete | **Complete** |
 | 23 | Global footprint, step 1: reference data for 120 countries ([reference-data.md](reference-data.md)) | **Complete** |
 | 24 | Global footprint, step 2: multi-currency — FX rates, conversions, cross-currency payments, revaluation ([fx.md](fx.md)) | **Complete** |
+| 25 | Global footprint, step 3: country rules engine ([country-rules.md](country-rules.md)) | **Complete** |
+
+## Phase 25: what exists
+
+- **Versioned rules per country** (`country_rules`, migration 0022): KYC (minimum age,
+  accepted identity documents, proof of address), screening (which synthetic sanctions
+  lists apply) and payments (cut-off, high-value threshold, single-payment limit).
+  Version 1 of all 120 countries comes from defaults derived from the reference data. New
+  versions take effect on a date, are never edited, and are audited.
+- **Applied by the workflows:**
+  - WF-0001 checks the applicant's country's minimum age and documents, and screens
+    against its lists;
+  - WF-0002 takes the limit, the threshold and the lists from the payer's country.
+  - Each payment records its threshold and a value date (cut-off plus the country's
+    calendar), and posts with that effective date.
+- **Five synthetic sanctions lists.** The library's `compliance.screen_name` takes `lists`.
+- **API and UI:** country rules (current, versions, add a version) and sanctions lists. The
+  country panel shows the rules and lets managers add a version; payments show value dates.
+
+## Phase 25: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | see the PR |
+| Frontend Vitest / typecheck / build | see the PR |
+| Playwright on a fresh database | see the PR |
+| Migration 0022 | Upgrade, downgrade and upgrade again; `alembic check` clean |
+
+## Phase 25: known limitations
+
+- Rules cover individuals' account opening and payments, per payment only (no daily or
+  monthly cumulative limits, no business-customer or lending rules yet).
+- The five operating countries keep their earlier payment limits (10,000 and 1,000,000
+  units of their currency) so earlier simulations reproduce. In Japan that leaves a
+  10,000-yen high-value threshold; change it with a new rules version.
+- The defaults are compiled for the simulation, not regulatory advice.
+
 
 ## Phase 24: what exists
 

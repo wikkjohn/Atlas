@@ -173,6 +173,19 @@ Write-offs have no endpoint: only the WF-0004 credit-committee approval writes a
 Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
 `…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
 
+### Country rules (Phase 25)
+
+See [country-rules.md](country-rules.md).
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/countries/{id}/rules?on=` | `countries:read` | `{current, effective, versions}`: the version in force on the day (default today), the rules in effect and every version |
+| POST | `/api/v1/countries/{id}/rules` | `countries:manage` | `{rules: {kyc, screening, payments}, effective_from, note}` → 201, the new version; 422 when the rules are invalid or it would take effect before the latest version |
+| GET | `/api/v1/sanctions-lists` | `countries:read` | The synthetic sanctions lists: id, description, number of entries |
+
+Payments (`GET /api/v1/payments`) also return `value_date`, and `high_value` now uses the
+threshold of the payer's country rules.
+
 ### Foreign exchange (Phase 24)
 
 See [fx.md](fx.md).

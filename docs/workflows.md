@@ -68,7 +68,7 @@ Conditions are structured, never `eval`: `{"path": "a.b", "op": "eq", "value": �
 | # | Step | Type | Notes |
 | --- | --- | --- | --- |
 | 1 | Customer submits application | service_task | Records receipt |
-| 2 | Validate required information | service_task | Active country, age ≥ 18 → else reject; missing identity document or proof of address → wait |
+| 2 | Validate required information | service_task | Active country, age ≥ the country's minimum (18 by default; Phase 25) → else reject; missing accepted identity document or (where required) proof of address → wait |
 | — | Wait for missing documents | wait | Signal `documents_submitted`; 72 h timeout → reject |
 | 3 | Register synthetic customer | service_task | Creates the customer; KYC → pending |
 | 4 | Identity verification ‖ sanctions screening | parallel | Synthetic document check digits, name/DOB match, expiry; synthetic watchlist |
@@ -99,6 +99,9 @@ account-opening step, history and metrics.
 A customer pays another account at the bank. Business owner: Payments Operations. Input:
 debtor and creditor account numbers, amount (minor units), currency, reference (≤ 140
 characters) and channel. The paying account must be held in the payment's currency. Since
+Phase 25 the single-payment limit, the high-value threshold, the sanctions lists screened
+and the value date (cut-off) come from the payer's country rules
+([country-rules.md](country-rules.md)). Since
 Phase 24, the payee's account may be in another currency: the payment converts at release
 through an FX deal (see [fx.md](fx.md)). The definition is unchanged; the name still says
 domestic.

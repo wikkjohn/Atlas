@@ -96,7 +96,9 @@ millions of customers and an AI testing laboratory at that scale.
 - [x] Multi-currency: synthetic FX rates, cross-currency payments, revaluation, positions
       (Phase 24: deterministic daily rates for 93 currencies with pegs, conversions through
       position accounts, WF-0002 payees in any currency, daily revaluation; see `fx.md`)
-- [ ] Country rules engine: KYC documents, age limits, sanctions lists, cut-offs, limits
+- [x] Country rules engine: KYC documents, age limits, sanctions lists, cut-offs, limits
+      (Phase 25: versioned rules per country read by WF-0001 and WF-0002; value dates
+      from cut-off and calendar; five synthetic sanctions lists; see `country-rules.md`)
 - [ ] Business calendars used by the scheduler and the simulation's arrivals
 - [ ] Generated country subsidiaries in the organization hierarchy
 - [ ] **Exit:** onboarding and payment variants pass in all 120 countries
@@ -192,4 +194,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 22 (B6) | Catalogue at scale: search and facets by department, country and product; ownership; lifecycle (draft, review, active, retired) with four-eyes approval behind passing tests; parallel test runner; Milestone B exit run (5,052 workflows, 111,168 cases, 0 failed) — Milestone B done | complete |
 | Phase 23 (C1) | Global footprint, step 1: reference data for 120 countries (currency, minor units, time zone, weekend, holidays, language, regulator, identity documents, address formats), computed holiday calendars, synthetic document numbers and addresses | complete |
 | Phase 24 (C2) | Multi-currency: synthetic FX rates, conversions through currency positions, cross-currency payments, daily revaluation, Foreign Exchange page | complete |
-| Phase 25 (C3, proposed) | Country rules engine: KYC documents, age limits, sanctions lists, cut-offs and limits per country | next |
+| Phase 25 (C3) | Country rules engine: versioned per-country KYC, screening and payment rules applied by account opening and payments; value dates; rules editing on the Countries page | complete |
+| Phase 26 (C4, proposed) | Business calendars used by the scheduler and the simulation's arrivals (lunar holidays as dated tables) | next |

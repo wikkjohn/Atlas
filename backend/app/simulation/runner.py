@@ -106,8 +106,11 @@ def resolve_config(
     mode: str = "baseline",
     tool: AITool | None = None,
     shards: int = 1,
+    countries: list[str] | None = None,
 ) -> dict[str, Any]:
-    """The complete configuration of a run; stored with it and hashed to compare runs."""
+    """The complete configuration of a run; stored with it and hashed to compare runs.
+    `countries` limits the dataset to some active countries (Phase 28); staff are then hired
+    in the first of them."""
     definition = registry.get_definition(scenario.workflow_id, scenario.workflow_version)
     if definition is None:
         raise SimulationSetupError(
@@ -127,15 +130,26 @@ def resolve_config(
         )
     if mode != "baseline" and tool is None:
         raise SimulationSetupError(f"The {mode} mode needs an AI tool.")
-    countries = sorted(
+    active = sorted(
         db.execute(
             select(Country.iso_country_code).where(
                 Country.operational_status == OperationalStatus.ACTIVE
             )
         ).scalars()
     )
-    if not countries:
+    if not active:
         raise SimulationSetupError("No active country is configured; applications need one.")
+    dataset: dict[str, Any] = {"countries": active, "watchlist": "synthetic-watchlist-v1"}
+    if countries:
+        inactive = sorted(set(countries) - set(active))
+        if inactive:
+            raise SimulationSetupError(f"Not active countries: {', '.join(inactive)}.")
+        dataset["countries"] = sorted(set(countries))
+        dataset["staff_country"] = countries[0]
+    if scenario.config.country_rules:
+        # The rules in force on the simulated day, so cases follow each country's rules
+        # (Phase 28) and a run keeps the rules it was generated against.
+        dataset["rules"] = _country_rules(db, dataset["countries"], scenario.simulated_start)
     config = {
         "scenario_id": scenario.scenario_id,
         "scenario_version": scenario.version,
@@ -148,7 +162,7 @@ def resolve_config(
         "employees": employees,
         "scenario": scenario.config.model_dump(mode="json", exclude_none=True),
         # The dataset the run draws on: active countries decide where applicants live.
-        "dataset": {"countries": countries, "watchlist": "synthetic-watchlist-v1"},
+        "dataset": dataset,
     }
     if shards > 1:
         _check_shards(scenario, workload, applications, employees, shards)
@@ -172,6 +186,23 @@ def resolve_config(
                 "output_schema_hash": _hash(tool.output_schema),
             }
     return config
+
+
+def _country_rules(db: Session, codes: list[str], on: datetime) -> dict[str, dict[str, Any]]:
+    from app.modules.rules import service as country_rules
+
+    found = {}
+    for country in db.execute(select(Country).where(Country.iso_country_code.in_(codes))).scalars():
+        rules = country_rules.rules_on(db, country, on.date())
+        found[country.iso_country_code] = {
+            "min_age": rules.kyc.min_age,
+            "identity_documents": sorted(rules.kyc.identity_documents),
+            "proof_of_address": rules.kyc.proof_of_address,
+            "lists": sorted(rules.screening.lists),
+            "high_value_major": rules.payments.high_value_major,
+            "max_payment_major": rules.payments.max_payment_major,
+        }
+    return dict(sorted(found.items()))
 
 
 def _role_counts(scenario: Scenario, employees: int) -> dict[str, int]:
@@ -213,6 +244,7 @@ def create_run(
     tool: AITool | None = None,
     batch_id: uuid.UUID | None = None,
     shards: int = 1,
+    countries: list[str] | None = None,
 ) -> SimulationRun:
     config = resolve_config(
         db,
@@ -223,6 +255,7 @@ def create_run(
         mode=mode,
         tool=tool if mode != "baseline" else None,
         shards=shards,
+        countries=countries,
     )
     run = SimulationRun(
         scenario_id=scenario.scenario_id,
@@ -329,6 +362,8 @@ class _Simulation:
         self.applications = run.config["applications"]
         self.employees = run.config["employees"]
         self.countries = run.config["dataset"]["countries"]
+        self.staff_country = run.config["dataset"].get("staff_country")
+        self.country_rules = run.config["dataset"].get("rules")
         self.case_indices = range(shard, self.applications, self.shards)
         self.events: list[_Event] = []
         self.seq = 0
@@ -369,6 +404,8 @@ class _Simulation:
                 Organization.status == OrganizationStatus.ACTIVE,
                 Country.operational_status == OperationalStatus.ACTIVE,
             )
+            # The run's staff country first (Phase 28), else the first by code.
+            .order_by(Country.iso_country_code != (self.staff_country or ""))
             .order_by(Country.iso_country_code)
             .limit(1)
         ).scalar_one_or_none()

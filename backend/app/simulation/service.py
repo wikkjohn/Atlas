@@ -215,6 +215,7 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
         mode=body.mode,
         tool=tool,
         shards=body.shards,
+        countries=[body.country] if body.country else None,
     )
 
 
@@ -256,6 +257,7 @@ def rerun_body(run: SimulationRun) -> StartSimulation:
         tool_id=tool.get("tool_id"),
         tool_version=tool.get("tool_version"),
         shards=run.config.get("shards", 1),
+        country=run.config["dataset"].get("staff_country"),
     )
 
 

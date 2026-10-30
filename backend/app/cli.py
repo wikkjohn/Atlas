@@ -728,6 +728,49 @@ def _subsidiaries(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _country_sweep(args: argparse.Namespace) -> int:
+    """The Milestone C exit check (Phase 28): rule-following onboarding and payments in
+    every active country; exits non-zero when any run fails."""
+    import json
+
+    from sqlalchemy import select
+
+    from app.jobs.handlers import SCHEDULER_USERNAME
+    from app.modules.identity.models import User
+    from app.simulation import sweep
+
+    factory = get_sessionmaker()
+    with factory() as db:
+        actor = db.execute(select(User.id).where(User.username == SCHEDULER_USERNAME)).scalar_one()
+
+    def show(result: sweep.SweepResult) -> None:
+        mark = "ok  " if result.passed else "FAIL"
+        print(f"{mark} {result.country} {result.scenario:<18} run #{result.run_number}: "
+              f"{result.correct}/{result.cases} correct, {result.violations} violations, "
+              f"{result.seconds} s")  # fmt: skip
+        for problem in result.problems:
+            print(f"       {problem}")
+
+    countries = [c.upper() for c in args.country] or None
+    results = sweep.sweep(
+        factory,
+        created_by=actor,
+        countries=countries,
+        scenarios=tuple(args.scenario) or sweep.SCENARIOS,
+        cases=args.cases,
+        employees=args.staff,
+        seed=args.seed,
+        progress=show,
+    )
+    summary = sweep.report(results)
+    print(f"{summary['passed']} of {summary['runs']} runs passed in {summary['countries']} "
+          f"countries ({summary['cases']} cases, {summary['seconds']} s)")  # fmt: skip
+    if args.output:
+        with open(args.output, "w") as handle:
+            json.dump(summary, handle, indent=2)
+    return 0 if summary["passed"] == summary["runs"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -907,6 +950,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub_generate.add_argument("--no-staff", action="store_true", help="Build units only")
     subsidiaries.set_defaults(handler=_subsidiaries)
+
+    country_sweep = commands.add_parser(
+        "country-sweep",
+        help="Milestone C exit: rule-following onboarding and payments in every active country",
+    )
+    country_sweep.add_argument(
+        "--country", action="append", default=[], help="ISO code; repeatable"
+    )
+    country_sweep.add_argument(
+        "--scenario", action="append", default=[], choices=["global-onboarding", "global-payments"]
+    )
+    country_sweep.add_argument("--cases", type=int, default=20, help="Cases per run")
+    country_sweep.add_argument("--staff", type=int, default=8, help="Simulated staff per run")
+    country_sweep.add_argument("--seed", type=int, default=2028)
+    country_sweep.add_argument("--output", help="Write the JSON report here")
+    country_sweep.set_defaults(handler=_country_sweep)
 
     args = parser.parse_args(argv)
     return args.handler(args)

@@ -72,6 +72,10 @@ class ScenarioConfig(BaseModel):
     # A country whose business days cases arrive on (Phase 26): an arrival on a weekend or
     # holiday there moves to the same time on the next business day. None: any day.
     business_calendar: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    # Cases follow the rules of their customer's country (Phase 28): ages, documents and
+    # sanctions names for onboarding; amounts against the high-value threshold and the
+    # payment limit for payments. None keeps the original, country-blind generators.
+    country_rules: bool | None = None
 
 
 class Scenario(BaseModel):
@@ -223,6 +227,70 @@ register_scenario(
             },
             staff_mix={"teller": 0.4, "manager": 0.3, "compliance": 0.3},
             business_calendar="GB",
+        ),
+    )
+)
+
+# The Milestone C exit (Phase 28): the same workflows in any active country, with cases that
+# follow each country's rules and reviewers who always decide correctly, so every outcome
+# that differs from the ground truth is the workflow's or the rules', not a person's.
+PERFECT = 1.0
+
+register_scenario(
+    Scenario(
+        scenario_id="global-onboarding",
+        version=1,
+        name="Retail onboarding in every country (country rules)",
+        description="WF-0001 applications that follow the applicant's country's rules: ages "
+        "around its minimum age, its accepted identity documents, a proof of address only "
+        "where required and names from the sanctions lists it screens against. Reviewers "
+        "always decide correctly, so each outcome tests the workflow and the rules (Phase 28).",
+        workflow_id="WF-0001",
+        workflow_version=1,
+        simulated_start=datetime(2026, 3, 2, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=4.0,
+            document_delay_hours=(1.0, 8.0),
+            reviewers={
+                "account_approval": ReviewerModel(mean_minutes=12, accuracy=PERFECT),
+                "compliance_review": ReviewerModel(mean_minutes=35, accuracy=PERFECT),
+            },
+            country_rules=True,
+        ),
+    )
+)
+
+register_scenario(
+    Scenario(
+        scenario_id="global-payments",
+        version=1,
+        name="Domestic payments in every country (country rules)",
+        description="WF-0002 payments on each payer's country's scale: ordinary payments "
+        "below its high-value threshold, high-value ones between the threshold and its "
+        "payment limit, and watchlisted payees from the lists it screens against. Reviewers "
+        "always decide correctly; the quiet scams no rule can catch are left out (Phase 28).",
+        workload="domestic_payments",
+        workflow_id="WF-0002",
+        workflow_version=1,
+        simulated_start=datetime(2026, 3, 3, 8, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=4.0,
+            document_delay_hours=None,
+            mix={
+                "routine": 0.45,
+                "new_payee": 0.15,
+                "high_value": 0.15,
+                "large_share": 0.07,
+                "scam": 0.08,
+                "watchlisted_payee": 0.05,
+                "insufficient_funds": 0.05,
+            },
+            reviewers={
+                "fraud_review": ReviewerModel(mean_minutes=20, accuracy=PERFECT),
+                "payment_approval": ReviewerModel(mean_minutes=8, accuracy=PERFECT),
+            },
+            staff_mix={"teller": 0.4, "manager": 0.3, "compliance": 0.3},
+            country_rules=True,
         ),
     )
 )

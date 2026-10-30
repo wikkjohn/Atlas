@@ -56,6 +56,12 @@ class StartSimulation(BaseModel):
         le=MAX_SHARDS,
         description="Parallel slices, each simulated by a worker process with its own staff",
     )
+    country: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z]{2}$",
+        description="Only this active country's customers, with staff from its subsidiary "
+        "(Phase 28); default: every active country",
+    )
 
 
 class StartSuite(BaseModel):

@@ -48,6 +48,8 @@ export interface StartSimulation {
   applications?: number | null;
   employees?: number | null;
   shards?: number;
+  /** Only this active country's customers and staff (Phase 28). */
+  country?: string | null;
 }
 
 export interface SimulationProgress {

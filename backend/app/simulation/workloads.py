@@ -23,6 +23,7 @@ from app.core.money import to_minor_units
 from app.core.permissions import Permission, RoleCode, permissions_for
 from app.modules.accounts.models import Account, AccountRequest, AccountType
 from app.modules.accounts.service import approve_request, deposit, submit_request
+from app.modules.compliance.screening import SANCTIONS_LISTS
 from app.modules.countries.models import Country
 from app.modules.customers.models import Customer, CustomerType, KycStatus, RiskRating
 from app.modules.customers.schemas import CustomerCreate, CustomerReview
@@ -165,6 +166,7 @@ class RetailOnboarding(Workload):
             arrival_window_seconds=int(config.arrival_window_hours * 3600),
             document_delay_seconds=(int(low * 3600), int(high * 3600)),
             today=sim.clock.start.date(),
+            rules=sim.country_rules,
         )
         out = []
         for app in generator.generate_indices(sim.case_indices):
@@ -366,15 +368,31 @@ class DomesticPayments(Workload):
             return watchlisted[(country, name)]
 
         out: list[SyntheticCase] = []
+        rules = sim.country_rules
         for index in sim.case_indices:
             rng = case_random(sim.seed, index, "payment")
             kind = _pick(rng, mix)
             country = rng.choice(sim.countries)
             currency = currencies[country]
             name, born = _person(rng, today)
-            major = (
-                rng.randint(50_000, 200_000) if kind == "high_value" else rng.randint(2_000, 10_000)
-            )
+            if rules is not None:
+                # Amounts on the country's own scale (Phase 28): ordinary balances stay below
+                # its high-value threshold, high-value payments sit between the threshold and
+                # the payment limit.
+                threshold = rules[country]["high_value_major"]
+                limit = rules[country]["max_payment_major"]
+                high_value_major = rng.randint(threshold, min(4 * threshold, limit))
+                major = (
+                    high_value_major * rng.randint(2, 4)
+                    if kind == "high_value"
+                    else rng.randint(max(1, threshold // 5), max(1, threshold - 1))
+                )
+            else:
+                major = (
+                    rng.randint(50_000, 200_000)
+                    if kind == "high_value"
+                    else rng.randint(2_000, 10_000)
+                )
             balance = to_minor_units(major, currency)
             debtor = _customer_account(
                 sim, name=name, born=born, country_code=country, balance=balance
@@ -396,7 +414,17 @@ class DomesticPayments(Workload):
                 payments.release(db, earlier.id, approver=None, now=sim.history_at)
                 balance -= history
             elif kind == "watchlisted_payee":
-                creditor = watchlist_payee(country, rng.choice(WATCHLIST_NAMES))
+                names = WATCHLIST_NAMES
+                if rules is not None:
+                    # A name on a list the payer's country screens against.
+                    names = tuple(
+                        sorted(
+                            n.title()
+                            for list_id in rules[country]["lists"]
+                            for n in SANCTIONS_LISTS[list_id][1]
+                        )
+                    )
+                creditor = watchlist_payee(country, rng.choice(names))
             else:
                 creditor = payee(country, fresh)
             share = {
@@ -408,7 +436,9 @@ class DomesticPayments(Workload):
                 "watchlisted_payee": (0.1, 0.5),
                 "insufficient_funds": (1.01, 1.5),
             }.get(kind)
-            if kind == "high_value":
+            if kind == "high_value" and rules is not None:
+                amount = to_minor_units(high_value_major, currency)
+            elif kind == "high_value":
                 amount = to_minor_units(rng.randint(10_000, 40_000), currency)
             else:
                 assert share is not None

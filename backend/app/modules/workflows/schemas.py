@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+DefinitionStatusName = Literal["draft", "in_review", "active", "retired"]
+
 
 class WorkflowSummary(BaseModel):
     workflow_id: str
@@ -15,8 +17,16 @@ class WorkflowSummary(BaseModel):
     trigger_type: str
     step_count: int
     source: Literal["code", "stored"] = "code"
-    status: Literal["active", "retired"] = "active"  # of the version shown
+    status: DefinitionStatusName = "active"  # of the version shown
     template_id: str | None = None  # generated from this template (Phase 19)
+    # Catalogue classification and ownership (Phase 22).
+    department: str | None = None
+    countries: list[str] = []
+    products: list[str] = []
+    tags: list[str] = []
+    owner_id: uuid.UUID | None = None
+    owner_username: str | None = None
+    in_review: bool = False  # some version waits for approval
 
 
 class WorkflowDefinitionOut(WorkflowSummary):
@@ -184,7 +194,7 @@ class StoredDefinitionOut(BaseModel):
     workflow_id: str
     version: int
     name: str
-    status: Literal["active", "retired"]
+    status: DefinitionStatusName
     content_hash: str
     step_count: int
     imported_by: uuid.UUID | None
@@ -192,6 +202,42 @@ class StoredDefinitionOut(BaseModel):
     imported_at: datetime
     status_changed_at: datetime | None
     executions: int
+    # Review (Phase 22).
+    submitted_by_username: str | None = None
+    submitted_at: datetime | None = None
+    reviewed_by_username: str | None = None
+    reviewed_at: datetime | None = None
+    review_note: str | None = None
+
+
+class CatalogueFacet(BaseModel):
+    value: str
+    count: int
+
+
+class CatalogueOut(BaseModel):
+    """A page of catalogue search results, with counts per facet value. Each facet counts
+    the workflows matching every other filter, so choosing a value never hides its peers."""
+
+    items: list[WorkflowSummary]
+    total: int
+    facets: dict[str, list[CatalogueFacet]]
+
+
+class CatalogueIn(BaseModel):
+    department: str | None = Field(default=None, max_length=100)
+    countries: list[str] = Field(default_factory=list, max_length=200)
+    products: list[str] = Field(default_factory=list, max_length=20)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    owner_id: uuid.UUID | None = None
+
+
+class ReviewIn(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ReturnIn(BaseModel):
+    note: str = Field(min_length=1, max_length=500)  # what to change
 
 
 class ImportResult(BaseModel):

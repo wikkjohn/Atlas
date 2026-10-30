@@ -129,3 +129,7 @@ def register_catalogue(workflow_id: str, catalogue: Catalogue) -> None:
 
 def catalogue_of(workflow_id: str) -> Catalogue | None:
     return _CATALOGUE.get(workflow_id)
+
+
+def all_catalogue() -> list[Catalogue]:
+    return list(_CATALOGUE.values())

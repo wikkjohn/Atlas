@@ -271,6 +271,16 @@ def test_exports_round_trip_through_validation(db: Session, imported) -> None:
     assert {"owned_by_code", "unknown_handler"} <= codes(report)
 
 
+def publish(client: TestClient, author: dict, reviewer: dict, workflow_id: str, version: int):
+    """Take an API-imported draft through review: submit, test, approve (four-eyes)."""
+    base = f"/api/v1/workflow-definitions/{workflow_id}/versions/{version}"
+    assert client.post(f"{base}/submit", headers=author).status_code == 200
+    assert client.post(f"{base}/tests", headers=author).json()["failed"] == 0
+    approved = client.post(f"{base}/approve", json={}, headers=reviewer)
+    assert approved.status_code == 200, approved.text
+    return approved.json()
+
+
 def test_the_definitions_api(client: TestClient, db: Session) -> None:
     admin = auth(make_user(db, RoleCode.PLATFORM_ADMINISTRATOR))
     employee_user = make_user(db, RoleCode.BANKING_EMPLOYEE)
@@ -300,7 +310,12 @@ def test_the_definitions_api(client: TestClient, db: Session) -> None:
 
     stored = client.get("/api/v1/workflow-definitions", headers=employee).json()
     mine = [d for d in stored if d["workflow_id"] == "WF-1901"]
-    assert [(d["version"], d["status"], d["executions"]) for d in mine] == [(1, "active", 0)]
+    # Imported through the API it is a draft (Phase 22) until reviewed.
+    assert [(d["version"], d["status"], d["executions"]) for d in mine] == [(1, "draft", 0)]
+    draft_start = client.post("/api/v1/workflows/WF-1901/executions", json={"input": ADDRESS},
+                              headers=employee)  # fmt: skip
+    assert draft_start.status_code == 409 and "draft" in draft_start.json()["error"]["message"]
+    publish(client, admin, auth(make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)), "WF-1901", 1)
     handlers = client.get("/api/v1/workflow-definitions/handlers", headers=employee).json()
     assert "core.check" in {h["name"] for h in handlers}
     assert all("properties" in h["params_schema"] for h in handlers)

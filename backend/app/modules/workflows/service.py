@@ -2,6 +2,7 @@
 
 import uuid
 
+from pydantic import ValidationError
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from app.core.pagination import PageParams, paginate
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.workflows import graph, library, registry, store, templates, validation
-from app.modules.workflows.definition import StepType, WorkflowDefinition
+from app.modules.workflows.definition import Catalogue, StepType, WorkflowDefinition
 from app.modules.workflows.engine import check_task_access
 from app.modules.workflows.models import (
     STEP_RUN_EXECUTION,
@@ -18,6 +19,7 @@ from app.modules.workflows.models import (
     DefinitionStatus,
     Realm,
     RunStatus,
+    WorkflowCatalogueEntry,
     WorkflowDefinitionRecord,
     WorkflowEvent,
     WorkflowExecution,
@@ -27,6 +29,9 @@ from app.modules.workflows.models import (
     WorkflowVariant,
 )
 from app.modules.workflows.schemas import (
+    CatalogueFacet,
+    CatalogueIn,
+    CatalogueOut,
     DraftPreview,
     ExecutionDetail,
     ExecutionSummary,
@@ -74,9 +79,9 @@ def summary(
 
 
 def _catalogue(db: Session) -> dict[str, WorkflowSummary]:
-    """Each workflow's latest (active) version as a summary. Stored ones are summarised in
-    SQL from their JSON, without loading or parsing whole definitions (thousands of
-    generated variants are listed this way)."""
+    """Each workflow's latest active version (else its latest) as a summary, classified.
+    Stored ones are summarised in SQL from their JSON, without loading or parsing whole
+    definitions (thousands of generated variants are listed this way)."""
     found: dict[str, WorkflowSummary] = {}
     for definition in registry.all_definitions():  # sorted by version, so last wins
         previous = found.get(definition.workflow_id)
@@ -116,8 +121,106 @@ def _catalogue(db: Session) -> dict[str, WorkflowSummary]:
             source="stored",
             status=shown[2],
             template_id=shown[8],
+            in_review=any(r[2] == DefinitionStatus.IN_REVIEW for r in versions),
         )
+    entries = {e.workflow_id: e for e in db.execute(select(WorkflowCatalogueEntry)).scalars()}
+    names = _usernames(db, {e.owner_id for e in entries.values()})
+    for workflow_id, item in found.items():
+        _apply_catalogue(item, entries.get(workflow_id), names)
     return dict(sorted(found.items()))
+
+
+def _apply_catalogue(
+    item: WorkflowSummary, entry: WorkflowCatalogueEntry | None, names: dict[uuid.UUID, str]
+) -> None:
+    """A stored classification, else the one registered in code, else none."""
+    found = entry or registry.catalogue_of(item.workflow_id)
+    if found is None:
+        return
+    item.department, item.countries = found.department, list(found.countries)
+    item.products, item.tags = list(found.products), list(found.tags)
+    if entry is not None and entry.owner_id is not None:
+        item.owner_id, item.owner_username = entry.owner_id, names.get(entry.owner_id)
+
+
+def _classify(db: Session, item: WorkflowSummary) -> None:
+    entry = db.execute(
+        select(WorkflowCatalogueEntry).where(WorkflowCatalogueEntry.workflow_id == item.workflow_id)
+    ).scalar_one_or_none()
+    _apply_catalogue(item, entry, _usernames(db, {entry.owner_id if entry else None}))
+
+
+CATALOGUE_FACETS = ("department", "country", "product", "tag", "status", "source", "owner")
+
+
+def _facet_values(w: WorkflowSummary, facet: str) -> list[str]:
+    match facet:
+        case "department":
+            return [w.department] if w.department else []
+        case "country":
+            return w.countries
+        case "product":
+            return w.products
+        case "tag":
+            return w.tags
+        case "status":
+            return [w.status, *(["in_review"] if w.in_review and w.status != "in_review" else [])]
+        case "source":
+            return [w.source]
+        case "owner":
+            return [w.owner_username] if w.owner_username else []
+    return []
+
+
+def _matches_text(w: WorkflowSummary, needle: str) -> bool:
+    return (
+        needle
+        in (
+            f"{w.workflow_id} {w.name} {w.description} {w.business_owner} {w.template_id or ''} "
+            f"{w.department or ''} {' '.join(w.products)} {' '.join(w.tags)}"
+        ).casefold()
+    )
+
+
+def search_catalogue(
+    db: Session,
+    q: str | None = None,
+    *,
+    filters: dict[str, str | None] | None = None,
+    template_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> CatalogueOut:
+    """Search the catalogue: free text plus one value per facet (department, country,
+    product, tag, status, source, owner), with counts for every facet's values."""
+    chosen = {k: v for k, v in (filters or {}).items() if v}
+    base = list(_catalogue(db).values())
+    if template_id:
+        base = [w for w in base if w.template_id == template_id]
+    if q:
+        needle = q.casefold()
+        base = [w for w in base if _matches_text(w, needle)]
+
+    def keep(w: WorkflowSummary, skip: str | None = None) -> bool:
+        return all(
+            v.casefold() in (x.casefold() for x in _facet_values(w, k))
+            for k, v in chosen.items()
+            if k != skip
+        )
+
+    items = [w for w in base if keep(w)]
+    facets: dict[str, list[CatalogueFacet]] = {}
+    for facet in CATALOGUE_FACETS:
+        counts: dict[str, int] = {}
+        for w in base:
+            if keep(w, facet):
+                for value in set(_facet_values(w, facet)):
+                    counts[value] = counts.get(value, 0) + 1
+        facets[facet] = [
+            CatalogueFacet(value=v, count=n)
+            for v, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+    return CatalogueOut(items=items[offset : offset + limit], total=len(items), facets=facets)
 
 
 def list_workflows(
@@ -135,13 +238,7 @@ def list_workflows(
         items = [w for w in items if w.template_id == template_id]
     if q:
         needle = q.casefold()
-        items = [
-            w
-            for w in items
-            if needle
-            in f"{w.workflow_id} {w.name} {w.description} {w.business_owner} "
-            f"{w.template_id or ''}".casefold()
-        ]
+        items = [w for w in items if _matches_text(w, needle)]
     return items[:limit] if limit else items
 
 
@@ -168,8 +265,12 @@ def definition_out(db: Session, definition: WorkflowDefinition) -> WorkflowDefin
         ).all()
         versions = [v for v, _ in rows]
         source, status = "stored", dict(rows).get(definition.version, "active")
+    shown = summary(definition, versions, source, status)
+    _classify(db, shown)
+    if source == "stored":
+        shown.in_review = DefinitionStatus.IN_REVIEW in {s for _, s in rows}
     return WorkflowDefinitionOut(
-        **summary(definition, versions, source, status).model_dump(),
+        **shown.model_dump(),
         origin=definition.origin.model_dump() if definition.origin else None,
         last_test=last_test(db, definition.workflow_id, definition.version)
         if source == "stored"
@@ -481,7 +582,8 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
 def stored_definition_out(
     db: Session, record: WorkflowDefinitionRecord, names: dict[uuid.UUID, str] | None = None
 ) -> StoredDefinitionOut:
-    names = names if names is not None else _usernames(db, {record.imported_by})
+    people = {record.imported_by, record.submitted_by, record.reviewed_by}
+    names = names if names is not None else _usernames(db, people)
     executions = db.execute(
         select(func.count()).where(WorkflowExecution.definition_id == record.id)
     ).scalar_one()
@@ -498,12 +600,19 @@ def stored_definition_out(
         imported_at=record.registered_at,
         status_changed_at=record.status_changed_at,
         executions=executions,
+        submitted_by_username=names.get(record.submitted_by) if record.submitted_by else None,
+        submitted_at=record.submitted_at,
+        reviewed_by_username=names.get(record.reviewed_by) if record.reviewed_by else None,
+        reviewed_at=record.reviewed_at,
+        review_note=record.review_note,
     )
 
 
 def stored_definitions(db: Session) -> list[StoredDefinitionOut]:
     records = store.stored_records(db)
-    names = _usernames(db, {r.imported_by for r in records})
+    names = _usernames(
+        db, {p for r in records for p in (r.imported_by, r.submitted_by, r.reviewed_by)}
+    )
     return [stored_definition_out(db, r, names) for r in records]
 
 
@@ -736,3 +845,44 @@ def draft_preview(db: Session, document: dict) -> DraftPreview:
         if report.definition.start in ids:
             drawn = graph.layout(report.definition).model_dump(mode="json")
     return DraftPreview(report=report_out(report), graph=drawn)
+
+
+# --- Catalogue (Phase 22) --------------------------------------------------------------------
+
+
+def classify(
+    db: Session, workflow_id: str, body: CatalogueIn, actor_id: uuid.UUID
+) -> WorkflowSummary:
+    """Set a workflow's classification and owner; countries and owner must exist."""
+    from app.modules.countries.models import Country
+    from app.modules.workflows import authoring
+
+    if store.resolve(db, workflow_id) is None:
+        raise NotFoundError(f"Workflow {workflow_id} is not registered.")
+    try:
+        catalogue = Catalogue.model_validate(body.model_dump(exclude={"owner_id"}))
+    except ValidationError as exc:
+        raise DomainError(
+            "The classification is not valid.",
+            {
+                "errors": [
+                    {"location": ".".join(map(str, e["loc"])), "message": e["msg"]}
+                    for e in exc.errors()
+                ]
+            },  # fmt: skip
+        ) from exc
+    known = set(
+        db.execute(
+            select(Country.iso_country_code).where(
+                Country.iso_country_code.in_(catalogue.countries)
+            )
+        ).scalars()
+    )
+    if missing := sorted(set(catalogue.countries) - known):
+        raise DomainError(f"Unknown countries: {', '.join(missing)}.", {"countries": missing})
+    if body.owner_id is not None:
+        owner = db.get(User, body.owner_id)
+        if owner is None or not owner.is_active:
+            raise DomainError("The owner must be an active user.", {"owner_id": "unknown"})
+    authoring.classify(db, workflow_id, catalogue, actor_id, owner_id=body.owner_id)
+    return _catalogue(db)[workflow_id]

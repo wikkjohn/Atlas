@@ -114,7 +114,7 @@ def test_a_stored_workflow_is_fully_covered_and_passes(db: Session, admin) -> No
 
 
 def test_generated_variants_are_tested_like_any_stored_workflow(db: Session, admin) -> None:
-    (template_doc,) = examples.templates()
+    template_doc = examples.templates()[0]
     doc = {**copy.deepcopy(template_doc), "template_id": "TPL-TEST-PATHS", "id_range": [7100, 7109]}
     templates.import_template(db, doc, admin.id)
     params = {

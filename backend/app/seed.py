@@ -624,6 +624,13 @@ def _import_example_definitions(db: Session, report: SeedReport) -> None:
         if created:
             report.stored_definitions.append(f"{record.workflow_id} v{record.version}")
     from app.modules.workflows import templates
+    from app.modules.workflows.definition import Catalogue
+    from app.modules.workflows.models import WorkflowCatalogueEntry
+
+    classified = set(db.execute(select(WorkflowCatalogueEntry.workflow_id)).scalars())
+    for workflow_id, catalogue in examples.EXAMPLE_CATALOGUE.items():
+        if workflow_id not in classified:
+            authoring.classify(db, workflow_id, Catalogue(**catalogue), admin)
 
     for document in examples.templates():
         template, created, _ = templates.import_template(db, document, admin)

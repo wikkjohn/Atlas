@@ -20,7 +20,7 @@ FIXED = {"fee": 5, "approval_permission": "accounts:manage", "screen_customers":
 
 
 def template_document(template_id: str = "TPL-TEST-STATEMENT", version: int = 1) -> dict:
-    (found,) = examples.templates()
+    found = examples.templates()[0]  # v1, without a catalogue
     doc = copy.deepcopy(found)
     doc.update(template_id=template_id, version=version, id_range=[7000, 7009])
     return doc

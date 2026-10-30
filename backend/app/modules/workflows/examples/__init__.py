@@ -31,3 +31,20 @@ DEMO_GENERATION = {
     },
     "fixed": {"fee": 5, "approval_permission": "accounts:manage", "screen_customers": True},
 }
+
+# How `seed-demo` classifies the example workflows whose documents carry no catalogue
+# (Phase 22); the template's v2 classifies its variants itself.
+EXAMPLE_CATALOGUE = {
+    "WF-1001": {
+        "department": "Customer Onboarding",
+        "countries": ["DE", "GB", "JP", "SG", "US"],
+        "products": ["current", "savings"],
+        "tags": ["onboarding", "screening", "ai"],
+    },
+    "WF-1002": {
+        "department": "Branch Network",
+        "countries": ["GB"],
+        "products": ["current", "savings"],
+        "tags": ["statements", "fees"],
+    },
+}

@@ -113,9 +113,18 @@ def store_validated(
             ),
         },
     )
-    if definition.catalogue is not None:
+    if definition.catalogue is not None and (
+        status == DefinitionStatus.ACTIVE or _entry(db, definition.workflow_id) is None
+    ):
+        # A draft's classification applies when it is approved, unless there is none yet.
         classify(db, definition.workflow_id, definition.catalogue, actor_id)
     return record, True
+
+
+def _entry(db: Session, workflow_id: str) -> WorkflowCatalogueEntry | None:
+    return db.execute(
+        select(WorkflowCatalogueEntry).where(WorkflowCatalogueEntry.workflow_id == workflow_id)
+    ).scalar_one_or_none()
 
 
 def classify(
@@ -125,12 +134,11 @@ def classify(
     actor_id: uuid.UUID | None,
     owner_id: uuid.UUID | None | object = ...,
 ) -> WorkflowCatalogueEntry:
-    """Set a workflow's classification (and, when given, its owner)."""
-    entry = db.execute(
-        select(WorkflowCatalogueEntry).where(WorkflowCatalogueEntry.workflow_id == workflow_id)
-    ).scalar_one_or_none()
+    """Set a workflow's classification (and, when given, its owner). A new entry is owned
+    by whoever classified it unless an owner is given."""
+    entry = _entry(db, workflow_id)
     if entry is None:
-        entry = WorkflowCatalogueEntry(workflow_id=workflow_id)
+        entry = WorkflowCatalogueEntry(workflow_id=workflow_id, owner_id=actor_id)
         db.add(entry)
     entry.department = catalogue.department
     entry.countries = sorted(set(catalogue.countries))
@@ -237,6 +245,9 @@ def approve(
         record.status_changed_at,
         note,
     )
+    definition = store.parsed(record)
+    if definition.catalogue is not None:
+        classify(db, workflow_id, definition.catalogue, actor_id)
     return record
 
 

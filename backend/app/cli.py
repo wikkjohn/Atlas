@@ -345,6 +345,7 @@ def _workflows(args: argparse.Namespace) -> int:
 
     from app.modules.identity.models import User
     from app.modules.workflows import authoring, service
+    from app.modules.workflows.models import DefinitionStatus
 
     factory = get_sessionmaker()
 
@@ -448,9 +449,13 @@ def _workflows(args: argparse.Namespace) -> int:
                 if actor is None:
                     print(f"No user '{args.as_user}'.")
                     return 2
-                record, created, _ = authoring.import_definition(db, document, actor)
+                status = DefinitionStatus.ACTIVE if args.publish else DefinitionStatus.DRAFT
+                record, created, _ = authoring.import_definition(db, document, actor, status=status)
                 verb = "Imported" if created else "Already stored (unchanged):"
-                print(f"{verb} {record.workflow_id} v{record.version} ({record.content_hash[:12]})")
+                print(
+                    f"{verb} {record.workflow_id} v{record.version} "
+                    f"({record.content_hash[:12]}, {record.status})"
+                )
                 problems(report)
     except DomainError as exc:
         print(f"Refused: {exc.message}")
@@ -757,6 +762,9 @@ def main(argv: list[str] | None = None) -> int:
     wf_import = wf_actions.add_parser("import", help="Validate and store a definition file")
     wf_import.add_argument("file")
     wf_import.add_argument("--as-user", default="admin", help="Recorded as the importer")
+    wf_import.add_argument(
+        "--publish", action="store_true", help="Store it active, skipping review (else a draft)"
+    )
     wf_test = wf_actions.add_parser(
         "test", help="Generate and run path tests for stored workflows (fails on any failure)"
     )

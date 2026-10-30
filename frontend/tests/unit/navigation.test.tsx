@@ -24,6 +24,7 @@ describe("Application shell", () => {
       "Customers",
       "Accounts",
       "Payments",
+      "Foreign Exchange",
       "Lending",
       "Workflow Explorer",
       "Simulation Center",

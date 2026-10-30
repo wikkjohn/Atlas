@@ -19,6 +19,7 @@ from app.modules.countries.router import router as countries_router
 from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
 from app.modules.experiments.router import benchmarks_router, experiments_router
+from app.modules.fx.router import router as fx_router
 from app.modules.identity.router import auth_router, roles_router, users_router
 from app.modules.ledger.router import router as ledger_router
 from app.modules.lending.router import router as loans_router
@@ -54,6 +55,7 @@ for module_router in (
     requests_router,
     accounts_router,
     ledger_router,
+    fx_router,
     payments_router,
     loans_router,
     definitions_router,

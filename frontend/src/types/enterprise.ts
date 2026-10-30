@@ -20,6 +20,7 @@ export type Permission =
   | "accounts:transact"
   | "accounts:manage"
   | "ledger:read"
+  | "fx:manage"
   | "ledger:post"
   | "workflows:read"
   | "workflows:start"

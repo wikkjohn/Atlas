@@ -1,6 +1,8 @@
 """WF-0002 Domestic Payment.
 
-A customer pays another customer of the bank in the same currency. The definition is data;
+A customer pays another customer of the bank. The definition is data (unchanged since
+Phase 9, so its name still says domestic); since Phase 24 the payee's account may be in
+another currency, and the payments service converts at release through an FX deal;
 the handlers orchestrate the payments service, which re-applies the money controls itself
 (open accounts, funds, four-eyes and the high-value approval rule) when it releases a
 payment.
@@ -25,6 +27,7 @@ from app.modules.accounts.models import AccountStatus
 from app.modules.accounts.service import find_account
 from app.modules.compliance.screening import SYNTHETIC_WATCHLIST
 from app.modules.customers.models import CustomerNotification
+from app.modules.fx import rates as fx_rates
 from app.modules.ledger import service as ledger
 from app.modules.payments import service as payments
 from app.modules.payments.models import PaymentStatus
@@ -285,8 +288,14 @@ def validate_payment(ctx: StepContext) -> dict:
         for label, account in (("paying", debtor), ("payee", creditor)):
             if account.status != AccountStatus.OPEN:
                 reasons.append(f"The {label} account is {account.status}.")
-            if account.currency != data["currency"]:
-                reasons.append(f"The {label} account is not held in {data['currency']}.")
+        if debtor.currency != data["currency"]:
+            reasons.append(f"The paying account is not held in {data['currency']}.")
+        if creditor.currency != debtor.currency and not (
+            fx_rates.supported(debtor.currency) and fx_rates.supported(creditor.currency)
+        ):
+            reasons.append(
+                f"Payments from {debtor.currency} to {creditor.currency} are not offered."
+            )
         if data["amount"] > payments.max_amount(data["currency"]):
             reasons.append("The amount exceeds the single-payment limit.")
     if reasons:
@@ -312,6 +321,9 @@ def validate_payment(ctx: StepContext) -> dict:
         "debtor_customer_id": str(debtor.customer_id),
         "creditor_account_id": str(creditor.id),
         "creditor_name": creditor.customer.name,
+        "cross_currency": payment.creditor_currency is not None,
+        "creditor_currency": creditor.currency,
+        "estimated_creditor_amount": payment.creditor_amount,
     }
 
 
@@ -432,6 +444,8 @@ def release_payment(ctx: StepContext) -> dict:
     return {
         "payment_number": payment.payment_number,
         "journal_entry_id": str(payment.journal_entry_id),
+        "creditor_amount": payment.creditor_amount or payment.amount,
+        "creditor_currency": payment.creditor_currency or payment.currency,
         "approved_by": approver_id,
         "straight_through": approver_id is None,
     }
@@ -469,7 +483,14 @@ def notify_customer(ctx: StepContext) -> dict:
     approved = ctx.get("outcome") == "approved"
     subject = "Payment sent" if approved else "Payment not sent"
     body = (
-        f"Your payment of {amount} to {data['creditor_account_number']} was sent."
+        f"Your payment of {amount} to {data['creditor_account_number']} was sent"
+        + (
+            f" ({format_amount(ctx.get('release_payment.creditor_amount'), converted)} "
+            "after conversion)."
+            if (converted := ctx.get("release_payment.creditor_currency"))
+            not in (None, data["currency"])
+            else "."
+        )
         if approved
         else f"Your payment of {amount} was not sent. Reasons: "
         + "; ".join(ctx.get("reject_payment.reasons") or [])

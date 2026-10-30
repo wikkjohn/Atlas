@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 
-from app.core.permissions import permissions_for
+from app.core.permissions import Permission, permissions_for
 from app.jobs.engine import JobContext, PermanentJobError, job_kind
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
@@ -214,3 +214,29 @@ def archive_old_history(ctx: JobContext) -> dict:
     actor = ctx.created_by or _principal(ctx).id
     archived = history.archive_older_than(ctx.factory, days, actor)
     return {"archived_runs": archived}
+
+
+@job_kind(
+    "fx.daily",
+    description="Publish the day's exchange rates and revalue the open currency positions "
+    "(payload: as_of, default today)",
+    max_attempts=2,
+    manual=True,
+)
+def fx_daily(ctx: JobContext) -> dict:
+    from app.modules.fx import service as fx
+
+    as_of = date.fromisoformat(ctx.payload["as_of"]) if ctx.payload.get("as_of") else None
+    as_of = as_of or datetime.now(UTC).date()
+    principal = _principal(ctx)
+    if not principal.can(Permission.FX_MANAGE):
+        raise PermanentJobError("The job's principal may not revalue currency positions.")
+    with ctx.factory() as db, db.begin():
+        published = fx.publish_rates(db, as_of)
+        run = fx.revalue(db, as_of, principal.id)
+        return {
+            "as_of": as_of.isoformat(),
+            "rates_published": published,
+            "revaluation": run.run_number,
+            "posted_usd_cents": run.posted,
+        }

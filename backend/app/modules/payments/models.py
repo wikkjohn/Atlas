@@ -1,4 +1,5 @@
-"""Domestic payments between synthetic customer accounts.
+"""Payments between synthetic customer accounts: domestic, or (Phase 24) to an account in
+another currency, converted at release through an FX deal.
 
 A payment record follows its workflow: `pending` while it is screened and approved, then
 `released` (posted to the ledger) or `rejected`. Money only moves through the ledger; the
@@ -48,6 +49,10 @@ class Payment(UUIDPrimaryKey, Base):
         ),
         # Four-eyes, enforced by the database as well as the service.
         CheckConstraint("approved_by IS NULL OR approved_by <> initiated_by", name="four_eyes"),
+        CheckConstraint(
+            "status <> 'released' OR creditor_currency IS NULL OR fx_deal_id IS NOT NULL",
+            name="released_fx_has_deal",
+        ),
     )
 
     payment_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
@@ -59,6 +64,13 @@ class Payment(UUIDPrimaryKey, Base):
     )
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # minor units
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    # Cross-currency payments (Phase 24): the payee's currency, the amount it received (set
+    # at release; an estimate before) and the conversion.
+    creditor_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    creditor_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    fx_deal_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("fx_deals.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
     reference: Mapped[str] = mapped_column(String(140), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     initiated_by: Mapped[uuid.UUID] = mapped_column(

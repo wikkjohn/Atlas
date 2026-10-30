@@ -447,6 +447,8 @@ def library_handlers() -> list[LibraryHandlerOut]:
             step_type=h.step_type.value,
             summary=h.summary,
             output=h.output,
+            effect=h.effect,
+            requires_approval=h.requires_approval,
             params_schema=h.params_schema(),
         )
         for h in sorted(library.LIBRARY.values(), key=lambda h: h.name)
@@ -463,4 +465,5 @@ def report_out(report: validation.Report) -> ValidationReportOut:
         existing=report.existing if report.valid else None,
         errors=report.errors,
         warnings=report.warnings,
+        effects=report.effects,
     )

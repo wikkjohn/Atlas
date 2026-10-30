@@ -8,7 +8,8 @@ this module also checks, collecting every problem rather than stopping at the fi
 - versions: a new version is higher than every stored one, and an existing version is
   either re-imported unchanged or refused (versions are immutable);
 - termination: every step can still reach a completion or failure step;
-- handlers: service tasks name a library handler and their params match its model;
+- handlers: service and AI tasks name a library handler of their kind, their params match
+  its model, and a handler that moves money is reachable only through an approval step;
 - context paths: conditions, handler params and presentation read the input's fields,
   earlier steps' outputs or known keys — a typo is caught here, not in production;
 - permissions: approval policies name real permissions that some person's role holds,
@@ -57,6 +58,8 @@ class Report:
     definition: WorkflowDefinition | None = None
     # "new" (importable), "identical" (already stored, unchanged) or None (invalid).
     existing: str | None = None
+    # Step id -> what its handler does (reads, writes, moves_money, advisory, none).
+    effects: dict[str, str] = field(default_factory=dict)
 
     @property
     def valid(self) -> bool:
@@ -100,7 +103,7 @@ def validate(db: Session | None, document: dict[str, Any]) -> Report:
 
     _check_ownership(report, definition)
     _check_input_schema(report, definition)
-    _check_steps(report, definition)
+    _check_steps(report, definition, db)
     if not any(e["code"] == "unknown_step" for e in report.errors):
         _check_termination(report, definition)
     if db is not None and report.valid:
@@ -195,28 +198,65 @@ def _human_roles_with(permissions: set[str]) -> list[str]:
     ]
 
 
-def _check_steps(report: Report, d: WorkflowDefinition) -> None:
+def _approves(step_id: str, condition: Condition | None) -> bool:
+    """Whether a transition is taken only when the approval `step_id` approved."""
+    if condition is None or condition.negate:
+        return False
+    if condition.all is not None:
+        return any(_approves(step_id, c) for c in condition.all)
+    if condition.path == f"{step_id}.approved":
+        return condition.op == "truthy" or (condition.op == "eq" and condition.value is True)
+    if condition.path == f"{step_id}.decision":
+        return condition.op == "eq" and condition.value == "approve"
+    return False
+
+
+def _behind_approval(d: WorkflowDefinition, target: str) -> bool:
+    """True when every path from the start to `target` leaves some approval step by its
+    approve route (a transition taken only when that approval was granted)."""
+    by_id = {s.id: s for s in d.steps}
+    seen, stack = set(), [d.start]
+    while stack:
+        current = stack.pop()
+        if current in seen or current not in by_id:
+            continue
+        if current == target:
+            return False
+        seen.add(current)
+        step = by_id[current]
+        if step.type == StepType.APPROVAL:
+            # Approve routes have passed an approval; every other route has not.
+            onward = [t.to for t in step.transitions if not _approves(step.id, t.when)]
+            onward += [x for x in (step.next, step.on_failure) if x]
+            if step.timeout and step.timeout.to:
+                onward.append(step.timeout.to)
+        else:
+            onward = step.targets() + ([step.join] if step.join else [])
+        stack.extend(onward)
+    return True
+
+
+def _check_steps(report: Report, d: WorkflowDefinition, db: Session | None) -> None:
     by_id = {s.id: s for s in d.steps}
     valid_permissions = {p.value for p in Permission}
     sets_outcome = any(s.handler == "core.set_outcome" for s in d.steps)
     for step in d.steps:
         at = f"steps.{step.id}"
         # Handlers and their params
-        if step.type == StepType.AI_TASK:
-            report.error(
-                at,
-                "handler_unavailable",
-                "AI steps need an AI handler from the "
-                "library; none is available to stored definitions yet.",
-            )
-        elif step.type in HANDLER_TYPES:
+        if step.type in HANDLER_TYPES:
             found = library.get(step.handler or "")
             if found is None:
+                names = sorted(n for n, h in library.LIBRARY.items() if h.step_type == step.type)
                 report.error(
                     f"{at}.handler",
                     "unknown_handler",
-                    f"'{step.handler}' is not in "
-                    f"the handler library ({', '.join(sorted(library.LIBRARY))}).",
+                    f"'{step.handler}' is not in the handler library ({', '.join(names)}).",
+                )
+            elif found.step_type != step.type:
+                report.error(
+                    f"{at}.handler",
+                    "handler_type_mismatch",
+                    f"'{found.name}' is a {found.step_type.value} handler, not {step.type.value}.",
                 )
             else:
                 try:
@@ -232,8 +272,21 @@ def _check_steps(report: Report, d: WorkflowDefinition) -> None:
                 else:
                     for path in found.reads(params):
                         _check_path(report, d, f"{at}.params", path)
+                    if found.check is not None and db is not None:
+                        for message in found.check(db, params):
+                            report.error(f"{at}.params", "handler_check", message)
+                    report.effects[step.id] = found.effect
+                    if found.requires_approval and not _behind_approval(d, step.id):
+                        report.error(
+                            at,
+                            "approval_required",
+                            f"'{found.name}' ({found.effect.replace('_', ' ')}) can be reached "
+                            "without an approval granting it; reach it only through an "
+                            "approval's approve route (e.g. when '<approval>.approved' is "
+                            "truthy).",
+                        )
         elif step.params is not None:
-            report.error(f"{at}.params", "params_unused", "Only service tasks take params.")
+            report.error(f"{at}.params", "params_unused", "Only service and AI tasks take params.")
         # Conditions
         for i, transition in enumerate(step.transitions):
             if transition.when is not None:

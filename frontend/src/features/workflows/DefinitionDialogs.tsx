@@ -14,7 +14,51 @@ import {
   useStartExecution,
   useValidateDefinition,
 } from "@/services/workflows";
-import type { DefinitionProblem, JsonSchema, JsonSchemaProperty, ValidationReport } from "@/types/workflows";
+import type {
+  DefinitionProblem,
+  HandlerEffect,
+  JsonSchema,
+  JsonSchemaProperty,
+  ValidationReport,
+} from "@/types/workflows";
+
+const EFFECT_LABEL: Record<HandlerEffect, string> = {
+  none: "No side effects",
+  reads: "Reads records",
+  writes: "Writes records",
+  moves_money: "Moves money",
+  advisory: "AI advice",
+};
+const EFFECT_STYLE: Record<HandlerEffect, string> = {
+  none: "bg-slate-100 text-slate-600",
+  reads: "bg-slate-100 text-slate-700",
+  writes: "bg-amber-50 text-amber-800",
+  moves_money: "bg-rose-50 text-rose-800",
+  advisory: "bg-violet-50 text-violet-800",
+};
+
+export function EffectBadge({ effect }: { effect: HandlerEffect }) {
+  if (effect === "none") return null;
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${EFFECT_STYLE[effect]}`}>{EFFECT_LABEL[effect]}</span>;
+}
+
+/** Which steps change records or move money, grouped by effect. */
+function EffectsSummary({ effects }: { effects: Record<string, HandlerEffect> }) {
+  const order: HandlerEffect[] = ["moves_money", "writes", "advisory", "reads"];
+  const groups = order
+    .map((effect) => [effect, Object.keys(effects).filter((step) => effects[step] === effect)] as const)
+    .filter(([, list]) => list.length > 0);
+  if (groups.length === 0) return null;
+  return (
+    <ul aria-label="Effects" className="space-y-1 text-xs text-slate-700">
+      {groups.map(([effect, list]) => (
+        <li key={effect} className="flex flex-wrap items-center gap-1.5">
+          <EffectBadge effect={effect} /> <span className="font-mono">{list.join(", ")}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function Problems({ title, items, tone }: { title: string; items: DefinitionProblem[]; tone: "bad" | "warn" }) {
   if (items.length === 0) return null;
@@ -142,6 +186,7 @@ export function ImportDefinitionDialog({
             {report.existing === "identical" ? " and already stored unchanged." : " and can be imported."}
           </p>
         )}
+        {report?.valid && report.effects && <EffectsSummary effects={report.effects} />}
         {report && <Problems title="Errors" items={report.errors} tone="bad" />}
         {report && <Problems title="Warnings" items={report.warnings} tone="warn" />}
         <ErrorMessage error={validate.error ?? (refusalReport(importer.error) ? null : importer.error)} />
@@ -151,7 +196,8 @@ export function ImportDefinitionDialog({
             <ul className="mt-2 space-y-1">
               {handlers.data.map((h) => (
                 <li key={h.name}>
-                  <span className="font-mono">{h.name}</span> — {h.summary} Params:{" "}
+                  <span className="font-mono">{h.name}</span> <EffectBadge effect={h.effect} />
+                  {h.requires_approval && <span className="text-rose-700"> (approval required)</span>} — {h.summary} Params:{" "}
                   <span className="font-mono">
                     {Object.keys((h.params_schema.properties as Record<string, unknown>) ?? {}).join(", ")}
                   </span>

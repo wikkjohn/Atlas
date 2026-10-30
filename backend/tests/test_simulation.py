@@ -11,15 +11,12 @@ from sqlalchemy import Connection, func, select
 from sqlalchemy.orm import Session
 
 from app.core.permissions import RoleCode
+from app.modules.compliance.screening import SYNTHETIC_WATCHLIST
 from app.modules.employees.models import Employee
 from app.modules.identity.models import User
 from app.modules.workflows import engine
 from app.modules.workflows.models import WorkflowExecution
-from app.modules.workflows.wf0001 import (
-    SYNTHETIC_WATCHLIST,
-    RetailAccountApplication,
-    document_number_valid,
-)
+from app.modules.workflows.wf0001 import RetailAccountApplication, document_number_valid
 from app.simulation.clock import ClockError, SimulationClock
 from app.simulation.generators import (
     FIRST_NAMES,

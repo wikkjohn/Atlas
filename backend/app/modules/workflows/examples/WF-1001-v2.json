@@ -1,0 +1,288 @@
+{
+  "workflow_id": "WF-1001",
+  "name": "Customer Address Change",
+  "version": 2,
+  "description": "A customer asks to change their postal address. Version 2 finds the customer, screens their name, and writes to them through their notifications. Corrections go straight through; moves are checked by a colleague; changes on suspicion of fraud, or for a name on the watchlist, go to compliance. Stored definition: built only from library handlers.",
+  "business_owner": "Retail Banking Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "street",
+      "city",
+      "postal_code",
+      "country_code",
+      "reason"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$",
+        "description": "The customer whose address changes"
+      },
+      "street": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 200
+      },
+      "city": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 100
+      },
+      "postal_code": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 20
+      },
+      "country_code": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "ISO 3166-1 alpha-2"
+      },
+      "reason": {
+        "type": "string",
+        "enum": [
+          "moved",
+          "correction",
+          "fraud_suspected"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "input.customer_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "ADDR-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "unknown_customer",
+      "next": "check_country"
+    },
+    {
+      "id": "check_country",
+      "type": "service_task",
+      "name": "Check the bank operates in the country",
+      "handler": "core.check",
+      "params": {
+        "condition": {
+          "path": "input.country_code",
+          "op": "in",
+          "value": [
+            "US",
+            "GB",
+            "DE",
+            "SG",
+            "JP"
+          ]
+        },
+        "code": "country_not_served",
+        "message": "The bank has no subsidiary in that country."
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_unsupported",
+      "next": "screen_name"
+    },
+    {
+      "id": "screen_name",
+      "type": "service_task",
+      "name": "Screen the customer's name",
+      "handler": "compliance.screen_name",
+      "params": {
+        "name_path": "find_customer.name"
+      },
+      "next": "route_by_reason"
+    },
+    {
+      "id": "route_by_reason",
+      "type": "decision",
+      "name": "Route by reason",
+      "transitions": [
+        {
+          "to": "compliance_review",
+          "when": {
+            "path": "screen_name.hit",
+            "op": "truthy"
+          }
+        },
+        {
+          "to": "compliance_review",
+          "when": {
+            "path": "input.reason",
+            "op": "eq",
+            "value": "fraud_suspected"
+          }
+        },
+        {
+          "to": "record_change",
+          "when": {
+            "path": "input.reason",
+            "op": "eq",
+            "value": "correction"
+          }
+        }
+      ],
+      "next": "colleague_review"
+    },
+    {
+      "id": "colleague_review",
+      "type": "approval",
+      "name": "Colleague checks the new address",
+      "description": "A second member of staff confirms the request (four-eyes).",
+      "approval": {
+        "permissions": [
+          "customers:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "record_change",
+          "when": {
+            "path": "colleague_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_declined"
+    },
+    {
+      "id": "compliance_review",
+      "type": "approval",
+      "name": "Compliance reviews a suspected fraud change",
+      "approval": {
+        "permissions": [
+          "customers:review"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "record_change",
+          "when": {
+            "path": "compliance_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_declined"
+    },
+    {
+      "id": "record_change",
+      "type": "service_task",
+      "name": "Record the approved address",
+      "handler": "core.copy_values",
+      "params": {
+        "fields": {
+          "street": "input.street",
+          "city": "input.city",
+          "postal_code": "input.postal_code",
+          "country_code": "input.country_code"
+        }
+      },
+      "next": "notify_updated"
+    },
+    {
+      "id": "notify_updated",
+      "type": "service_task",
+      "name": "Confirm to the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "channel": "simulated_letter",
+        "subject": "Your address has been updated",
+        "body": "Dear {find_customer.name}, we now hold your address as {record_change.street}, {record_change.city} {record_change.postal_code}."
+      },
+      "next": "updated"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer the change was declined",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "channel": "simulated_letter",
+        "subject": "Your address change request",
+        "body": "Dear {find_customer.name}, we could not make the change you asked for. Please contact us."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_unsupported",
+      "type": "service_task",
+      "name": "Tell the customer the country is not served",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "channel": "simulated_letter",
+        "subject": "Your address change request",
+        "body": "Dear {find_customer.name}, we do not serve {input.country_code}."
+      },
+      "next": "rejected"
+    },
+    {
+      "id": "updated",
+      "type": "completion",
+      "name": "Address updated",
+      "outcome": "updated"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Change declined",
+      "outcome": "declined"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Country not served",
+      "outcome": "rejected"
+    },
+    {
+      "id": "unknown_customer",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

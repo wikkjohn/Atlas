@@ -1,0 +1,227 @@
+{
+  "workflow_id": "WF-1002",
+  "name": "Paper Statement Request",
+  "version": 1,
+  "description": "A customer asks for copies of past statements. By e-mail they are free; by post a colleague approves the paper-statement fee, which is charged to the account (fee income) before the statements are sent. Stored definition: built only from library handlers.",
+  "business_owner": "Retail Banking Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "account_number",
+      "months",
+      "delivery"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "months": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 12,
+        "description": "How many months of statements"
+      },
+      "delivery": {
+        "type": "string",
+        "enum": [
+          "email",
+          "post"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.account_number",
+        "prefix": "STMT-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "find_account"
+    },
+    {
+      "id": "find_account",
+      "type": "service_task",
+      "name": "Check the account is the customer's",
+      "handler": "accounts.lookup",
+      "params": {
+        "account_number_path": "input.account_number",
+        "customer_id_path": "find_customer.customer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_delivery"
+    },
+    {
+      "id": "route_delivery",
+      "type": "decision",
+      "name": "E-mail or post",
+      "transitions": [
+        {
+          "to": "produce",
+          "when": {
+            "path": "input.delivery",
+            "op": "eq",
+            "value": "email"
+          }
+        }
+      ],
+      "next": "fee_approval"
+    },
+    {
+      "id": "fee_approval",
+      "type": "approval",
+      "name": "Approve the paper-statement fee",
+      "description": "A colleague confirms the request and the fee (four-eyes).",
+      "approval": {
+        "permissions": [
+          "accounts:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "charge_fee",
+          "when": {
+            "path": "fee_approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_declined"
+    },
+    {
+      "id": "charge_fee",
+      "type": "service_task",
+      "name": "Charge the paper-statement fee",
+      "handler": "accounts.charge_fee",
+      "params": {
+        "account_number_path": "input.account_number",
+        "amount": 500,
+        "fee_code": "paper_statement",
+        "memo": "Paper statements"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "produce"
+    },
+    {
+      "id": "produce",
+      "type": "service_task",
+      "name": "Produce the statements",
+      "handler": "core.copy_values",
+      "params": {
+        "fields": {
+          "account_number": "input.account_number",
+          "months": "input.months",
+          "delivery": "input.delivery"
+        }
+      },
+      "next": "notify_sent"
+    },
+    {
+      "id": "notify_sent",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your statements are on their way",
+        "body": "Dear {find_customer.name}, {input.months} months of statements for account {input.account_number} are on their way by {input.delivery}."
+      },
+      "next": "sent"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer it was declined",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your statement request",
+        "body": "Dear {find_customer.name}, we could not send paper statements. You can request them by e-mail free of charge."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Explain why it could not be done",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your statement request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "sent",
+      "type": "completion",
+      "name": "Statements sent",
+      "outcome": "sent"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "declined"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "refused"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

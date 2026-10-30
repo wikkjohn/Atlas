@@ -37,7 +37,7 @@ from app.modules.customers.service import age_in_years, get_customer
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.ledger import service as ledger
-from app.modules.ledger.models import Direction, LedgerAccount
+from app.modules.ledger.models import Direction, LedgerAccount, LedgerAccountType
 
 MINIMUM_AGE = 18
 STATUS_ACTIONS = {
@@ -474,6 +474,59 @@ def withdraw(
         actor_id=actor_id,
     )
     return account, entry.entry_number, entry.id, replayed
+
+
+def fee_income_account(db: Session, currency: str) -> LedgerAccount:
+    """The bank's fee income account for a currency, created on first use."""
+    return ledger.ensure_ledger_account(
+        db,
+        code=f"FEE-INCOME-{currency}",
+        name=f"Fee and commission income ({currency})",
+        account_type=LedgerAccountType.INCOME,
+        currency=currency,
+    )
+
+
+def charge_fee(
+    db: Session,
+    account_id: uuid.UUID,
+    *,
+    amount: int,
+    fee_code: str,
+    memo: str | None,
+    idempotency_key: str,
+    actor_id: uuid.UUID | None,
+) -> tuple[Account, str, bool]:
+    """Charge a service fee: debit the customer's deposit account, credit fee income.
+    Overdrafts are not allowed. Returns (account, entry number, replayed)."""
+    if amount <= 0:
+        raise BusinessRuleViolation("A fee must be a positive amount.")
+    account = get_account(db, account_id, for_update=True)
+    key = f"fee:{idempotency_key}"
+    lines = [
+        ledger.LineSpec(account.ledger_account_id, Direction.DEBIT, amount, memo),
+        ledger.LineSpec(
+            fee_income_account(db, account.currency).id, Direction.CREDIT, amount, memo
+        ),
+    ]
+    if not ledger.find_entry_by_key(db, key):
+        if account.status != AccountStatus.OPEN:
+            raise BusinessRuleViolation(f"The account is {account.status}; fees cannot be charged.")
+        available = ledger.balance(db, _ledger_account(db, account))
+        if amount > available:
+            raise BusinessRuleViolation(
+                "Insufficient funds for the fee.", {"available": available, "requested": amount}
+            )
+    entry, replayed = ledger.post_entry(
+        db,
+        idempotency_key=key,
+        currency=account.currency,
+        description=f"Fee {fee_code} on {account.account_number}",
+        source="fee",
+        lines=lines,
+        actor_id=actor_id,
+    )
+    return account, entry.entry_number, replayed
 
 
 def change_status(

@@ -18,6 +18,7 @@ from app.core.audit import record_audit_event
 from app.core.permissions import permissions_for
 from app.modules.accounts.models import AccountType
 from app.modules.accounts.service import approve_request, submit_request
+from app.modules.compliance.screening import normalize, screen_name
 from app.modules.countries.models import Country, OperationalStatus
 from app.modules.customers.models import CustomerNotification, CustomerType, KycStatus, RiskRating
 from app.modules.customers.schemas import CustomerCreate, CustomerReview
@@ -45,10 +46,6 @@ VERSION = 1
 NAME_PATTERN = r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ' -]*$"
 IDENTITY_DOCUMENTS = ("passport", "national_id")
 DOCUMENT_PREFIX = {"passport": "P", "national_id": "N", "proof_of_address": "A"}
-# Fictional names used to exercise sanctions screening. Not real people or entities.
-SYNTHETIC_WATCHLIST = frozenset(
-    {"darius vantablack", "morgana ledgerworth", "silas offshore", "vera shellcompany"}
-)
 LARGE_MONTHLY_DEPOSITS = 50_000  # whole units of the applicant's currency
 
 
@@ -92,10 +89,6 @@ def document_number_valid(document_type: str, number: str) -> bool:
     if not re.fullmatch(r"[PNA]\d{8}", number) or number[0] != DOCUMENT_PREFIX[document_type]:
         return False
     return checksum_digit(number[1:8]) == int(number[8])
-
-
-def _normalize(name: str) -> str:
-    return " ".join(name.casefold().split())
 
 
 # --- Definition ---------------------------------------------------------------------------
@@ -373,7 +366,7 @@ def identity_verification(ctx: StepContext) -> dict:
         if not document_number_valid(doc["document_type"], doc["document_number"]):
             issues.append(f"{doc['document_type']}_number_invalid")
             hard_fail = True
-        if _normalize(doc["name_on_document"]) != _normalize(app["applicant_name"]):
+        if normalize(doc["name_on_document"]) != normalize(app["applicant_name"]):
             issues.append(f"{doc['document_type']}_name_mismatch")
     if identity.get("date_of_birth") and identity["date_of_birth"] != app["date_of_birth"]:
         issues.append("date_of_birth_mismatch")
@@ -386,9 +379,7 @@ def identity_verification(ctx: StepContext) -> dict:
 
 @service_task("wf0001.sanctions_screening")
 def sanctions_screening(ctx: StepContext) -> dict:
-    name = _normalize(ctx.input["applicant_name"])
-    hit = name in SYNTHETIC_WATCHLIST
-    return {"hit": hit, "matched": name if hit else None, "list": "synthetic-watchlist-v1"}
+    return screen_name(ctx.input["applicant_name"])
 
 
 @service_task("wf0001.assign_risk_rating")

@@ -23,6 +23,7 @@ from app.core.audit import record_audit_event
 from app.core.money import minor_unit_exponent
 from app.modules.accounts.models import AccountStatus
 from app.modules.accounts.service import find_account
+from app.modules.compliance.screening import SYNTHETIC_WATCHLIST
 from app.modules.customers.models import CustomerNotification
 from app.modules.ledger import service as ledger
 from app.modules.payments import service as payments
@@ -40,7 +41,6 @@ from app.modules.workflows.registry import (
     register_presenter,
     service_task,
 )
-from app.modules.workflows.wf0001 import SYNTHETIC_WATCHLIST
 
 WORKFLOW_ID = "WF-0002"
 VERSION = 1

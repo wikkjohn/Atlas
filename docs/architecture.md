@@ -366,9 +366,13 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
 - **Unchanged for code.** The two new definition fields are optional and omitted from the
   canonical JSON when unset, so code definitions keep their content hashes (pinned by a
   test) and the snapshots running cases depend on still match.
-- **Not yet.** Stored definitions cannot change banking records (no domain handlers in the
-  library), call AI tools, run on schedules or in simulations; those arrive with the next
-  Milestone B steps.
+- **Effects and approvals (Phase 18).** Library handlers declare what they do (reads,
+  writes, moves money, advisory). Domain handlers call the same services as the API and
+  code workflows (customer review, fee posting through the ledger, the AI invocation
+  service), so their business rules, idempotency and audit apply unchanged. A handler that
+  moves money must sit behind an approval's approve route on every path — a graph check at
+  import, because a stored definition is written by people, not reviewed code.
+- **Not yet.** Stored definitions do not run on schedules or in simulations.
 
 ## Planned design for later phases
 

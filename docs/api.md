@@ -217,8 +217,8 @@ unchanged.
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/workflow-definitions` | `workflows:read` | Every stored version: status, content hash, importer, executions |
-| GET | `/api/v1/workflow-definitions/handlers` | `workflows:read` | The handler library: name, summary, output, params as JSON Schema |
-| POST | `/api/v1/workflow-definitions/validate` | `workflows:define` | `{definition}` → `{valid, workflow_id, version, content_hash, existing, errors[], warnings[]}`; stores nothing |
+| GET | `/api/v1/workflow-definitions/handlers` | `workflows:read` | The handler library: name, step type, summary, output, `effect`, `requires_approval`, params as JSON Schema |
+| POST | `/api/v1/workflow-definitions/validate` | `workflows:define` | `{definition}` → `{valid, workflow_id, version, content_hash, existing, errors[], warnings[], effects}`; stores nothing |
 | POST | `/api/v1/workflow-definitions` | `workflows:define` | `{definition}` → 201 `{created, definition, warnings}`; 200 when this exact version is already stored; 422 `definition_invalid` with every error |
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | No new executions on that version; running ones finish on it |
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/reactivate` | `workflows:define` | Startable again |

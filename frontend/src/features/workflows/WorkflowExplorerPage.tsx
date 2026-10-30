@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatMilliseconds as formatDuration, formatTimestamp } from "@/features/dashboard/format";
-import { ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
+import { EffectBadge, ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
 import { newIdempotencyKey } from "@/services/api";
 import { useCountries } from "@/services/enterprise";
@@ -23,6 +23,7 @@ import {
   useExecution,
   useExecutionHistory,
   useExecutions,
+  useLibraryHandlers,
   useSetDefinitionStatus,
   useSignal,
   useStartExecution,
@@ -116,6 +117,8 @@ function DefinitionActions({ workflowId, version, source, status }: { workflowId
 function DefinitionView({ id }: { id: string }) {
   const definition = useWorkflowDefinition(id);
   const metrics = useWorkflowMetrics(id);
+  const handlers = useLibraryHandlers(definition.data?.source === "stored");
+  const effectOf = (handler?: string) => handlers.data?.find((h) => h.name === handler)?.effect;
   const d = definition.data;
   const m = metrics.data;
   if (definition.error) return <ErrorMessage error={definition.error} />;
@@ -191,6 +194,7 @@ function DefinitionView({ id }: { id: string }) {
                     <div className="flex items-center gap-2">
                       <TypeTag type={step.type} />
                       <span className="font-medium text-slate-900">{step.name}</span>
+                      {d.source === "stored" && effectOf(step.handler) && <EffectBadge effect={effectOf(step.handler)!} />}
                       {bottleneck && (
                         <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700">
                           <AlertTriangle aria-hidden className="h-3 w-3" /> Bottleneck

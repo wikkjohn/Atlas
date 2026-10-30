@@ -9,4 +9,6 @@ HERE = Path(__file__).parent
 
 
 def documents() -> list[dict[str, Any]]:
-    return [json.loads(p.read_text()) for p in sorted(HERE.glob("WF-*.json"))]
+    """Every example, in import order (by workflow id, then version)."""
+    found = [json.loads(p.read_text()) for p in HERE.glob("WF-*.json")]
+    return sorted(found, key=lambda d: (d["workflow_id"], d["version"]))

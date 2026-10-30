@@ -40,7 +40,9 @@ ADDRESS = {
 
 def document(workflow_id: str = "WF-1901", version: int = 1) -> dict:
     """The WF-1001 example under a test id (the demo seed may already hold WF-1001)."""
-    (example,) = [d for d in examples.documents() if d["workflow_id"] == "WF-1001"]
+    (example,) = [
+        d for d in examples.documents() if (d["workflow_id"], d["version"]) == ("WF-1001", 1)
+    ]
     doc = copy.deepcopy(example)
     doc["workflow_id"], doc["version"] = workflow_id, version
     return doc
@@ -117,7 +119,8 @@ def test_validation_guards_ids_triggers_people_and_schemas() -> None:
     assert "administrators_only" in {w["code"] for w in report.warnings}
     ai = document()
     steps(ai)["record_change"].update(type="ai_task", handler="core.copy_values")
-    assert "handler_unavailable" in codes(validation.validate(None, ai))
+    # Phase 18: AI steps may use the library's AI handlers, but not a service handler.
+    assert "handler_type_mismatch" in codes(validation.validate(None, ai))
     # Structural errors are reported in the same pass, with a location.
     broken = document()
     steps(broken)["notify_updated"]["next"] = "updated_typo"
@@ -278,9 +281,9 @@ def test_the_definitions_api(client: TestClient, db: Session) -> None:
                        headers=employee).status_code == 403  # fmt: skip
     report = client.post("/api/v1/workflow-definitions/validate", json=body, headers=admin)
     assert report.status_code == 200
-    assert report.json() | {"content_hash": None} == {
+    assert report.json() | {"content_hash": None, "effects": None} == {
         "valid": True, "workflow_id": "WF-1901", "version": 1, "content_hash": None,
-        "existing": "new", "errors": [], "warnings": [],
+        "existing": "new", "errors": [], "warnings": [], "effects": None,
     }  # fmt: skip
     broken = document()
     steps(broken)["assign_key"]["handler"] = "core.nope"

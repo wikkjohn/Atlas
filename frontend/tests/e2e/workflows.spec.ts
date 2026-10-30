@@ -1,6 +1,6 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
 
-import { signIn, uniqueWord } from "./helpers";
+import { fundedAccount, signIn, uniqueWord } from "./helpers";
 
 async function as(browser: Browser, username: string, path: string): Promise<Page> {
   const page = await (await browser.newContext()).newPage();
@@ -59,8 +59,8 @@ test("WF-0001: missing documents → wait → resume → four-eyes approval → 
   await expect(manager.getByRole("region", { name: "Accounts" }).getByText("Open")).toBeVisible();
 });
 
-test("WF-1001 (stored definition): generated start form → colleague approval → updated; next version validates", async ({ browser }) => {
-  const customer = `CUS-9${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`;
+test("WF-1001 (stored definition): generated start form → colleague approval → letter; next version validates", async ({ browser, request }) => {
+  const { customerNumber: customer } = await fundedAccount(request, 0);
 
   // A teller starts the imported workflow from the form generated from its input schema.
   const teller = await as(browser, "employee", "/workflows");
@@ -77,8 +77,9 @@ test("WF-1001 (stored definition): generated start form → colleague approval �
   await form.getByRole("button", { name: "Start case" }).click();
   const caseView = teller.getByRole("dialog", { name: "Workflow execution" });
   await expect(caseView.getByRole("row", { name: /Colleague checks the new address/ }).getByText("waiting")).toBeVisible();
+  await expect(caseView.getByRole("row", { name: /Find the customer/ }).getByText("completed")).toBeVisible();
 
-  // A colleague (four-eyes) approves from the task inbox; the case completes.
+  // A colleague (four-eyes) approves from the task inbox; the case completes with a letter.
   const manager = await as(browser, "manager", "/workflows?tab=tasks");
   const task = manager.getByRole("listitem").filter({ hasText: customer });
   await task.getByRole("button", { name: /Approve/ }).click();
@@ -99,4 +100,33 @@ test("WF-1001 (stored definition): generated start form → colleague approval �
   await expect(importer.getByLabel("Definition (JSON)")).toHaveValue(/"workflow_id": "WF-1001"/);
   await importer.getByRole("button", { name: "Validate" }).click();
   await expect(importer.getByText(/is valid and can be imported/)).toBeVisible();
+  await expect(importer.getByRole("list", { name: "Effects" })).toContainText("notify_updated");
+});
+
+test("WF-1002 (stored definition): a paper-statement fee is charged only after a colleague approves", async ({ browser, request }) => {
+  const { accountNumber, customerNumber, customerName } = await fundedAccount(request, 1_000);
+
+  const teller = await as(browser, "employee", "/workflows");
+  await teller.getByRole("list", { name: "Workflows" }).getByText("Paper Statement Request").click();
+  await expect(teller.getByRole("row", { name: /Charge the paper-statement fee/ }).getByText("Moves money")).toBeVisible();
+  await teller.getByRole("button", { name: "Start a case" }).click();
+  const form = teller.getByRole("dialog", { name: /Start Paper Statement Request/ });
+  await form.getByLabel("Customer number").fill(customerNumber);
+  await form.getByLabel("Account number").fill(accountNumber);
+  await form.getByLabel("Months").fill("3");
+  await form.getByLabel("Delivery").selectOption("post");
+  await form.getByRole("button", { name: "Start case" }).click();
+  const caseView = teller.getByRole("dialog", { name: "Workflow execution" });
+  await expect(caseView.getByRole("row", { name: /Approve the paper-statement fee/ }).getByText("waiting")).toBeVisible();
+  await expect(caseView.getByRole("row", { name: /Charge the paper-statement fee/ })).toHaveCount(0);
+
+  const manager = await as(browser, "manager", "/workflows?tab=tasks");
+  const task = manager.getByRole("listitem").filter({ hasText: "Approve the paper-statement fee" }).filter({ hasText: customerName }).first();
+  await task.getByRole("button", { name: /Approve/ }).click();
+  await expect(task).toHaveCount(0);
+  await manager.getByRole("tab", { name: "Executions" }).click();
+  await manager.getByRole("row").filter({ hasText: customerName }).first().click();
+  const done = manager.getByRole("dialog", { name: "Workflow execution" });
+  await expect(done.getByText("Sent", { exact: true })).toBeVisible();
+  await expect(done.getByRole("row", { name: /Charge the paper-statement fee/ })).toContainText("completed");
 });

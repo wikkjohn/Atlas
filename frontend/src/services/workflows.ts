@@ -117,11 +117,12 @@ export const useStoredDefinitions = () =>
     queryFn: () => apiGet<StoredDefinition[]>("/api/v1/workflow-definitions"),
   });
 
-export const useLibraryHandlers = () =>
+export const useLibraryHandlers = (enabled = true) =>
   useQuery({
     queryKey: ["workflow-definitions", "handlers"],
     queryFn: () => apiGet<LibraryHandler[]>("/api/v1/workflow-definitions/handlers"),
     staleTime: Infinity,
+    enabled,
   });
 
 export const exportDefinition = (workflowId: string, version?: number) =>

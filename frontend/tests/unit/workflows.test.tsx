@@ -220,6 +220,8 @@ describe("Workflow Explorer", () => {
         "GET /api/v1/workflows": () => jsonResponse([definition, stored]),
         "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
         "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
+        "GET /api/v1/workflow-definitions/handlers": () =>
+          jsonResponse([{ name: "core.business_key", step_type: "service_task", summary: "", output: "", effect: "writes", requires_approval: false, params_schema: {} }]),
         "POST /api/v1/workflows/WF-1001/executions": () => jsonResponse(started, 201),
         "GET /api/v1/workflow-executions": () => jsonResponse(page([])),
         "GET /api/v1/workflow-executions/new-2": () => jsonResponse(started),
@@ -232,6 +234,7 @@ describe("Workflow Explorer", () => {
     await userEvent.click(await within(list).findByText("Customer Address Change"));
     expect(within(list).getByText("Stored")).toBeInTheDocument();
     expect(await screen.findByText("Handler core.business_key")).toBeInTheDocument();
+    expect(await screen.findByText("Writes records")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Start a case" }));
     const dialog = await screen.findByRole("dialog", { name: "Start Customer Address Change (WF-1001)" });
     await userEvent.type(within(dialog).getByLabelText("Customer number"), "CUS-0000042");
@@ -251,12 +254,15 @@ describe("Workflow Explorer", () => {
       { location: "start", code: "unknown_step", message: "Start step 'x' does not exist." },
     ];
     let attempts = 0;
+    let validations = 0;
     const api = mockApi(
       routes({
         "GET /api/v1/workflow-definitions/handlers": () =>
-          jsonResponse([{ name: "core.check", step_type: "service_task", summary: "Checks a condition.", output: "", params_schema: { properties: { condition: {} } } }]),
+          jsonResponse([{ name: "accounts.charge_fee", step_type: "service_task", summary: "Charges a fee.", output: "", effect: "moves_money", requires_approval: true, params_schema: { properties: { amount: {} } } }]),
         "POST /api/v1/workflow-definitions/validate": () =>
-          jsonResponse({ valid: false, workflow_id: "WF-1002", version: 1, content_hash: "abc", existing: null, errors: problems, warnings: [] }),
+          ++validations === 1
+            ? jsonResponse({ valid: false, workflow_id: "WF-1002", version: 1, content_hash: "abc", existing: null, errors: problems, warnings: [] })
+            : jsonResponse({ valid: true, workflow_id: "WF-1002", version: 1, content_hash: "abc", existing: "new", errors: [], warnings: [], effects: { charge_fee: "moves_money", notify: "writes" } }),
         "POST /api/v1/workflow-definitions": () =>
           ++attempts === 1
             ? jsonResponse({ error: { code: "definition_invalid", message: "The definition has 2 problem(s); nothing was imported.", details: { errors: problems, warnings: [] }, correlation_id: null } }, 422)
@@ -279,6 +285,11 @@ describe("Workflow Explorer", () => {
     const errors = await within(dialog).findByRole("list", { name: "Errors" });
     expect(within(errors).getAllByRole("listitem")).toHaveLength(2);
     expect(within(errors).getByText("steps.assign_key.handler")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Validate" }));
+    const effects = await within(dialog).findByRole("list", { name: "Effects" });
+    expect(within(effects).getByText("Moves money").closest("li")).toHaveTextContent("charge_fee");
+    expect(within(dialog).getByText(/approval required/)).toBeInTheDocument();
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Import" }));
     expect(await within(dialog).findByRole("list", { name: "Errors" })).toBeInTheDocument();

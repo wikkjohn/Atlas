@@ -178,7 +178,10 @@ export interface ValidationReport {
   existing: "new" | "identical" | null;
   errors: DefinitionProblem[];
   warnings: DefinitionProblem[];
+  effects?: Record<string, HandlerEffect>;
 }
+
+export type HandlerEffect = "none" | "reads" | "writes" | "moves_money" | "advisory";
 
 export interface StoredDefinition {
   id: string;
@@ -206,5 +209,7 @@ export interface LibraryHandler {
   step_type: string;
   summary: string;
   output: string;
+  effect: HandlerEffect;
+  requires_approval: boolean;
   params_schema: Record<string, unknown>;
 }

@@ -172,6 +172,8 @@ class ValidationReportOut(BaseModel):
     existing: Literal["new", "identical"] | None
     errors: list[DefinitionProblem]
     warnings: list[DefinitionProblem]
+    # Step id -> what its handler does: reads, writes, moves_money, advisory or none.
+    effects: dict[str, str] = Field(default_factory=dict)
 
 
 class StoredDefinitionOut(BaseModel):
@@ -200,4 +202,6 @@ class LibraryHandlerOut(BaseModel):
     step_type: str
     summary: str
     output: str
+    effect: Literal["none", "reads", "writes", "moves_money", "advisory"]
+    requires_approval: bool
     params_schema: dict[str, Any]

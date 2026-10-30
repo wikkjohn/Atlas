@@ -237,7 +237,8 @@ code, before anything is stored. Errors block an import; warnings do not.
 | Graph | targets exist (`unknown_step`), handler/approval/transition/wait/parallel shapes, a completion step, every step reachable (`unreachable`), every step can still reach an end (`cannot_finish`) |
 | Ownership | the id is not registered in code (`owned_by_code`); trigger `api` or `event` (`trigger_unsupported`) |
 | Versions | a stored version is immutable (`version_exists`); a new one is higher than every stored one (`version_not_increasing`); an identical re-import is a no-op |
-| Handlers | service tasks name a library handler (`unknown_handler`); `params` match its model; AI steps are refused until the library has AI handlers (`handler_unavailable`); only service tasks take params (`params_unused`) |
+| Handlers | service and AI tasks name a library handler (`unknown_handler`) of their kind (`handler_type_mismatch`); `params` match its model; handler-specific checks against the database, e.g. the AI tool exists and may perform the action (`handler_check`); only service and AI tasks take params (`params_unused`) |
+| Money | a handler that moves money is reachable only through an approval's approve route — a transition taken only when `<approval>.approved` is truthy (or `.decision` is `approve`) — never by skipping the approval or on its reject route (`approval_required`, Phase 18) |
 | Context paths | conditions, handler params and the presentation read an input field the schema defines, an earlier step's output or a known key (`unknown_input_field`, `unknown_path`) |
 | People | approval permissions exist (`unknown_permission`) and some person's role holds them (`nobody_can_act`; administrators only is a warning); four-eyes references name task or approval steps (`unknown_task`) |
 | Waiting | timeouts only on tasks, approvals and waits (`timeout_unsupported`); signal names |
@@ -255,9 +256,23 @@ code, before anything is stored. Errors block an import; warnings do not.
 | `core.notify` | `channel`, `template`, `recipient_path` | records a synthetic notification (nothing leaves the platform) |
 | `core.set_outcome` | `outcome` | sets the outcome the case completes with |
 
-`GET /api/v1/workflow-definitions/handlers` returns each handler's params as JSON Schema.
-Milestone B's next step extends the library (screening, ledger postings, AI calls,
-application calls) so stored workflows can change banking records.
+Phase 18 added the domain handlers, so stored workflows read and change banking records:
+
+| Handler | Effect | Params | Does |
+| --- | --- | --- | --- |
+| `customers.lookup` | reads | `customer_number_path` | finds a customer (`customer_not_found` otherwise): id, name, type, country, KYC status, risk rating |
+| `customers.notify` | writes | `customer_id_path`, `channel`, `subject`, `body` | stores a synthetic message in the customer's notifications; `{dotted.path}` placeholders are filled from the context (and validated as paths) |
+| `customers.set_risk_rating` | writes | `customer_id_path`, `rating` or `rating_path`, `note` | records a risk rating through the customer service (its rules and audit apply) |
+| `compliance.screen_name` | reads | `name_path` | screens a name against the synthetic watchlist (shared with WF-0001/0002) |
+| `accounts.lookup` | reads | `account_number_path`, `customer_id_path` | finds an account and, if asked, checks whose it is (`account_not_owned`); its status, currency and balance |
+| `accounts.charge_fee` | **moves money** (approval required) | `account_number_path`, `amount` or `amount_path`, `fee_code`, `memo` | debits the account and credits `FEE-INCOME-<currency>`; no overdraft; idempotent per step run, so a retry never charges twice |
+| `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
+
+`GET /api/v1/workflow-definitions/handlers` returns each handler's effect, whether it
+requires an approval, and its params as JSON Schema; validation reports each step's effect
+(`effects`), and the Workflow Explorer badges steps that write records or move money.
+Domain handlers act as the system (no person), like WF-0001's automated steps; who
+approved is in the case's step runs and the audit trail.
 
 ### WF-1001 Customer Address Change (the example)
 
@@ -273,8 +288,20 @@ Imported by `seed-demo` from `examples/WF-1001.json`; built only from library ha
 4. Approved: `record_change` records the new address, a letter confirms it, outcome
    `updated`. Declined: a letter, outcome `declined`.
 
-It records the approved change in the case; it does not edit the customer's record —
-writing to banking records needs domain handlers, which stored definitions do not have yet.
+Version 1 records the approved change in the case only. **Version 2** (Phase 18, also in
+`examples/`) finds the customer first (unknown numbers complete as `rejected`), screens
+their name — a watchlist hit goes to compliance whatever the reason — and writes the
+confirmation or refusal into the customer's notifications. The customer record has no
+address fields yet, so the address itself stays in the case.
+
+### WF-1002 Paper Statement Request (Phase 18)
+
+By e-mail, statements are free. By post, a colleague approves (`accounts:manage`,
+four-eyes, flagged after a day) and only then is a 5.00 fee charged to the account and
+credited to fee income — validation would refuse the definition if the fee could be
+reached any other way. The account must belong to the customer; an unknown customer,
+another customer's account or insufficient funds end the case with a letter explaining
+why (`_failure.message`) and no money moved.
 
 ### Authoring
 

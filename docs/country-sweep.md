@@ -77,15 +77,50 @@ When a run is limited this way:
 ### Running the sweep
 
 `python -m app.cli country-sweep [--country XX ...] [--cases 20] [--seed 2028]
-[--output report.json]` runs each scenario once in each active country. A run passes when:
+[--output report.json]` runs each scenario once in each active country.
+
+**Seeds.** Each run uses its own seed. The search starts from the base seed plus a number
+derived from the country code, and takes the first seed whose cases include every kind of
+the scenario's mix. A case's kind is the first draw of its own random stream, so
+`case_kinds` predicts the kinds without running anything. Without this, every country
+drew the same kinds, and rare ones could be missed altogether.
+
+**What a run must do to pass:**
 - every case completes;
 - every outcome matches its ground truth;
+- every kind of the mix occurs;
+- every case takes the steps its kind requires. A high-value payment must pass through
+  the second person's approval; routine, new-payee and large-share payments must not. An
+  outcome alone cannot show this: a high-value payment is approved either way.
 - the workload's control check finds no violation: four-eyes, the decider's authority,
   compliance review of high-risk customers, and approval before money moves.
 
 The command prints each run and exits with a non-zero status if any run fails. The JSON
 report lists the failures and counts how often each case kind occurred, per scenario and
 across countries.
+
+### Does the sweep detect cases that ignore country rules?
+
+A sweep that the old, country-blind cases would also pass would prove nothing. So the same
+scenarios were run with `country_rules` switched off, 30 cases per run, on the fully
+launched database:
+
+| Country | Rule that matters | Country-blind cases |
+| --- | --- | --- |
+| Austria, Lebanon | passports only | onboarding fails: 7 of 30 outcomes wrong (applicants with national IDs never complete their documents) |
+| Indonesia, Vietnam | high-value thresholds of millions of units | payments fail: 4 high-value payments each skip the second approval |
+| Korea | high-value threshold of about 14 million won | payments fail: 1 high-value payment skips it |
+| Kuwait | a threshold of about 3,000 dinars | payments fail: a large-share payment needs the second approval |
+| Kuwait, Korea | minimum age 21 and 19 | onboarding passes at this size (few applicants fall between 18 and the minimum) |
+| United Kingdom, Japan | the original operating countries | pass, as before |
+
+With cases that follow the rules, every one of these passes.
+
+Two problems were found and fixed before the result below:
+- **The first full sweep's coverage.** It passed all 240 runs, but every country drew the
+  same kinds, which left out sanctions hits and scams. Seeds now cover every kind.
+- **The first control run.** The country-blind cases also passed, because only outcomes
+  were checked. The sweep now checks paths too.
 
 ## Result
 

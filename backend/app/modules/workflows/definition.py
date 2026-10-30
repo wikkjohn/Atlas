@@ -180,6 +180,18 @@ class Presentation(BaseModel):
         }
 
 
+class Catalogue(BaseModel):
+    """How a workflow is classified in the catalogue (Phase 22). Optional in a definition:
+    when present it sets the workflow's classification as the version is imported."""
+
+    department: str | None = Field(default=None, max_length=100)
+    countries: list[str] = Field(default_factory=list, max_length=200)  # ISO 3166 alpha-2
+    products: list[str] = Field(default_factory=list, max_length=20)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+    model_config = {"extra": "forbid"}
+
+
 class Origin(BaseModel):
     """The template and parameters a generated variant was rendered from."""
 
@@ -206,6 +218,8 @@ class WorkflowDefinition(BaseModel):
     presentation: Presentation | None = None
     # Set on variants generated from a template (Phase 19): where this definition came from.
     origin: "Origin | None" = None
+    # Optional classification (Phase 22); applied to the workflow's catalogue entry.
+    catalogue: Catalogue | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 

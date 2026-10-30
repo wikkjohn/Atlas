@@ -461,57 +461,46 @@ def _workflows(args: argparse.Namespace) -> int:
     return 0
 
 
-def _workflow_tests(factory, args: argparse.Namespace) -> int:
-    """Generated path tests for stored workflows; exit code 1 when any case fails."""
-    import time
-
-    from sqlalchemy import select
+def _test_workflows(
+    workflow_ids: list[str], as_user: str, shard: int = 0
+) -> tuple[list[dict], int]:
+    """Run the generated tests of each workflow's active stored version (one process)."""
+    from sqlalchemy import select, text
 
     from app.modules.identity.models import User
     from app.modules.workflows import store, testing
-    from app.modules.workflows.models import DefinitionStatus, WorkflowVariant
+    from app.modules.workflows.models import DefinitionStatus
 
-    started = time.perf_counter()
     summary: list[dict] = []
     failed = 0
-    with factory() as db:
-        if args.template:
-            ids = list(
-                db.execute(
-                    select(WorkflowVariant.workflow_id)
-                    .where(WorkflowVariant.template_id == args.template)
-                    .order_by(WorkflowVariant.workflow_id)
-                ).scalars()
-            )
-        elif args.all:
-            ids = sorted({r.workflow_id for r in store.stored_records(db)})
-        else:
-            ids = args.workflow_ids
-        if args.sample:
-            ids = ids[: args.sample]
-        actor = db.execute(
-            select(User.id).where(User.username == args.as_user)
-        ).scalar_one_or_none()
-        for workflow_id in ids:
+    with get_sessionmaker()() as db:
+        actor = db.execute(select(User.id).where(User.username == as_user)).scalar_one_or_none()
+        for workflow_id in workflow_ids:
+            # Parallel runners each add their fixtures' ledger lines to their own balance row,
+            # so they never wait on one another's (rolled-back) postings to the cash account.
+            db.execute(text(f"SET LOCAL atlas.balance_shard = '{shard % 8}'"))
             record = store.stored_record(db, workflow_id)
             if record is None or record.status != DefinitionStatus.ACTIVE:
-                print(f"{workflow_id}: no active stored version; skipped")
+                print(f"{workflow_id}: no active stored version; skipped", flush=True)
+                db.rollback()
                 continue
             report, _ = testing.run_stored(db, workflow_id, record.version, actor)
             db.commit()  # keep the run record; the cases themselves were rolled back
             failed += report.count("failed")
             mark = "ok  " if report.passed else "FAIL"
-            print(
+            lines = [
                 f"{mark} {workflow_id} v{report.version}: {report.count('passed')} passed, "
                 f"{report.count('failed')} failed, {report.count('skipped')} skipped; "
                 f"steps {report.step_coverage:.0%}, routes {report.route_coverage:.0%} "
                 f"({report.duration_ms} ms)"
-            )
-            for case in report.results:
-                if case.status != "passed":
-                    print(f"       {case.status}: {case.name}: {case.detail}")
-            for gap in report.uncovered:
-                print(f"       uncovered: {gap['route']}: {gap['reason']}")
+            ]
+            lines += [
+                f"       {c.status}: {c.name}: {c.detail}"
+                for c in report.results
+                if c.status != "passed"
+            ]
+            lines += [f"       uncovered: {g['route']}: {g['reason']}" for g in report.uncovered]
+            print("\n".join(lines), flush=True)
             summary.append(
                 {
                     "workflow_id": workflow_id,
@@ -526,12 +515,67 @@ def _workflow_tests(factory, args: argparse.Namespace) -> int:
                     "duration_ms": report.duration_ms,
                 }
             )
+    return summary, failed
+
+
+def _test_chunk(job: tuple[list[str], str, int]) -> tuple[list[dict], int]:
+    workflow_ids, as_user, shard = job
+    return _test_workflows(workflow_ids, as_user, shard)
+
+
+def _workflow_tests(factory, args: argparse.Namespace) -> int:
+    """Generated path tests for stored workflows; exit code 1 when any case fails."""
+    import multiprocessing
+    import time
+
+    from sqlalchemy import select
+
+    from app.modules.workflows import store
+    from app.modules.workflows.models import WorkflowVariant
+
+    started = time.perf_counter()
+    with factory() as db:
+        if args.template:
+            ids = list(
+                db.execute(
+                    select(WorkflowVariant.workflow_id)
+                    .where(WorkflowVariant.template_id == args.template)
+                    .order_by(WorkflowVariant.workflow_id)
+                ).scalars()
+            )
+        elif args.all:
+            ids = sorted({r.workflow_id for r in store.stored_records(db)})
+        else:
+            ids = args.workflow_ids
+    if args.sample:
+        ids = ids[: args.sample]
+    processes = max(1, min(args.processes, len(ids) or 1))
+    if processes == 1:
+        summary, failed = _test_workflows(ids, args.as_user)
+    else:
+        jobs = [(ids[n::processes], args.as_user, n) for n in range(processes)]
+        with multiprocessing.get_context("spawn").Pool(processes) as pool:
+            parts = pool.map(_test_chunk, jobs)
+        summary = sorted((w for part, _ in parts for w in part), key=lambda w: w["workflow_id"])
+        failed = sum(f for _, f in parts)
     seconds = time.perf_counter() - started
-    print(f"\n{len(summary)} workflow(s), {failed} failed case(s), {seconds:.1f} s")
+    cases = sum(w["passed"] + w["failed"] + w["skipped"] for w in summary)
+    print(
+        f"\n{len(summary)} workflow(s), {cases} case(s), {failed} failed case(s), "
+        f"{seconds:.1f} s ({processes} process(es))"
+    )
     if args.output:
         with open(args.output, "w") as f:
             json.dump(
-                {"workflows": summary, "failed_cases": failed, "seconds": seconds}, f, indent=2
+                {
+                    "workflows": summary,
+                    "cases": cases,
+                    "failed_cases": failed,
+                    "seconds": seconds,
+                    "processes": processes,
+                },
+                f,
+                indent=2,
             )
     return 1 if failed else 0
 
@@ -721,6 +765,9 @@ def main(argv: list[str] | None = None) -> int:
     which_wf.add_argument("--all", action="store_true", help="Every stored workflow")
     which_wf.add_argument("--template", help="Every variant of this template")
     wf_test.add_argument("--sample", type=int, help="Only the first N workflows")
+    wf_test.add_argument(
+        "--processes", type=int, default=1, help="Run the workflows in N processes"
+    )
     wf_test.add_argument("--output", help="Write a JSON report to this file")
     wf_test.add_argument("--as-user", default="admin", help="Recorded as who ran the tests")
     wf_actions.add_parser("templates", help="Every template version")

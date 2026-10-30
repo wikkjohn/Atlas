@@ -1,31 +1,30 @@
 """Country configuration registry."""
 
-import itertools
-import string
-
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import AuditEvent
 from app.core.permissions import RoleCode
-from app.modules.countries.models import Country, OperationalStatus, Region
-from app.modules.countries.schemas import CountryCreate
-from app.modules.countries.service import create_country
+from app.modules.countries.models import Country
 from tests.factories import auth, make_user
 
-FRANCE = {
-    "iso_country_code": "fr",
-    "country_name": "France",
+# A country outside the reference data (Phase 23) of the 120-country footprint.
+KOSOVO = {
+    "iso_country_code": "xk",
+    "country_name": "Kosovo",
     "region": "europe",
     "default_currency": "eur",
-    "default_timezone": "Europe/Paris",
-    "supported_languages": ["fr-FR", "en"],
+    "default_timezone": "Europe/Belgrade",
+    "supported_languages": ["sq-XK", "sr"],
 }
 
 
 def test_initial_countries_are_configured(client: TestClient, db: Session) -> None:
-    response = client.get("/api/v1/countries", headers=auth(make_user(db, RoleCode.AI_RESEARCHER)))
+    response = client.get(
+        "/api/v1/countries?operational_status=active",
+        headers=auth(make_user(db, RoleCode.AI_RESEARCHER)),
+    )
 
     assert response.status_code == 200
     countries = {c["iso_country_code"]: c for c in response.json()["items"]}
@@ -39,11 +38,11 @@ def test_initial_countries_are_configured(client: TestClient, db: Session) -> No
 def test_admin_adds_a_country_and_it_is_audited(client: TestClient, db: Session) -> None:
     admin = make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)
 
-    response = client.post("/api/v1/countries", json=FRANCE, headers=auth(admin))
+    response = client.post("/api/v1/countries", json=KOSOVO, headers=auth(admin))
 
     assert response.status_code == 201
     body = response.json()
-    assert body["iso_country_code"] == "FR"
+    assert body["iso_country_code"] == "XK"
     assert body["default_currency"] == "EUR"
     assert body["operational_status"] == "planned"
     event = db.execute(
@@ -58,13 +57,13 @@ def test_invalid_country_configuration_is_rejected(client: TestClient, db: Sessi
     invalid = [
         {"default_timezone": "Mars/Olympus_Mons"},
         {"default_currency": "EURO"},
-        {"iso_country_code": "FRA"},
+        {"iso_country_code": "XKX"},
         {"supported_languages": []},
         {"supported_languages": ["French"]},
         {"region": "antarctica"},
     ]
     for override in invalid:
-        response = client.post("/api/v1/countries", json={**FRANCE, **override}, headers=headers)
+        response = client.post("/api/v1/countries", json={**KOSOVO, **override}, headers=headers)
         assert response.status_code == 422, override
         assert response.json()["error"]["code"] == "validation_error"
 
@@ -73,18 +72,30 @@ def test_duplicate_country_code_conflicts(client: TestClient, db: Session) -> No
     headers = auth(make_user(db, RoleCode.PLATFORM_ADMINISTRATOR))
 
     response = client.post(
-        "/api/v1/countries", json={**FRANCE, "iso_country_code": "JP"}, headers=headers
+        "/api/v1/countries", json={**KOSOVO, "iso_country_code": "JP"}, headers=headers
     )
 
     assert response.status_code == 409
 
 
+def test_a_new_country_needs_a_known_currency(client: TestClient, db: Session) -> None:
+    headers = auth(make_user(db, RoleCode.PLATFORM_ADMINISTRATOR))
+
+    response = client.post(
+        "/api/v1/countries", json={**KOSOVO, "default_currency": "XTS"}, headers=headers
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "business_rule_violation"
+    assert response.json()["error"]["details"] == {"currency": "XTS"}
+
+
 def test_status_change_is_audited_with_a_diff(client: TestClient, db: Session) -> None:
     headers = auth(make_user(db, RoleCode.PLATFORM_ADMINISTRATOR))
-    france = client.post("/api/v1/countries", json=FRANCE, headers=headers).json()
+    kosovo = client.post("/api/v1/countries", json=KOSOVO, headers=headers).json()
 
     response = client.patch(
-        f"/api/v1/countries/{france['id']}", json={"operational_status": "active"}, headers=headers
+        f"/api/v1/countries/{kosovo['id']}", json={"operational_status": "active"}, headers=headers
     )
 
     assert response.status_code == 200
@@ -98,34 +109,17 @@ def test_status_change_is_audited_with_a_diff(client: TestClient, db: Session) -
 
 
 def test_registry_holds_the_120_country_target(client: TestClient, db: Session) -> None:
-    existing = set(db.execute(select(Country.iso_country_code)).scalars())
-    codes = (
-        a + b
-        for a, b in itertools.product(string.ascii_uppercase, repeat=2)
-        if a + b not in existing
-    )
-    for code in itertools.islice(codes, 120 - len(existing)):
-        create_country(
-            db,
-            CountryCreate(
-                iso_country_code=code,
-                country_name=f"Synthetic Country {code}",
-                region=Region.MIDDLE_EAST_AFRICA,
-                default_currency="XTS",  # ISO 4217 code reserved for testing
-                default_timezone="UTC",
-                supported_languages=["en"],
-                operational_status=OperationalStatus.PLANNED,
-            ),
-            actor_id=None,
-        )
     headers = auth(make_user(db, RoleCode.AUDITOR))
 
     page = client.get("/api/v1/countries?limit=200", headers=headers).json()
     filtered = client.get(
         "/api/v1/countries?region=europe&operational_status=active", headers=headers
     ).json()
+    euro = client.get("/api/v1/countries?currency=eur&limit=200", headers=headers).json()
 
     assert db.execute(select(func.count()).select_from(Country)).scalar_one() == 120
     assert page["total"] == 120
     assert len(page["items"]) == 120
     assert {c["iso_country_code"] for c in filtered["items"]} == {"GB", "DE"}
+    assert {"DE", "FR", "IE", "BG", "HR"} <= {c["iso_country_code"] for c in euro["items"]}
+    assert all(c["default_currency"] == "EUR" for c in euro["items"])

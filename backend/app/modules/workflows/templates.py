@@ -133,6 +133,12 @@ def _country(db: Session | None, code: Any) -> dict[str, Any]:
         "currency": found.default_currency,
         "region": found.region,
         "minor_exponent": minor_unit_exponent(found.default_currency),
+        # Reference data (Phase 23).
+        "alpha3": found.iso_alpha3,
+        "timezone": found.default_timezone,
+        "language": found.supported_languages[0],
+        "calling_code": found.calling_code,
+        "regulator": (found.regulator or {}).get("abbreviation"),
     }
 
 

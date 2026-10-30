@@ -3,23 +3,14 @@
 All amounts are stored as integers in the currency's minor unit (cents, pence, yen …).
 """
 
-# Currencies whose minor unit differs from the common two decimal places.
-_EXPONENT_OVERRIDES = {
-    "JPY": 0,
-    "KRW": 0,
-    "CLP": 0,
-    "ISK": 0,
-    "VND": 0,
-    "BHD": 3,
-    "KWD": 3,
-    "OMR": 3,
-    "JOD": 3,
-    "TND": 3,
-}
+from app.modules.reference.data import CURRENCIES
 
 
 def minor_unit_exponent(currency: str) -> int:
-    return _EXPONENT_OVERRIDES.get(currency.upper(), 2)
+    """Decimal places of a currency, from the reference data (Phase 23); a currency it does
+    not know keeps the common two."""
+    found = CURRENCIES.get(currency.upper())
+    return found[1] if found else 2
 
 
 def to_minor_units(major_amount: int, currency: str) -> int:

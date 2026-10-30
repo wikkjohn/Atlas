@@ -642,6 +642,44 @@ def _perf(args: argparse.Namespace) -> int:
     return 0 if report["passed"] else 1
 
 
+def _reference(args: argparse.Namespace) -> int:
+    """Country reference data (Phase 23): apply the dataset, or show one country."""
+    from sqlalchemy import select
+
+    from app.modules.countries import service as countries
+    from app.modules.countries.models import Country
+    from app.modules.reference import data, loader
+
+    with get_sessionmaker()() as db, db.begin():
+        if args.action == "load":
+            counts = loader.apply(db)
+            print(
+                f"Reference data {data.VERSION}: "
+                + ", ".join(f"{k} {v}" for k, v in counts.items())
+            )
+            return 0
+        country = db.execute(
+            select(Country).where(Country.iso_country_code == args.code.upper())
+        ).scalar_one_or_none()
+        if country is None:
+            print(f"No country {args.code}.")
+            return 2
+        found = countries.calendar_of(country, args.year)
+        print(f"{country.country_name} ({country.iso_country_code}/{country.iso_alpha3}), "
+              f"{country.default_currency}, {country.default_timezone}, {country.calling_code}, "
+              f"{country.operational_status}")  # fmt: skip
+        print(f"Regulator: {(country.regulator or {}).get('name')}")
+        print(
+            f"{args.year}: {found['business_days']} business days; weekend {found['weekend_days']}"
+        )
+        for h in found["holidays"]:
+            moved = f" (observed {h['observed']})" if h["observed"] != h["date"] else ""
+            print(f"  {h['date']}  {h['name']}{moved}")
+        for sample in countries.samples(country, 2, 0):
+            print("  sample:", sample)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -798,6 +836,14 @@ def main(argv: list[str] | None = None) -> int:
     wf_export.add_argument("--version", type=int)
     wf_export.add_argument("--output", help="File to write (default: standard output)")
     workflows.set_defaults(handler=_workflows)
+
+    reference = commands.add_parser("reference", help="Country reference data (120 countries)")
+    ref_actions = reference.add_subparsers(dest="action", required=True)
+    ref_actions.add_parser("load", help="Apply the reference data (adds and refreshes, idempotent)")
+    ref_show = ref_actions.add_parser("show", help="One country's reference data and calendar")
+    ref_show.add_argument("code", help="ISO 3166 alpha-2 code")
+    ref_show.add_argument("--year", type=int, default=2026)
+    reference.set_defaults(handler=_reference)
 
     args = parser.parse_args(argv)
     return args.handler(args)

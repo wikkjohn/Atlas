@@ -271,7 +271,10 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `customers.set_risk_rating` | writes | `customer_id_path`, `rating` or `rating_path`, `note` | records a risk rating through the customer service (its rules and audit apply) |
 | `compliance.screen_name` | reads | `name_path` | screens a name against the synthetic watchlist (shared with WF-0001/0002) |
 | `accounts.lookup` | reads | `account_number_path`, `customer_id_path` | finds an account and, if asked, checks whose it is (`account_not_owned`); its status, currency and balance |
-| `accounts.charge_fee` | **moves money** (approval required) | `account_number_path`, `amount` or `amount_path`, `fee_code`, `memo` | debits the account and credits `FEE-INCOME-<currency>`; no overdraft; idempotent per step run, so a retry never charges twice |
+| `accounts.charge_fee` | **moves money** (approval required) | `account_number_path`, `amount` or `amount_path`, `fee_code`, `memo` | debits the account and credits `FEE-INCOME-<currency>`; within the balance and any arranged overdraft; idempotent per step run, so a retry never charges twice |
+| `retail.set_overdraft` | writes (approval required) | `account_number_path`, `limit_path` | arranges, changes or removes an overdraft within the product's maximum (Phase 29) |
+| `retail.create_standing_order` | writes | `debtor_account_path`, `creditor_account_path`, `amount_path`, `frequency`, `start_in_days`, `reference_path` | sets up a standing order in the payer's currency, below the high-value threshold (Phase 29) |
+| `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
 `GET /api/v1/workflow-definitions/handlers` returns each handler's effect, whether it
@@ -308,6 +311,12 @@ credited to fee income — validation would refuse the definition if the fee cou
 reached any other way. The account must belong to the customer; an unknown customer,
 another customer's account or insufficient funds end the case with a letter explaining
 why (`_failure.message`) and no money moved.
+
+### WF-1003, WF-1004 and WF-1005: retail banking (Phase 29)
+
+These are the retail banking base processes. WF-1003 arranges an overdraft after a credit
+officer's approval. WF-1004 sets up a standing order, holding a payee on a sanctions list
+for compliance. WF-1005 sends a statement copy. See [retail-banking.md](retail-banking.md).
 
 ### Authoring
 

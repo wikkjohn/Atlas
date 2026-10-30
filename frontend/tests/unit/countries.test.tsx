@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { germany, japan } from "./enterprise-fixtures";
@@ -151,5 +151,50 @@ describe("Countries page", () => {
     expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({ kind: "postal_code", value: "1234" });
     expect(await within(dialog).findByText("ID 0002 4879 8449")).toBeInTheDocument();
     expect(within(dialog).getByText("Bridge holidays between two holidays are not modelled.")).toBeInTheDocument();
+  });
+
+  it("shows the rules in force and lets a manager add a version", async () => {
+    const rules = {
+      kyc: { min_age: 18, identity_documents: ["passport", "national_id"], proof_of_address: true },
+      screening: { lists: ["synthetic-watchlist-v1", "synthetic-eu-v1"] },
+      payments: { cutoff: "16:00", high_value_major: 10_000, max_payment_major: 1_000_000 },
+    };
+    const v1 = { id: "v1", version: 1, effective_from: "2026-01-01", rules, note: "Default rules from the reference data", created_by_username: null, created_at: "2026-01-01T00:00:00Z" };
+    const api = mockApi({
+      ...healthyRoutes,
+      "GET /api/v1/countries": () => jsonResponse(page([germany])),
+      "GET /api/v1/currencies": () => jsonResponse([]),
+      [`GET /api/v1/countries/${germany.id}/rules`]: () => jsonResponse({ iso_country_code: "DE", on: "2026-03-02", current: v1, effective: rules, versions: [v1] }),
+      "GET /api/v1/sanctions-lists": () =>
+        jsonResponse([
+          { list_id: "synthetic-watchlist-v1", description: "Global", entries: 4 },
+          { list_id: "synthetic-eu-v1", description: "EU style", entries: 3 },
+        ]),
+      [`POST /api/v1/countries/${germany.id}/rules`]: () => jsonResponse({ ...v1, id: "v2", version: 2 }, 201),
+    });
+    renderApp("/countries");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Germany" }));
+    const section = await screen.findByRole("region", { name: "Country rules" });
+    expect(await within(section).findByText(/Age 18\+ · passport or national ID · proof of address/)).toBeInTheDocument();
+    expect(within(section).getByText(/Cut-off 16:00 local · high value from 10,000 · limit 1,000,000 EUR/)).toBeInTheDocument();
+    expect(within(section).getByText("v1 from 2026-01-01: Default rules from the reference data")).toBeInTheDocument();
+
+    await userEvent.click(within(section).getByRole("button", { name: "New version" }));
+    const form = within(section).getByRole("form", { name: "New rules version" });
+    await userEvent.clear(within(form).getByLabelText("Minimum age"));
+    await userEvent.type(within(form).getByLabelText("Minimum age"), "21");
+    await userEvent.click(within(form).getByRole("checkbox", { name: "National ID" }));
+    await userEvent.clear(within(form).getByLabelText("Effective from"));
+    await userEvent.type(within(form).getByLabelText("Effective from"), "2027-01-01");
+    await userEvent.type(within(form).getByLabelText("Reason"), "Synthetic regulation");
+    await userEvent.click(within(form).getByRole("button", { name: "Save as a new version" }));
+
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({
+      rules: { ...rules, kyc: { min_age: 21, identity_documents: ["passport"], proof_of_address: true } },
+      effective_from: "2027-01-01",
+      note: "Synthetic regulation",
+    });
   });
 });

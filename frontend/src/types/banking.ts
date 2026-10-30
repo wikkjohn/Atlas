@@ -172,6 +172,7 @@ export interface Payment {
   reference: string;
   status: PaymentStatus;
   high_value: boolean;
+  value_date?: string | null;
   initiated_by_username: string | null;
   approved_by_username: string | null;
   journal_entry_id: string | null;

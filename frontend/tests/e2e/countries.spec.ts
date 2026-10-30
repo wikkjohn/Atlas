@@ -25,3 +25,23 @@ test("Countries: the 120-country reference data — Saudi Arabia's weekend, cale
   await expect(check.getByRole("status")).toHaveText("12345 matches the format");
   await expect(dialog.getByRole("region", { name: "Synthetic samples" }).getByRole("listitem")).toHaveCount(3);
 });
+
+test("Country rules: an administrator adds a version of Kuwait's rules", async ({ page }) => {
+  await signIn(page, "admin", "/countries");
+  await page.getByLabel("Search countries").fill("Kuwait");
+  await page.getByRole("button", { name: "Kuwait" }).click();
+  const rules = page.getByRole("dialog", { name: "Kuwait (KW)" }).getByRole("region", { name: "Country rules" });
+  await expect(rules.getByText(/Age 21\+ · passport or national ID/)).toBeVisible();
+  await expect(rules.getByText(/high value from 3,100 · limit 310,000 KWD/)).toBeVisible();
+
+  const reason = `Synthetic change ${Date.now()}`;
+  await rules.getByRole("button", { name: "New version" }).click();
+  const form = rules.getByRole("form", { name: "New rules version" });
+  await form.getByLabel("High-value threshold").fill("2500");
+  await form.getByLabel("Effective from").fill("2099-01-01");
+  await form.getByLabel("Reason").fill(reason);
+  await form.getByRole("button", { name: "Save as a new version" }).click();
+  await expect(rules.getByRole("list", { name: "Rule versions" })).toContainText(`from 2099-01-01: ${reason}`);
+  // Not in force yet: today's rules are unchanged.
+  await expect(rules.getByText(/high value from 3,100/)).toBeVisible();
+});

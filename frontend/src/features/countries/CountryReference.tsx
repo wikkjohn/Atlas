@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { Button } from "@/components/Button";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { Modal } from "@/components/Modal";
+import { CountryRulesSection } from "@/features/countries/CountryRulesSection";
 import { useCheckCountryValue, useCountryCalendar, useCountrySamples, useCurrencies } from "@/services/enterprise";
 import type { Country } from "@/types/enterprise";
 
@@ -175,6 +176,7 @@ export function CountryReference({ country, onClose }: { country: Country; onClo
             </p>
           </section>
         )}
+        <CountryRulesSection country={country} />
         <CalendarSection country={country} />
         <CheckSection country={country} />
         <SamplesSection country={country} />

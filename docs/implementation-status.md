@@ -54,9 +54,9 @@ Last updated: Phase 24.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | see the PR |
-| Frontend Vitest / typecheck / build | see the PR |
-| Playwright on a fresh database | see the PR |
+| Backend pytest (real PostgreSQL) | 528 passed (new: 8 — deterministic rates and pegs; idempotent publication; quotes with margin and minor-unit rounding (yen, dinars) and refusals; a conversion posts one balanced entry per currency, replays by key and the ledger still reconciles; revaluation books the margin, nothing more the same day, then the next day's rate move; a WF-0002 payment from USD to a yen account converts at release with its deal, notification and listing; the payer account must match the payment currency; the FX API and its permissions) |
+| Frontend Vitest / typecheck / build | 92 passed (new: the Foreign Exchange page — rates, quote, positions and revaluation; the payment form's conversion estimate) / clean / built |
+| Playwright on a fresh database | First run: 25 passed, 2 failed. The new multi-currency test assumed a funded US-dollar account among the accounts listed and found none; it now takes any funded account and a payee in another currency. The existing "backend unreachable" shell test failed once under the full parallel run and passed in every rerun (twice alone, then in the full run); not changed. Second run on a fresh database: 27 passed |
 | Migration 0021 | Upgrade, downgrade and upgrade again on the development database; `alembic check` clean |
 
 ## Phase 24: known limitations

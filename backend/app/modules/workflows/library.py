@@ -15,7 +15,8 @@ passing an approval step.
 import re
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -43,12 +44,29 @@ class LibraryHandler:
     requires_approval: bool = False
     # Checks needing the database, e.g. that a named AI tool exists: (db, params) -> errors.
     check: Callable[[Any, Any], list[str]] | None = None
+    # Context paths that must name real records, and which (Phase 20's generated tests
+    # create them): {path: "customer.customer_number" | "customer.name" | "customer.id" |
+    # "account.account_number"}.
+    fixtures: Callable[[Any], dict[str, str]] | None = None
 
     def params_schema(self) -> dict[str, Any]:
         return self.params_model.model_json_schema()
 
 
 LIBRARY: dict[str, LibraryHandler] = {}
+
+
+@dataclass(frozen=True)
+class Forced:
+    """Set only by the generated workflow tests (testing.py), for the steps of one test
+    case: fail a step, or add fields to its output, to steer the case down a route."""
+
+    fail: frozenset[str] = frozenset()
+    outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+# A context variable, so forcing never leaks into other requests or threads.
+FORCED: ContextVar[Forced | None] = ContextVar("workflow_test_forced", default=None)
 
 
 def _library_handler(
@@ -62,10 +80,17 @@ def _library_handler(
     requires_approval: bool = False,
     check: Callable[[Any, Any], list[str]] | None = None,
     step_type: StepType = StepType.SERVICE_TASK,
+    fixtures: Callable[[Any], dict[str, str]] | None = None,
 ) -> Callable[[Callable[[StepContext, Any], dict[str, Any]]], None]:
     def register(func: Callable[[StepContext, Any], dict[str, Any]]) -> None:
         def run(ctx: StepContext) -> dict[str, Any]:
-            return func(ctx, params_model.model_validate(ctx.step.params or {}))
+            forced = FORCED.get()
+            if forced and ctx.step.id in forced.fail:
+                raise StepError("injected_failure", f"Test: failure injected at '{ctx.step.id}'.")
+            output = func(ctx, params_model.model_validate(ctx.step.params or {}))
+            if forced and ctx.step.id in forced.outputs:
+                output = {**output, **forced.outputs[ctx.step.id]}
+            return output
 
         if step_type == StepType.AI_TASK:
             registry.ai_task(name)(run)
@@ -73,7 +98,7 @@ def _library_handler(
             registry.service_task(name)(run)
         LIBRARY[name] = LibraryHandler(
             name, step_type, summary, params_model, output, reads, effect,
-            requires_approval, check,
+            requires_approval, check, fixtures,
         )  # fmt: skip
 
     return register
@@ -253,6 +278,7 @@ class LookupCustomer(_Strict):
     "risk_rating}; an unknown number fails the step (customer_not_found).",
     reads=lambda params: [params.customer_number_path],
     effect="reads",
+    fixtures=lambda params: {params.customer_number_path: "customer.customer_number"},
 )
 def _lookup_customer(ctx: StepContext, params: LookupCustomer) -> dict[str, Any]:
     from app.modules.customers.models import Customer
@@ -300,6 +326,7 @@ def _fill(ctx: StepContext, text: str) -> str:
     "{notification_id, channel, subject}",
     reads=lambda params: [params.customer_id_path, *_placeholders(params.subject, params.body)],
     effect="writes",
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
 )
 def _notify_customer(ctx: StepContext, params: NotifyCustomer) -> dict[str, Any]:
     from app.modules.customers.models import CustomerNotification
@@ -340,6 +367,7 @@ class SetRiskRating(_Strict):
         [params.customer_id_path] + ([params.rating_path] if params.rating_path else [])
     ),
     effect="writes",
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
 )
 def _set_risk_rating(ctx: StepContext, params: SetRiskRating) -> dict[str, Any]:
     from app.modules.customers.models import RiskRating
@@ -369,6 +397,7 @@ class ScreenName(_Strict):
     "{hit, matched, list}",
     reads=lambda params: [params.name_path],
     effect="reads",
+    fixtures=lambda params: {params.name_path: "customer.name"},
 )
 def _screen_name(ctx: StepContext, params: ScreenName) -> dict[str, Any]:
     from app.modules.compliance.screening import screen_name
@@ -445,6 +474,7 @@ class ChargeFee(_Strict):
     ),
     effect="moves_money",
     requires_approval=True,
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
 )
 def _charge_fee(ctx: StepContext, params: ChargeFee) -> dict[str, Any]:
     from app.modules.accounts.service import charge_fee, find_account

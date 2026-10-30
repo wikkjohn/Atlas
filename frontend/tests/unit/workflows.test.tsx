@@ -351,4 +351,36 @@ describe("Workflow Explorer", () => {
     await userEvent.click(await within(variants).findByText("WF-2000 v1"));
     expect(await screen.findByText(/Generated from TPL-PAPER-STATEMENT v1/)).toBeInTheDocument();
   });
+
+  it("runs a stored workflow's generated tests and shows failures and gaps", async () => {
+    const stored: WorkflowDefinition = { ...definition, workflow_id: "WF-1001", name: "Customer Address Change", source: "stored" };
+    const run = {
+      id: "run-1", workflow_id: "WF-1001", version: 1, passed: 13, failed: 1, skipped: 0,
+      step_coverage: 1, route_coverage: 0.93, duration_ms: 1800, ran_at: "2026-10-30T12:00:00Z", ran_by_username: "admin",
+      cases: [
+        { name: "happy path", kind: "happy", route: null, status: "passed", detail: "", outcome: "updated", visited: [], mocked: [], ms: 90 },
+        { name: "no-route probe at route_by_reason", kind: "route", route: null, status: "failed", detail: "ended badly: no_route at route_by_reason", outcome: null, visited: [], mocked: [], ms: 80 },
+      ],
+      uncovered: [{ route: "route_by_reason → colleague_review (transition[2])", reason: "case failed" }],
+    };
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflows": () => jsonResponse([stored]),
+        "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
+        "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
+        "GET /api/v1/workflow-definitions/handlers": () => jsonResponse([]),
+        "GET /api/v1/workflow-definitions/WF-1001/tests": () => jsonResponse([]),
+        "POST /api/v1/workflow-definitions/WF-1001/versions/1/tests": () => jsonResponse(run),
+      }),
+    );
+    renderApp("/workflows");
+
+    const panel = await screen.findByRole("region", { name: "Generated tests" });
+    expect(await within(panel).findByText("Not tested yet.")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Run tests on v1" }));
+    expect(await within(panel).findByRole("status")).toHaveTextContent("13 passed, 1 failed · steps 100 % · routes 93 %");
+    expect(within(panel).getByRole("list", { name: "Failing cases" })).toHaveTextContent("no_route at route_by_reason");
+    expect(within(panel).getByRole("list", { name: "Uncovered routes" })).toHaveTextContent("transition[2]");
+    expect(api.requests.some((r) => r.method === "POST" && r.path.endsWith("/versions/1/tests"))).toBe(true);
+  });
 });

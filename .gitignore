@@ -28,3 +28,4 @@ frontend/blob-report/
 .DS_Store
 .idea/
 .vscode/
+backend/workflow-tests*.json

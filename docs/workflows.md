@@ -371,3 +371,51 @@ At scale (development container, see `docs/performance.md`): 5,040 variants of o
 were generated in 52.5 s for 4,500 new ones (about 86 per second, each fully validated and
 imported), a dry run over all of them takes 33 s, and the catalogue lists 5,056 workflows in
 0.27–0.42 s.
+
+## Generated tests (Phase 20)
+
+Every stored definition — hand-written or generated from a template — has path tests
+derived from its graph (`testing.py`) and run through the real engine:
+
+| Case | What it does |
+| --- | --- |
+| **happy** | the synthesised default input; every approval approved |
+| **route** | one per route — each transition, fallback `next`, `on_failure` and timeout — along the shortest path ending with it |
+| **approval** | at each approval: the initiator (four-eyes) and a person without its permissions are refused, then a colleague decides |
+| **no-route probe** | at a decision with no fallback: an input that matches none of its routes, if one can be found (it then fails, showing the gap) |
+
+**Planning a route** turns the conditions on its path into requirements and solves them
+together: an input value (conditions on `input.*`, including `core.check` conditions the
+path must pass), an approval decision (`<approval>.approved` / `.decision`), a field added to
+a service step's real output (recorded as *mocked*), a form value, a signal payload, a
+failure injected at a step (`on_failure` routes) or a timer firing (timeouts). Requirements
+that cannot be met — two routes needing different values, a nested input path — leave the
+route **uncovered**, with the reason.
+
+**Inputs** come from the input schema: `examples`, `enum`, bounds, and strings built from
+simple patterns (anchors, literals, `[A-Z]`, `\d`, `{n}`); a field the generator cannot
+fill skips the case and asks for `examples`. Fields that library handlers look up
+(`customers.lookup`, `accounts.lookup`, `accounts.charge_fee`, …, declared as their
+`fixtures`) get real synthetic records: a verified customer and a funded current account.
+Approvers, the initiator and an outsider are created for each run with an unusable password.
+
+**A case passes** when the execution ends at a completion or failure step (not `no_route`,
+`stalled`, a crash or a failure outside a failure step), visits every step of its planned
+path, ends with an outcome the definition declares, never completes a money-moving step
+without an earlier granted approval, and (approval cases) the refusals happen. Each case runs
+in a savepoint inside one per-run savepoint, both rolled back: testing leaves only the run
+record (`workflow_test_runs`: cases, uncovered routes, step and route coverage).
+
+Running them:
+
+- **CLI** `python -m app.cli workflows test --all | --template TPL | WF-ID … [--sample N]
+  [--output report.json]` — exits non-zero on any failed case;
+- **CI** job *Workflow factory (generated tests)*: seeds the demo bank and tests every stored
+  and generated workflow on every push;
+- **API** `POST /api/v1/workflow-definitions/{id}/versions/{v}/tests`, `GET …/{id}/tests`;
+- **UI** the *Generated tests* panel of a stored workflow in the Workflow Explorer.
+
+The seeded workflows (WF-1001 v2, WF-1002, WF-2000–2009) are fully covered (100 % of steps
+and routes) and pass. The tests found what validation cannot: an input that matches no route
+of a decision without a fallback, and a step reading the wrong record (both are regression
+tests in `tests/test_workflow_testing.py`).

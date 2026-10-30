@@ -156,3 +156,13 @@ test("Templates: the paper-statement template's variants, a preview, and a gener
   await expect(admin.getByRole("heading", { name: "Paper Statements — Japan, current accounts" })).toBeVisible();
   await expect(admin.getByRole("row", { name: /Charge the paper-statement fee \(5 JPY\)/ })).toContainText("Moves money");
 });
+
+test("Generated tests: an administrator runs WF-1002's path tests from the catalogue", async ({ browser }) => {
+  const admin = await as(browser, "admin", "/workflows");
+  await admin.getByRole("list", { name: "Workflows" }).getByText("Paper Statement Request").click();
+  const panel = admin.getByRole("region", { name: "Generated tests" });
+  await panel.getByRole("button", { name: "Run tests on v1" }).click();
+  await expect(panel.getByRole("status")).toContainText("0 failed · steps 100 % · routes 100 %", { timeout: 30_000 });
+  await panel.getByText(/All \d+ cases/).click();
+  await expect(panel.getByRole("table", { name: "Test cases" })).toContainText("approval fee_approval: refusals");
+});

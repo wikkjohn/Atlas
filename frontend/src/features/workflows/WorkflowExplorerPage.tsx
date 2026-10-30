@@ -14,6 +14,7 @@ import { formatMilliseconds as formatDuration, formatTimestamp } from "@/feature
 import { EffectBadge, ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
 import { TemplatesTab } from "@/features/workflows/TemplatesTab";
+import { TestsPanel } from "@/features/workflows/TestsPanel";
 import { newIdempotencyKey } from "@/services/api";
 import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
@@ -169,6 +170,7 @@ function DefinitionView({ id }: { id: string }) {
           ))}
         </dl>
       )}
+      {d.source === "stored" && <TestsPanel workflowId={d.workflow_id} version={d.version} />}
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
         <table aria-label="Process steps" className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">

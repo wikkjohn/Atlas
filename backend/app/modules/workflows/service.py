@@ -23,6 +23,7 @@ from app.modules.workflows.models import (
     WorkflowExecution,
     WorkflowStepRun,
     WorkflowTemplateRecord,
+    WorkflowTestRun,
     WorkflowVariant,
 )
 from app.modules.workflows.schemas import (
@@ -38,6 +39,8 @@ from app.modules.workflows.schemas import (
     TemplateDetail,
     TemplateOut,
     TemplateReportOut,
+    TestRunOut,
+    TestSummary,
     ValidationReportOut,
     VariantOut,
     VariantResultOut,
@@ -167,6 +170,9 @@ def definition_out(db: Session, definition: WorkflowDefinition) -> WorkflowDefin
     return WorkflowDefinitionOut(
         **summary(definition, versions, source, status).model_dump(),
         origin=definition.origin.model_dump() if definition.origin else None,
+        last_test=last_test(db, definition.workflow_id, definition.version)
+        if source == "stored"
+        else None,
         start=definition.start,
         input_schema=definition.input_schema,
         presentation=(
@@ -652,3 +658,52 @@ def render_out(
     report = validation.validate(db, document, versions=False, generated=True)
     report.errors = [e for e in report.errors if e["code"] != "owned_by_template"]
     return RenderOut(definition=document, report=report_out(report))
+
+
+# --- Generated tests (Phase 20) --------------------------------------------------------------
+
+
+def test_run_out(db: Session, run: WorkflowTestRun) -> TestRunOut:
+    return TestRunOut(
+        id=run.id,
+        workflow_id=run.workflow_id,
+        version=run.version,
+        passed=run.passed,
+        failed=run.failed,
+        skipped=sum(c.get("status") == "skipped" for c in run.cases),
+        step_coverage=run.step_coverage,
+        route_coverage=run.route_coverage,
+        cases=run.cases,
+        uncovered=run.uncovered,
+        duration_ms=run.duration_ms,
+        ran_at=run.ran_at,
+        ran_by_username=_usernames(db, {run.ran_by}).get(run.ran_by) if run.ran_by else None,
+    )
+
+
+def test_runs(db: Session, workflow_id: str, limit: int = 20) -> list[TestRunOut]:
+    runs = db.execute(
+        select(WorkflowTestRun)
+        .where(WorkflowTestRun.workflow_id == workflow_id)
+        .order_by(WorkflowTestRun.ran_at.desc(), WorkflowTestRun.id)
+        .limit(limit)
+    ).scalars()
+    return [test_run_out(db, r) for r in runs]
+
+
+def last_test(db: Session, workflow_id: str, version: int) -> TestSummary | None:
+    run = db.execute(
+        select(WorkflowTestRun)
+        .where(WorkflowTestRun.workflow_id == workflow_id, WorkflowTestRun.version == version)
+        .order_by(WorkflowTestRun.ran_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if run is None:
+        return None
+    return TestSummary(
+        passed=run.passed,
+        failed=run.failed,
+        step_coverage=run.step_coverage,
+        route_coverage=run.route_coverage,
+        ran_at=run.ran_at,
+    )

@@ -17,6 +17,7 @@
     python -m app.cli workflows export WF-1001 --output wf-1001.json    # any definition
     python -m app.cli workflows import-template my-template.json        # store a template
     python -m app.cli workflows generate TPL-PAPER-STATEMENT --grid grid.json  # variants
+    python -m app.cli workflows test --all --output workflow-tests.json # generated tests
 """
 
 import argparse
@@ -419,6 +420,8 @@ def _workflows(args: argparse.Namespace) -> int:
             )
             if not report.valid:
                 return 1
+        elif args.action == "test":
+            return _workflow_tests(factory, args)
         elif args.action == "export":
             with factory() as db:
                 document = authoring.export(db, args.workflow_id, args.version)
@@ -456,6 +459,81 @@ def _workflows(args: argparse.Namespace) -> int:
         print(f"Cannot read the definition: {exc}")
         return 2
     return 0
+
+
+def _workflow_tests(factory, args: argparse.Namespace) -> int:
+    """Generated path tests for stored workflows; exit code 1 when any case fails."""
+    import time
+
+    from sqlalchemy import select
+
+    from app.modules.identity.models import User
+    from app.modules.workflows import store, testing
+    from app.modules.workflows.models import DefinitionStatus, WorkflowVariant
+
+    started = time.perf_counter()
+    summary: list[dict] = []
+    failed = 0
+    with factory() as db:
+        if args.template:
+            ids = list(
+                db.execute(
+                    select(WorkflowVariant.workflow_id)
+                    .where(WorkflowVariant.template_id == args.template)
+                    .order_by(WorkflowVariant.workflow_id)
+                ).scalars()
+            )
+        elif args.all:
+            ids = sorted({r.workflow_id for r in store.stored_records(db)})
+        else:
+            ids = args.workflow_ids
+        if args.sample:
+            ids = ids[: args.sample]
+        actor = db.execute(
+            select(User.id).where(User.username == args.as_user)
+        ).scalar_one_or_none()
+        for workflow_id in ids:
+            record = store.stored_record(db, workflow_id)
+            if record is None or record.status != DefinitionStatus.ACTIVE:
+                print(f"{workflow_id}: no active stored version; skipped")
+                continue
+            report, _ = testing.run_stored(db, workflow_id, record.version, actor)
+            db.commit()  # keep the run record; the cases themselves were rolled back
+            failed += report.count("failed")
+            mark = "ok  " if report.passed else "FAIL"
+            print(
+                f"{mark} {workflow_id} v{report.version}: {report.count('passed')} passed, "
+                f"{report.count('failed')} failed, {report.count('skipped')} skipped; "
+                f"steps {report.step_coverage:.0%}, routes {report.route_coverage:.0%} "
+                f"({report.duration_ms} ms)"
+            )
+            for case in report.results:
+                if case.status != "passed":
+                    print(f"       {case.status}: {case.name}: {case.detail}")
+            for gap in report.uncovered:
+                print(f"       uncovered: {gap['route']}: {gap['reason']}")
+            summary.append(
+                {
+                    "workflow_id": workflow_id,
+                    "version": report.version,
+                    "passed": report.count("passed"),
+                    "failed": report.count("failed"),
+                    "skipped": report.count("skipped"),
+                    "step_coverage": report.step_coverage,
+                    "route_coverage": report.route_coverage,
+                    "uncovered": report.uncovered,
+                    "failures": [c.as_json() for c in report.results if c.status == "failed"],
+                    "duration_ms": report.duration_ms,
+                }
+            )
+    seconds = time.perf_counter() - started
+    print(f"\n{len(summary)} workflow(s), {failed} failed case(s), {seconds:.1f} s")
+    if args.output:
+        with open(args.output, "w") as f:
+            json.dump(
+                {"workflows": summary, "failed_cases": failed, "seconds": seconds}, f, indent=2
+            )
+    return 1 if failed else 0
 
 
 def _simulation_history(args: argparse.Namespace) -> int:
@@ -635,6 +713,16 @@ def main(argv: list[str] | None = None) -> int:
     wf_import = wf_actions.add_parser("import", help="Validate and store a definition file")
     wf_import.add_argument("file")
     wf_import.add_argument("--as-user", default="admin", help="Recorded as the importer")
+    wf_test = wf_actions.add_parser(
+        "test", help="Generate and run path tests for stored workflows (fails on any failure)"
+    )
+    which_wf = wf_test.add_mutually_exclusive_group(required=True)
+    which_wf.add_argument("workflow_ids", nargs="*", default=[], metavar="WF-ID")
+    which_wf.add_argument("--all", action="store_true", help="Every stored workflow")
+    which_wf.add_argument("--template", help="Every variant of this template")
+    wf_test.add_argument("--sample", type=int, help="Only the first N workflows")
+    wf_test.add_argument("--output", help="Write a JSON report to this file")
+    wf_test.add_argument("--as-user", default="admin", help="Recorded as who ran the tests")
     wf_actions.add_parser("templates", help="Every template version")
     wf_template = wf_actions.add_parser("import-template", help="Validate and store a template")
     wf_template.add_argument("file")

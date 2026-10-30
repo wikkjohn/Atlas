@@ -334,3 +334,31 @@ class WorkflowVariant(UUIDPrimaryKey, Base):
     generated_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
+
+
+class WorkflowTestRun(UUIDPrimaryKey, Base):
+    """One run of a definition version's generated tests (Phase 20): the cases, what each
+    found, and how much of the graph they covered. The cases run in a transaction that is
+    rolled back, so a test run leaves nothing behind but this record."""
+
+    __tablename__ = "workflow_test_runs"
+    __table_args__ = (Index("ix_workflow_test_runs_definition", "definition_id", "ran_at"),)
+
+    definition_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("workflow_definitions.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_id: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    passed: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False)
+    step_coverage: Mapped[float] = mapped_column(nullable=False)  # share of steps visited
+    route_coverage: Mapped[float] = mapped_column(nullable=False)  # share of routes taken
+    cases: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    uncovered: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    ran_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    ran_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )

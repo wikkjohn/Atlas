@@ -177,6 +177,8 @@ import hashlib  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from datetime import date  # noqa: E402
 
+from app.modules.compliance.screening import SANCTIONS_LISTS  # noqa: E402
+
 # Names on the synthetic watchlist used by WF-0001's sanctions screening (fictional).
 WATCHLIST_NAMES = (
     "Darius Vantablack",
@@ -225,8 +227,11 @@ class ApplicationGenerator:
         arrival_window_seconds: int,
         document_delay_seconds: tuple[int, int],
         today: date,
+        rules: dict[str, dict] | None = None,
     ) -> None:
         self.seed = seed
+        # Per-country rules (Phase 28): when given, cases follow them; see `_one_by_rules`.
+        self.rules = rules
         self.kinds = sorted(mix)
         self.weights = [mix[k] for k in self.kinds]
         self.countries = sorted(countries)
@@ -242,6 +247,8 @@ class ApplicationGenerator:
         return [self._one(i) for i in indices]
 
     def _one(self, index: int) -> SyntheticApplication:
+        if self.rules is not None:
+            return self._one_by_rules(index)
         rng = case_random(self.seed, index, "application")
         kind = rng.choices(self.kinds, weights=self.weights)[0]
         if kind == "sanctions_hit":
@@ -282,6 +289,75 @@ class ApplicationGenerator:
             if kind == "politically_exposed"
             else rng.randint(0, 20_000),
             "_late_document": address if late else None,
+        }
+        return SyntheticApplication(
+            index=index,
+            kind=kind,
+            expected_outcome="rejected" if kind in SHOULD_REJECT else "approved",
+            arrival_offset_seconds=rng.randint(0, self.window),
+            document_delay_seconds=rng.randint(*self.delay)
+            if kind == "missing_documents"
+            else None,
+            payload=payload,
+        )
+
+    def _one_by_rules(self, index: int) -> SyntheticApplication:
+        """An application that follows its country's rules, so its ground truth holds there:
+        ages around that country's minimum age, an accepted identity document, a proof of
+        address only where one is required (otherwise the identity document is the one that
+        arrives late), and sanctioned names from the lists the country screens against."""
+        rng = case_random(self.seed, index, "application")
+        kind = rng.choices(self.kinds, weights=self.weights)[0]
+        country = rng.choice(self.countries)
+        rules = self.rules[country]  # type: ignore[index]
+        if kind == "sanctions_hit":
+            names = sorted({n for list_id in rules["lists"] for n in SANCTIONS_LISTS[list_id][1]})
+            name = rng.choice(names).title()
+        else:
+            name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
+        minimum = rules["min_age"]
+        # The year of birth alone sets the age to `age` or one less, depending on the day.
+        age = (
+            rng.randint(minimum - 3, minimum - 1)
+            if kind == "underage"
+            else rng.randint(minimum + 1, 80)
+        )
+        born = date(self.today.year - age, rng.randint(1, 12), rng.randint(1, 28))
+        serial = rng.randint(0, 9_999_999)
+        document_type = rng.choice(rules["identity_documents"])
+        identity = {
+            "document_type": document_type,
+            "document_number": document_number(document_type, serial),
+            "name_on_document": name,
+            "date_of_birth": born.isoformat(),
+            "expiry_date": date(self.today.year + rng.randint(1, 9), 6, 30).isoformat(),
+        }
+        if kind == "forged_document":
+            number = identity["document_number"]
+            identity["document_number"] = number[:-1] + str((int(number[-1]) + 1) % 10)
+        address = {
+            "document_type": "proof_of_address",
+            "document_number": document_number("proof_of_address", serial + 1),
+            "name_on_document": name if kind != "name_mismatch" else name + "e",
+        }
+        documents = [identity, address]
+        late_kind = kind in ("missing_documents", "abandoned_documents")
+        late = None
+        if late_kind:
+            # The document the country requires is the one that is missing.
+            late = address if rules["proof_of_address"] else identity
+            documents.remove(late)
+        payload = {
+            "applicant_name": name,
+            "date_of_birth": born.isoformat(),
+            "country_code": country,
+            "account_type": "current" if rng.random() < 0.75 else "savings",
+            "documents": documents,
+            "politically_exposed": kind == "politically_exposed",
+            "expected_monthly_deposits": rng.choice([60_000, 120_000])
+            if kind == "politically_exposed"
+            else rng.randint(0, 20_000),
+            "_late_document": late,
         }
         return SyntheticApplication(
             index=index,

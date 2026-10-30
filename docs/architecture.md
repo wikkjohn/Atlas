@@ -382,6 +382,9 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   their conditions, run through the real engine with synthetic records, and rolled back.
   The test generator only steers (inputs, decisions, forced outputs, injected failures);
   the handlers and the engine do the rest, so a defect in either still shows.
+- **Diagram and editor (Phase 21).** The layout is computed on the server so every client
+  draws the same picture and it is tested; the editor previews through the same validation
+  as an import and saves by importing, so it cannot store anything an import would refuse.
 - **Not yet.** Stored definitions do not run on schedules or in simulations.
 
 ## Planned design for later phases

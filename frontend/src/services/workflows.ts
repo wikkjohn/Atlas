@@ -1,8 +1,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
+import type { WorkflowGraphData } from "@/features/workflows/WorkflowGraph";
 import type { Page } from "@/types/enterprise";
 import type {
+  DraftPreview,
   ExecutionDetail,
   ExecutionSummary,
   GenerationResult,
@@ -203,3 +205,15 @@ export function useRunTests() {
     onSuccess: invalidate,
   });
 }
+
+// --- Graph and editor preview (Phase 21) ----------------------------------------------------
+
+export const useWorkflowGraph = (workflowId: string | null, version?: number, enabled = true) =>
+  useQuery({
+    queryKey: ["workflows", "graph", workflowId, version],
+    queryFn: () => apiGet<WorkflowGraphData>(`/api/v1/workflows/${workflowId}/graph${query({ version })}`),
+    enabled: Boolean(workflowId) && enabled,
+  });
+
+export const previewDefinition = (definition: unknown) =>
+  apiPost<DraftPreview>("/api/v1/workflow-definitions/preview", { definition });

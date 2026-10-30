@@ -342,3 +342,13 @@ class TestSummary(BaseModel):
     step_coverage: float
     route_coverage: float
     ran_at: datetime
+
+
+# --- Graph and editor preview (Phase 21) -----------------------------------------------------
+
+
+class DraftPreview(BaseModel):
+    """A draft definition's validation report and, when it parses, its graph."""
+
+    report: ValidationReportOut
+    graph: dict[str, Any] | None

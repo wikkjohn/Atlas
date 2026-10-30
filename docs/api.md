@@ -201,6 +201,7 @@ unchanged.
 | GET | `/api/v1/workflows?q=` | `workflows:read` | Every workflow, code and stored (latest active version), with `source` and `status` |
 | GET | `/api/v1/workflows/{id}?version=` | `workflows:read` | Definition, steps, input schema, presentation, transition/approval/failure/timeout policies |
 | GET | `/api/v1/workflows/{id}/export?version=` | `workflows:read` | The definition as an importable JSON document (code or stored) |
+| GET | `/api/v1/workflows/{id}/graph?version=` | `workflows:read` | The definition laid out: nodes (layer, order, type, effect, live runs/failed/p95, bottleneck), edges (kind, label, back, covered by the latest generated tests) |
 | GET | `/api/v1/workflows/{id}/metrics` | `workflows:read` | Per-step runs, completions, failures, retries, avg/p50/p95/max duration; bottleneck step |
 | POST | `/api/v1/workflows/{id}/executions` | `workflows:start` | `{input}`; validated against the input schema; optional `Idempotency-Key` (same key → same execution, 200) |
 | GET | `/api/v1/workflow-executions` | `workflows:read` | Filters: `workflow_id`, `status`, `outcome`, `business_key`. Live executions only, unless `simulation_run_id` asks for one simulation run's executions |
@@ -218,6 +219,7 @@ unchanged.
 | --- | --- | --- | --- |
 | GET | `/api/v1/workflow-definitions` | `workflows:read` | Every stored version: status, content hash, importer, executions |
 | GET | `/api/v1/workflow-definitions/handlers` | `workflows:read` | The handler library: name, step type, summary, output, `effect`, `requires_approval`, params as JSON Schema |
+| POST | `/api/v1/workflow-definitions/preview` | `workflows:define` | `{definition}` → `{report, graph}`: the editor's live validation and drawing of a draft (graph null when it does not parse) |
 | POST | `/api/v1/workflow-definitions/validate` | `workflows:define` | `{definition}` → `{valid, workflow_id, version, content_hash, existing, errors[], warnings[], effects}`; stores nothing |
 | POST | `/api/v1/workflow-definitions` | `workflows:define` | `{definition}` → 201 `{created, definition, warnings}`; 200 when this exact version is already stored; 422 `definition_invalid` with every error |
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | No new executions on that version; running ones finish on it |

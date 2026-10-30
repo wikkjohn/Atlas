@@ -419,3 +419,30 @@ The seeded workflows (WF-1001 v2, WF-1002, WF-2000–2009) are fully covered (10
 and routes) and pass. The tests found what validation cannot: an input that matches no route
 of a decision without a fallback, and a step reading the wrong record (both are regression
 tests in `tests/test_workflow_testing.py`).
+
+## Diagram and editor (Phase 21)
+
+**Every workflow as a diagram.** `GET /api/v1/workflows/{id}/graph` lays a definition out
+(`graph.py`): routes that lead back to an earlier step (a documents loop, say) are marked
+`back` and left out of the layering; each step's layer is its longest distance from the
+start along the other routes; steps within a layer are ordered by repeated barycentre
+sweeps to reduce crossings. Routes are labelled — `approved` / `rejected` for an approval,
+the condition for a decision (`input.delivery = email`), `otherwise`, `on failure`,
+`timeout (24 h)` — and two overlays are added: each step's live runs, failures and p95
+with the bottleneck marked, and, for stored workflows, whether the latest generated test
+run covered each route. The Workflow Explorer's **Diagram** view draws it (SVG): steps
+coloured by type, effects (writes, moves money, AI advice) on the step, covered routes
+green and uncovered ones dashed red. It works for code workflows too.
+
+**Editing a stored workflow.** *Edit as v{n+1}* (administrators; hand-written stored
+workflows — generated variants change through their template) opens an editor:
+
+- a form for the selected step — name, type, handler (from the library, by step type),
+  next step, params — and the whole definition as JSON, kept in step with each other;
+- *Add a step* / *Remove step*;
+- a live preview: shortly after each change the draft is validated and drawn
+  (`POST /api/v1/workflow-definitions/preview`); problems located at a step are shown on its
+  box in the diagram and in its form, the others in a list; the draft is drawn even when it
+  has errors (routes to missing steps are left out), so you can see where;
+- *Save as v{n+1}* is enabled only for a valid draft and imports it through the usual
+  validation, so the editor adds no rules of its own.

@@ -220,13 +220,24 @@ out of the task inbox, the metrics and the `run_due` timer sweep; each carries i
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/simulations/scenarios` | `simulations:read` | Registered scenarios with their workload, workflow, modes and full configuration (`retail-onboarding` v1/v2, `domestic-payments` v1, `personal-loans` v1) |
-| GET | `/api/v1/simulations/profiles` | `simulations:read` | Workload profiles; `runnable` is false for the enterprise configuration target |
+| GET | `/api/v1/simulations/profiles` | `simulations:read` | Workload profiles; `runnable` is false for the enterprise configuration target; `min_shards` is the fewest parallel shards a profile runs with (4 for `large`) |
 | POST | `/api/v1/simulations` | `simulations:run` | `{scenario_id, scenario_version?, profile, seed, applications?, employees?}` (sizes only with `profile: custom`, max 10,000 / 500). **202**: the run executes in the background. One run at a time (409 otherwise); the enterprise profile is refused (422); idempotent: a retry with the same key replays the started run and starts nothing |
 | GET | `/api/v1/simulations?status=` | `simulations:read` | Run registry, newest first, with progress |
 | GET | `/api/v1/simulations/{id}` | `simulations:read` | Configuration, software version, config hash, progress, results, result digest, failure reason and `reproductions` (other completed runs with the same scenario, seed, configuration and software, and whether their results match) |
 | GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
 | POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202); idempotent |
 | POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`); idempotent |
+
+`POST /api/v1/simulations` takes `shards` (1–8, default 1; Phase 16): the run is split
+into that many slices, each simulated by a worker process with its own share of every
+role's staff (the run's staff must have at least `shards` members of each role, and the
+`large` profile — 100,000 applications, 5,000 staff — needs at least 4). The run queues
+one `simulation.shard` job per slice; the last to finish merges the results. Run
+summaries carry `shards`; run detail adds `shard_progress` (status, cases, events,
+worker, wall time and error per shard). The same seed and shard count reproduce the same
+results; a different shard count is a different configuration (separate queues per
+shard), so its config hash differs. Reruns keep the shard count. Suites and experiments
+run single-process.
 
 `POST /api/v1/simulations` also takes `mode` (`baseline`, `ai_assisted`, `ai_automated`)
 and, for AI modes, `tool_id` (+ optional `tool_version`, default: highest active). AI

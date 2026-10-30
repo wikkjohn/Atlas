@@ -93,6 +93,8 @@ class Profile(BaseModel):
     # whose performance has NOT been measured; it must be confirmed explicitly to run.
     status: Literal["verified", "target"]
     note: str = ""
+    # Parallel shards the profile needs at least (Phase 16): one process is too slow.
+    min_shards: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def _customers(self) -> "Profile":
@@ -277,6 +279,16 @@ PROFILES: dict[str, Profile] = {
             note="Measured in this repository; see docs/simulation.md for timings.",
         ),
         Profile(
+            profile_id="large",
+            name="Large test (sharded)",
+            applications=100_000,
+            employees=5_000,
+            status="verified",
+            min_shards=4,
+            note="Runs as parallel shards across worker processes (at least 4); see "
+            "docs/performance.md for the measured time.",
+        ),
+        Profile(
             profile_id="enterprise",
             name="Future enterprise scale",
             applications=1_000_000,
@@ -290,3 +302,7 @@ PROFILES: dict[str, Profile] = {
 
 MAX_CUSTOM_APPLICATIONS = 10_000
 MAX_CUSTOM_EMPLOYEES = 500
+# A run splits into at most this many parallel shards: each pins its own one of the 8
+# balance rows every ledger account has (`ledger.models.BALANCE_SHARDS`), so shards never
+# contend for a busy account's balance.
+MAX_SHARDS = 8

@@ -323,6 +323,30 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   depth, lag and per-kind throughput from `jobs`; `/api/metrics` serves Prometheus text
   when `ATLAS_METRICS_TOKEN` is set.
 
+## Sharded simulation runs (Phase 16, roadmap Milestone A)
+
+- **Why.** One simulation process runs about 4–5 cases per second: each case is ~190 SQL
+  statements through the durable workflow engine. A hundred thousand cases would take six
+  hours, so runs are split across worker processes instead.
+- **How.** A run with `shards = N` deals its cases (`case_index % N`) and, round-robin
+  within each role, its staff to N slices. Each slice is an independent discrete-event
+  simulation with its own clock, event queue and reviewer queues, run by a
+  `simulation.shard` job; any worker process can take any slice. Staff are hired once
+  before the slices start; the last slice to finish merges the per-case results into the
+  run's summary and digest under the run row's lock.
+- **What changes in the model.** Cases decide exactly as in one process (every random
+  draw comes from the case's own stream), so outcomes, ground-truth accuracy and review
+  counts are the same; queueing is not, because N teams with separate queues wait longer
+  than one pooled team. The shard count is therefore part of the configuration and its
+  hash: the same seed and shard count always reproduce the same digest, whichever worker
+  runs which slice and in what order.
+- **Contention.** Slices write to the same tables in long transactions (250 events per
+  commit). The only shared hot rows were the stored balances of busy ledger accounts;
+  each slice pins its own balance row (`atlas.balance_shard`), which is why a run has at
+  most 8 slices — the number of balance rows per account.
+- **Failure.** A failing slice fails the run; the others notice at their next checkpoint
+  and stop. Slices are not retried, like single-process runs.
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from

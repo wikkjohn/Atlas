@@ -9,6 +9,7 @@ pairings of common given names and surnames; they describe no real person.
 """
 
 import random
+from collections.abc import Iterable
 
 FIRST_NAMES = (
     "Aarav",
@@ -235,6 +236,10 @@ class ApplicationGenerator:
 
     def generate(self, count: int) -> list[SyntheticApplication]:
         return [self._one(i) for i in range(count)]
+
+    def generate_indices(self, indices: Iterable[int]) -> list[SyntheticApplication]:
+        """The applications with these indices (a shard's): identical to `generate`'s."""
+        return [self._one(i) for i in indices]
 
     def _one(self, index: int) -> SyntheticApplication:
         rng = case_random(self.seed, index, "application")

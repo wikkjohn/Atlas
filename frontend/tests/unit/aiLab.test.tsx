@@ -143,6 +143,8 @@ const run = (id: string, n: number, mode: SimulationRunDetail["mode"], accuracy:
   reproductions: [],
   history_state: "present",
   archive: null,
+  shards: 1,
+  shard_progress: [],
 });
 
 const routes = {

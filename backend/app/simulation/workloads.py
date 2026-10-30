@@ -153,7 +153,7 @@ class RetailOnboarding(Workload):
             today=sim.clock.start.date(),
         )
         out = []
-        for app in generator.generate(sim.applications):
+        for app in generator.generate_indices(sim.case_indices):
             late = app.payload.get("_late_document")
             payload = {k: v for k, v in app.payload.items() if not k.startswith("_")}
             signal = (
@@ -352,7 +352,7 @@ class DomesticPayments(Workload):
             return watchlisted[(country, name)]
 
         out: list[SyntheticCase] = []
-        for index in range(sim.applications):
+        for index in sim.case_indices:
             rng = case_random(sim.seed, index, "payment")
             kind = _pick(rng, mix)
             country = rng.choice(sim.countries)
@@ -493,7 +493,7 @@ class PersonalLoans(Workload):
         today = sim.clock.start.date()
         window = int(sim.config.arrival_window_hours * 3600)
         out: list[SyntheticCase] = []
-        for index in range(sim.applications):
+        for index in sim.case_indices:
             rng = case_random(sim.seed, index, "loan")
             kind = _pick(rng, mix)
             country = rng.choice(sim.countries)

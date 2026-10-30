@@ -1,7 +1,7 @@
 // Mirrors backend/app/simulation/schemas.py.
 
 export type SimulationStatus = "queued" | "running" | "completed" | "failed";
-export type ProfileId = "small" | "department" | "enterprise" | "custom";
+export type ProfileId = "small" | "department" | "large" | "enterprise" | "custom";
 
 export interface Scenario {
   scenario_id: string;
@@ -33,6 +33,8 @@ export interface Profile {
   status: "verified" | "target";
   runnable: boolean;
   note: string;
+  /** Parallel shards the profile needs at least (one process would take hours). */
+  min_shards: number;
 }
 
 export interface StartSimulation {
@@ -45,6 +47,7 @@ export interface StartSimulation {
   seed: number;
   applications?: number | null;
   employees?: number | null;
+  shards?: number;
 }
 
 export interface SimulationProgress {
@@ -55,6 +58,7 @@ export interface SimulationProgress {
   events_pending?: number;
   simulated_now?: string;
   wall_seconds?: number;
+  shards?: { total: number; completed: number };
 }
 
 export interface SimulationRunSummary {
@@ -84,7 +88,22 @@ export interface SimulationRunSummary {
   tool_id: string | null;
   tool_version: string | null;
   batch_id: string | null;
+  /** Parallel slices of the run (1: a single process). */
+  shards: number;
   history_state: HistoryState;
+}
+
+export interface ShardProgress {
+  shard: number;
+  status: "queued" | "running" | "completed" | "failed";
+  cases_total: number;
+  cases_completed: number;
+  events_processed: number;
+  worker: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  wall_ms: number | null;
+  error: string | null;
 }
 
 /** Where a run's workflow history is: in the database, in archive files, or removed. */
@@ -201,6 +220,7 @@ export interface SimulationRunDetail extends SimulationRunSummary {
   staff_unit_id: string | null;
   reproductions: Reproduction[];
   archive: SimulationArchive | null;
+  shard_progress: ShardProgress[];
 }
 
 export interface CaseResult {

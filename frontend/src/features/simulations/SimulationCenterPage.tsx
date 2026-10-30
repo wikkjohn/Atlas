@@ -29,6 +29,7 @@ import {
   type HistoryState,
   MODE_LABELS,
   type ProfileId,
+  type ShardProgress,
   type SimulationRunDetail,
   type SimulationStatus,
 } from "@/types/simulations";
@@ -36,6 +37,14 @@ import {
 const RUNS_PAGE = 10;
 const CASES_PAGE = 20;
 const MAX_SEED = 2 ** 53 - 1;
+const MAX_SHARDS = 8;
+
+const SHARD_TONE: Record<ShardProgress["status"], Tone> = {
+  queued: "neutral",
+  running: "warn",
+  completed: "good",
+  failed: "bad",
+};
 
 const STATUS_TONE: Record<SimulationStatus, Tone> = {
   queued: "neutral",
@@ -69,6 +78,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const [seed, setSeed] = useState("42");
   const [applications, setApplications] = useState("50");
   const [employees, setEmployees] = useState("10");
+  const [shards, setShards] = useState("1");
 
   const selected = profiles.data?.find((p) => p.profile_id === profile);
   const scenarioList = scenarios.data ?? [];
@@ -84,6 +94,12 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
   const selectedTool = compatibleTools.find((t) => t.id === toolId) ?? compatibleTools[0];
   const toolIdValue = selectedTool?.tool_id ?? "";
   const needsTool = effectiveMode !== "baseline";
+  const minShards = selected?.min_shards ?? 1;
+  const shardValue = Number(shards);
+  const shardError =
+    !Number.isInteger(shardValue) || shardValue < minShards || shardValue > MAX_SHARDS
+      ? `A whole number from ${minShards} to ${MAX_SHARDS}.`
+      : null;
   const seedValue = Number(seed);
   const seedError =
     seed.trim() === "" || !Number.isInteger(seedValue) || seedValue < 0 || seedValue > MAX_SEED
@@ -92,7 +108,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (seedError || !chosen || (needsTool && !toolIdValue)) return;
+    if (seedError || shardError || !chosen || (needsTool && !toolIdValue)) return;
     start.mutate(
       {
         scenario_id: chosen.scenario_id,
@@ -104,6 +120,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
         seed: seedValue,
         applications: profile === "custom" ? Number(applications) : null,
         employees: profile === "custom" ? Number(employees) : null,
+        shards: shardValue,
       },
       { onSuccess: (run) => onStarted(run.id) },
     );
@@ -176,7 +193,12 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
             {...props}
             className={inputClass}
             value={profile}
-            onChange={(e) => setProfile(e.target.value as ProfileId)}
+            onChange={(e) => {
+              const next = e.target.value as ProfileId;
+              setProfile(next);
+              const needed = profiles.data?.find((p) => p.profile_id === next)?.min_shards ?? 1;
+              if (Number(shards) < needed) setShards(String(needed));
+            }}
           >
             {(profiles.data ?? []).map((p) => (
               <option key={p.profile_id} value={p.profile_id} disabled={!p.runnable}>
@@ -218,6 +240,23 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
           </Field>
         </div>
       )}
+      <Field
+        label="Parallel shards"
+        hint="Each shard runs in its own worker process with its share of the staff and its own queues. The same seed and shard count reproduce the same results."
+        error={shardError}
+      >
+        {(props) => (
+          <input
+            {...props}
+            type="number"
+            min={minShards}
+            max={MAX_SHARDS}
+            className={inputClass}
+            value={shards}
+            onChange={(e) => setShards(e.target.value)}
+          />
+        )}
+      </Field>
       <Field label="Random seed" hint="The same seed reproduces the same run." error={seedError}>
         {(props) => (
           <div className="flex gap-2">
@@ -237,7 +276,7 @@ function StartRunForm({ onStarted }: { onStarted: (id: string) => void }) {
       <Button
         type="submit"
         className="w-full"
-        disabled={start.isPending || Boolean(seedError) || (needsTool && !toolIdValue)}
+        disabled={start.isPending || Boolean(seedError) || Boolean(shardError) || (needsTool && !toolIdValue)}
       >
         <Play aria-hidden className="h-4 w-4" /> Start run
       </Button>
@@ -255,6 +294,29 @@ function Metric({ label, value, hint }: { label: string; value: string | number;
       <dd className="text-lg font-semibold text-slate-900">{value}</dd>
       {hint && <dd className="text-[11px] text-slate-500">{hint}</dd>}
     </div>
+  );
+}
+
+function Shards({ run }: { run: SimulationRunDetail }) {
+  return (
+    <table aria-label="Shards" className="min-w-full text-xs">
+      <tbody className="divide-y divide-slate-100">
+        {run.shard_progress.map((s) => (
+          <tr key={s.shard}>
+            <td className="py-1 pr-2 text-slate-700">Shard {s.shard + 1}</td>
+            <td className="py-1 pr-2">
+              <StatusPill compact tone={SHARD_TONE[s.status]} label={humanize(s.status)} />
+            </td>
+            <td className="py-1 pr-2 text-slate-600 tabular-nums">
+              {s.cases_completed.toLocaleString()} / {s.cases_total.toLocaleString()} cases
+            </td>
+            <td className="py-1 text-right text-slate-500 tabular-nums">
+              {s.wall_ms !== null ? formatMilliseconds(s.wall_ms) : (s.worker ?? "waiting for a worker")}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -276,6 +338,7 @@ function Progress({ run }: { run: SimulationRunDetail }) {
         {p.cases_completed ?? 0} of {p.cases_total ?? run.applications} cases finished · {p.cases_started ?? 0}{" "}
         started · {p.events_processed ?? 0} events · simulated time {formatTimestamp(p.simulated_now)}
       </p>
+      {run.shard_progress.length > 0 && <Shards run={run} />}
     </div>
   );
 }
@@ -393,7 +456,8 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
             {MODE_LABELS[r.mode]}
             {r.tool_id && ` with ${r.tool_id} ${r.tool_version}`} · {r.scenario_id} v{r.scenario_version} ·{" "}
             {r.workflow_id} v{r.workflow_version} · {humanize(r.profile)} ·{" "}
-            {r.applications.toLocaleString()} applications · {r.employees} staff · seed{" "}
+            {r.applications.toLocaleString()} applications · {r.employees.toLocaleString()} staff
+            {r.shards > 1 && ` · ${r.shards} shards`} · seed{" "}
             <span className="font-mono">{r.seed}</span>
           </p>
         </div>
@@ -411,6 +475,12 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
       <ErrorMessage error={rerun.error} />
 
       {running && <Progress run={r} />}
+      {!running && r.shard_progress.length > 0 && (
+        <details className="text-xs text-slate-600">
+          <summary className="cursor-pointer">Ran as {r.shards} parallel shards</summary>
+          <Shards run={r} />
+        </details>
+      )}
       {r.status === "failed" && (
         <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
           <p className="font-medium">The run failed.</p>

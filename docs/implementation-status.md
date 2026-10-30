@@ -49,7 +49,7 @@ Last updated: Phase 22.
 | --- | --- |
 | Backend pytest (real PostgreSQL) | 389 passed (new: 10 — review to active under four-eyes and passing tests; return with a note; a draft does not reclassify an active workflow; department managers define; catalogue validation; hashes without a catalogue; code workflows classified and searchable; facets counted over the other filters with paging; the catalogue and review API; the seed classification is valid) |
 | Frontend Vitest / typecheck / build | 90 passed (new: facet filters; submit, refused self-approval, return with a note; classification with an owner) / clean / built |
-| Playwright on a fresh database | see the PR (new: WF-1001 edited, saved as a draft, submitted, tested, refused to its author and approved by a manager; variants found by country, product and department) |
+| Playwright on a fresh database | 25 passed, first run (new: WF-1001 edited, saved as a draft, submitted, tested, refused to its author and approved by a manager; variants found by country, product and department) |
 | Milestone B exit run (`workflows test --all --processes 4`, 5,052 stored workflows) | 111,168 cases, 0 failed, 100 % step and route coverage, 5,381.6 s; 50 → 54.7 s, 500 → 604.6 s (linear) |
 
 ## Phase 22: known limitations

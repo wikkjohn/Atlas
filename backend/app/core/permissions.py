@@ -34,6 +34,8 @@ class Permission(StrEnum):
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
+    # Import, retire and reactivate stored workflow definitions.
+    WORKFLOWS_DEFINE = "workflows:define"
     SIMULATIONS_READ = "simulations:read"
     SIMULATIONS_RUN = "simulations:run"  # start simulation runs (creates synthetic data)
     # Archive and restore simulation runs' workflow history.

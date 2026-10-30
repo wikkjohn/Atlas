@@ -28,7 +28,10 @@ incremental reconciliation, bulk loading of a million customers, durable backgro
 with worker processes and schedules, partitioned workflow history with archive and reset
 of simulation history, observability (request metrics, slow-query log, workers), and
 simulations split into parallel shards with a performance suite
-([docs/performance.md](docs/performance.md)). See
+([docs/performance.md](docs/performance.md)). Phase 17 began the workflow factory:
+workflow definitions can be imported as validated, versioned data next to the ones in
+code, built from a library of generic step handlers
+([docs/workflows.md](docs/workflows.md#stored-definitions-phase-17)). See
 [docs/implementation-status.md](docs/implementation-status.md) for details and known
 limitations.
 

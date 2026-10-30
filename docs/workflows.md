@@ -201,3 +201,88 @@ listener, so lending stays independent of workflows.
   off/assisted/automated modes and the safe escalation when a tool gives no usable answer.
 - **`workflows/catalog.py`** imports every business workflow (WF-0001 to WF-0004) so its definitions and
   handlers are registered wherever the application or the CLI starts.
+
+## Stored definitions (Phase 17)
+
+Workflows can now be **imported as data** as well as registered in code. A stored
+definition is the JSON form of the same `WorkflowDefinition` model, so the engine runs it
+exactly like a code one: same step types, approvals and four-eyes rules, retries, timeouts,
+history and task inbox. Code: `store.py` (where a definition comes from), `validation.py`
+(full validation), `authoring.py` (import, export, retire), `library.py` (handlers stored
+definitions may use), `examples/` (WF-1001).
+
+| | Code definitions | Stored definitions |
+| --- | --- | --- |
+| Defined by | a Python module (`wf0001.py` …) | a JSON document, imported through the API or CLI |
+| Handlers | their own, any Python | the handler library only (`core.*`), configured by `params` |
+| Input | a Pydantic model | a JSON Schema (draft 2020-12) for an object |
+| Case naming | `register_presenter` | the definition's `presentation` |
+| Recorded in `workflow_definitions` | on first use (`source = 'code'`) | on import (`source = 'stored'`), with the importer |
+| Lifecycle | in code | `active` ⇄ `retired` (retired: no new cases; running ones finish) |
+| New process | must import the module | loads it from the database on first use |
+
+The model change was additive: `params` and `presentation` are optional and left out of the
+canonical JSON when unset, so the content hashes of WF-0001 to WF-0004 (and of the snapshots
+running cases depend on) are unchanged; a test pins them.
+
+### Validation
+
+`POST /api/v1/workflow-definitions/validate` (or `python -m app.cli workflows validate`)
+returns every problem, each with a location such as `steps.check_country.params` and a
+code, before anything is stored. Errors block an import; warnings do not.
+
+| Area | Checks (error codes) |
+| --- | --- |
+| Shape | the definition model's fields (`missing`, `literal_error`, …); at most 200 steps, 256 KB |
+| Graph | targets exist (`unknown_step`), handler/approval/transition/wait/parallel shapes, a completion step, every step reachable (`unreachable`), every step can still reach an end (`cannot_finish`) |
+| Ownership | the id is not registered in code (`owned_by_code`); trigger `api` or `event` (`trigger_unsupported`) |
+| Versions | a stored version is immutable (`version_exists`); a new one is higher than every stored one (`version_not_increasing`); an identical re-import is a no-op |
+| Handlers | service tasks name a library handler (`unknown_handler`); `params` match its model; AI steps are refused until the library has AI handlers (`handler_unavailable`); only service tasks take params (`params_unused`) |
+| Context paths | conditions, handler params and the presentation read an input field the schema defines, an earlier step's output or a known key (`unknown_input_field`, `unknown_path`) |
+| People | approval permissions exist (`unknown_permission`) and some person's role holds them (`nobody_can_act`; administrators only is a warning); four-eyes references name task or approval steps (`unknown_task`) |
+| Waiting | timeouts only on tasks, approvals and waits (`timeout_unsupported`); signal names |
+| Input | a valid JSON Schema (`schema_invalid`) for an object (`schema_not_object`) whose required fields exist (`unknown_field`) |
+| Warnings | `no_fallback` (a decision can match nothing), `no_outcome`, `open_input` (extra input fields accepted), `no_presentation`, `administrators_only` |
+
+### The handler library
+
+| Handler | Params | Does |
+| --- | --- | --- |
+| `core.set_values` | `values` | records fixed values (product codes, limits) |
+| `core.copy_values` | `fields` (name → context path), `required` | copies input or earlier outputs under new names |
+| `core.check` | `condition`, `code`, `message` | fails the step with a business error unless the condition holds (route it with `on_failure`) |
+| `core.business_key` | `path`, `prefix` | sets the case reference shown in lists and searches |
+| `core.notify` | `channel`, `template`, `recipient_path` | records a synthetic notification (nothing leaves the platform) |
+| `core.set_outcome` | `outcome` | sets the outcome the case completes with |
+
+`GET /api/v1/workflow-definitions/handlers` returns each handler's params as JSON Schema.
+Milestone B's next step extends the library (screening, ledger postings, AI calls,
+application calls) so stored workflows can change banking records.
+
+### WF-1001 Customer Address Change (the example)
+
+Imported by `seed-demo` from `examples/WF-1001.json`; built only from library handlers:
+
+1. `assign_key` sets the reference `ADDR-<customer number>`.
+2. `check_country` fails unless the bank operates in the country; its `on_failure` route
+   tells the customer and completes as `rejected`.
+3. `route_by_reason`: corrections go straight to `record_change`; suspected fraud goes to a
+   compliance approval (`customers:review`); moves go to a colleague's approval
+   (`customers:manage`). Both approvals are four-eyes (not the initiator) and flagged
+   overdue after two days and one day.
+4. Approved: `record_change` records the new address, a letter confirms it, outcome
+   `updated`. Declined: a letter, outcome `declined`.
+
+It records the approved change in the case; it does not edit the customer's record —
+writing to banking records needs domain handlers, which stored definitions do not have yet.
+
+### Authoring
+
+- **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and
+  *Retired*); *Start a case* opens a form generated from the input schema; *Export JSON*
+  downloads any definition; *Import definition* (administrators, `workflows:define`)
+  validates pasted JSON, lists every problem, and can start from a stored workflow as its
+  next version; *Retire / Reactivate* changes a stored version's status.
+- **CLI** — `python -m app.cli workflows list | validate FILE | import FILE [--as-user]
+  | export WF-ID [--version] [--output]`.
+- **API** — see `docs/api.md` (*Workflow definitions*).

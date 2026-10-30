@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
@@ -9,16 +9,21 @@ from app.core.idempotency import REPLAY_HEADER, IdempotencyKey
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.identity.dependencies import Authorized, CurrentUser
-from app.modules.workflows import engine, service
-from app.modules.workflows.models import ExecutionStatus
+from app.modules.workflows import authoring, engine, service
+from app.modules.workflows.models import DefinitionStatus, ExecutionStatus
 from app.modules.workflows.schemas import (
     CancelIn,
+    DefinitionDocument,
     ExecutionDetail,
     ExecutionSummary,
+    ImportResult,
+    LibraryHandlerOut,
     SignalIn,
     StartExecution,
+    StoredDefinitionOut,
     TaskCompletion,
     TaskOut,
+    ValidationReportOut,
     WorkflowDefinitionOut,
     WorkflowEventOut,
     WorkflowMetrics,
@@ -26,6 +31,7 @@ from app.modules.workflows.schemas import (
 )
 
 definitions_router = APIRouter(prefix="/workflows", tags=["workflows"])
+authoring_router = APIRouter(prefix="/workflow-definitions", tags=["workflows"])
 executions_router = APIRouter(prefix="/workflow-executions", tags=["workflows"])
 tasks_router = APIRouter(prefix="/workflow-tasks", tags=["workflows"])
 
@@ -35,10 +41,11 @@ tasks_router = APIRouter(prefix="/workflow-tasks", tags=["workflows"])
 
 @definitions_router.get("", response_model=list[WorkflowSummary], summary="Registered workflows")
 def list_workflows(
+    db: DbSession,
     _: Authorized(Permission.WORKFLOWS_READ),
     q: Annotated[str | None, Query(max_length=100)] = None,
 ) -> list[WorkflowSummary]:
-    return service.list_workflows(q)
+    return service.list_workflows(db, q)
 
 
 @definitions_router.get(
@@ -46,10 +53,25 @@ def list_workflows(
 )
 def get_workflow(
     workflow_id: str,
+    db: DbSession,
     _: Authorized(Permission.WORKFLOWS_READ),
     version: Annotated[int | None, Query(ge=1)] = None,
 ) -> WorkflowDefinitionOut:
-    return service.definition_out(service.get_definition(workflow_id, version))
+    return service.definition_out(db, service.get_definition(db, workflow_id, version))
+
+
+@definitions_router.get(
+    "/{workflow_id}/export",
+    response_model=dict[str, Any],
+    summary="The definition as an importable document (code or stored)",
+)
+def export_workflow(
+    workflow_id: str,
+    db: DbSession,
+    _: Authorized(Permission.WORKFLOWS_READ),
+    version: Annotated[int | None, Query(ge=1)] = None,
+) -> dict[str, Any]:
+    return authoring.export(db, workflow_id, version)
 
 
 @definitions_router.get(
@@ -90,6 +112,83 @@ def start_execution(
         content=service.execution_detail(db, execution).model_dump(mode="json"),
         headers={REPLAY_HEADER: "true"} if replayed else None,
     )
+
+
+# --- Stored definitions (import, lifecycle) -----------------------------------------------
+
+
+@authoring_router.get(
+    "", response_model=list[StoredDefinitionOut], summary="Every imported definition version"
+)
+def list_stored_definitions(
+    db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+) -> list[StoredDefinitionOut]:
+    return service.stored_definitions(db)
+
+
+@authoring_router.get(
+    "/handlers",
+    response_model=list[LibraryHandlerOut],
+    summary="The step-handler library stored definitions may use",
+)
+def list_library_handlers(_: Authorized(Permission.WORKFLOWS_READ)) -> list[LibraryHandlerOut]:
+    return service.library_handlers()
+
+
+@authoring_router.post(
+    "/validate",
+    response_model=ValidationReportOut,
+    summary="Validate a definition document without importing it (every problem listed)",
+)
+def validate_definition(
+    body: DefinitionDocument, db: DbSession, _: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> ValidationReportOut:
+    return service.report_out(authoring.validate(db, body.definition))
+
+
+@authoring_router.post(
+    "",
+    response_model=ImportResult,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import a definition version (201; 200 when this exact version is already stored)",
+)
+def import_definition(
+    body: DefinitionDocument, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+):
+    record, created, report = authoring.import_definition(db, body.definition, actor.id)
+    result = ImportResult(
+        created=created,
+        definition=service.stored_definition_out(db, record),
+        warnings=report.warnings,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        content=result.model_dump(mode="json"),
+    )
+
+
+@authoring_router.post(
+    "/{workflow_id}/versions/{version}/retire",
+    response_model=StoredDefinitionOut,
+    summary="Retire a stored version: no new executions; running ones finish on it",
+)
+def retire_definition(
+    workflow_id: str, version: int, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> StoredDefinitionOut:
+    record = authoring.set_status(db, workflow_id, version, DefinitionStatus.RETIRED, actor.id)
+    return service.stored_definition_out(db, record)
+
+
+@authoring_router.post(
+    "/{workflow_id}/versions/{version}/reactivate",
+    response_model=StoredDefinitionOut,
+    summary="Make a retired stored version startable again",
+)
+def reactivate_definition(
+    workflow_id: str, version: int, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> StoredDefinitionOut:
+    record = authoring.set_status(db, workflow_id, version, DefinitionStatus.ACTIVE, actor.id)
+    return service.stored_definition_out(db, record)
 
 
 # --- Executions ----------------------------------------------------------------------------

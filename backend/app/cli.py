@@ -12,6 +12,9 @@
     python -m app.cli simulation-history reset --archive --yes          # clear sim history
     python -m app.cli simulate --profile large --shards 8               # 100k cases, parallel
     python -m app.cli perf --quick                                      # performance suite
+    python -m app.cli workflows validate my-workflow.json               # check a definition
+    python -m app.cli workflows import my-workflow.json --as-user admin # store a definition
+    python -m app.cli workflows export WF-1001 --output wf-1001.json    # any definition
 """
 
 import argparse
@@ -71,6 +74,8 @@ def _seed_demo(args: argparse.Namespace) -> int:
         )
     if report.ai_tools:
         print(f"Registered AI tools: {', '.join(report.ai_tools)}")
+    if report.stored_definitions:
+        print(f"Imported stored workflow definitions: {', '.join(report.stored_definitions)}")
     print("\nDemo sign-ins (local development only):")
     for username, _, label in DEMO_USERS:
         print(f"  {username:<12} {label}")
@@ -328,6 +333,66 @@ def _run_number_id(db, run_number: int):
     return run_id
 
 
+def _workflows(args: argparse.Namespace) -> int:
+    from sqlalchemy import select
+
+    from app.modules.identity.models import User
+    from app.modules.workflows import authoring, service
+
+    factory = get_sessionmaker()
+
+    def problems(report_out) -> None:
+        for kind, items in (("error", report_out.errors), ("warning", report_out.warnings)):
+            for p in items:
+                print(f"  {kind:<7} {p.location}: {p.message} [{p.code}]")
+
+    try:
+        if args.action == "list":
+            with factory() as db:
+                for w in service.list_workflows(db):
+                    print(
+                        f"{w.workflow_id}  v{w.version:<3} {w.source:<6} {w.status:<7} "
+                        f"{w.name} (versions {', '.join(map(str, w.versions))})"
+                    )
+        elif args.action == "export":
+            with factory() as db:
+                document = authoring.export(db, args.workflow_id, args.version)
+            text = json.dumps(document, indent=2) + "\n"
+            if args.output:
+                with open(args.output, "w") as f:
+                    f.write(text)
+                print(f"Wrote {args.workflow_id} v{document['version']} to {args.output}")
+            else:
+                print(text, end="")
+        else:
+            with open(args.file) as f:
+                document = json.load(f)
+            with factory() as db, db.begin():
+                report = service.report_out(authoring.validate(db, document))
+                if args.action == "validate" or not report.valid:
+                    state = "valid" if report.valid else "INVALID"
+                    print(f"{report.workflow_id} v{report.version}: {state} ({report.existing})")
+                    problems(report)
+                    return 0 if report.valid else 1
+                actor = db.execute(
+                    select(User.id).where(User.username == args.as_user)
+                ).scalar_one_or_none()
+                if actor is None:
+                    print(f"No user '{args.as_user}'.")
+                    return 2
+                record, created, _ = authoring.import_definition(db, document, actor)
+                verb = "Imported" if created else "Already stored (unchanged):"
+                print(f"{verb} {record.workflow_id} v{record.version} ({record.content_hash[:12]})")
+                problems(report)
+    except DomainError as exc:
+        print(f"Refused: {exc.message}")
+        return 1
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"Cannot read the definition: {exc}")
+        return 2
+    return 0
+
+
 def _simulation_history(args: argparse.Namespace) -> int:
     from app.simulation import history, service
 
@@ -494,6 +559,22 @@ def main(argv: list[str] | None = None) -> int:
     reset.add_argument("--archive", action="store_true", help="Archive each run first")
     reset.add_argument("--yes", action="store_true", help="Confirm")
     sim_history.set_defaults(handler=_simulation_history)
+
+    workflows = commands.add_parser(
+        "workflows", help="List, validate, import and export workflow definitions"
+    )
+    wf_actions = workflows.add_subparsers(dest="action", required=True)
+    wf_actions.add_parser("list", help="Every workflow, code and stored")
+    wf_validate = wf_actions.add_parser("validate", help="Check a definition file (no import)")
+    wf_validate.add_argument("file")
+    wf_import = wf_actions.add_parser("import", help="Validate and store a definition file")
+    wf_import.add_argument("file")
+    wf_import.add_argument("--as-user", default="admin", help="Recorded as the importer")
+    wf_export = wf_actions.add_parser("export", help="Write a definition as an importable file")
+    wf_export.add_argument("workflow_id")
+    wf_export.add_argument("--version", type=int)
+    wf_export.add_argument("--output", help="File to write (default: standard output)")
+    workflows.set_defaults(handler=_workflows)
 
     args = parser.parse_args(argv)
     return args.handler(args)

@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Play, Search, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, Play, Search, Upload, XCircle } from "lucide-react";
 import { type FormEvent, Fragment, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -11,16 +11,19 @@ import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatMilliseconds as formatDuration, formatTimestamp } from "@/features/dashboard/format";
+import { ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
 import { newIdempotencyKey } from "@/services/api";
 import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
 import {
+  exportDefinition,
   syntheticDocumentNumber,
   useCompleteTask,
   useExecution,
   useExecutionHistory,
   useExecutions,
+  useSetDefinitionStatus,
   useSignal,
   useStartExecution,
   useTasks,
@@ -28,7 +31,7 @@ import {
   useWorkflowMetrics,
   useWorkflows,
 } from "@/services/workflows";
-import type { ExecutionDetail, ExecutionStatus, StepRun, WorkflowTask } from "@/types/workflows";
+import type { ExecutionDetail, ExecutionStatus, StepRun, WorkflowSummary, WorkflowTask } from "@/types/workflows";
 
 type Tab = "catalogue" | "executions" | "tasks";
 const PAGE_SIZE = 25;
@@ -40,6 +43,7 @@ const EXECUTION_TONE: Record<ExecutionStatus, Tone> = {
   failed: "bad",
   cancelled: "neutral",
 };
+const NEGATIVE_OUTCOMES = new Set(["rejected", "declined", "failed", "cancelled", "written_off"]);
 const RUN_TONE: Record<StepRun["status"], Tone> = {
   pending: "warn",
   waiting: "warn",
@@ -56,6 +60,59 @@ function TypeTag({ type }: { type: string }) {
 
 // --- Catalogue ------------------------------------------------------------------------------
 
+function SourceBadges({ workflow }: { workflow: Pick<WorkflowSummary, "source" | "status"> }) {
+  return (
+    <>
+      {workflow.source === "stored" && (
+        <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">Stored</span>
+      )}
+      {workflow.status === "retired" && (
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Retired</span>
+      )}
+    </>
+  );
+}
+
+function download(name: string, data: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function DefinitionActions({ workflowId, version, source, status }: { workflowId: string; version: number; source: string; status: string }) {
+  const { can } = useAuth();
+  const setStatus = useSetDefinitionStatus();
+  const [exportError, setExportError] = useState<unknown>(null);
+  const onExport = () =>
+    exportDefinition(workflowId, version).then(
+      (document) => download(`${workflowId}-v${version}.json`, document),
+      setExportError,
+    );
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="flex gap-1.5">
+        <Button size="sm" variant="secondary" onClick={() => void onExport()}>
+          <Download aria-hidden className="h-3.5 w-3.5" /> Export JSON
+        </Button>
+        {source === "stored" && can("workflows:define") && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={setStatus.isPending}
+            onClick={() => setStatus.mutate({ workflowId, version, action: status === "retired" ? "reactivate" : "retire" })}
+          >
+            {status === "retired" ? `Reactivate v${version}` : `Retire v${version}`}
+          </Button>
+        )}
+      </div>
+      <ErrorMessage error={setStatus.error ?? exportError} />
+    </div>
+  );
+}
+
 function DefinitionView({ id }: { id: string }) {
   const definition = useWorkflowDefinition(id);
   const metrics = useWorkflowMetrics(id);
@@ -67,16 +124,21 @@ function DefinitionView({ id }: { id: string }) {
 
   return (
     <div className="space-y-5">
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm text-slate-500">{d.workflow_id}</span>
-          <h2 className="text-lg font-semibold text-slate-900">{d.name}</h2>
-          <span className="text-xs text-slate-500">v{d.version}</span>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-sm text-slate-500">{d.workflow_id}</span>
+            <h2 className="text-lg font-semibold text-slate-900">{d.name}</h2>
+            <span className="text-xs text-slate-500">v{d.version}</span>
+            <SourceBadges workflow={d} />
+          </div>
+          <p className="mt-1 text-sm text-slate-600">{d.description}</p>
+          <p className="mt-1 text-xs text-slate-500">
+            Owner: {d.business_owner} · Trigger: {d.trigger_type} ·{" "}
+            {d.source === "stored" ? "Stored definition (imported as data)" : "Registered in code"}
+          </p>
         </div>
-        <p className="mt-1 text-sm text-slate-600">{d.description}</p>
-        <p className="mt-1 text-xs text-slate-500">
-          Owner: {d.business_owner} · Trigger: {d.trigger_type}
-        </p>
+        <DefinitionActions workflowId={d.workflow_id} version={d.version} source={d.source} status={d.status} />
       </div>
       {m && (
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -119,8 +181,8 @@ function DefinitionView({ id }: { id: string }) {
                 ? `Needs ${step.approval.permissions.join(" + ")}; not ${step.approval.distinct_from.join(", ")}`
                 : step.signal
                   ? `Waits for “${step.signal}”`
-                  : step.retry
-                    ? `Retry ×${step.retry.max_attempts}`
+                  : step.handler
+                    ? `Handler ${step.handler}${step.retry ? ` · retry ×${step.retry.max_attempts}` : ""}`
                     : "";
               const bottleneck = m?.bottleneck_step === step.id;
               return (
@@ -308,7 +370,11 @@ function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
   const workflows = useWorkflows(q || undefined);
   const [selected, setSelected] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const current = selected ?? workflows.data?.[0]?.workflow_id ?? null;
+  const summary = workflows.data?.find((w) => w.workflow_id === current);
+  const storedStartable = summary?.source === "stored" && summary.status === "active";
+  const definition = useWorkflowDefinition(storedStartable ? current : null);
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
@@ -332,7 +398,9 @@ function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
                 onClick={() => setSelected(w.workflow_id)}
                 className={`w-full rounded-lg border p-3 text-left ${current === w.workflow_id ? "border-navy-700 bg-navy-900/5" : "border-slate-200 bg-white hover:bg-slate-50"}`}
               >
-                <div className="font-mono text-[11px] text-slate-500">{w.workflow_id}</div>
+                <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+                  {w.workflow_id} <SourceBadges workflow={w} />
+                </div>
                 <div className="text-sm font-medium text-slate-900">{w.name}</div>
                 <div className="text-xs text-slate-500">
                   v{w.version} · {w.step_count} steps
@@ -342,12 +410,39 @@ function CatalogueTab({ onStarted }: { onStarted: (id: string) => void }) {
           ))}
           {workflows.data?.length === 0 && <li className="text-sm text-slate-500">No workflows match.</li>}
         </ul>
-        {current && START_LABELS[current] && can("workflows:start") && (
+        {current && (START_LABELS[current] || storedStartable) && can("workflows:start") && (
           <Button className="w-full" onClick={() => setStarting(true)}>
-            <Play aria-hidden className="h-4 w-4" /> {START_LABELS[current]}
+            <Play aria-hidden className="h-4 w-4" /> {START_LABELS[current] ?? "Start a case"}
+          </Button>
+        )}
+        {can("workflows:define") && (
+          <Button className="w-full" variant="secondary" onClick={() => setImporting(true)}>
+            <Upload aria-hidden className="h-4 w-4" /> Import definition
           </Button>
         )}
       </div>
+      {importing && (
+        <ImportDefinitionDialog
+          startFrom={summary?.source === "stored" ? summary.workflow_id : null}
+          onClose={() => setImporting(false)}
+          onImported={(workflowId) => {
+            setImporting(false);
+            setSelected(workflowId);
+          }}
+        />
+      )}
+      {starting && storedStartable && current && definition.data && (
+        <StartFromSchemaDialog
+          workflowId={current}
+          name={definition.data.name}
+          schema={definition.data.input_schema}
+          onClose={() => setStarting(false)}
+          onStarted={(id) => {
+            setStarting(false);
+            onStarted(id);
+          }}
+        />
+      )}
       <div>{current && <DefinitionView id={current} />}</div>
       {starting && current && (() => {
         const Dialog = START_DIALOGS[current];
@@ -425,7 +520,7 @@ function ExecutionView({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
             <div className="flex items-center gap-2">
               <StatusPill tone={EXECUTION_TONE[e.status]} label={humanize(e.status)} />
-              {e.outcome && <StatusPill tone={e.outcome === "approved" ? "good" : "bad"} label={humanize(e.outcome)} />}
+              {e.outcome && <StatusPill tone={NEGATIVE_OUTCOMES.has(e.outcome) ? "bad" : "good"} label={humanize(e.outcome)} />}
             </div>
           </div>
           {e.error && (

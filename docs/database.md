@@ -31,6 +31,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0013_partitioned_history` | 15 | Workflow executions, step runs and events become LIST-partitioned on `realm` (live, simulation); keys `(id, realm)`; `ai_tool_invocations.execution_realm`; events guard allows purging simulation rows only |
 | `0014_archives_observability` | 15 | `simulation_archives`, `simulation_runs.history_state`, `job_workers`, `slow_queries`; the (disabled) history retention schedule |
 | `0015_simulation_shards` | 16 | `simulation_shards`; the stored-balance trigger honours `atlas.balance_shard` |
+| `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
 
 Common commands (from `backend/`):
 
@@ -245,6 +246,23 @@ two shards' long transactions never lock the same balance row of a busy account 
 currency's cash account) — without it, parallel payment shards deadlocked. Reads and
 reconciliation sum all eight rows and are unchanged.
 
+### Stored workflow definitions (Phase 17, migration `0016_stored_definitions`)
+
+`workflow_definitions` now holds both kinds of definition version:
+
+| Column | Contents |
+| --- | --- |
+| `source` | `code` (snapshotted on first use, as before) or `stored` (imported as data) |
+| `status` | `active` or `retired` (stored versions only; retired accepts no new executions) |
+| `imported_by` | the user who imported a stored version |
+| `status_changed_at`, `status_changed_by` | the last retire or reactivate |
+
+Checks: `source` and `status` take only those values; a code row is always active and has
+no importer. A partial index (`source = 'stored'`) serves the catalogue. `definition` and
+`content_hash` never change after insert — a new version is a new row. Existing rows are
+code snapshots and keep their content. Downgrading removes unused stored versions and
+refuses while executions ran on one.
+
 ### Search and sort indexes (Phase 13, migration `0011_search_indexes`)
 
 The `pg_trgm` extension and GIN trigram indexes for substring searches:
@@ -266,7 +284,7 @@ sorts both columns descending so the index is read backwards. No table changes.
 
 | Table | Contents |
 | --- | --- |
-| `workflow_definitions` | Snapshot of each definition version used: `workflow_id`, `version` (unique together), `definition` (jsonb), `content_hash` |
+| `workflow_definitions` | Each definition version: code ones snapshotted on first use, stored ones on import (Phase 17): `workflow_id`, `version` (unique together), `definition` (jsonb), `content_hash`, `source`, `status` |
 | `workflow_executions` | `workflow_id`, `workflow_version`, `definition_id`, `status` (running, waiting, completed, failed, cancelled), `outcome`, `current_steps`, `context` (jsonb), `error`, `business_key`, `initiated_by`, `idempotency_key` (unique per initiator), `correlation_id`, `started_at`, `completed_at`, `step_counter` |
 | `workflow_step_runs` | One row per step visit: `sequence` (unique per execution), `step_id`, `step_type`, `status` (pending, waiting, completed, failed, cancelled), `branch`, `attempt`, `required_permissions`, `actor_id`, `output`, `error`, `created_at`, `started_at`, `completed_at`, `duration_ms`, `not_before` (retry), `due_at` (timeout), `escalated_at`. Partial indexes for due pending runs and waiting timers. |
 | `workflow_events` | Append-only history (`seq` identity, `event_type`, `occurred_at`, `actor_id`, `data`); triggers reject UPDATE, DELETE, TRUNCATE |

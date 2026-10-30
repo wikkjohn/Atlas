@@ -14,11 +14,14 @@ class WorkflowSummary(BaseModel):
     business_owner: str
     trigger_type: str
     step_count: int
+    source: Literal["code", "stored"] = "code"
+    status: Literal["active", "retired"] = "active"  # of the version shown
 
 
 class WorkflowDefinitionOut(WorkflowSummary):
     start: str
     input_schema: dict[str, Any]
+    presentation: dict[str, Any] | None = None
     steps: list[dict[str, Any]]
     transition_rules: list[dict[str, Any]]
     approval_policies: list[dict[str, Any]]
@@ -142,3 +145,59 @@ class WorkflowMetrics(BaseModel):
     avg_execution_ms: float | None
     bottleneck_step: str | None
     steps: list[StepMetric]
+
+
+# --- Stored definitions (Phase 17) ---------------------------------------------------------
+
+
+class DefinitionDocument(BaseModel):
+    """A workflow definition as JSON (the shape `GET /workflows/{id}/export` returns). It is
+    taken as raw data so that validation can report every problem, not the first."""
+
+    definition: dict[str, Any]
+
+
+class DefinitionProblem(BaseModel):
+    location: str
+    code: str
+    message: str
+
+
+class ValidationReportOut(BaseModel):
+    valid: bool
+    workflow_id: str | None
+    version: int | None
+    content_hash: str | None
+    # "new": importable; "identical": already stored unchanged (importing is a no-op).
+    existing: Literal["new", "identical"] | None
+    errors: list[DefinitionProblem]
+    warnings: list[DefinitionProblem]
+
+
+class StoredDefinitionOut(BaseModel):
+    id: uuid.UUID
+    workflow_id: str
+    version: int
+    name: str
+    status: Literal["active", "retired"]
+    content_hash: str
+    step_count: int
+    imported_by: uuid.UUID | None
+    imported_by_username: str | None
+    imported_at: datetime
+    status_changed_at: datetime | None
+    executions: int
+
+
+class ImportResult(BaseModel):
+    created: bool  # false: this exact version was already stored
+    definition: StoredDefinitionOut
+    warnings: list[DefinitionProblem]
+
+
+class LibraryHandlerOut(BaseModel):
+    name: str
+    step_type: str
+    summary: str
+    output: str
+    params_schema: dict[str, Any]

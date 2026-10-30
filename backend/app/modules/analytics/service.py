@@ -16,7 +16,7 @@ from app.modules.employees.models import Employee
 from app.modules.experiments.assumptions import CostAssumptions
 from app.modules.experiments.evaluation import costs
 from app.modules.experiments.models import Experiment, ExperimentEvaluation, ExperimentStatus
-from app.modules.workflows import registry
+from app.modules.workflows import registry, store
 from app.modules.workflows.models import (
     STEP_RUN_EXECUTION,
     Realm,
@@ -162,8 +162,8 @@ def overview(db: Session) -> Overview:
         .select_from(Country)
         .where(Country.operational_status == OperationalStatus.ACTIVE),
     )
-    definitions = registry.all_definitions()
-    workflow_ids = {d.workflow_id for d in definitions}
+    workflow_ids = store.workflow_ids(db)
+    versions = len(registry.all_definitions()) + len(store.stored_records(db))
 
     live = WorkflowExecution.realm == Realm.LIVE
     outcomes = dict(
@@ -263,7 +263,7 @@ def overview(db: Session) -> Overview:
             label="Registered workflows",
             value=len(workflow_ids),
             unit="count",
-            detail=f"{len(definitions)} definition version(s)",
+            detail=f"{versions} definition version(s)",
             synthetic=False,
         ),
         Metric(

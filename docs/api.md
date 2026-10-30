@@ -198,8 +198,9 @@ unchanged.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/workflows?q=` | `workflows:read` | Registered workflows (latest version) |
-| GET | `/api/v1/workflows/{id}?version=` | `workflows:read` | Definition, steps, input schema, transition/approval/failure/timeout policies |
+| GET | `/api/v1/workflows?q=` | `workflows:read` | Every workflow, code and stored (latest active version), with `source` and `status` |
+| GET | `/api/v1/workflows/{id}?version=` | `workflows:read` | Definition, steps, input schema, presentation, transition/approval/failure/timeout policies |
+| GET | `/api/v1/workflows/{id}/export?version=` | `workflows:read` | The definition as an importable JSON document (code or stored) |
 | GET | `/api/v1/workflows/{id}/metrics` | `workflows:read` | Per-step runs, completions, failures, retries, avg/p50/p95/max duration; bottleneck step |
 | POST | `/api/v1/workflows/{id}/executions` | `workflows:start` | `{input}`; validated against the input schema; optional `Idempotency-Key` (same key → same execution, 200) |
 | GET | `/api/v1/workflow-executions` | `workflows:read` | Filters: `workflow_id`, `status`, `outcome`, `business_key`. Live executions only, unless `simulation_run_id` asks for one simulation run's executions |
@@ -210,6 +211,22 @@ unchanged.
 | POST | `/api/v1/workflow-executions/{id}/cancel` | `workflows:manage` | `{reason}` |
 | GET | `/api/v1/workflow-tasks?actionable=` | signed in | Open tasks/approvals with `can_act` and `blocked_reason` for the caller |
 | POST | `/api/v1/workflow-tasks/{run_id}/complete` | the step's permissions | `{decision?, data?, note?}`; four-eyes enforced; a task completes once (409 after) |
+
+#### Workflow definitions (Phase 17)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/workflow-definitions` | `workflows:read` | Every stored version: status, content hash, importer, executions |
+| GET | `/api/v1/workflow-definitions/handlers` | `workflows:read` | The handler library: name, summary, output, params as JSON Schema |
+| POST | `/api/v1/workflow-definitions/validate` | `workflows:define` | `{definition}` → `{valid, workflow_id, version, content_hash, existing, errors[], warnings[]}`; stores nothing |
+| POST | `/api/v1/workflow-definitions` | `workflows:define` | `{definition}` → 201 `{created, definition, warnings}`; 200 when this exact version is already stored; 422 `definition_invalid` with every error |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | No new executions on that version; running ones finish on it |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/reactivate` | `workflows:define` | Startable again |
+
+Starting a stored workflow uses the same `POST /api/v1/workflows/{id}/executions`; its input
+is checked against the definition's JSON Schema, errors in the same format. Starting a
+retired version (or a workflow whose versions are all retired) returns 409.
+`workflows:define` is held by platform administrators.
 
 Simulated executions (driven by the Phase 5 simulation engine on simulated time) are kept
 out of the task inbox, the metrics and the `run_due` timer sweep; each carries its

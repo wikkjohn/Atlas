@@ -5,6 +5,10 @@ import type { Page } from "@/types/enterprise";
 import type {
   ExecutionDetail,
   ExecutionSummary,
+  ImportResult,
+  LibraryHandler,
+  StoredDefinition,
+  ValidationReport,
   WorkflowDefinition,
   WorkflowEvent,
   WorkflowMetrics,
@@ -17,7 +21,7 @@ type Params = Record<string, string | number | boolean | null | undefined>;
 function useInvalidate() {
   const client = useQueryClient();
   return () => {
-    for (const key of ["workflows", "workflow-executions", "workflow-tasks", "customers", "accounts", "payments", "loans"]) {
+    for (const key of ["workflows", "workflow-definitions", "workflow-executions", "workflow-tasks", "customers", "accounts", "payments", "loans"]) {
       void client.invalidateQueries({ queryKey: [key] });
     }
   };
@@ -103,4 +107,46 @@ export function syntheticDocumentNumber(kind: "passport" | "national_id" | "proo
   const body = String(Math.floor(Math.random() * 10_000_000)).padStart(7, "0");
   const check = [...body].reduce((sum, d) => sum + Number(d), 0) % 10;
   return `${prefix}${body}${check}`;
+}
+
+// --- Stored definitions (Phase 17) ----------------------------------------------------------
+
+export const useStoredDefinitions = () =>
+  useQuery({
+    queryKey: ["workflow-definitions", "list"],
+    queryFn: () => apiGet<StoredDefinition[]>("/api/v1/workflow-definitions"),
+  });
+
+export const useLibraryHandlers = () =>
+  useQuery({
+    queryKey: ["workflow-definitions", "handlers"],
+    queryFn: () => apiGet<LibraryHandler[]>("/api/v1/workflow-definitions/handlers"),
+    staleTime: Infinity,
+  });
+
+export const exportDefinition = (workflowId: string, version?: number) =>
+  apiGet<Record<string, unknown>>(`/api/v1/workflows/${workflowId}/export${query({ version })}`);
+
+export const useValidateDefinition = () =>
+  useMutation({
+    mutationFn: (definition: unknown) =>
+      apiPost<ValidationReport>("/api/v1/workflow-definitions/validate", { definition }),
+  });
+
+export function useImportDefinition() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (definition: unknown) =>
+      apiPost<ImportResult>("/api/v1/workflow-definitions", { definition }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetDefinitionStatus() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ workflowId, version, action }: { workflowId: string; version: number; action: "retire" | "reactivate" }) =>
+      apiPost<StoredDefinition>(`/api/v1/workflow-definitions/${workflowId}/versions/${version}/${action}`, {}),
+    onSuccess: invalidate,
+  });
 }

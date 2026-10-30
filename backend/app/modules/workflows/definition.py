@@ -10,7 +10,8 @@ import json
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, model_validator
+from pydantic_core import PydanticCustomError
 
 
 class StepType(StrEnum):
@@ -149,6 +150,8 @@ class StepDefinition(BaseModel):
     on_failure: str | None = None  # where to go when retries are exhausted
     timeout: TimeoutPolicy | None = None
     outcome: str | None = None  # completion: fixed outcome (else context["outcome"])
+    # Settings for a library handler (see library.py); checked against its params model.
+    params: dict[str, Any] | None = None
 
     def targets(self) -> list[str]:
         out = [t.to for t in self.transitions] + [x for x in (self.next, self.on_failure) if x]
@@ -156,6 +159,29 @@ class StepDefinition(BaseModel):
         if self.timeout and self.timeout.to:
             out.append(self.timeout.to)
         return out
+
+
+class Presentation(BaseModel):
+    """How a workflow's cases are named in lists and inboxes: what the case is about
+    (`subject_path`) and its risk (`risk_path`), both dotted paths into the context."""
+
+    subject_path: str
+    risk_path: str | None = None
+    flags_path: str | None = None
+
+    def present(self, context: dict[str, Any]) -> dict[str, Any]:
+        def value(path: str | None) -> Any:
+            return resolve(context, path)[1] if path else None
+
+        return {
+            "subject": value(self.subject_path),
+            "risk_rating": value(self.risk_path),
+            "flags": value(self.flags_path) or [],
+        }
+
+
+def problem(location: str, code: str, message: str) -> dict[str, str]:
+    return {"location": location, "code": code, "message": message}
 
 
 class WorkflowDefinition(BaseModel):
@@ -168,46 +194,83 @@ class WorkflowDefinition(BaseModel):
     input_schema: dict[str, Any] = Field(default_factory=dict)
     start: str
     steps: list[StepDefinition]
+    # Stored definitions carry their presentation; code registers a Presenter instead.
+    presentation: Presentation | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
     @model_validator(mode="after")
-    def _validate_graph(self) -> "WorkflowDefinition":
-        by_id = {s.id: s for s in self.steps}
-        if len(by_id) != len(self.steps):
-            raise ValueError("Step ids must be unique.")
-        if self.start not in by_id:
-            raise ValueError(f"Start step '{self.start}' does not exist.")
+    def _validate_graph(self, info: ValidationInfo) -> "WorkflowDefinition":
+        if info.context and info.context.get("defer_graph"):
+            return self  # the caller reports graph_problems() with its other checks
+        problems = self.graph_problems()
+        if problems:
+            raise PydanticCustomError(
+                "workflow_graph",
+                "{summary}",
+                {"summary": "; ".join(p["message"] for p in problems), "problems": problems},
+            )
+        return self
+
+    def graph_problems(self) -> list[dict[str, str]]:
+        """Every structural problem of the step graph (not only the first)."""
+        problems: list[dict[str, str]] = []
+        by_id: dict[str, StepDefinition] = {}
         for step in self.steps:
+            if step.id in by_id:
+                problems.append(
+                    problem(f"steps.{step.id}", "duplicate_step", "Step ids must be unique.")
+                )
+            by_id[step.id] = step
+        if self.start not in by_id:
+            problems.append(
+                problem("start", "unknown_step", f"Start step '{self.start}' does not exist.")
+            )
+        for step in self.steps:
+            at = f"steps.{step.id}"
+
+            def add(code: str, message: str, at: str = at) -> None:
+                problems.append(problem(at, code, message))
+
             for target in step.targets():
                 if target not in by_id:
-                    raise ValueError(f"Step '{step.id}' points to unknown step '{target}'.")
+                    add("unknown_step", f"Step '{step.id}' points to unknown step '{target}'.")
             if step.type in HANDLER_TYPES and not step.handler:
-                raise ValueError(f"Step '{step.id}' ({step.type}) needs a handler.")
+                add("handler_required", f"Step '{step.id}' ({step.type}) needs a handler.")
             if step.type in (StepType.APPROVAL, StepType.HUMAN_TASK) and not step.approval:
-                raise ValueError(f"Step '{step.id}' needs an approval policy.")
+                add("approval_required", f"Step '{step.id}' needs an approval policy.")
             if step.type == StepType.APPROVAL and not step.transitions:
-                raise ValueError(f"Approval '{step.id}' needs approve/reject transitions.")
+                add(
+                    "transitions_required",
+                    f"Approval '{step.id}' needs approve/reject transitions.",
+                )
             if step.type == StepType.WAIT and not (step.signal or step.timeout):
-                raise ValueError(f"Wait '{step.id}' needs a signal and/or a timeout.")
+                add("wait_trigger_required", f"Wait '{step.id}' needs a signal and/or a timeout.")
             if step.type == StepType.PARALLEL:
                 if len(step.branches) < 2 or not step.join:
-                    raise ValueError(f"Parallel '{step.id}' needs 2+ branches and a join.")
-                if by_id[step.join].type != StepType.JOIN:
-                    raise ValueError(f"Parallel '{step.id}' join must be a join step.")
+                    add("parallel_shape", f"Parallel '{step.id}' needs 2+ branches and a join.")
+                elif step.join in by_id and by_id[step.join].type != StepType.JOIN:
+                    add("parallel_shape", f"Parallel '{step.id}' join must be a join step.")
+                elif step.join not in by_id:
+                    add("unknown_step", f"Parallel '{step.id}' joins unknown step '{step.join}'.")
             if step.type == StepType.DECISION and not step.transitions:
-                raise ValueError(f"Decision '{step.id}' needs transitions.")
+                add("transitions_required", f"Decision '{step.id}' needs transitions.")
             if step.type not in TERMINAL_TYPES | {StepType.PARALLEL, StepType.DECISION}:
                 if not (step.next or step.transitions):
-                    raise ValueError(f"Step '{step.id}' has no way forward.")
+                    add("no_way_forward", f"Step '{step.id}' has no way forward.")
             if step.timeout and step.timeout.action == "transition" and not step.timeout.to:
-                raise ValueError(f"Step '{step.id}' timeout transition needs 'to'.")
+                add("timeout_target", f"Step '{step.id}' timeout transition needs 'to'.")
         if not any(s.type == StepType.COMPLETION for s in self.steps):
-            raise ValueError("A workflow needs a completion step.")
-        unreachable = set(by_id) - self._reachable(by_id)
-        if unreachable:
-            raise ValueError(f"Unreachable steps: {sorted(unreachable)}")
-        return self
+            problems.append(
+                problem("steps", "completion_required", "A workflow needs a completion step.")
+            )
+        if self.start in by_id and not any(p["code"] == "unknown_step" for p in problems):
+            unreachable = set(by_id) - self._reachable(by_id)
+            if unreachable:
+                problems.append(
+                    problem("steps", "unreachable", f"Unreachable steps: {sorted(unreachable)}")
+                )
+        return problems
 
     def _reachable(self, by_id: dict[str, StepDefinition]) -> set[str]:
         seen, stack = set(), [self.start]

@@ -9,6 +9,8 @@ export interface WorkflowSummary {
   business_owner: string;
   trigger_type: string;
   step_count: number;
+  source: "code" | "stored";
+  status: "active" | "retired";
 }
 
 export interface StepDefinition {
@@ -25,11 +27,13 @@ export interface StepDefinition {
   timeout?: { after_seconds: number; action: string; to?: string };
   retry?: { max_attempts: number; backoff_seconds: number };
   on_failure?: string;
+  params?: Record<string, unknown>;
 }
 
 export interface WorkflowDefinition extends WorkflowSummary {
   start: string;
-  input_schema: Record<string, unknown>;
+  input_schema: JsonSchema;
+  presentation?: { subject_path: string; risk_path?: string; flags_path?: string } | null;
   steps: StepDefinition[];
   transition_rules: Record<string, unknown>[];
   approval_policies: Record<string, unknown>[];
@@ -136,4 +140,71 @@ export interface WorkflowMetrics {
   avg_execution_ms: number | null;
   bottleneck_step: string | null;
   steps: StepMetric[];
+}
+
+// --- Stored definitions (Phase 17) ----------------------------------------------------------
+
+/** The subset of JSON Schema the generic start form understands. */
+export interface JsonSchemaProperty {
+  type?: "string" | "integer" | "number" | "boolean";
+  enum?: (string | number)[];
+  description?: string;
+  pattern?: string;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  format?: string;
+}
+
+export interface JsonSchema {
+  type?: string;
+  properties?: Record<string, JsonSchemaProperty>;
+  required?: string[];
+  [key: string]: unknown;
+}
+
+export interface DefinitionProblem {
+  location: string;
+  code: string;
+  message: string;
+}
+
+export interface ValidationReport {
+  valid: boolean;
+  workflow_id: string | null;
+  version: number | null;
+  content_hash: string | null;
+  existing: "new" | "identical" | null;
+  errors: DefinitionProblem[];
+  warnings: DefinitionProblem[];
+}
+
+export interface StoredDefinition {
+  id: string;
+  workflow_id: string;
+  version: number;
+  name: string;
+  status: "active" | "retired";
+  content_hash: string;
+  step_count: number;
+  imported_by: string | null;
+  imported_by_username: string | null;
+  imported_at: string;
+  status_changed_at: string | null;
+  executions: number;
+}
+
+export interface ImportResult {
+  created: boolean;
+  definition: StoredDefinition;
+  warnings: DefinitionProblem[];
+}
+
+export interface LibraryHandler {
+  name: string;
+  step_type: string;
+  summary: string;
+  output: string;
+  params_schema: Record<string, unknown>;
 }

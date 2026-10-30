@@ -347,6 +347,29 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
 - **Failure.** A failing slice fails the run; the others notice at their next checkpoint
   and stop. Slices are not retried, like single-process runs.
 
+## Stored workflow definitions (Phase 17, roadmap Milestone B)
+
+- **Why.** Milestone B grows the workflow count by data, not code: thousands of variants
+  cannot each be a Python module. A definition was already data (steps, routes, policies)
+  interpreted by the engine; only its handlers and input model were code.
+- **How.** A stored definition is the same `WorkflowDefinition` as JSON, imported through
+  the API or CLI into `workflow_definitions` (`source = 'stored'`). Its service tasks name
+  handlers from a library of generic, parameterised handlers (`library.py`), its input is a
+  JSON Schema, and its `presentation` names cases in lists. `store.py` resolves a
+  definition from code first, then the database; executions keep pointing at the exact
+  version row they started on, so any process (API, worker, CLI) runs them without a
+  restart, and a version never changes after import (only active/retired).
+- **Validation before storage.** Importing data must not let a typo reach production:
+  `validation.py` checks the graph, termination, handler params, every context path a
+  condition or handler reads, approval permissions against the roles that hold them, and
+  version rules — and reports every problem at once with its location.
+- **Unchanged for code.** The two new definition fields are optional and omitted from the
+  canonical JSON when unset, so code definitions keep their content hashes (pinned by a
+  test) and the snapshots running cases depend on still match.
+- **Not yet.** Stored definitions cannot change banking records (no domain handlers in the
+  library), call AI tools, run on schedules or in simulations; those arrive with the next
+  Milestone B steps.
+
 ## Planned design for later phases
 
 - **Events:** cross-module side effects are currently explicit service calls made from

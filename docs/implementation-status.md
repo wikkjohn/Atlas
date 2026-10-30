@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 23.
+Last updated: Phase 24.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -28,6 +28,43 @@ Last updated: Phase 23.
 | 21 | Workflow factory, step 5: workflow diagram and an editor with live validation | **Complete** |
 | 22 | Workflow factory, step 6: catalogue search, ownership, review lifecycle; the Milestone B exit run — roadmap Milestone B complete | **Complete** |
 | 23 | Global footprint, step 1: reference data for 120 countries ([reference-data.md](reference-data.md)) | **Complete** |
+| 24 | Global footprint, step 2: multi-currency — FX rates, conversions, cross-currency payments, revaluation ([fx.md](fx.md)) | **Complete** |
+
+## Phase 24: what exists
+
+- **Rates:** deterministic synthetic daily rates (units per US dollar) for all 93
+  currencies, with USD and EUR pegs; published to `fx_rates` daily or on first use.
+- **Conversions:** quotes at the mid rate less a 0.50 % margin, rounded down to minor
+  units. Each conversion posts two balanced entries, one per currency, through
+  `FX-POSITION-<CCY>` accounts. Deals (`fx_deals`) are idempotent by key.
+- **Cross-currency payments:** WF-0002 accepts payees in any currency. The payee's amount
+  is estimated when the payment is created and converted at release. Payments record the
+  payee's currency and amount and the deal (a constraint requires it once released). The
+  customer is notified of both amounts.
+- **Positions and revaluation:** positions valued in US dollars. Revaluation books the
+  change to FX income (`fx_revaluations`). The `fx-daily` schedule publishes rates and
+  revalues; administrators can revalue by hand (`fx:manage`).
+- **UI:**
+  - a Foreign Exchange page: rates, quote, positions with *Revalue*, revaluations,
+    conversions;
+  - the payment form lists payees in every currency, with a live estimate;
+  - the Payments list shows the converted amount and the deal.
+
+## Phase 24: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | see the PR |
+| Frontend Vitest / typecheck / build | see the PR |
+| Playwright on a fresh database | see the PR |
+| Migration 0021 | Upgrade, downgrade and upgrade again on the development database; `alembic check` clean |
+
+## Phase 24: known limitations
+
+- One margin for every pair and size; spot only (no forwards or swaps); daily rates.
+- Positions valued in US dollars only; no reporting currency per subsidiary.
+- Customers cannot convert between their own accounts outside a payment.
+
 
 ## Phase 23: what exists
 

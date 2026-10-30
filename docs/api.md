@@ -158,7 +158,7 @@ accounts it touched; the trial balance always covers the whole ledger, from the 
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/payments` | `payments:read` | Filters: `status`, `account_id`, `q` (number or reference). Debtor and creditor, amount, high-value flag, initiator, approver, journal entry, rejection reason, workflow execution |
+| GET | `/api/v1/payments` | `payments:read` | Filters: `status`, `account_id`, `q` (number or reference). Debtor and creditor, amount, high-value flag, initiator, approver, journal entry, rejection reason, workflow execution; for a payee in another currency (Phase 24) `creditor_currency`, `creditor_amount` (an estimate until released), `fx_deal_number`, `fx_rate` |
 | GET | `/api/v1/payments/{id}` | `payments:read` | One payment |
 | GET | `/api/v1/loans` | `loans:read` | Filters: `customer_id`, `status`, `q` (number or customer). Pricing, instalment, outstanding balance (from the ledger), underwriter and committee approver |
 | GET | `/api/v1/loans/{id}` | `loans:read` | One loan, with its servicing state: instalments paid of total, next due date and amount, days past due, arrears amount and bucket, closed on, written off by |
@@ -172,6 +172,20 @@ accounts it touched; the trial balance always covers the whole ledger, from the 
 Write-offs have no endpoint: only the WF-0004 credit-committee approval writes a loan off.
 Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
 `…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
+
+### Foreign exchange (Phase 24)
+
+See [fx.md](fx.md).
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/fx/rates?on=` | `payments:read` | The day's rates of every currency, units per US dollar (published on first use) |
+| GET | `/api/v1/fx/rates/{currency}?from=&to=` | `payments:read` | Daily rates of one currency, at most a year |
+| POST | `/api/v1/fx/quote` | `payments:read` | `{sell_currency, buy_currency, sell_amount (minor units), rate_date?}` → `{buy_amount, mid_rate, customer_rate, margin_bps, base_amount}`; stores nothing |
+| GET | `/api/v1/fx/deals?currency=` | `ledger:read` | Conversions, newest first: amounts, rates, margin, both journal entries |
+| GET | `/api/v1/fx/positions?as_of=` | `ledger:read` | Each open currency position with its rate and US-dollar value; total, booked and unbooked result (US cents) |
+| POST | `/api/v1/fx/revaluations` | `fx:manage` | `{as_of?}` → 201, the run: positions, total value, previously booked, the amount posted and its journal entry |
+| GET | `/api/v1/fx/revaluations` | `ledger:read` | Revaluation runs, latest first |
 
 ### Background jobs (Phase 14)
 

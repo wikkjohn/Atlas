@@ -35,6 +35,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0017_workflow_templates` | 19 | `workflow_templates`, `workflow_variants` |
 | `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
 | `0019_catalogue_lifecycle` | 22 | `workflow_catalogue`; definition lifecycle `draft`, `in_review`, `active`, `retired` with submitter and reviewer |
+| `0021_foreign_exchange` | 24 | `fx_rates`, `fx_deals` (`fx_deal_number_seq`), `fx_revaluations`; payments gain `creditor_currency`, `creditor_amount`, `fx_deal_id` (released cross-currency payments must carry a deal); the `fx-daily` schedule |
 | `0020_country_reference_data` | 23 | `currencies` (FK from `countries.default_currency`); reference columns on `countries`; loads the 2026.1 reference data from `0020_reference_data.json` (93 currencies; 5 countries updated, 115 added as planned) |
 
 Common commands (from `backend/`):
@@ -87,6 +88,17 @@ Seeded rows: `platform.initialized_at`, the UTC time the baseline migration ran.
 
 Seeded: US, GB, DE, SG, JP (active) by migration 0002; since Phase 23 the 115 other
 countries of the footprint (planned) and everyone's reference data by migration 0020.
+
+### Foreign exchange tables (Phase 24)
+
+| Table | Contents |
+| --- | --- |
+| `fx_rates` | Primary key (`currency` → currencies, `rate_date`): `units_per_usd` numeric(24,10) > 0, `source` (synthetic), `published_at` |
+| `fx_deals` | `deal_number` (FX-00000001…), `idempotency_key` (unique), `purpose` (payment, conversion), `reference`, `rate_date`, `sell_currency`/`sell_amount`, `buy_currency`/`buy_amount` (minor units, > 0, currencies differ), `mid_rate`, `customer_rate` (numeric(30,12)), `margin_bps` (0–1,000), `base_amount` (US cents), `sell_entry_id`, `buy_entry_id` (unique → journal entries), `created_by`, `created_at` |
+| `fx_revaluations` | `run_number` (identity), `as_of`, `positions` (jsonb), `total_value`, `previously_booked`, `posted` (signed US cents), `journal_entry_id`, `run_by`, `created_at` |
+
+Ledger accounts created on first use: `FX-POSITION-<CCY>` (equity, one per currency),
+`FX-REVALUATION-USD` (asset) and `FX-REVALUATION-INCOME-USD` (income).
 
 ### `currencies` (Phase 23)
 

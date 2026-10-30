@@ -411,7 +411,7 @@ record (`workflow_test_runs`: cases, uncovered routes, step and route coverage).
 Running them:
 
 - **CLI** `python -m app.cli workflows test --all | --template TPL | WF-ID … [--sample N]
-  [--output report.json]` — exits non-zero on any failed case;
+  [--processes N] [--output report.json]` — exits non-zero on any failed case;
 - **CI** job *Workflow factory (generated tests)*: seeds the demo bank and tests every stored
   and generated workflow on every push;
 - **API** `POST /api/v1/workflow-definitions/{id}/versions/{v}/tests`, `GET …/{id}/tests`;

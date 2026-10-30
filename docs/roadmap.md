@@ -80,7 +80,9 @@ millions of customers and an AI testing laboratory at that scale.
       every route, approval refusals, no-route probes; coverage; CI job)
 - [x] Visual workflow viewer, then editor with validation (Phase 21: layered diagram with
       metrics and test coverage; step form and JSON editor with live, located validation)
-- [ ] Catalogue search by department / country / product; ownership; lifecycle states
+- [x] Catalogue search by department / country / product; ownership; lifecycle states
+      (Phase 22: classification from definitions, templates or by hand; facet counts;
+      draft → review → active → retired with four-eyes approval behind passing tests)
 - [ ] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green (5,056
       registered in Phase 19's measurement; generated tests are the next step)
 

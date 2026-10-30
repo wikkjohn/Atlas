@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 25.
+Last updated: Phase 26.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -30,6 +30,28 @@ Last updated: Phase 25.
 | 23 | Global footprint, step 1: reference data for 120 countries ([reference-data.md](reference-data.md)) | **Complete** |
 | 24 | Global footprint, step 2: multi-currency — FX rates, conversions, cross-currency payments, revaluation ([fx.md](fx.md)) | **Complete** |
 | 25 | Global footprint, step 3: country rules engine ([country-rules.md](country-rules.md)) | **Complete** |
+| 26 | Global footprint, step 4: business calendars ([business-calendars.md](business-calendars.md)) | **Complete** |
+
+## Phase 26: what exists
+
+- **Dated lunar holidays** for 2025–2030 (`reference/dated.py`): 12 festivals, 257 rules in
+  50 countries, with weekend observance; reference data 2026.2 loaded by migration 0023.
+- **Schedules on business days:** `job_schedules.business_calendar`; a schedule due on a
+  weekend or holiday of its country moves to the next business day without running. Set
+  in System Settings → Background jobs or with `PATCH /job-schedules/{name}`.
+- **Simulation arrivals on business days:** scenario configuration `business_calendar`;
+  new scenario `payments-easter` (UK Easter weekend 2026).
+
+## Phase 26: verified results
+
+PENDING
+
+## Phase 26: known limitations
+
+- Dated holidays cover 2025–2030 only; Islamic dates can move by a day with the moon.
+- Scheduler calendars move whole days; simulated staff still work every day.
+- Working weekends (China, Vietnam, Korea), bridge days and regional holidays are not
+  modelled.
 
 ## Phase 25: what exists
 

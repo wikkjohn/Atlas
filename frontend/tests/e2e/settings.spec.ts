@@ -47,4 +47,13 @@ test("System Settings: administrators see observability and simulation history",
   await expect(observability.getByRole("table", { name: "Request latency" }).getByText(/GET \/api\/v1\//).first()).toBeVisible();
   const history = page.getByRole("region", { name: "Simulation history" });
   await expect(history.getByRole("table", { name: "History partitions" }).getByText("Events")).toBeVisible();
+
+  // A schedule can follow a country's business days; set it, then put it back.
+  const calendar = page.getByRole("table", { name: "Job schedules" }).getByLabel("Business calendar of loan-servicing");
+  await calendar.selectOption({ label: "United Kingdom" });
+  await expect(calendar).toHaveValue("GB");
+  await page.reload();
+  await expect(calendar).toHaveValue("GB");
+  await calendar.selectOption({ label: "Every day" });
+  await expect(calendar).toHaveValue("");
 });

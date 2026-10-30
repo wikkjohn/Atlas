@@ -27,6 +27,8 @@ export interface JobSchedule {
   payload: Record<string, unknown>;
   interval_seconds: number;
   enabled: boolean;
+  /** Runs only on this country's business days (Phase 26); null runs every day. */
+  business_calendar: string | null;
   next_run_at: string;
   last_job: Job | null;
 }

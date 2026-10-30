@@ -99,7 +99,9 @@ millions of customers and an AI testing laboratory at that scale.
 - [x] Country rules engine: KYC documents, age limits, sanctions lists, cut-offs, limits
       (Phase 25: versioned rules per country read by WF-0001 and WF-0002; value dates
       from cut-off and calendar; five synthetic sanctions lists; see `country-rules.md`)
-- [ ] Business calendars used by the scheduler and the simulation's arrivals
+- [x] Business calendars used by the scheduler and the simulation's arrivals
+      (Phase 26: lunar holidays dated 2025–2030 for 50 countries; schedules and scenario
+      arrivals follow a country's business days; see `business-calendars.md`)
 - [ ] Generated country subsidiaries in the organization hierarchy
 - [ ] **Exit:** onboarding and payment variants pass in all 120 countries
 
@@ -195,4 +197,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 23 (C1) | Global footprint, step 1: reference data for 120 countries (currency, minor units, time zone, weekend, holidays, language, regulator, identity documents, address formats), computed holiday calendars, synthetic document numbers and addresses | complete |
 | Phase 24 (C2) | Multi-currency: synthetic FX rates, conversions through currency positions, cross-currency payments, daily revaluation, Foreign Exchange page | complete |
 | Phase 25 (C3) | Country rules engine: versioned per-country KYC, screening and payment rules applied by account opening and payments; value dates; rules editing on the Countries page | complete |
-| Phase 26 (C4, proposed) | Business calendars used by the scheduler and the simulation's arrivals (lunar holidays as dated tables) | next |
+| Phase 26 (C4) | Business calendars: lunar holidays as dated tables; schedules and simulation arrivals on a country's business days | complete |
+| Phase 27 (C5, proposed) | Generated country subsidiaries in the organization hierarchy | next |

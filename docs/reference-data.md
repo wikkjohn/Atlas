@@ -48,11 +48,12 @@ together with the observed day off when a weekend moves it:
 - `sunday_to_next`: only Sundays move, e.g. Japan.
 
 It also answers whether a date is a business day and which business day comes next. The
-2026 calendars give 253 business days in the UK and 259 in Saudi Arabia.
+2026 calendars give 253 business days in the UK and 254 in Saudi Arabia.
 
-**Not computed:** holidays of lunar calendars (Eid, Lunar New Year, Diwali, Vesak,
-Jewish holidays …). Their dates are not rules but published tables, which arrive with the
-business calendars of a later Milestone C step. Also not modelled:
+**Lunar holidays** (Eid, Lunar New Year, Diwali, Vesak, Jewish holidays …) are dated from
+published tables for 2025–2030 since Phase 26 (reference data version 2026.2), and not
+computed outside those years; see [business-calendars.md](business-calendars.md). Not
+modelled:
 - state and provincial holidays (the data lists national ones, or one named state's);
 - bridge days and working weekends that make up for holidays.
 

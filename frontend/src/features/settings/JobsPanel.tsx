@@ -6,6 +6,7 @@ import { ErrorMessage } from "@/components/ErrorMessage";
 import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatTimestamp } from "@/features/dashboard/format";
+import { useCountries } from "@/services/enterprise";
 import { useJobSchedules, useJobs, useRunSchedule, useUpdateSchedule } from "@/services/jobs";
 import { humanize } from "@/services/format";
 import type { Job, JobStatus } from "@/types/jobs";
@@ -40,11 +41,12 @@ export function JobsPanel() {
   const jobs = useJobs({ limit: 15 });
   const update = useUpdateSchedule();
   const run = useRunSchedule();
+  const countries = useCountries();
 
   return (
     <Panel
       title="Background jobs"
-      subtitle="Reconciliation, loan servicing, workflow timers, simulations and experiments run as durable jobs. Worker processes (python -m app.cli worker) claim them; without one, the API runs the jobs it queues itself. Schedules queue at most one job at a time."
+      subtitle="Reconciliation, loan servicing, workflow timers, simulations and experiments run as durable jobs. Worker processes (python -m app.cli worker) claim them; without one, the API runs the jobs it queues itself. Schedules queue at most one job at a time. A schedule with a business calendar runs on that country's business days only, moving past weekends and public holidays."
     >
       <ErrorMessage error={schedules.error ?? jobs.error ?? update.error ?? run.error} />
       <table aria-label="Job schedules" className="min-w-full text-sm">
@@ -52,6 +54,7 @@ export function JobsPanel() {
           <tr>
             <th className="px-2 py-1">Schedule</th>
             <th className="px-2 py-1">Runs</th>
+            <th className="px-2 py-1">Business days</th>
             <th className="px-2 py-1">Next</th>
             <th className="px-2 py-1">Last job</th>
             <th className="px-2 py-1" />
@@ -65,6 +68,26 @@ export function JobsPanel() {
                 <div className="text-xs text-slate-500">{s.description}</div>
               </td>
               <td className="px-2 py-1.5 text-slate-700">{every(s.interval_seconds)}</td>
+              <td className="px-2 py-1.5 text-xs text-slate-600">
+                {manage ? (
+                  <select
+                    aria-label={`Business calendar of ${s.name}`}
+                    className="rounded-md border border-slate-200 px-1.5 py-0.5 text-xs"
+                    value={s.business_calendar ?? ""}
+                    disabled={update.isPending}
+                    onChange={(e) => update.mutate({ name: s.name, business_calendar: e.target.value })}
+                  >
+                    <option value="">Every day</option>
+                    {countries.data?.items.map((c) => (
+                      <option key={c.id} value={c.iso_country_code}>
+                        {c.country_name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  (s.business_calendar ?? "Every day")
+                )}
+              </td>
               <td className="px-2 py-1.5 text-xs text-slate-600">{s.enabled ? formatTimestamp(s.next_run_at) : "Off"}</td>
               <td className="px-2 py-1.5">{s.last_job ? <JobStatusPill job={s.last_job} /> : <span className="text-xs text-slate-400">—</span>}</td>
               <td className="px-2 py-1.5">

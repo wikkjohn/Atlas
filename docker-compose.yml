@@ -76,6 +76,8 @@ services:
       ATLAS_REDIS_URL: redis://redis:6379/0
       ATLAS_LOG_FORMAT: ${ATLAS_LOG_FORMAT:-json}
       ATLAS_JWT_SECRET: ${ATLAS_JWT_SECRET:-}
+      # This is a worker: shard jobs a sharded run queues are left to the worker processes.
+      ATLAS_JOBS_EXECUTION: worker
       ATLAS_SIMULATION_ARCHIVE_DIR: /app/var/simulation-archive
       ATLAS_SLOW_QUERY_MS: ${ATLAS_SLOW_QUERY_MS:-250}
     volumes:

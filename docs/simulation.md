@@ -219,6 +219,8 @@ department; wall time includes hiring the simulated staff):
 | --- | --- | --- | --- | --- |
 | small | 100 / 25 | 24.7 s | 4.0 cases/s | 293 events, 1,466 workflow steps |
 | department | 10,000 / 500 | 35 min 16 s | 4.7 cases/s | 29,632 events, 146,246 workflow steps; all 10,000 cases completed |
+| department, 8 shards (Phase 16) | 10,000 / 500 | 6 min 39 s | 25.0 cases/s | identical digest on a second run |
+| large, 8 shards (Phase 16) | 100,000 / 5,000 | 73 min 18 s | 22.7 cases/s | 96.65 % accuracy, 91,086 manual reviews |
 | enterprise | 1,000,000 / 150,000 | not run | — | configuration target only |
 
 The cost is dominated by the workflow engine's durability: each case is ~15 committed step
@@ -234,8 +236,9 @@ simulated review labour; median cycle time 12 minutes, p95 28 hours (late docume
 **The enterprise profile is a configuration target, not a verified capability.** At the
 measured throughput a million applications would take days in one process, and hiring
 150,000 simulated staff is untested. The API refuses to start it. Phase 16 added parallel
-shards (below), which carried a 100,000-application run; a million would still need more
-machines than one development container and bulk paths in the workflow engine.
+shards (below), which carried a 100,000-application run in 73 minutes on 4 vCPUs (the
+`large` profile); a million would still need more machines than one development container
+and bulk paths in the workflow engine.
 
 ## Running simulations
 
@@ -263,8 +266,8 @@ processes the API runs the shards itself, one after another.
   and review times come from the case's own random stream, so outcomes and ground-truth
   accuracy are identical to a single-process run with the same seed. Queue waiting and
   cycle times are longer, because N small teams do not share their slack: in a
-  2,000-case run, average queue wait rose with the shard count as shown in
-  [performance.md](performance.md).
+  2,000-case run with 100 staff the average queue wait went from 0.02 h (1 shard) to
+  0.13 h (4) and 0.23 h (8); see [performance.md](performance.md).
 - **Reproducible.** The same scenario, seed and shard count give the same digest whichever
   worker runs which shard and in whatever order. The shard count is part of the
   configuration hash, so a sharded run never counts as a reproduction of a single-process

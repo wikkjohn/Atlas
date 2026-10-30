@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 16.
+Last updated: Phase 17.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -21,6 +21,50 @@ Last updated: Phase 16.
 | 14 | Scale foundation, step 3: durable background jobs, workers and schedules | **Complete** |
 | 15 | Scale foundation, step 4: partitioned workflow history, simulation history archive/reset, observability | **Complete** |
 | 16 | Scale foundation, step 5: sharded simulation runs, performance suite, 100,000 applications — roadmap Milestone A complete | **Complete** |
+| 17 | Workflow factory, step 1: stored, versioned workflow definitions with an import API and full validation | **Complete** |
+
+## Phase 17: what exists
+
+- **Stored definitions.** Workflow definitions can be imported as JSON next to the ones in
+  code (`workflow_definitions.source = 'stored'`, migration 0016). Any process loads them
+  from the database on first use. Versions are immutable; a version is `active` or
+  `retired` (no new cases; running ones finish on it). Code definitions are unchanged:
+  their content hashes are pinned by a test.
+- **Full validation** before anything is stored, every problem with a location: graph and
+  termination, ownership (no code workflow ids), version rules, handler names and params,
+  the context paths conditions and handlers read, approval permissions and four-eyes
+  references, the input JSON Schema, waiting rules; plus warnings.
+- **Handler library** (`core.set_values`, `copy_values`, `check`, `business_key`,
+  `notify`, `set_outcome`) with params models published as JSON Schema.
+- **Interfaces:** `/api/v1/workflow-definitions` (list, handlers, validate, import,
+  retire, reactivate), `GET /api/v1/workflows/{id}/export`, permission `workflows:define`
+  (administrators); CLI `workflows list|validate|import|export`; Workflow Explorer badges,
+  import dialog with every problem listed, start form generated from the input schema,
+  export, retire/reactivate.
+- **WF-1001 Customer Address Change**, imported by `seed-demo`: routing by reason,
+  colleague or compliance four-eyes approval, `on_failure` route, synthetic letters.
+
+## Phase 17: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 348 passed (new: 10 — code hashes unchanged; example valid and clean; every problem reported at once with locations; ids, triggers, people and schemas; warnings do not block; immutable, increasing versions and audit; a stored workflow end to end with four-eyes, `on_failure`, JSON-Schema input errors and a cold cache (another process); retire/reactivate with a new version taking new cases; export round trip; the API) |
+| Migration 0015 → 0016 → 0015 → 0016, `alembic check` | clean |
+| Frontend Vitest / typecheck / build | 83 passed / clean / built |
+| Playwright on a fresh database | 20 passed (new: WF-1001 from the generated form through colleague approval to `updated`, and an administrator validating its next version) |
+| Live check | WF-1001 started over HTTP, its compliance task completed by a separate process with nothing in memory; dashboard counts 5 workflows, 7 definition versions |
+
+## Phase 17: known limitations
+
+- Stored definitions use library handlers only: they cannot change banking records, call
+  AI tools, run on schedules or drive simulations yet (WF-1001 records the approved address
+  in the case, not on the customer). Milestone B step 2 extends the library.
+- Defining is administrators-only (`workflows:define`); there is no draft state or
+  review/approval of a definition before it becomes active.
+- The start form handles flat schemas (strings, numbers, booleans, enums); nested objects
+  and arrays need the API.
+- Validation checks that a path's first segment exists, not that an earlier step's output
+  has that field or that the step runs before the read.
 
 ## Phase 16: what exists
 

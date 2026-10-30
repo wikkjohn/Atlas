@@ -21,6 +21,7 @@ export type Permission =
   | "accounts:manage"
   | "ledger:read"
   | "fx:manage"
+  | "retail:manage"
   | "ledger:post"
   | "workflows:read"
   | "workflows:start"

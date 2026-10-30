@@ -54,6 +54,9 @@ export interface Account {
   ledger_account_id: string;
   ledger_account_code: string;
   balance: number;
+  /** Arranged overdraft and what the account can pay out (balance + overdraft), Phase 29. */
+  overdraft_limit: number;
+  available: number;
   opened_at: string;
   closed_at: string | null;
 }

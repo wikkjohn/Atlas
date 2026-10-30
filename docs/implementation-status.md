@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 20.
+Last updated: Phase 21.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -25,6 +25,36 @@ Last updated: Phase 20.
 | 18 | Workflow factory, step 2: domain step-handler library with declared effects; money moves only behind an approval | **Complete** |
 | 19 | Workflow factory, step 3: parameterised templates and a deterministic, versioned variant generator | **Complete** |
 | 20 | Workflow factory, step 4: generated path tests for every stored and generated workflow, in CI | **Complete** |
+| 21 | Workflow factory, step 5: workflow diagram and an editor with live validation | **Complete** |
+
+## Phase 21: what exists
+
+- **Diagram for every workflow** (`workflows/graph.py`, `GET /workflows/{id}/graph`): a
+  layered layout computed on the server (back routes, longest-path layers, barycentre
+  ordering), labelled routes (approved/rejected, conditions, otherwise, on failure,
+  timeouts), live step metrics with the bottleneck, and the latest generated tests'
+  coverage per route; drawn as SVG in the Workflow Explorer's *Diagram* view.
+- **Editor for stored workflows** (*Edit as v{n+1}*): a step form (name, type, library
+  handler, next, params) and the JSON kept in step; add/remove steps; a live preview
+  (`POST /workflow-definitions/preview`) validates and draws the draft, with problems shown
+  on the step they belong to; saving imports through the usual validation. Generated
+  variants are edited through their template, not here.
+
+## Phase 21: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 379 passed (new: 4 — layers follow the routes with unique places and labels; WF-0001's documents loop as the one back route; metrics and coverage overlays incl. an uncovered route; the preview validates, draws drafts with errors, and refuses unparseable ones) |
+| Frontend Vitest / typecheck / build | 87 passed (new: the diagram with coverage; the editor's located problems, form edit, live re-validation and save) / clean / built |
+| Playwright on a fresh database | 24 passed (new: WF-1002's diagram; WF-1001 edited through a diagram click and saved as its next version). One run failed first on the test itself (a truncated step name and the SVG tooltip both matched); the locator was fixed and the full suite re-run green |
+
+## Phase 21: known limitations
+
+- The layout is simple (no edge routing around nodes); large workflows (dozens of steps
+  per layer) become wide. Long step names are shortened on the diagram (full in tooltips).
+- The editor edits steps' common fields in the form; transitions, approval policies and
+  timeouts are edited in the JSON. No drag-and-drop.
+- Code workflows can be viewed but not edited (they change in code).
 
 ## Phase 20: what exists
 

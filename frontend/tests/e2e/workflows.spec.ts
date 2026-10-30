@@ -172,7 +172,7 @@ test("Diagram and editor: WF-1002 drawn with its routes; WF-1001 edited and save
   await admin.getByRole("list", { name: "Workflows" }).getByText("Paper Statement Request").click();
   await admin.getByRole("tab", { name: "Diagram" }).click();
   const diagram = admin.getByRole("img", { name: /Diagram of WF-1002/ });
-  await expect(diagram.getByText("Approve the paper-statement fee")).toBeVisible();
+  await expect(diagram.locator("text", { hasText: /^Approve the paper-stateme/ })).toBeVisible(); // long names are shortened
   await expect(diagram.getByText("approved", { exact: true })).toBeVisible();
   await expect(diagram.getByText("on failure").first()).toBeVisible();
 

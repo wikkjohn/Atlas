@@ -341,6 +341,8 @@ def accounts_out(db: Session, accounts: list[Account]) -> list[AccountOut]:
             ledger_account_id=a.ledger_account_id,
             ledger_account_code=ledger_accounts[a.ledger_account_id].code,
             balance=amounts[a.ledger_account_id],
+            overdraft_limit=a.overdraft_limit,
+            available=amounts[a.ledger_account_id] + a.overdraft_limit,
             opened_at=a.opened_at,
             closed_at=a.closed_at,
         )

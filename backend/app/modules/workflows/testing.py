@@ -519,6 +519,10 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             "customer.id": str(customer.id),
             "account.account_number": account.account_number if account else None,
         }
+        if "payee.account_number" in kinds:
+            # A second customer's account, for handlers that need two (Phase 29).
+            _, payee = _customer_and_account(db, True)
+            known["payee.account_number"] = payee.account_number
         values = {path: known[kind] for path, kind in needs.items()}
     return Fixtures(
         initiator=_person(db, RoleCode.BANKING_EMPLOYEE),

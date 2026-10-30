@@ -277,3 +277,55 @@ def generate_subsidiaries(ctx: JobContext) -> dict:
         totals["organizations_created"] += result.organizations_created
         totals["employees_hired"] += result.employees_hired
     return {"countries": len(codes), "launched": launched, "failed": failed, **totals}
+
+
+@job_kind(
+    "retail.standing_orders",
+    description="Pay the standing orders due (payload: as_of, default today)",
+    max_attempts=2,
+    manual=True,
+)
+def retail_standing_orders(ctx: JobContext) -> dict:
+    from app.modules.retail import service as retail
+
+    as_of = date.fromisoformat(ctx.payload["as_of"]) if ctx.payload.get("as_of") else None
+    as_of = as_of or datetime.now(UTC).date()
+    principal = _principal(ctx)
+    if not principal.can(Permission.RETAIL_MANAGE):
+        raise PermanentJobError("The job's principal may not run retail banking jobs.")
+    with ctx.factory() as db, db.begin():
+        return {"as_of": as_of.isoformat(), **retail.run_standing_orders(db, as_of, principal.id)}
+
+
+@job_kind(
+    "retail.month_end",
+    description="Post interest and fees and issue statements for a month (payload: period, "
+    "any day of the month; default the last complete month)",
+    max_attempts=2,
+    manual=True,
+)
+def retail_month_end(ctx: JobContext) -> dict:
+    from app.core.errors import DomainError
+    from app.modules.retail import service as retail
+
+    today = datetime.now(UTC).date()
+    period = (
+        date.fromisoformat(ctx.payload["period"])
+        if ctx.payload.get("period")
+        else retail.last_complete_month(today)
+    )
+    principal = _principal(ctx)
+    if not principal.can(Permission.RETAIL_MANAGE):
+        raise PermanentJobError("The job's principal may not run retail banking jobs.")
+    try:
+        with ctx.factory() as db, db.begin():
+            run, created = retail.month_end(db, period, principal.id, today=today)
+            return {
+                "period": run.period_start.isoformat(),
+                "created": created,
+                "accounts": run.accounts,
+                "statements": run.statements,
+                "entries": run.entries,
+            }
+    except DomainError as exc:
+        raise PermanentJobError(exc.message) from exc

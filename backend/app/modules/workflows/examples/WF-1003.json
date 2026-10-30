@@ -1,0 +1,190 @@
+{
+  "workflow_id": "WF-1003",
+  "name": "Arranged Overdraft Request",
+  "version": 1,
+  "description": "A customer asks for an arranged overdraft, or to change or remove one. A credit officer other than the person who took the request decides; only then is the limit set on the account, within the product's maximum. Stored definition: built only from library handlers (Phase 29).",
+  "business_owner": "Retail Banking",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "account_number",
+      "limit"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1000000000,
+        "examples": [
+          50000
+        ],
+        "description": "The overdraft wanted, in minor units of the account's currency (0 removes it)"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.account_number",
+        "prefix": "ODR-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "find_account"
+    },
+    {
+      "id": "find_account",
+      "type": "service_task",
+      "name": "Check the account is the customer's",
+      "handler": "accounts.lookup",
+      "params": {
+        "account_number_path": "input.account_number",
+        "customer_id_path": "find_customer.customer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "credit_decision"
+    },
+    {
+      "id": "credit_decision",
+      "type": "approval",
+      "name": "Decide the overdraft",
+      "description": "A colleague with account-approval authority decides (four-eyes).",
+      "approval": {
+        "permissions": [
+          "accounts:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "set_limit",
+          "when": {
+            "path": "credit_decision.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_declined"
+    },
+    {
+      "id": "set_limit",
+      "type": "service_task",
+      "name": "Set the overdraft limit",
+      "handler": "retail.set_overdraft",
+      "params": {
+        "account_number_path": "input.account_number",
+        "limit_path": "input.limit"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_arranged"
+    },
+    {
+      "id": "notify_arranged",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your overdraft",
+        "body": "Dear {find_customer.name}, the overdraft on account {input.account_number} is now {set_limit.overdraft_limit} (minor units of {set_limit.currency})."
+      },
+      "next": "arranged"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer it was declined",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your overdraft request",
+        "body": "Dear {find_customer.name}, we cannot arrange this overdraft on account {input.account_number}."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Explain why it could not be done",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "arranged",
+      "type": "completion",
+      "name": "Overdraft arranged",
+      "outcome": "arranged"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "declined"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "refused"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

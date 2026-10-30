@@ -46,7 +46,7 @@ class LibraryHandler:
     check: Callable[[Any, Any], list[str]] | None = None
     # Context paths that must name real records, and which (Phase 20's generated tests
     # create them): {path: "customer.customer_number" | "customer.name" | "customer.id" |
-    # "account.account_number"}.
+    # "account.account_number" | "payee.account_number" (a second customer's account)}.
     fixtures: Callable[[Any], dict[str, str]] | None = None
 
     def params_schema(self) -> dict[str, Any]:
@@ -511,6 +511,175 @@ def _charge_fee(ctx: StepContext, params: ChargeFee) -> dict[str, Any]:
         "account_number": account.account_number,
         "amount": amount,
         "currency": account.currency,
+    }
+
+
+# --- Retail banking (Phase 29) -------------------------------------------------------------------
+
+
+class SetOverdraft(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+    # Minor units of the account's currency; 0 removes the overdraft.
+    limit_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "retail.set_overdraft",
+    "Arrange, change or remove an account's overdraft (within its product's maximum).",
+    SetOverdraft,
+    "{account_number, currency, overdraft_limit, previous_limit}; a limit above the "
+    "product's maximum, or below what the account already owes, fails the step.",
+    reads=lambda params: [params.account_number_path, params.limit_path],
+    effect="writes",
+    requires_approval=True,  # credit is extended: a second person decides first
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
+)
+def _set_overdraft(ctx: StepContext, params: SetOverdraft) -> dict[str, Any]:
+    from app.core.errors import DomainError
+    from app.modules.accounts.service import find_account
+    from app.modules.retail import service as retail
+
+    number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {number}.")
+    limit = _required(ctx, params.limit_path)
+    if not isinstance(limit, int) or isinstance(limit, bool):
+        raise StepError("invalid_amount", "The limit must be a whole number of minor units.")
+    try:
+        account, previous = retail.set_overdraft(
+            ctx.db, account, limit, ctx.initiator_id, source=ctx.execution.workflow_id
+        )
+    except DomainError as exc:
+        raise StepError("overdraft_refused", exc.message) from exc
+    return {
+        "account_number": account.account_number,
+        "currency": account.currency,
+        "overdraft_limit": account.overdraft_limit,
+        "previous_limit": previous,
+    }
+
+
+class CreateStandingOrder(_Strict):
+    debtor_account_path: str = Field(min_length=1, max_length=200)
+    creditor_account_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+    frequency: Literal["weekly", "monthly"] = "monthly"
+    # The first payment this many days after the step runs.
+    start_in_days: int = Field(default=1, ge=0, le=365)
+    reference_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "retail.create_standing_order",
+    "Set up a standing order between two accounts in the payer's currency.",
+    CreateStandingOrder,
+    "{order_number, amount, currency, frequency, next_date}; different currencies, a "
+    "closed account or an amount at or above the high-value threshold fail the step.",
+    reads=lambda params: [
+        params.debtor_account_path,
+        params.creditor_account_path,
+        params.amount_path,
+        params.reference_path,
+    ],
+    effect="writes",
+    fixtures=lambda params: {
+        params.debtor_account_path: "account.account_number",
+        params.creditor_account_path: "payee.account_number",
+    },
+)
+def _create_standing_order(ctx: StepContext, params: CreateStandingOrder) -> dict[str, Any]:
+    from datetime import timedelta
+
+    from app.core.errors import DomainError
+    from app.modules.accounts.service import find_account
+    from app.modules.retail import service as retail
+    from app.modules.retail.models import StandingOrderFrequency
+
+    found = []
+    for path in (params.debtor_account_path, params.creditor_account_path):
+        number = str(_required(ctx, path))
+        account = find_account(ctx.db, number)
+        if account is None:
+            raise StepError("account_not_found", f"No account {number}.")
+        found.append(account)
+    amount = _required(ctx, params.amount_path)
+    if not isinstance(amount, int) or isinstance(amount, bool):
+        raise StepError("invalid_amount", "The amount must be a whole number of minor units.")
+    today = ctx.now.date()
+    try:
+        order = retail.create_standing_order(
+            ctx.db,
+            debtor=found[0],
+            creditor=found[1],
+            amount=amount,
+            frequency=StandingOrderFrequency(params.frequency),
+            first_date=today + timedelta(days=params.start_in_days),
+            end_date=None,
+            reference=str(_required(ctx, params.reference_path))[:100],
+            actor_id=ctx.initiator_id,
+            today=today,
+        )
+    except DomainError as exc:
+        raise StepError("standing_order_refused", exc.message) from exc
+    return {
+        "order_number": order.order_number,
+        "amount": order.amount,
+        "currency": order.currency,
+        "frequency": order.frequency,
+        "next_date": order.next_date.isoformat(),
+    }
+
+
+class IssueStatement(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+    # "YYYY-MM"; without it, or with no value there, the last complete month.
+    period_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "retail.issue_statement",
+    "Issue (or find) an account's statement for a month.",
+    IssueStatement,
+    "{statement_number, period_start, period_end, opening_balance, closing_balance, "
+    "currency, created}; a month that has not ended fails the step.",
+    reads=lambda params: [params.account_number_path]
+    + ([params.period_path] if params.period_path else []),
+    effect="writes",
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
+)
+def _issue_statement(ctx: StepContext, params: IssueStatement) -> dict[str, Any]:
+    from datetime import date as date_type
+
+    from app.modules.accounts.service import find_account
+    from app.modules.retail import service as retail
+
+    number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {number}.")
+    today = ctx.now.date()
+    given = ctx.get(params.period_path) if params.period_path else None
+    if given:
+        text = str(given)
+        match = re.fullmatch(r"(\d{4})-(\d{2})", text)
+        if not match or not 2000 <= int(match[1]) <= 2100 or not 1 <= int(match[2]) <= 12:
+            raise StepError("invalid_period", f"{text} is not a month (YYYY-MM).")
+        period = date_type(int(match[1]), int(match[2]), 1)
+    else:
+        period = retail.last_complete_month(today)
+    start, end = retail.month_bounds(period)
+    if end >= today:
+        raise StepError("period_not_over", f"{start:%B %Y} is not over yet.")
+    statement, created = retail.issue_statement(ctx.db, account, start, end, ctx.initiator_id)
+    return {
+        "statement_number": statement.statement_number,
+        "period_start": statement.period_start.isoformat(),
+        "period_end": statement.period_end.isoformat(),
+        "opening_balance": statement.opening_balance,
+        "closing_balance": statement.closing_balance,
+        "currency": statement.currency,
+        "created": created,
     }
 
 

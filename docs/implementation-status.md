@@ -56,7 +56,13 @@ Last updated: Phase 29.
 
 ## Phase 29: verified results
 
-PENDING
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 562 passed (new: 6 — product terms converted per currency; overdrafts extending withdrawals and payments, refused above the maximum or below what is owed; standing orders waiting for a business day, keeping the 31st, and stopping after three misses; month end with exact daily interest, overdraft interest, fee, statement and lines, refused for an open month and run once only; the retail API and its permissions; the scheduler's and managers' permission) |
+| Generated workflow tests | WF-1003 14, WF-1004 17, WF-1005 10 cases passed, 100 % steps and routes. The first WF-1005 run failed two cases: its handler required the optional `period` input. Fixed so a missing period means the last complete month |
+| Frontend Vitest / typecheck / build | 98 passed (new: 3 — the page, a manager's changes, read-only access) / clean / built |
+| Playwright on a fresh database | 32 passed on the first run (new: a manager sees the products and runs month end; a teller cannot) |
+| Migration 0025 | Upgrade, downgrade and upgrade again; `alembic check` clean |
 
 ## Phase 29: known limitations
 

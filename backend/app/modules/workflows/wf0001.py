@@ -30,6 +30,7 @@ from app.modules.customers.service import (
 )
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
+from app.modules.rules import service as country_rules
 from app.modules.workflows.definition import WorkflowDefinition
 from app.modules.workflows.engine import StepContext, StepError
 from app.modules.workflows.principals import POLICY_ENGINE_USERNAME
@@ -312,18 +313,27 @@ def validate_application(ctx: StepContext) -> dict:
         reasons.append(f"Country {app['country_code']} is not configured.")
     elif country.operational_status != OperationalStatus.ACTIVE:
         reasons.append(f"{country.country_name} is not an active country.")
-    age = age_in_years(date.fromisoformat(app["date_of_birth"]), ctx.now.date())
-    if age < 18:
-        reasons.append(f"The applicant is {age}; retail accounts require age 18 or over.")
     if reasons:
         return {"status": "invalid", "reasons": reasons}
+    assert country is not None
+    # The applicant's country decides the minimum age and the documents (Phase 25).
+    kyc = country_rules.rules_on(ctx.db, country, ctx.now.date()).kyc
+    age = age_in_years(date.fromisoformat(app["date_of_birth"]), ctx.now.date())
+    if age < kyc.min_age:
+        return {
+            "status": "invalid",
+            "reasons": [
+                f"The applicant is {age}; retail accounts in {country.country_name} require "
+                f"age {kyc.min_age} or over."
+            ],
+        }
 
     documents = _documents(ctx)
     kinds = {d["document_type"] for d in documents}
     missing = []
-    if not kinds & set(IDENTITY_DOCUMENTS):
-        missing.append("passport or national_id")
-    if "proof_of_address" not in kinds:
+    if not kinds & set(kyc.identity_documents):
+        missing.append(" or ".join(kyc.identity_documents))
+    if kyc.proof_of_address and "proof_of_address" not in kinds:
         missing.append("proof_of_address")
     if missing:
         return {"status": "missing_documents", "missing": missing}
@@ -359,10 +369,11 @@ def identity_verification(ctx: StepContext) -> dict:
     app = ctx.input
     documents = ctx.get("validate_application.documents") or []
     identity = next(d for d in documents if d["document_type"] in IDENTITY_DOCUMENTS)
-    address = next(d for d in documents if d["document_type"] == "proof_of_address")
+    # A country may not require proof of address (Phase 25); check it when given.
+    address = next((d for d in documents if d["document_type"] == "proof_of_address"), None)
     issues: list[str] = []
     hard_fail = False
-    for doc in (identity, address):
+    for doc in (identity, address) if address else (identity,):
         if not document_number_valid(doc["document_type"], doc["document_number"]):
             issues.append(f"{doc['document_type']}_number_invalid")
             hard_fail = True
@@ -379,7 +390,11 @@ def identity_verification(ctx: StepContext) -> dict:
 
 @service_task("wf0001.sanctions_screening")
 def sanctions_screening(ctx: StepContext) -> dict:
-    return screen_name(ctx.input["applicant_name"])
+    country = ctx.db.execute(
+        select(Country).where(Country.iso_country_code == ctx.input["country_code"])
+    ).scalar_one()
+    lists = country_rules.rules_on(ctx.db, country, ctx.now.date()).screening.lists
+    return screen_name(ctx.input["applicant_name"], lists)
 
 
 @service_task("wf0001.assign_risk_rating")

@@ -19,7 +19,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 
 from app.modules.workflows import registry
@@ -388,13 +388,25 @@ def _set_risk_rating(ctx: StepContext, params: SetRiskRating) -> dict[str, Any]:
 
 class ScreenName(_Strict):
     name_path: str = Field(min_length=1, max_length=200)
+    # Synthetic lists to check (Phase 25); default the global watchlist.
+    lists: list[str] | None = Field(default=None, min_length=1, max_length=10)
+
+    @field_validator("lists")
+    @classmethod
+    def _known_lists(cls, value: list[str] | None) -> list[str] | None:
+        from app.modules.compliance.screening import SANCTIONS_LISTS
+
+        unknown = [v for v in value or [] if v not in SANCTIONS_LISTS]
+        if unknown:
+            raise ValueError(f"Unknown sanctions lists: {', '.join(unknown)}.")
+        return value
 
 
 @_library_handler(
     "compliance.screen_name",
-    "Screen a name against the synthetic sanctions watchlist.",
+    "Screen a name against synthetic sanctions lists (default: the global watchlist).",
     ScreenName,
-    "{hit, matched, list}",
+    "{hit, matched, list, lists}",
     reads=lambda params: [params.name_path],
     effect="reads",
     fixtures=lambda params: {params.name_path: "customer.name"},
@@ -402,7 +414,7 @@ class ScreenName(_Strict):
 def _screen_name(ctx: StepContext, params: ScreenName) -> dict[str, Any]:
     from app.modules.compliance.screening import screen_name
 
-    return screen_name(str(_required(ctx, params.name_path)))
+    return screen_name(str(_required(ctx, params.name_path)), params.lists)
 
 
 class LookupAccount(_Strict):

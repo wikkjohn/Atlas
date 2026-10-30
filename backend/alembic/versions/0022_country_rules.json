@@ -1,0 +1,2515 @@
+{
+ "effective_from": "2026-01-01",
+ "rules": {
+  "AE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 21,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 37000,
+    "max_payment_major": 3700000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "AL": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 920000,
+    "max_payment_major": 92000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "AR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 14000000,
+    "max_payment_major": 1400000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "AT": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "AU": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:30",
+    "high_value_major": 15000,
+    "max_payment_major": 1500000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 17000,
+    "max_payment_major": 1700000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BD": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1200000,
+    "max_payment_major": 120000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "BG": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "BH": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 21,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 3800,
+    "max_payment_major": 380000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 13000,
+    "max_payment_major": 1300000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 69000,
+    "max_payment_major": 6900000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 54000,
+    "max_payment_major": 5400000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BS": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "BW": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 140000,
+    "max_payment_major": 14000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 14000,
+    "max_payment_major": 1400000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CH": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8000,
+    "max_payment_major": 800000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CI": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 21,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 5600000,
+    "max_payment_major": 560000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CL": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 9400000,
+    "max_payment_major": 940000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CM": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 21,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 5600000,
+    "max_payment_major": 560000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 71000,
+    "max_payment_major": 7100000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 40000000,
+    "max_payment_major": 4000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 5000000,
+    "max_payment_major": 500000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "CY": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "CZ": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 210000,
+    "max_payment_major": 21000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "DE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "DK": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 64000,
+    "max_payment_major": 6400000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "DO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 630000,
+    "max_payment_major": 63000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "DZ": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1300000,
+    "max_payment_major": 130000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "EC": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "EE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "EG": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 21,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 480000,
+    "max_payment_major": 48000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "ES": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "ET": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1400000,
+    "max_payment_major": 140000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "FI": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "FJ": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 22000,
+    "max_payment_major": 2200000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "FR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "GB": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "17:30",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-uk-v1"
+    ]
+   }
+  },
+  "GE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 27000,
+    "max_payment_major": 2700000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "GH": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 110000,
+    "max_payment_major": 11000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "GR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "GT": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 77000,
+    "max_payment_major": 7700000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "HK": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 78000,
+    "max_payment_major": 7800000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "HN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 260000,
+    "max_payment_major": 26000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "HR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "HU": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 3400000,
+    "max_payment_major": 340000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "ID": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 170000000,
+    "max_payment_major": 17000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "IE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "IL": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 33000,
+    "max_payment_major": 3300000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "IN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 890000,
+    "max_payment_major": 89000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "IS": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1200000,
+    "max_payment_major": 120000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "IT": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "JM": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1600000,
+    "max_payment_major": 160000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "JO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 7100,
+    "max_payment_major": 710000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "JP": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "15:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "KE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1300000,
+    "max_payment_major": 130000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "KH": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 40000000,
+    "max_payment_major": 4000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "KR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 19,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 14000000,
+    "max_payment_major": 1400000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "KW": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 21,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 3100,
+    "max_payment_major": 310000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "KZ": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 5200000,
+    "max_payment_major": 520000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "LA": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 220000000,
+    "max_payment_major": 22000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "LB": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 900000000,
+    "max_payment_major": 90000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "LI": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8000,
+    "max_payment_major": 800000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "LK": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 3000000,
+    "max_payment_major": 300000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "LT": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "LU": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "LV": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "MA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 92000,
+    "max_payment_major": 9200000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MC": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MD": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 170000,
+    "max_payment_major": 17000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "ME": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MK": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 530000,
+    "max_payment_major": 53000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 36000000,
+    "max_payment_major": 3600000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 80000,
+    "max_payment_major": 8000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MT": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "MU": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 460000,
+    "max_payment_major": 46000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MV": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 150000,
+    "max_payment_major": 15000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MX": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 180000,
+    "max_payment_major": 18000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "MY": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 42000,
+    "max_payment_major": 4200000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "NA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 170000,
+    "max_payment_major": 17000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "NG": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 14000000,
+    "max_payment_major": 1400000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "NL": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "NO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 100000,
+    "max_payment_major": 10000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "NP": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1400000,
+    "max_payment_major": 140000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "NZ": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 17000,
+    "max_payment_major": 1700000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "OM": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 3800,
+    "max_payment_major": 380000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "PA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "PE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 34000,
+    "max_payment_major": 3400000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "PG": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 42000,
+    "max_payment_major": 4200000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "PH": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 590000,
+    "max_payment_major": 59000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "PK": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 2800000,
+    "max_payment_major": 280000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "PL": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 36000,
+    "max_payment_major": 3600000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "PT": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "PY": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 70000000,
+    "max_payment_major": 7000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "QA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 36000,
+    "max_payment_major": 3600000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "RO": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 44000,
+    "max_payment_major": 4400000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "RS": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 1000000,
+    "max_payment_major": 100000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "RW": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 14000000,
+    "max_payment_major": 1400000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "SA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 38000,
+    "max_payment_major": 3800000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "SE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 94000,
+    "max_payment_major": 9400000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "SG": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "15:30",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "SI": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "SK": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 8600,
+    "max_payment_major": 860000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-eu-v1"
+    ]
+   }
+  },
+  "SN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 5600000,
+    "max_payment_major": 560000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "SV": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "TH": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 320000,
+    "max_payment_major": 32000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "TN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 30000,
+    "max_payment_major": 3000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "TR": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 430000,
+    "max_payment_major": 43000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "TT": {
+   "kyc": {
+    "identity_documents": [
+     "passport"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 68000,
+    "max_payment_major": 6800000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "TW": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 310000,
+    "max_payment_major": 31000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "TZ": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 24000000,
+    "max_payment_major": 2400000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "UA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 420000,
+    "max_payment_major": 42000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "UG": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 36000000,
+    "max_payment_major": 3600000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "US": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "17:00",
+    "high_value_major": 10000,
+    "max_payment_major": 1000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-us-v1"
+    ]
+   }
+  },
+  "UY": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 400000,
+    "max_payment_major": 40000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "UZ": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 120000000,
+    "max_payment_major": 12000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "VE": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 3000000,
+    "max_payment_major": 300000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "VN": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 260000000,
+    "max_payment_major": 26000000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "ZA": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 170000,
+    "max_payment_major": 17000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  },
+  "ZM": {
+   "kyc": {
+    "identity_documents": [
+     "passport",
+     "national_id"
+    ],
+    "min_age": 18,
+    "proof_of_address": true
+   },
+   "payments": {
+    "cutoff": "16:00",
+    "high_value_major": 230000,
+    "max_payment_major": 23000000
+   },
+   "screening": {
+    "lists": [
+     "synthetic-watchlist-v1",
+     "synthetic-un-v1"
+    ]
+   }
+  }
+ }
+}

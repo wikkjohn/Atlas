@@ -455,7 +455,7 @@ class DomesticPayments(Workload):
             Permission.PAYMENTS_RELEASE_LOW_RISK,
         )
         for payment, role_id, username in rows:
-            high_value = payments.is_high_value(payment.amount, payment.currency)
+            high_value = payments.payment_is_high_value(payment)
             permissions = roles.get(role_id, frozenset()) if role_id else frozenset()
             found = []
             if payment.approved_by is None:

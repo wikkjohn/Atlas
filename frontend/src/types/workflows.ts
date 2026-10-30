@@ -307,3 +307,10 @@ export interface TestRun {
   ran_at: string;
   ran_by_username: string | null;
 }
+
+// --- Editor preview (Phase 21) --------------------------------------------------------------
+
+export interface DraftPreview {
+  report: ValidationReport;
+  graph: import("@/features/workflows/WorkflowGraph").WorkflowGraphData | null;
+}

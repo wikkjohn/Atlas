@@ -78,7 +78,8 @@ millions of customers and an AI testing laboratory at that scale.
       new versions only for changed content, all or nothing)
 - [x] Generated tests per workflow (happy, reject, approval, timeout) in CI (Phase 20:
       every route, approval refusals, no-route probes; coverage; CI job)
-- [ ] Visual workflow viewer, then editor with validation
+- [x] Visual workflow viewer, then editor with validation (Phase 21: layered diagram with
+      metrics and test coverage; step form and JSON editor with live, located validation)
 - [ ] Catalogue search by department / country / product; ownership; lifecycle states
 - [ ] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green (5,056
       registered in Phase 19's measurement; generated tests are the next step)
@@ -180,4 +181,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 18 (B2) | Domain handler library (customers, accounts and fees, screening, notifications, AI advice) with declared effects; money moves only behind an approval; WF-1001 v2 and WF-1002 as data | complete |
 | Phase 19 (B3) | Parameterised workflow templates and a deterministic, versioned variant generator; 5,040 variants generated and listed | complete |
 | Phase 20 (B4) | Generated path tests for every stored and generated workflow (route planning, input synthesis, fixtures, coverage), run in CI and from the UI | complete |
-| Phase 21 (B5, proposed) | Visual workflow viewer (graph of steps and routes, coverage and live metrics on it), then an editor with validation | next |
+| Phase 21 (B5) | Workflow diagram for every workflow (layout, route labels, live metrics, test coverage) and an editor for stored workflows with live, located validation | complete |
+| Phase 22 (B6, proposed) | Catalogue at scale: search and facets by department, country and product; ownership; lifecycle states (draft, review, active, retired) — then the Milestone B exit run | next |

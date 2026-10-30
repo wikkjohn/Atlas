@@ -166,3 +166,29 @@ test("Generated tests: an administrator runs WF-1002's path tests from the catal
   await panel.getByText(/All \d+ cases/).click();
   await expect(panel.getByRole("table", { name: "Test cases" })).toContainText("approval fee_approval: refusals");
 });
+
+test("Diagram and editor: WF-1002 drawn with its routes; WF-1001 edited and saved as its next version", async ({ browser }) => {
+  const admin = await as(browser, "admin", "/workflows");
+  await admin.getByRole("list", { name: "Workflows" }).getByText("Paper Statement Request").click();
+  await admin.getByRole("tab", { name: "Diagram" }).click();
+  const diagram = admin.getByRole("img", { name: /Diagram of WF-1002/ });
+  await expect(diagram.locator("text", { hasText: /^Approve the paper-stateme/ })).toBeVisible(); // long names are shortened
+  await expect(diagram.getByText("approved", { exact: true })).toBeVisible();
+  await expect(diagram.getByText("on failure").first()).toBeVisible();
+
+  await admin.getByRole("list", { name: "Workflows" }).getByText("Customer Address Change").click();
+  const edit = admin.getByRole("button", { name: /^Edit as v\d+$/ });
+  const label = (await edit.textContent()) ?? "";
+  const next = label.replace("Edit as ", "");
+  await edit.click();
+  const editor = admin.getByRole("dialog", { name: `Edit WF-1001 as ${next}` });
+  await expect(editor.getByRole("status")).toHaveText(`Valid: ${next} can be saved.`, { timeout: 15_000 });
+  await editor.getByRole("img", { name: /Diagram of WF-1001/ }).locator('[data-step="record_change"]').click();
+  const name = editor.getByRole("group", { name: "Step record_change" }).getByLabel("Name");
+  await name.fill("Record the new address (edited)");
+  await expect(editor.getByRole("img", { name: /Diagram of WF-1001/ })).toContainText("Record the new address (e");
+  await expect(editor.getByRole("status")).toHaveText(`Valid: ${next} can be saved.`);
+  await editor.getByRole("button", { name: `Save as ${next}` }).click();
+  await expect(editor).toHaveCount(0);
+  await expect(admin.getByRole("button", { name: `Edit as v${Number(next.slice(1)) + 1}` })).toBeVisible();
+});

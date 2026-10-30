@@ -10,10 +10,12 @@ from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.identity.dependencies import Authorized, CurrentUser
 from app.modules.workflows import authoring, engine, service, templates, testing
+from app.modules.workflows.graph import GraphOut
 from app.modules.workflows.models import DefinitionStatus, ExecutionStatus
 from app.modules.workflows.schemas import (
     CancelIn,
     DefinitionDocument,
+    DraftPreview,
     ExecutionDetail,
     ExecutionSummary,
     GenerateIn,
@@ -73,6 +75,20 @@ def get_workflow(
     version: Annotated[int | None, Query(ge=1)] = None,
 ) -> WorkflowDefinitionOut:
     return service.definition_out(db, service.get_definition(db, workflow_id, version))
+
+
+@definitions_router.get(
+    "/{workflow_id}/graph",
+    response_model=GraphOut,
+    summary="The definition laid out as a graph, with live metrics and test coverage",
+)
+def workflow_graph(
+    workflow_id: str,
+    db: DbSession,
+    _: Authorized(Permission.WORKFLOWS_READ),
+    version: Annotated[int | None, Query(ge=1)] = None,
+) -> GraphOut:
+    return service.graph_out(db, workflow_id, version)
 
 
 @definitions_router.get(
@@ -148,6 +164,17 @@ def list_stored_definitions(
 )
 def list_library_handlers(_: Authorized(Permission.WORKFLOWS_READ)) -> list[LibraryHandlerOut]:
     return service.library_handlers()
+
+
+@authoring_router.post(
+    "/preview",
+    response_model=DraftPreview,
+    summary="Validate a draft and lay it out as a graph (the editor's live preview)",
+)
+def preview_definition(
+    body: DefinitionDocument, db: DbSession, _: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> DraftPreview:
+    return service.draft_preview(db, body.definition)
 
 
 @authoring_router.post(

@@ -12,9 +12,11 @@ import { Pagination } from "@/components/Pagination";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatMilliseconds as formatDuration, formatTimestamp } from "@/features/dashboard/format";
 import { EffectBadge, ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
+import { DefinitionEditor } from "@/features/workflows/DefinitionEditor";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
 import { TemplatesTab } from "@/features/workflows/TemplatesTab";
 import { TestsPanel } from "@/features/workflows/TestsPanel";
+import { WorkflowGraph } from "@/features/workflows/WorkflowGraph";
 import { newIdempotencyKey } from "@/services/api";
 import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
@@ -27,6 +29,7 @@ import {
   useExecutionHistory,
   useExecutions,
   useLibraryHandlers,
+  useWorkflowGraph,
   useSetDefinitionStatus,
   useSignal,
   useStartExecution,
@@ -89,9 +92,22 @@ function download(name: string, data: unknown) {
   URL.revokeObjectURL(url);
 }
 
-function DefinitionActions({ workflowId, version, source, status }: { workflowId: string; version: number; source: string; status: string }) {
+function DefinitionActions({
+  workflowId,
+  version,
+  source,
+  status,
+  generated,
+}: {
+  workflowId: string;
+  version: number;
+  source: string;
+  status: string;
+  generated: boolean;
+}) {
   const { can } = useAuth();
   const setStatus = useSetDefinitionStatus();
+  const [editing, setEditing] = useState(false);
   const [exportError, setExportError] = useState<unknown>(null);
   const onExport = () =>
     exportDefinition(workflowId, version).then(
@@ -104,6 +120,11 @@ function DefinitionActions({ workflowId, version, source, status }: { workflowId
         <Button size="sm" variant="secondary" onClick={() => void onExport()}>
           <Download aria-hidden className="h-3.5 w-3.5" /> Export JSON
         </Button>
+        {source === "stored" && !generated && can("workflows:define") && (
+          <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
+            Edit as v{version + 1}
+          </Button>
+        )}
         {source === "stored" && can("workflows:define") && (
           <Button
             size="sm"
@@ -116,6 +137,7 @@ function DefinitionActions({ workflowId, version, source, status }: { workflowId
         )}
       </div>
       <ErrorMessage error={setStatus.error ?? exportError} />
+      {editing && <DefinitionEditor workflowId={workflowId} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
     </div>
   );
 }
@@ -123,6 +145,8 @@ function DefinitionActions({ workflowId, version, source, status }: { workflowId
 function DefinitionView({ id }: { id: string }) {
   const definition = useWorkflowDefinition(id);
   const metrics = useWorkflowMetrics(id);
+  const [view, setView] = useState<"steps" | "diagram">("steps");
+  const graph = useWorkflowGraph(id, definition.data?.version, view === "diagram");
   const handlers = useLibraryHandlers(definition.data?.source === "stored");
   const effectOf = (handler?: string) => handlers.data?.find((h) => h.name === handler)?.effect;
   const d = definition.data;
@@ -151,7 +175,7 @@ function DefinitionView({ id }: { id: string }) {
                 : "Registered in code"}
           </p>
         </div>
-        <DefinitionActions workflowId={d.workflow_id} version={d.version} source={d.source} status={d.status} />
+        <DefinitionActions workflowId={d.workflow_id} version={d.version} source={d.source} status={d.status} generated={Boolean(d.origin)} />
       </div>
       {m && (
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
@@ -171,7 +195,27 @@ function DefinitionView({ id }: { id: string }) {
         </dl>
       )}
       {d.source === "stored" && <TestsPanel workflowId={d.workflow_id} version={d.version} />}
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div role="tablist" aria-label="Definition views" className="flex gap-1">
+        {(["steps", "diagram"] as const).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            type="button"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={`rounded-md px-2.5 py-1 text-xs font-medium ${view === v ? "bg-navy-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+          >
+            {v === "steps" ? "Steps" : "Diagram"}
+          </button>
+        ))}
+      </div>
+      {view === "diagram" && (
+        <>
+          <ErrorMessage error={graph.error} />
+          {graph.data ? <WorkflowGraph graph={graph.data} /> : <p className="text-sm text-slate-500">Loading…</p>}
+        </>
+      )}
+      <div className={`overflow-x-auto rounded-xl border border-slate-200 bg-white ${view === "diagram" ? "hidden" : ""}`}>
         <table aria-label="Process steps" className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
             <tr>

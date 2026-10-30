@@ -9,7 +9,7 @@ from app.core.errors import DomainError, NotFoundError
 from app.core.pagination import PageParams, paginate
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
-from app.modules.workflows import library, registry, store, templates, validation
+from app.modules.workflows import graph, library, registry, store, templates, validation
 from app.modules.workflows.definition import StepType, WorkflowDefinition
 from app.modules.workflows.engine import check_task_access
 from app.modules.workflows.models import (
@@ -27,6 +27,7 @@ from app.modules.workflows.models import (
     WorkflowVariant,
 )
 from app.modules.workflows.schemas import (
+    DraftPreview,
     ExecutionDetail,
     ExecutionSummary,
     GenerationOut,
@@ -707,3 +708,31 @@ def last_test(db: Session, workflow_id: str, version: int) -> TestSummary | None
         route_coverage=run.route_coverage,
         ran_at=run.ran_at,
     )
+
+
+# --- Graph (Phase 21) ------------------------------------------------------------------------
+
+
+def graph_out(db: Session, workflow_id: str, version: int | None = None) -> graph.GraphOut:
+    definition = get_definition(db, workflow_id, version)
+    layout = graph.layout(definition)
+    test_run = db.execute(
+        select(WorkflowTestRun)
+        .where(
+            WorkflowTestRun.workflow_id == definition.workflow_id,
+            WorkflowTestRun.version == definition.version,
+        )
+        .order_by(WorkflowTestRun.ran_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return graph.overlay(layout, metrics(db, definition.workflow_id), test_run)
+
+
+def draft_preview(db: Session, document: dict) -> DraftPreview:
+    report = validation.validate(db, document)
+    drawn = None
+    if report.definition is not None:
+        ids = {s.id for s in report.definition.steps}
+        if report.definition.start in ids:
+            drawn = graph.layout(report.definition).model_dump(mode="json")
+    return DraftPreview(report=report_out(report), graph=drawn)

@@ -383,4 +383,84 @@ describe("Workflow Explorer", () => {
     expect(within(panel).getByRole("list", { name: "Uncovered routes" })).toHaveTextContent("transition[2]");
     expect(api.requests.some((r) => r.method === "POST" && r.path.endsWith("/versions/1/tests"))).toBe(true);
   });
+
+  it("draws a workflow as a diagram with its coverage", async () => {
+    const graphData = {
+      workflow_id: "WF-0001", version: 1, layers: 3, tested_at: "2026-10-30T12:00:00Z",
+      nodes: [
+        { id: "receive_application", name: "Customer submits application", type: "service_task", layer: 0, order: 0, start: true, permissions: [], reachable: true, runs: 5, failed: 0 },
+        { id: "account_approval", name: "Authorized approval", type: "approval", layer: 1, order: 0, start: false, permissions: ["accounts:approve"], reachable: true, runs: 5, failed: 1 },
+        { id: "complete", name: "Case closed", type: "completion", layer: 2, order: 0, start: false, permissions: [], reachable: true, outcome: "approved" },
+      ],
+      edges: [
+        { source: "receive_application", target: "account_approval", kind: "next", label: "", route: "r1", back: false, covered: true },
+        { source: "account_approval", target: "complete", kind: "transition", label: "approved", route: "r2", back: false, covered: false },
+      ],
+    };
+    mockApi(routes({ "GET /api/v1/workflows/WF-0001/graph": () => jsonResponse(graphData) }));
+    renderApp("/workflows");
+
+    await userEvent.click(await screen.findByRole("tab", { name: "Diagram" }));
+    const diagram = await screen.findByRole("img", { name: "Diagram of WF-0001 v1" });
+    expect(within(diagram).getByText("Authorized approval")).toBeInTheDocument();
+    expect(within(diagram).getByText("5 (1)")).toBeInTheDocument();
+    expect(within(diagram).getByText("approved")).toBeInTheDocument();
+    expect(diagram.querySelector('[data-route="r2"]')?.getAttribute("data-covered")).toBe("false");
+    expect(screen.getByText(/1 route\(s\) not covered/)).toBeInTheDocument();
+  });
+
+  it("edits a stored workflow with a live, located preview and saves the next version", async () => {
+    const stored: WorkflowDefinition = { ...definition, workflow_id: "WF-1001", name: "Customer Address Change", source: "stored" };
+    const exported = { ...stored, version: 1, steps: [
+      { id: "assign_key", type: "service_task", name: "Assign case reference", handler: "core.business_key", params: { path: "input.customer_number" }, next: "done" },
+      { id: "done", type: "completion", name: "Done", outcome: "updated" },
+    ] };
+    const node = (id: string, name: string, layer: number) => ({ id, name, type: "service_task", layer, order: 0, start: layer === 0, permissions: [], reachable: true });
+    let previews = 0;
+    const bodies: { definition: { steps: { id: string; name: string }[] } }[] = [];
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflows": () => jsonResponse([stored]),
+        "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
+        "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
+        "GET /api/v1/workflows/WF-1001/export": () => jsonResponse(exported),
+        "GET /api/v1/workflow-definitions/handlers": () => jsonResponse([]),
+        "GET /api/v1/workflow-definitions/WF-1001/tests": () => jsonResponse([]),
+        "POST /api/v1/workflow-definitions/preview": (request: RecordedRequest) => {
+          bodies.push(request.body as (typeof bodies)[number]);
+          previews += 1;
+          const valid = previews > 1;
+          return jsonResponse({
+            report: { valid, workflow_id: "WF-1001", version: 2, content_hash: "h", existing: valid ? "new" : null,
+              errors: valid ? [] : [{ location: "steps.assign_key.params", code: "unknown_input_field", message: "reads an unknown input field" }], warnings: [], effects: {} },
+            graph: { workflow_id: "WF-1001", version: 2, layers: 2, nodes: [node("assign_key", "Assign case reference", 0), node("done", "Done", 1)],
+              edges: [{ source: "assign_key", target: "done", kind: "next", label: "", route: "a", back: false, covered: null }] },
+          });
+        },
+        "POST /api/v1/workflow-definitions": () => jsonResponse({ created: true, definition: { workflow_id: "WF-1001", version: 2 }, warnings: [] }, 201),
+      }),
+    );
+    renderApp("/workflows");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Edit as v2" }));
+    const editor = await screen.findByRole("dialog", { name: "Edit WF-1001 as v2" });
+    await waitFor(() => expect(within(editor).getByRole("status")).toHaveTextContent("1 problem(s) to fix before saving."));
+    expect(within(editor).getByRole("button", { name: "Save as v2" })).toBeDisabled();
+    const diagram = within(editor).getByRole("img", { name: "Diagram of WF-1001 v2" });
+    expect(within(diagram).getByText("1 problem")).toBeInTheDocument();
+
+    await userEvent.click(diagram.querySelector('[data-step="assign_key"]') as Element);
+    const form = within(editor).getByRole("group", { name: "Step assign_key" });
+    expect(within(form).getByRole("list", { name: "Step problems" })).toHaveTextContent("unknown input field");
+    const name = within(form).getByLabelText("Name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Reference");
+    await waitFor(() => expect(within(editor).getByRole("status")).toHaveTextContent("Valid: v2 can be saved."), { timeout: 3000 });
+    expect(bodies.at(-1)?.definition.steps[0].name).toBe("Reference");
+
+    await userEvent.click(within(editor).getByRole("button", { name: "Save as v2" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit WF-1001 as v2" })).not.toBeInTheDocument());
+    const saved = api.requests.find((r) => r.method === "POST" && r.path === "/api/v1/workflow-definitions");
+    expect((saved?.body as { definition: { version: number } }).definition.version).toBe(2);
+  });
 });

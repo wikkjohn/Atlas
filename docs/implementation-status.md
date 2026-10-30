@@ -53,7 +53,12 @@ Last updated: Phase 28.
 
 ## Phase 28: verified results
 
-PENDING
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 556 passed before the last two sweep changes (new: 5 — applications that follow a country's ages, documents and lists; unchanged configuration of existing scenarios; runs limited to countries with their rules snapshot; a sweep of Japan, Kenya and Saudi Arabia with staff in each subsidiary, every kind covered as predicted, and high-value payments approved by a second person; the API starting and re-running a one-country run). The sweep tests were re-run after the coverage and path checks: 5 passed |
+| Frontend Vitest / typecheck / build | 95 passed (updated: the start form sends the chosen country) / clean / built |
+| Playwright on a fresh database | 30 passed on the first run (new: a `global-payments` run in Japan, every outcome right) |
+| Country sweep (Milestone C exit) | **240 of 240 runs passed in 120 countries, 7,200 cases**, every kind in every country, 31 min 43 s. Before it, two problems were found and fixed: the first full sweep (also 240 of 240) drew the same kinds everywhere and missed sanctions hits and scams; and a control with country-blind cases passed until paths were checked. With path checks, the control fails in Austria and Lebanon (onboarding) and in Indonesia, Vietnam, Korea and Kuwait (payments), and passes in the UK and Japan |
 
 ## Phase 28: known limitations
 

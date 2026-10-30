@@ -124,7 +124,18 @@ Two problems were found and fixed before the result below:
 
 ## Result
 
-PENDING
+**240 of 240 runs passed in 120 countries** (7,200 cases): 30 cases per run, seed 2028,
+on the database where every country is launched with its generated subsidiary (Phase 27).
+Every case kind occurred in every country:
+
+| Scenario | Kinds (cases across the 120 countries) |
+| --- | --- |
+| `global-onboarding` | clean 2,222 · politically exposed 228 · missing documents 221 · name mismatch 215 · sanctions hit 205 · forged document 181 · underage 166 · abandoned documents 162 |
+| `global-payments` | routine 1,543 · new payee 524 · high value 502 · scam 304 · large share 267 · insufficient funds 230 · watchlisted payee 230 |
+
+It took 31 min 43 s (1,900 s of runs, 6 to 9 s each) on one process in the development
+container. The machine was not otherwise loaded during this sweep. The first, superseded
+sweep took 27 min, partly while other test suites were running.
 
 ## Limitations
 

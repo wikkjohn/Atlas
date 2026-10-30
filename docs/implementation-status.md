@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 27.
+Last updated: Phase 28.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -32,6 +32,34 @@ Last updated: Phase 27.
 | 25 | Global footprint, step 3: country rules engine ([country-rules.md](country-rules.md)) | **Complete** |
 | 26 | Global footprint, step 4: business calendars ([business-calendars.md](business-calendars.md)) | **Complete** |
 | 27 | Global footprint, step 5: generated country subsidiaries ([subsidiaries.md](subsidiaries.md)) | **Complete** |
+| 28 | Global footprint, step 6: the 120-country sweep ([country-sweep.md](country-sweep.md)) — roadmap Milestone C complete | **Complete** |
+
+## Phase 28: what exists
+
+- **Cases that follow each country's rules** (scenario field `country_rules`). Onboarding
+  cases take their ages, accepted identity documents, proof of address and sanctions
+  names from the applicant's country. Payment cases take their balances and high-value
+  amounts from the payer's country's threshold and limit, and watchlisted payees from its
+  lists. The rules in force on the simulated day are stored in the run's dataset. Existing
+  scenarios are unchanged, configuration hashes included.
+- **`global-onboarding` and `global-payments`:** scenarios on WF-0001 v1 and WF-0002 v1
+  whose reviewers never err, so any outcome that differs from the ground truth points to
+  the workflow or the rules.
+- **Runs in one country:** `create_run(countries=…)`, the API's `country` and the Start
+  form's *Country* field. Customers come from that country, staff from its subsidiary,
+  and "Run again" keeps the country.
+- **The country sweep:** `python -m app.cli country-sweep` runs both scenarios in every
+  active country and checks completion, ground truth and the control checks.
+
+## Phase 28: verified results
+
+PENDING
+
+## Phase 28: known limitations
+
+- The sweep runs one country at a time in one process.
+- Sweep reviewers never err; how accurate people are is studied with the other scenarios.
+- Document numbers use the simulation's own format, not each country's mask.
 
 ## Phase 27: what exists
 

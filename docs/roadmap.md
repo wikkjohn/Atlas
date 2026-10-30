@@ -106,7 +106,10 @@ millions of customers and an AI testing laboratory at that scale.
       (Phase 27: a versioned blueprint of divisions, departments, teams and staff;
       launching a country activates it and builds what is missing; all 115 planned
       countries generated in 31 s; see `subsidiaries.md`)
-- [ ] **Exit:** onboarding and payment variants pass in all 120 countries
+- [x] **Exit:** onboarding and payment variants pass in all 120 countries (Phase 28:
+      cases that follow each country's rules; `global-onboarding` and `global-payments`
+      run in every country with its own staff; see `country-sweep.md`) — **Milestone C
+      complete**
 
 ## Milestone D — 35+ departments and their products
 
@@ -202,4 +205,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 25 (C3) | Country rules engine: versioned per-country KYC, screening and payment rules applied by account opening and payments; value dates; rules editing on the Countries page | complete |
 | Phase 26 (C4) | Business calendars: lunar holidays as dated tables; schedules and simulation arrivals on a country's business days | complete |
 | Phase 27 (C5) | Generated country subsidiaries: a versioned blueprint; launching a country activates it and builds its subsidiary and staff | complete |
-| Phase 28 (C6, proposed) | Milestone C exit: onboarding and payment variants pass in all 120 countries | next |
+| Phase 28 (C6) | Milestone C exit: cases that follow each country's rules; onboarding and payments swept through all 120 countries — Milestone C done | complete |
+| Phase 29 (D1, proposed) | Milestone D, step 1: retail banking — deposits, statements, interest and fees, overdrafts, standing orders | next |

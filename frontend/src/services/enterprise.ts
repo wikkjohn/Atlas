@@ -4,12 +4,16 @@ import { apiGet, apiPatch, apiPost, query } from "@/services/api";
 import type {
   AuditEvent,
   Country,
+  CountryCalendar,
+  CountrySample,
+  Currency,
   Employee,
   Organization,
   Page,
   Role,
   UserAccount,
   UserCreate,
+  ValueCheck,
 } from "@/types/enterprise";
 
 type Params = Record<string, string | number | boolean | null | undefined>;
@@ -39,6 +43,30 @@ export function useUpdateCountry() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["countries"] }),
   });
 }
+
+export const useCurrencies = () =>
+  useQuery({
+    queryKey: ["currencies"],
+    queryFn: () => apiGet<Currency[]>("/api/v1/currencies"),
+    staleTime: Infinity,
+  });
+
+export const useCountryCalendar = (id: string, year: number) =>
+  useQuery({
+    queryKey: ["countries", "calendar", id, year],
+    queryFn: () => apiGet<CountryCalendar>(`/api/v1/countries/${id}/calendar${query({ year })}`),
+  });
+
+export const useCountrySamples = (id: string, seed: number) =>
+  useQuery({
+    queryKey: ["countries", "samples", id, seed],
+    queryFn: () => apiGet<CountrySample[]>(`/api/v1/countries/${id}/samples${query({ count: 3, seed })}`),
+  });
+
+export const useCheckCountryValue = (id: string) =>
+  useMutation({
+    mutationFn: (body: { kind: string; value: string }) => apiPost<ValueCheck>(`/api/v1/countries/${id}/check`, body),
+  });
 
 // --- Organizations -----------------------------------------------------------------------
 

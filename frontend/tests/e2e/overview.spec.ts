@@ -9,7 +9,7 @@ test.describe("Platform shell", () => {
     await expect(page.getByRole("heading", { name: "Enterprise Overview" })).toBeVisible();
     const metrics = page.getByRole("region", { name: "Key metrics" });
     await expect(metrics.getByRole("link", { name: /^Employees: [\d,]+$/ })).toBeVisible();
-    await expect(metrics.getByRole("link", { name: /^Configured countries: 5$/ })).toBeVisible();
+    await expect(metrics.getByRole("link", { name: /^Configured countries: 120$/ })).toBeVisible();
     await expect(metrics.getByRole("link", { name: /^Registered AI tools: \d+$/ })).toBeVisible();
     await expect(metrics.getByText("Estimate", { exact: true })).toBeVisible();
     const database = page.getByRole("group", { name: "Database" });

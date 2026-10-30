@@ -54,7 +54,9 @@ dispatcher, database session, audit log, synthetic data generators, AI tool regi
 experiment management and analytics. No module may introduce its own version of these.
 
 Modules implemented so far: `identity` (users, roles, auth), `countries`, `organizations`,
-`employees`, `audit` (read API over `app/core/audit.py`). `app/models.py` imports every
+`employees`, `audit` (read API over `app/core/audit.py`). `app/modules/reference` (Phase 23)
+holds the country reference data as version-controlled Python data with its calendar,
+format and loader code; it has no tables of its own (see [reference-data.md](reference-data.md)). `app/models.py` imports every
 module's models so Alembic and tests see the complete schema.
 
 ## Cross-cutting behaviour

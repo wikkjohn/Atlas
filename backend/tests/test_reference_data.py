@@ -20,7 +20,8 @@ from app.modules.countries.schemas import LANGUAGE_PATTERN
 from app.modules.reference import calendar, data, loader, masks, synthetic
 from tests.factories import auth, make_user
 
-SNAPSHOT = Path(__file__).parents[1] / "alembic" / "versions" / "0020_reference_data.json"
+# Each version of the data ships as a migration with its snapshot; the latest must match.
+SNAPSHOT = max((Path(__file__).parents[1] / "alembic" / "versions").glob("*_reference_data.json"))
 
 
 def holidays_of(code: str, year: int) -> dict[str, tuple[date, date]]:
@@ -148,7 +149,7 @@ def test_the_migration_snapshot_matches_the_dataset() -> None:
     assert snapshot["currencies"] == loader.currency_rows()
     assert snapshot["countries"] == json.loads(
         json.dumps([loader.country_row(c) for c in data.COUNTRIES])
-    ), "Regenerate 0020_reference_data.json, or add a migration for the new version."
+    ), "The data changed: bump VERSION and add a migration with a new snapshot."
 
 
 def test_the_database_holds_the_reference_data(db: Session) -> None:

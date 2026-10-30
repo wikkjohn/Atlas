@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 22.
+Last updated: Phase 23.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -27,6 +27,51 @@ Last updated: Phase 22.
 | 20 | Workflow factory, step 4: generated path tests for every stored and generated workflow, in CI | **Complete** |
 | 21 | Workflow factory, step 5: workflow diagram and an editor with live validation | **Complete** |
 | 22 | Workflow factory, step 6: catalogue search, ownership, review lifecycle; the Milestone B exit run — roadmap Milestone B complete | **Complete** |
+| 23 | Global footprint, step 1: reference data for 120 countries ([reference-data.md](reference-data.md)) | **Complete** |
+
+## Phase 23: what exists
+
+- **Reference data** (`app/modules/reference/`, version 2026.1) for the 120 countries:
+  - ISO codes, calling codes, currency and minor units (`currencies`, 93 currencies);
+  - time zone, languages, weekend days and banking regulator;
+  - identity documents and passports with number masks;
+  - address layouts with postal-code masks;
+  - 1,167 holiday rules, with the Western or Orthodox Easter and the observance of weekend holidays.
+- **Loading:** migration 0020 loads a frozen snapshot. It adds the `currencies` table (with
+  a foreign key from `countries`), fills the reference columns of the 5 operating
+  countries and adds 115 planned ones. `reference load` re-applies the data idempotently
+  without touching operator-managed fields.
+- **Calendars:** holidays and observed days off for any year from 1980 to 2099; business days
+  and the next business day.
+- **Formats:** masks validate and generate document numbers and postal codes; addresses are
+  formatted in each country's layout. Synthetic samples are deterministic per seed.
+- **API:** `/currencies`, plus four endpoints per country: `calendar`, `business-day`,
+  `check` and `samples`. A new country must use a known currency.
+- **Elsewhere:** `app.core.money` reads minor units from the reference data; templates
+  get the new `{{country.*}}` fields.
+- **UI:** the Countries page filters by status and searches by name or code. Each country
+  opens to its reference data, the holiday calendar by year, a format checker and
+  synthetic samples.
+
+## Phase 23: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | see the PR |
+| Frontend Vitest / typecheck / build | 91 passed (new: a country's reference data, calendar, format check and samples) / clean / built |
+| Playwright on a fresh database | see the PR |
+| Migration 0020 | Upgrade, downgrade and upgrade again on the development database; `alembic check` clean |
+
+## Phase 23: known limitations
+
+- Lunar-calendar holidays (Islamic, Chinese, Hindu, Buddhist, Jewish), state and provincial
+  holidays, bridge days and make-up working weekends are not computed. Business calendars
+  that take dated tables are a later Milestone C step.
+- Masks give the shape of document numbers and postal codes, not check digits.
+- Regulators and holidays are compiled for the simulation, not from an authoritative feed.
+- The scheduler and the simulation do not yet use the calendars; that is the business
+  calendars step.
+
 
 ## Phase 22: what exists
 

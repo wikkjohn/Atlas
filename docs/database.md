@@ -34,6 +34,8 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0018_workflow_test_runs` | 20 | `workflow_test_runs` |
 | `0017_workflow_templates` | 19 | `workflow_templates`, `workflow_variants` |
 | `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
+| `0019_catalogue_lifecycle` | 22 | `workflow_catalogue`; definition lifecycle `draft`, `in_review`, `active`, `retired` with submitter and reviewer |
+| `0020_country_reference_data` | 23 | `currencies` (FK from `countries.default_currency`); reference columns on `countries`; loads the 2026.1 reference data from `0020_reference_data.json` (93 currencies; 5 countries updated, 115 added as planned) |
 
 Common commands (from `backend/`):
 
@@ -67,14 +69,30 @@ Seeded rows: `platform.initialized_at`, the UTC time the baseline migration ran.
 | `iso_country_code` | `varchar(2)` | Unique; CHECK `^[A-Z]{2}$` |
 | `country_name` | `varchar(100)` | Unique |
 | `region` | `varchar(30)` | CHECK in americas, europe, middle_east_africa, asia_pacific |
-| `default_currency` | `varchar(3)` | CHECK `^[A-Z]{3}$` (ISO 4217) |
+| `default_currency` | `varchar(3)` | FK → `currencies.code` (Phase 23) |
 | `default_timezone` | `varchar(64)` | IANA name (validated by the API) |
 | `supported_languages` | `varchar(16)[]` | Language tags |
 | `operational_status` | `varchar(20)` | CHECK in active, planned, suspended |
+| `iso_alpha3` | `varchar(3)` | Unique; ISO 3166-1 alpha-3 (Phase 23, as are the columns below) |
+| `calling_code` | `varchar(8)` | CHECK `^\+[0-9]{1,4}$` |
+| `weekend_days` | `smallint[]` | ISO weekdays (1 Monday … 7 Sunday), default `{6,7}` |
+| `easter` | `varchar(10)` | western or orthodox computus |
+| `holiday_observance` | `varchar(20)` | none, next_weekday, nearest_weekday, sunday_to_next |
+| `holiday_rules` | `jsonb` | Fixed dates, Easter offsets, n-th weekdays, … (see [reference-data.md](reference-data.md)) |
+| `regulator` | `jsonb` | `{name, abbreviation}` of the banking supervisor |
+| `identity_documents` | `jsonb` | `[{type, name, mask, example}]` |
+| `address_format` | `jsonb` | `{style, lines, postal_code_masks, postal_code_example, requires_region}` |
+| `reference_notes`, `reference_version` | `jsonb`, `varchar(20)` | What the data leaves out; the dataset version applied |
 | `created_at`, `updated_at` | `timestamptz` | |
 
-Seeded: US, GB, DE, SG, JP (all active). The schema has no country limit; the 120-country
-target is exercised by a test.
+Seeded: US, GB, DE, SG, JP (active) by migration 0002; since Phase 23 the 115 other
+countries of the footprint (planned) and everyone's reference data by migration 0020.
+
+### `currencies` (Phase 23)
+
+`code` (PK, ISO 4217), `name`, `minor_units` (0–4), timestamps. Amounts everywhere are
+integers in the currency's minor unit; `app.core.money` reads the exponents from the same
+reference data.
 
 ### `organizations` (Phase 2)
 

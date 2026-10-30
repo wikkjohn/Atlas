@@ -112,8 +112,63 @@ export interface Country {
   default_timezone: string;
   supported_languages: string[];
   operational_status: CountryStatus;
+  // Reference data (Phase 23).
+  iso_alpha3?: string | null;
+  calling_code?: string | null;
+  weekend_days?: number[];
+  easter?: "western" | "orthodox";
+  holiday_observance?: string;
+  regulator?: { name: string; abbreviation: string } | null;
+  identity_documents?: IdentityDocument[];
+  address_format?: AddressFormat | null;
+  reference_notes?: string[];
+  reference_version?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface IdentityDocument {
+  type: "national_id" | "passport";
+  name: string;
+  mask: string;
+  example: string;
+}
+
+export interface AddressFormat {
+  style: string;
+  lines: string[];
+  postal_code_masks: string[];
+  postal_code_example: string | null;
+  requires_region: boolean;
+}
+
+export interface Currency {
+  code: string;
+  name: string;
+  minor_units: number;
+}
+
+export interface CountryCalendar {
+  iso_country_code: string;
+  year: number;
+  weekend_days: number[];
+  holidays: { date: string; name: string; observed: string }[];
+  business_days: number;
+  notes: string[];
+}
+
+export interface ValueCheck {
+  kind: string;
+  value: string;
+  valid: boolean;
+  masks: string[];
+}
+
+export interface CountrySample {
+  national_id: string | null;
+  passport: string;
+  postal_code: string | null;
+  address_lines: string[];
 }
 
 export type OrganizationType =

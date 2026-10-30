@@ -46,10 +46,15 @@ every endpoint follows and lists what exists.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/countries` | `countries:read` | Filters: `region`, `operational_status`, `q` |
-| POST | `/api/v1/countries` | `countries:manage` | ISO 3166 code, ISO 4217 currency, IANA time zone, language tags; idempotent |
+| GET | `/api/v1/countries` | `countries:read` | Filters: `region`, `operational_status`, `q`, `currency`; each country carries its reference data (Phase 23) |
+| POST | `/api/v1/countries` | `countries:manage` | ISO 3166 code, ISO 4217 currency (must be in `currencies`, else 422), IANA time zone, language tags; idempotent |
 | GET | `/api/v1/countries/{id}` | `countries:read` | |
 | PATCH | `/api/v1/countries/{id}` | `countries:manage` | Name, time zone, languages, status. Code, region and currency are fixed once created. |
+| GET | `/api/v1/countries/{id}/calendar?year=` | `countries:read` | Public holidays (`date`, `name`, `observed`), weekend days and the number of business days in a year (1980–2099) |
+| GET | `/api/v1/countries/{id}/business-day?on=` | `countries:read` | `{date, business_day, holiday, next_business_day}` |
+| POST | `/api/v1/countries/{id}/check` | `countries:read` | `{kind: national_id \| passport \| postal_code, value}` → `{valid, masks}` |
+| GET | `/api/v1/countries/{id}/samples?count=&seed=` | `countries:read` | Synthetic document numbers, postal codes and addresses in the country's formats (deterministic per seed) |
+| GET | `/api/v1/currencies` | `countries:read` | ISO 4217 code, name and minor units |
 
 ### Organizations
 

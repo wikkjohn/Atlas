@@ -89,8 +89,10 @@ millions of customers and an AI testing laboratory at that scale.
 
 ## Milestone C — Global footprint (5 → 120 countries)
 
-- [ ] Reference data for 120 countries: currency, minor units, time zone, holidays,
-      language, regulator, identity documents, address formats
+- [x] Reference data for 120 countries: currency, minor units, time zone, holidays,
+      language, regulator, identity documents, address formats (Phase 23: 93 currencies,
+      1,167 holiday rules with computed calendars, document and postal masks, address
+      layouts; see `reference-data.md`; lunar-calendar holidays follow with the calendars)
 - [ ] Multi-currency: synthetic FX rates, cross-currency payments, revaluation, positions
 - [ ] Country rules engine: KYC documents, age limits, sanctions lists, cut-offs, limits
 - [ ] Business calendars used by the scheduler and the simulation's arrivals
@@ -186,4 +188,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 20 (B4) | Generated path tests for every stored and generated workflow (route planning, input synthesis, fixtures, coverage), run in CI and from the UI | complete |
 | Phase 21 (B5) | Workflow diagram for every workflow (layout, route labels, live metrics, test coverage) and an editor for stored workflows with live, located validation | complete |
 | Phase 22 (B6) | Catalogue at scale: search and facets by department, country and product; ownership; lifecycle (draft, review, active, retired) with four-eyes approval behind passing tests; parallel test runner; Milestone B exit run (5,052 workflows, 111,168 cases, 0 failed) — Milestone B done | complete |
-| Phase 23 (C1, proposed) | Global footprint, step 1: reference data for 120 countries (currency, minor units, time zone, holidays, language, regulator, identity documents, address formats) | next |
+| Phase 23 (C1) | Global footprint, step 1: reference data for 120 countries (currency, minor units, time zone, weekend, holidays, language, regulator, identity documents, address formats), computed holiday calendars, synthetic document numbers and addresses | complete |
+| Phase 24 (C2, proposed) | Multi-currency: synthetic FX rates, cross-currency payments, revaluation and positions | next |

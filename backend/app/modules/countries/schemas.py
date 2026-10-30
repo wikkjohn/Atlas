@@ -1,7 +1,8 @@
 import re
 import uuid
 import zoneinfo
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -85,5 +86,66 @@ class CountryOut(BaseModel):
     default_timezone: str
     supported_languages: list[str]
     operational_status: str
+    # Reference data (Phase 23).
+    iso_alpha3: str | None = None
+    calling_code: str | None = None
+    weekend_days: list[int] = []
+    easter: str = "western"
+    holiday_observance: str = "none"
+    holiday_rules: list[dict[str, Any]] = []
+    regulator: dict[str, Any] | None = None
+    identity_documents: list[dict[str, Any]] = []
+    address_format: dict[str, Any] | None = None
+    reference_notes: list[str] = []
+    reference_version: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class CurrencyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    name: str
+    minor_units: int
+
+
+class HolidayOut(BaseModel):
+    date: date
+    name: str
+    observed: date  # the day off, when a weekend moved it
+
+
+class CalendarOut(BaseModel):
+    iso_country_code: str
+    year: int
+    weekend_days: list[int]
+    holidays: list[HolidayOut]
+    business_days: int
+    notes: list[str]
+
+
+class BusinessDayOut(BaseModel):
+    date: date
+    business_day: bool
+    holiday: str | None
+    next_business_day: date
+
+
+class ValueCheckIn(BaseModel):
+    kind: Literal["national_id", "passport", "postal_code"]
+    value: str = Field(min_length=1, max_length=40)
+
+
+class ValueCheckOut(BaseModel):
+    kind: str
+    value: str
+    valid: bool
+    masks: list[str]  # what a valid value looks like (9 digit, A letter, X either)
+
+
+class SampleOut(BaseModel):
+    national_id: str | None
+    passport: str
+    postal_code: str | None
+    address_lines: list[str]

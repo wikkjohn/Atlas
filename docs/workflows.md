@@ -333,7 +333,7 @@ range of workflow ids its variants may take (`templates.py`, `examples/TPL-*.jso
 | --- | --- |
 | `"{{fee}}"` (the whole string) | the parameter's value with its type: a number, list or boolean |
 | `"… {{account_type}} …"` | the value as text inside the string |
-| `{{country.name}}`, `.currency`, `.region`, `.code`, `.minor_exponent` | reference data of the `country_code` parameter's country |
+| `{{country.name}}`, `.currency`, `.region`, `.code`, `.minor_exponent`; since Phase 23 also `.alpha3`, `.timezone`, `.language`, `.calling_code`, `.regulator` | reference data of the `country_code` parameter's country |
 | `"{{fee\|minor}}"` | a whole major-unit amount in minor units of the country's currency (5 → 500 GBP, 5 JPY) |
 | `"$include": "{{flag}}"` on a step | the step only when the flag is true; otherwise every route to it goes to its `next` |
 

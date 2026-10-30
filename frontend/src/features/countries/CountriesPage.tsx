@@ -7,6 +7,7 @@ import { ErrorMessage } from "@/components/ErrorMessage";
 import { Field, inputClass } from "@/components/Field";
 import { Modal } from "@/components/Modal";
 import { PageHeader } from "@/components/PageHeader";
+import { CountryReference } from "@/features/countries/CountryReference";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { REGION_LABELS } from "@/services/format";
 import { useCountries, useCreateCountry, useUpdateCountry } from "@/services/enterprise";
@@ -179,15 +180,18 @@ function StatusControl({ country }: { country: Country }) {
 export function CountriesPage() {
   const { can } = useAuth();
   const [region, setRegion] = useState("");
+  const [status, setStatus] = useState("");
+  const [q, setQ] = useState("");
   const [adding, setAdding] = useState(false);
-  const countries = useCountries({ region: region || undefined });
+  const [open, setOpen] = useState<Country | null>(null);
+  const countries = useCountries({ region: region || undefined, operational_status: status || undefined, q: q || undefined });
   const canManage = can("countries:manage");
 
   return (
     <>
       <PageHeader
         title="Countries"
-        description="Country configuration registry. A country's status, currency and time zone govern the organizations and staff placed in it."
+        description="Country configuration registry with reference data for the 120-country footprint: currency, calendar, regulator, identity documents and address formats. A country's status governs the organizations and staff placed in it."
         actions={
           canManage && (
             <Button onClick={() => setAdding(true)}>
@@ -214,6 +218,27 @@ export function CountriesPage() {
             </option>
           ))}
         </select>
+        <label htmlFor="status-filter" className="text-xs font-medium text-slate-600">
+          Status
+        </label>
+        <select
+          id="status-filter"
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="">Any status</option>
+          <option value="active">Active</option>
+          <option value="planned">Planned</option>
+          <option value="suspended">Suspended</option>
+        </select>
+        <input
+          aria-label="Search countries"
+          placeholder="Name or ISO code"
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
         {countries.data && (
           <span className="text-xs text-slate-500">
             {countries.data.total} configured · target 120
@@ -247,7 +272,9 @@ export function CountriesPage() {
                   <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">
                     {country.iso_country_code}
                   </span>
-                  <span className="font-medium text-slate-900">{country.country_name}</span>
+                  <button type="button" className="font-medium text-slate-900 hover:underline" onClick={() => setOpen(country)}>
+                    {country.country_name}
+                  </button>
                 </td>
                 <td className="px-4 py-2.5 text-slate-600">{REGION_LABELS[country.region]}</td>
                 <td className="px-4 py-2.5 font-mono text-xs text-slate-700">
@@ -273,6 +300,7 @@ export function CountriesPage() {
         </table>
       </div>
       {adding && <AddCountryDialog onClose={() => setAdding(false)} />}
+      {open && <CountryReference country={open} onClose={() => setOpen(null)} />}
     </>
   );
 }

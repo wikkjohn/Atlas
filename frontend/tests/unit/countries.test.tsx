@@ -88,4 +88,68 @@ describe("Countries page", () => {
     expect(alert).toHaveTextContent("default_timezone: not an IANA time zone");
     expect(alert).toHaveTextContent("Reference: trace-9");
   });
+
+  it("shows a country's reference data, calendar, format checks and samples", async () => {
+    const reference = {
+      ...japan,
+      iso_alpha3: "JPN",
+      calling_code: "+81",
+      weekend_days: [6, 7],
+      regulator: { name: "Financial Services Agency", abbreviation: "FSA" },
+      identity_documents: [
+        { type: "national_id", name: "My Number", mask: "9999 9999 9999", example: "1234 5678 9012" },
+        { type: "passport", name: "Passport", mask: "AA9999999", example: "AB1234567" },
+      ],
+      address_format: {
+        style: "postal_first",
+        lines: ["{postal_code}", "{region} {city}", "{street}"],
+        postal_code_masks: ["999-9999"],
+        postal_code_example: "123-4567",
+        requires_region: true,
+      },
+      reference_notes: ["Bridge holidays between two holidays are not modelled."],
+      reference_version: "2026.1",
+    };
+    const api = mockApi({
+      ...healthyRoutes,
+      ...authRoutes(employeeUser),
+      "/api/v1/countries": () => jsonResponse(page([reference])),
+      "/api/v1/currencies": () => jsonResponse([{ code: "JPY", name: "Japanese yen", minor_units: 0 }]),
+      [`/api/v1/countries/${japan.id}/calendar`]: () =>
+        jsonResponse({
+          iso_country_code: "JP",
+          year: 2026,
+          weekend_days: [6, 7],
+          holidays: [
+            { date: "2026-01-01", name: "New Year's Day", observed: "2026-01-01" },
+            { date: "2026-05-03", name: "Constitution Memorial Day", observed: "2026-05-06" },
+          ],
+          business_days: 244,
+          notes: [],
+        }),
+      [`/api/v1/countries/${japan.id}/samples`]: () =>
+        jsonResponse([{ national_id: "0002 4879 8449", passport: "XZ7155980", postal_code: "796-5942", address_lines: ["796-5942", "Tokyo Testville", "59 Model Lane"] }]),
+      [`POST /api/v1/countries/${japan.id}/check`]: () =>
+        jsonResponse({ kind: "postal_code", value: "1234", valid: false, masks: ["999-9999"] }),
+    });
+    renderApp("/countries");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Japan" }));
+    const dialog = screen.getByRole("dialog", { name: "Japan (JP)" });
+    expect(within(dialog).getByText("Financial Services Agency (FSA)")).toBeInTheDocument();
+    expect(await within(dialog).findByText("JPY · Japanese yen, 0 decimals")).toBeInTheDocument();
+    expect(within(dialog).getByText("Saturday and Sunday")).toBeInTheDocument();
+    expect(within(dialog).getByText("e.g. 1234 5678 9012")).toBeInTheDocument();
+    const holidays = within(dialog).getByRole("region", { name: "Holiday calendar" });
+    expect(await within(holidays).findByText("244 business days")).toBeInTheDocument();
+    expect(within(holidays).getByText("(observed 2026-05-06)", { exact: false })).toBeInTheDocument();
+
+    const check = within(dialog).getByRole("region", { name: "Check a value" });
+    await userEvent.type(within(check).getByLabelText("Value"), "1234");
+    await userEvent.click(within(check).getByRole("button", { name: "Check" }));
+    expect(await within(check).findByRole("status")).toHaveTextContent("1234 does not match 999-9999");
+    expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({ kind: "postal_code", value: "1234" });
+    expect(await within(dialog).findByText("ID 0002 4879 8449")).toBeInTheDocument();
+    expect(within(dialog).getByText("Bridge holidays between two holidays are not modelled.")).toBeInTheDocument();
+  });
 });

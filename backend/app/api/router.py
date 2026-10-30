@@ -14,6 +14,7 @@ from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.ai_tools.router import router as ai_tools_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.audit.router import router as audit_router
+from app.modules.countries.router import currencies_router
 from app.modules.countries.router import router as countries_router
 from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
@@ -46,6 +47,7 @@ for module_router in (
     users_router,
     roles_router,
     countries_router,
+    currencies_router,
     organizations_router,
     employees_router,
     customers_router,

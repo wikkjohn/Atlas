@@ -57,9 +57,9 @@ Last updated: Phase 23.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | see the PR |
+| Backend pytest (real PostgreSQL) | 520 passed (new: 131 — the dataset (120 countries, 4 regions), each country's consistency (one test per country: codes, currency, time zone, languages, masks with examples, a decade of computable holidays), ISO 4217 minor units through `money`, both Easter computuses, holiday rules and weekend observance, weekends of Friday–Saturday and Friday–Sunday, masks and address layouts, the migration snapshot equals the dataset, the database contents, an idempotent reload that keeps operator fields, the reference API, a new country needing a known currency). Writing the per-country test found a duplicated holiday name in China's data, fixed before commit |
 | Frontend Vitest / typecheck / build | 91 passed (new: a country's reference data, calendar, format check and samples) / clean / built |
-| Playwright on a fresh database | see the PR |
+| Playwright on a fresh database | 26 passed, first run (new: Saudi Arabia found by region, status and search; its weekend, regulator, 2026 calendar and a postal-code check) |
 | Migration 0020 | Upgrade, downgrade and upgrade again on the development database; `alembic check` clean |
 
 ## Phase 23: known limitations

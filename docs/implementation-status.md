@@ -44,7 +44,12 @@ Last updated: Phase 26.
 
 ## Phase 26: verified results
 
-PENDING
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 545 passed (new: 8 — one date a year for every festival and valid country rules; dated holidays and their observance (Saudi Eid, Singapore Vesak, Korean Chuseok, Israeli holidays, Vietnam's Tết eve); none outside 2025–2030; a schedule due on a Saturday moved to Monday without a job; business runs over Christmas, without a calendar and over a Friday–Saturday weekend; the schedule API setting, rejecting and clearing a calendar; simulation arrivals moved past the UK Easter weekend; the `payments-easter` run) |
+| Frontend Vitest / typecheck / build | 94 passed (new: an administrator setting and clearing a schedule's business calendar) / clean / built |
+| Playwright on a fresh database | 28 passed on the first run (updated: Saudi Arabia's 2026 calendar shows Eid al-Fitr and 254 business days; System Settings sets and clears a schedule's business calendar) |
+| Migration 0023 | Upgrade, downgrade and upgrade again; `alembic check` clean |
 
 ## Phase 26: known limitations
 

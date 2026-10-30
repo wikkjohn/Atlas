@@ -90,9 +90,12 @@ def resolve(db: Session, workflow_id: str, version: int | None = None) -> Workfl
 
 
 def for_start(
-    db: Session, workflow_id: str, version: int | None
+    db: Session, workflow_id: str, version: int | None, *, allow_inactive: bool = False
 ) -> tuple[WorkflowDefinition, WorkflowDefinitionRecord | None]:
-    """The definition a new execution runs on, with its stored record (None for code)."""
+    """The definition a new execution runs on, with its stored record (None for code).
+
+    `allow_inactive` lets generated tests run a draft or in-review version (Phase 22).
+    """
     if is_code(workflow_id):
         definition = registry.get_definition(workflow_id, version)
         if definition is None:
@@ -102,16 +105,24 @@ def for_start(
     if record is None:
         if stored_records(db, workflow_id):
             raise ConflictError(
-                f"Every version of {workflow_id} is retired; reactivate one to start cases."
+                f"{workflow_id} has no active version ({_statuses(db, workflow_id)}); "
+                "approve or reactivate one to start cases."
                 if version is None
                 else f"{workflow_id} v{version} does not exist."
             )
         raise NotFoundError(f"Workflow {workflow_id} is not registered.")
-    if record.status != DefinitionStatus.ACTIVE:
+    if record.status != DefinitionStatus.ACTIVE and not allow_inactive:
         raise ConflictError(
-            f"{workflow_id} v{record.version} is retired; it accepts no new executions."
+            f"{workflow_id} v{record.version} is {record.status.replace('_', ' ')}; "
+            "it accepts no new executions."
         )
     return parsed(record), record
+
+
+def _statuses(db: Session, workflow_id: str) -> str:
+    return ", ".join(
+        f"v{r.version} {r.status.replace('_', ' ')}" for r in stored_records(db, workflow_id)
+    )
 
 
 def for_execution(db: Session, execution: WorkflowExecution) -> WorkflowDefinition | None:

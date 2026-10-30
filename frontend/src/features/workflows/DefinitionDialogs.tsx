@@ -153,7 +153,8 @@ export function ImportDefinitionDialog({
       <div className="space-y-3">
         <p className="text-sm text-slate-600">
           A definition is JSON: its steps, routes, approval policies and an input schema. Service tasks use handlers from
-          the library. Every problem is listed before anything is stored; versions are immutable once imported.
+          the library. Every problem is listed before anything is stored; versions are immutable once imported. An imported version is a
+          draft until it is submitted, tested and approved by a colleague.
         </p>
         {startFrom && (
           <Button size="sm" variant="secondary" onClick={() => void loadFrom(startFrom)}>
@@ -183,7 +184,7 @@ export function ImportDefinitionDialog({
           <p className="flex items-center gap-1.5 text-sm text-emerald-800">
             <CheckCircle2 aria-hidden className="h-4 w-4" />
             {report.workflow_id} v{report.version} is valid
-            {report.existing === "identical" ? " and already stored unchanged." : " and can be imported."}
+            {report.existing === "identical" ? " and already stored unchanged." : " and can be imported as a draft."}
           </p>
         )}
         {report?.valid && report.effects && <EffectsSummary effects={report.effects} />}

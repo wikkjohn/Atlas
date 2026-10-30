@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.modules.workflows.definition import (
     HANDLER_TYPES,
+    Catalogue,
     Presentation,
     StepType,
     WorkflowDefinition,
@@ -115,3 +116,20 @@ def presenter(workflow_id: str) -> Presenter | None:
 
 def all_definitions() -> list[WorkflowDefinition]:
     return sorted(_DEFINITIONS.values(), key=lambda d: (d.workflow_id, d.version))
+
+
+# Catalogue classification of code workflows (Phase 22). Not part of the definition, so it
+# never changes a code definition's content hash; an entry stored in the database wins.
+_CATALOGUE: dict[str, Catalogue] = {}
+
+
+def register_catalogue(workflow_id: str, catalogue: Catalogue) -> None:
+    _CATALOGUE[workflow_id] = catalogue
+
+
+def catalogue_of(workflow_id: str) -> Catalogue | None:
+    return _CATALOGUE.get(workflow_id)
+
+
+def all_catalogue() -> list[Catalogue]:
+    return list(_CATALOGUE.values())

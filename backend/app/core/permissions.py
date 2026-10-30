@@ -143,6 +143,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.PAYMENTS_APPROVE,
         Permission.LOANS_APPROVE,
         Permission.LOANS_SERVICE,
+        Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
     RoleCode.COMPLIANCE_OFFICER: _BASE

@@ -145,3 +145,27 @@ to count them).
 
 Each case is a full engine execution with synthetic records, rolled back: roughly 100–150 ms
 per case, 2–4 s per workflow.
+
+## The Milestone B exit run (Phase 22)
+
+Generated tests for every active stored workflow in the scale database of Phase 19 (5,056
+registered: 4 in code, 5,052 stored — the examples and the variants of the paper-statement
+and scale templates), `python -m app.cli workflows test --all [--sample N] --processes 4`,
+development container, one PostgreSQL:
+
+| Workflows | Cases | Failed | Time | Per workflow |
+| ---: | ---: | ---: | ---: | ---: |
+| 50 | 1,124 | 0 | 54.7 s | 1.09 s |
+| 500 | 11,024 | 0 | 604.6 s | 1.21 s |
+| 5,052 (all) | 111,168 | 0 | 5,381.6 s (1 h 30 min) | 1.07 s |
+
+Every workflow reached 100 % step and route coverage with no skipped case. A single
+workflow's tests took 3.4 s at the median, 7.0 s at p95 and 15.5 s at most (in one worker);
+four workers bring the wall time per workflow to about 1.1 s, against 2–4 s in one process
+(Phase 20). Time grows linearly with the number of workflows: nothing in the runner or the
+database slows as tested versions accumulate (each run is kept in `workflow_test_runs`).
+
+**Catalogue search** over the same 5,056 workflows (`GET /workflow-catalogue`, with all
+seven facets counted) takes 0.32–0.37 s whatever the filters: the summaries are built from
+one SQL query and filtered and counted in memory.
+

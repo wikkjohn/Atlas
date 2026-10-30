@@ -524,6 +524,7 @@ def start(
     max_steps: int = MAX_STEPS_PER_ADVANCE,
     simulation_run_id: uuid.UUID | None = None,
     settings: dict[str, Any] | None = None,
+    allow_inactive: bool = False,
 ) -> tuple[WorkflowExecution, bool]:
     """Start an execution and run it until it waits, completes or fails.
 
@@ -536,7 +537,7 @@ def start(
     live = now is None
     now = now or utc_now()
     realm = Realm.SIMULATION if simulation_run_id else Realm.LIVE
-    definition, stored = store.for_start(db, workflow_id, version)
+    definition, stored = store.for_start(db, workflow_id, version, allow_inactive=allow_inactive)
     if idempotency_key:
         existing = db.execute(
             select(WorkflowExecution).where(

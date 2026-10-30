@@ -26,6 +26,7 @@ from app.modules.payments.router import router as payments_router
 from app.modules.workflows import catalog  # noqa: F401  (registers every workflow)
 from app.modules.workflows.router import (
     authoring_router,
+    catalogue_router,
     definitions_router,
     executions_router,
     tasks_router,
@@ -56,6 +57,7 @@ for module_router in (
     definitions_router,
     authoring_router,
     templates_router,
+    catalogue_router,
     executions_router,
     tasks_router,
     simulations_router,

@@ -14,6 +14,8 @@ from app.modules.workflows.graph import GraphOut
 from app.modules.workflows.models import DefinitionStatus, ExecutionStatus
 from app.modules.workflows.schemas import (
     CancelIn,
+    CatalogueIn,
+    CatalogueOut,
     DefinitionDocument,
     DraftPreview,
     ExecutionDetail,
@@ -24,6 +26,8 @@ from app.modules.workflows.schemas import (
     LibraryHandlerOut,
     RenderIn,
     RenderOut,
+    ReturnIn,
+    ReviewIn,
     SignalIn,
     StartExecution,
     StoredDefinitionOut,
@@ -46,6 +50,7 @@ from app.modules.workflows.schemas import (
 definitions_router = APIRouter(prefix="/workflows", tags=["workflows"])
 authoring_router = APIRouter(prefix="/workflow-definitions", tags=["workflows"])
 templates_router = APIRouter(prefix="/workflow-templates", tags=["workflows"])
+catalogue_router = APIRouter(prefix="/workflow-catalogue", tags=["workflows"])
 executions_router = APIRouter(prefix="/workflow-executions", tags=["workflows"])
 tasks_router = APIRouter(prefix="/workflow-tasks", tags=["workflows"])
 
@@ -152,9 +157,11 @@ def start_execution(
     "", response_model=list[StoredDefinitionOut], summary="Every imported definition version"
 )
 def list_stored_definitions(
-    db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+    db: DbSession,
+    _: Authorized(Permission.WORKFLOWS_READ),
+    workflow_id: Annotated[str | None, Query(max_length=20, description="One workflow")] = None,
 ) -> list[StoredDefinitionOut]:
-    return service.stored_definitions(db)
+    return service.stored_definitions(db, workflow_id)
 
 
 @authoring_router.get(
@@ -197,7 +204,9 @@ def validate_definition(
 def import_definition(
     body: DefinitionDocument, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
 ):
-    record, created, report = authoring.import_definition(db, body.definition, actor.id)
+    record, created, report = authoring.import_definition(
+        db, body.definition, actor.id, status=DefinitionStatus.DRAFT
+    )
     result = ImportResult(
         created=created,
         definition=service.stored_definition_out(db, record),
@@ -207,6 +216,49 @@ def import_definition(
         status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         content=result.model_dump(mode="json"),
     )
+
+
+@authoring_router.post(
+    "/{workflow_id}/versions/{version}/submit",
+    response_model=StoredDefinitionOut,
+    summary="Submit a draft version for review",
+)
+def submit_definition(
+    workflow_id: str, version: int, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> StoredDefinitionOut:
+    return service.stored_definition_out(db, authoring.submit(db, workflow_id, version, actor.id))
+
+
+@authoring_router.post(
+    "/{workflow_id}/versions/{version}/approve",
+    response_model=StoredDefinitionOut,
+    summary="Approve a version in review: it becomes active (four-eyes; tests must pass)",
+)
+def approve_definition(
+    workflow_id: str,
+    version: int,
+    body: ReviewIn,
+    db: DbSession,
+    actor: Authorized(Permission.WORKFLOWS_DEFINE),
+) -> StoredDefinitionOut:
+    record = authoring.approve(db, workflow_id, version, actor.id, body.note)
+    return service.stored_definition_out(db, record)
+
+
+@authoring_router.post(
+    "/{workflow_id}/versions/{version}/return",
+    response_model=StoredDefinitionOut,
+    summary="Return a version in review to draft, saying what to change",
+)
+def return_definition(
+    workflow_id: str,
+    version: int,
+    body: ReturnIn,
+    db: DbSession,
+    actor: Authorized(Permission.WORKFLOWS_DEFINE),
+) -> StoredDefinitionOut:
+    record = authoring.reject(db, workflow_id, version, actor.id, body.note)
+    return service.stored_definition_out(db, record)
 
 
 @authoring_router.post(
@@ -254,6 +306,55 @@ def list_definition_tests(
     workflow_id: str, db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
 ) -> list[TestRunOut]:
     return service.test_runs(db, workflow_id)
+
+
+# --- Catalogue (Phase 22) --------------------------------------------------------------------
+
+
+@catalogue_router.get(
+    "", response_model=CatalogueOut, summary="Search the workflow catalogue, with facet counts"
+)
+def search_catalogue(
+    db: DbSession,
+    _: Authorized(Permission.WORKFLOWS_READ),
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    department: Annotated[str | None, Query(max_length=100)] = None,
+    country: Annotated[str | None, Query(max_length=2)] = None,
+    product: Annotated[str | None, Query(max_length=50)] = None,
+    tag: Annotated[str | None, Query(max_length=50)] = None,
+    status: Annotated[Literal["draft", "in_review", "active", "retired"] | None, Query()] = None,
+    source: Annotated[Literal["code", "stored"] | None, Query()] = None,
+    owner: Annotated[str | None, Query(max_length=100, description="Owner's username")] = None,
+    template_id: Annotated[str | None, Query(max_length=40)] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> CatalogueOut:
+    filters = {
+        "department": department,
+        "country": country,
+        "product": product,
+        "tag": tag,
+        "status": status,
+        "source": source,
+        "owner": owner,
+    }
+    return service.search_catalogue(
+        db, q, filters=filters, template_id=template_id, limit=limit, offset=offset
+    )
+
+
+@catalogue_router.put(
+    "/{workflow_id}",
+    response_model=WorkflowSummary,
+    summary="Classify a stored workflow and set its owner",
+)
+def classify_workflow(
+    workflow_id: str,
+    body: CatalogueIn,
+    db: DbSession,
+    actor: Authorized(Permission.WORKFLOWS_DEFINE),
+) -> WorkflowSummary:
+    return service.classify(db, workflow_id, body, actor.id)
 
 
 # --- Templates and variants (Phase 19) -------------------------------------------------------

@@ -307,9 +307,12 @@ sorts both columns descending so the index is read backwards. No table changes.
 | `workflow_step_runs` | One row per step visit: `sequence` (unique per execution), `step_id`, `step_type`, `status` (pending, waiting, completed, failed, cancelled), `branch`, `attempt`, `required_permissions`, `actor_id`, `output`, `error`, `created_at`, `started_at`, `completed_at`, `duration_ms`, `not_before` (retry), `due_at` (timeout), `escalated_at`. Partial indexes for due pending runs and waiting timers. |
 | `workflow_events` | Append-only history (`seq` identity, `event_type`, `occurred_at`, `actor_id`, `data`); triggers reject UPDATE, DELETE, TRUNCATE |
 | `customer_notifications` | Simulated messages (`customer_id`, `channel`, `subject`, `body`, `workflow_execution_id`) |
+| `workflow_catalogue` | Phase 22 (`0019_catalogue_lifecycle`): one row per `workflow_id` (unique): `department`, `countries`, `products`, `tags` (text arrays), `owner_id` → users, `updated_at`, `updated_by` |
 
-`workflow_executions.simulation_run_id` (Phase 5, nullable, indexed) links executions a
-simulation drove. Since Phase 15 these tables are partitioned by `realm` (see above).
+`workflow_definitions.status` takes `draft`, `in_review`, `active`, `retired` since Phase 22
+(code snapshots are always active), with `submitted_by`, `submitted_at`, `reviewed_by`,
+`reviewed_at` and `review_note`. `workflow_executions.simulation_run_id` (Phase 5, nullable,
+indexed) links executions a simulation drove. Since Phase 15 these tables are partitioned by `realm` (see above).
 
 ### Simulation tables (Phase 5)
 

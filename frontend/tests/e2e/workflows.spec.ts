@@ -99,7 +99,7 @@ test("WF-1001 (stored definition): generated start form → colleague approval �
   await importer.getByRole("button", { name: /Start from WF-1001/ }).click();
   await expect(importer.getByLabel("Definition (JSON)")).toHaveValue(/"workflow_id": "WF-1001"/);
   await importer.getByRole("button", { name: "Validate" }).click();
-  await expect(importer.getByText(/is valid and can be imported/)).toBeVisible();
+  await expect(importer.getByText(/is valid and can be imported as a draft/)).toBeVisible();
   await expect(importer.getByRole("list", { name: "Effects" })).toContainText("notify_updated");
 });
 
@@ -152,7 +152,8 @@ test("Templates: the paper-statement template's variants, a preview, and a gener
 
   // Each variant is an ordinary workflow, here Japan's with its own currency.
   await variants.getByRole("row").filter({ hasText: '"country_code":"JP"' }).filter({ hasText: '"current"' }).click();
-  await expect(admin.getByText(/Generated from TPL-PAPER-STATEMENT v1/)).toBeVisible();
+  await expect(admin.getByText(/Generated from TPL-PAPER-STATEMENT v2/)).toBeVisible(); // v2 classifies its variants
+  await expect(admin.getByLabel("Classification")).toContainText("Department: Branch Network · Countries: JP · Products: Current");
   await expect(admin.getByRole("heading", { name: "Paper Statements — Japan, current accounts" })).toBeVisible();
   await expect(admin.getByRole("row", { name: /Charge the paper-statement fee \(5 JPY\)/ })).toContainText("Moves money");
 });
@@ -167,7 +168,7 @@ test("Generated tests: an administrator runs WF-1002's path tests from the catal
   await expect(panel.getByRole("table", { name: "Test cases" })).toContainText("approval fee_approval: refusals");
 });
 
-test("Diagram and editor: WF-1002 drawn with its routes; WF-1001 edited and saved as its next version", async ({ browser }) => {
+test("Diagram, editor and review: WF-1001 edited, saved as a draft, tested and approved by a colleague", async ({ browser }) => {
   const admin = await as(browser, "admin", "/workflows");
   await admin.getByRole("list", { name: "Workflows" }).getByText("Paper Statement Request").click();
   await admin.getByRole("tab", { name: "Diagram" }).click();
@@ -182,13 +183,43 @@ test("Diagram and editor: WF-1002 drawn with its routes; WF-1001 edited and save
   const next = label.replace("Edit as ", "");
   await edit.click();
   const editor = admin.getByRole("dialog", { name: `Edit WF-1001 as ${next}` });
-  await expect(editor.getByRole("status")).toHaveText(`Valid: ${next} can be saved.`, { timeout: 15_000 });
+  await expect(editor.getByRole("status")).toHaveText(`Valid: ${next} can be saved as a draft for review.`, { timeout: 15_000 });
   await editor.getByRole("img", { name: /Diagram of WF-1001/ }).locator('[data-step="record_change"]').click();
   const name = editor.getByRole("group", { name: "Step record_change" }).getByLabel("Name");
   await name.fill("Record the new address (edited)");
   await expect(editor.getByRole("img", { name: /Diagram of WF-1001/ })).toContainText("Record the new address (e");
-  await expect(editor.getByRole("status")).toHaveText(`Valid: ${next} can be saved.`);
+  await expect(editor.getByRole("status")).toHaveText(`Valid: ${next} can be saved as a draft for review.`);
   await editor.getByRole("button", { name: `Save as ${next}` }).click();
   await expect(editor).toHaveCount(0);
   await expect(admin.getByRole("button", { name: `Edit as v${Number(next.slice(1)) + 1}` })).toBeVisible();
+
+  // The new version is a draft: its author submits and tests it, but cannot approve it.
+  const versions = admin.getByRole("region", { name: "Versions" });
+  await versions.getByRole("button", { name: next, exact: true }).click();
+  await versions.getByRole("button", { name: `Submit for review ${next}` }).click();
+  const tests = admin.getByRole("region", { name: "Generated tests" });
+  await tests.getByRole("button", { name: `Run tests on ${next}` }).click();
+  await expect(tests.getByRole("status")).toContainText("0 failed", { timeout: 30_000 });
+  await versions.getByRole("button", { name: `Approve ${next}` }).click();
+  await expect(versions.getByText(/Four-eyes rule/)).toBeVisible();
+
+  // A department manager approves it; it becomes the active version.
+  const manager = await as(browser, "manager", "/workflows");
+  await manager.getByRole("list", { name: "Workflows" }).getByText("Customer Address Change").click();
+  const review = manager.getByRole("region", { name: "Versions" });
+  await review.getByRole("textbox", { name: `Review note for ${next}` }).fill("Renamed step reviewed.");
+  await review.getByRole("button", { name: `Approve ${next}` }).click();
+  await expect(review.getByRole("listitem").filter({ hasText: `“Renamed step reviewed.”` })).toContainText("Active");
+});
+
+test("Catalogue: generated variants found by country and product facets", async ({ browser }) => {
+  const page = await as(browser, "employee", "/workflows");
+  await page.getByRole("combobox", { name: "Filter by country" }).selectOption("JP");
+  await page.getByRole("combobox", { name: "Filter by product" }).selectOption("savings");
+  await page.getByRole("combobox", { name: "Filter by department" }).selectOption("Branch Network");
+  const list = page.getByRole("list", { name: "Workflows" });
+  await expect(list.getByRole("button")).toHaveCount(1);
+  await expect(list).toContainText("TPL-PAPER-STATEMENT");
+  await list.getByRole("button").click();
+  await expect(page.getByLabel("Classification")).toContainText("Countries: JP · Products: Savings");
 });

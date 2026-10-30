@@ -12,6 +12,7 @@ import { Pagination } from "@/components/Pagination";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatMilliseconds as formatDuration, formatTimestamp } from "@/features/dashboard/format";
 import { EffectBadge, ImportDefinitionDialog, StartFromSchemaDialog } from "@/features/workflows/DefinitionDialogs";
+import { CatalogueFilterBar, Classification, VersionsPanel } from "@/features/workflows/CatalogueParts";
 import { DefinitionEditor } from "@/features/workflows/DefinitionEditor";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
 import { TemplatesTab } from "@/features/workflows/TemplatesTab";
@@ -22,7 +23,9 @@ import { useCountries } from "@/services/enterprise";
 import { humanize } from "@/services/format";
 import {
   CATALOGUE_LIMIT,
+  type CatalogueFilters,
   exportDefinition,
+  useCatalogue,
   syntheticDocumentNumber,
   useCompleteTask,
   useExecution,
@@ -30,13 +33,11 @@ import {
   useExecutions,
   useLibraryHandlers,
   useWorkflowGraph,
-  useSetDefinitionStatus,
   useSignal,
   useStartExecution,
   useTasks,
   useWorkflowDefinition,
   useWorkflowMetrics,
-  useWorkflows,
 } from "@/services/workflows";
 import type { ExecutionDetail, ExecutionStatus, StepRun, WorkflowSummary, WorkflowTask } from "@/types/workflows";
 
@@ -67,7 +68,7 @@ function TypeTag({ type }: { type: string }) {
 
 // --- Catalogue ------------------------------------------------------------------------------
 
-function SourceBadges({ workflow }: { workflow: Pick<WorkflowSummary, "source" | "status" | "template_id"> }) {
+function SourceBadges({ workflow }: { workflow: Pick<WorkflowSummary, "source" | "status" | "template_id" | "in_review"> }) {
   return (
     <>
       {workflow.source === "stored" && !workflow.template_id && (
@@ -78,6 +79,12 @@ function SourceBadges({ workflow }: { workflow: Pick<WorkflowSummary, "source" |
       )}
       {workflow.status === "retired" && (
         <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Retired</span>
+      )}
+      {workflow.status === "draft" && (
+        <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Draft</span>
+      )}
+      {(workflow.status === "in_review" || workflow.in_review) && (
+        <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">In review</span>
       )}
     </>
   );
@@ -95,18 +102,17 @@ function download(name: string, data: unknown) {
 function DefinitionActions({
   workflowId,
   version,
+  latest,
   source,
-  status,
   generated,
 }: {
   workflowId: string;
   version: number;
+  latest: number;
   source: string;
-  status: string;
   generated: boolean;
 }) {
   const { can } = useAuth();
-  const setStatus = useSetDefinitionStatus();
   const [editing, setEditing] = useState(false);
   const [exportError, setExportError] = useState<unknown>(null);
   const onExport = () =>
@@ -122,28 +128,19 @@ function DefinitionActions({
         </Button>
         {source === "stored" && !generated && can("workflows:define") && (
           <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-            Edit as v{version + 1}
-          </Button>
-        )}
-        {source === "stored" && can("workflows:define") && (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={setStatus.isPending}
-            onClick={() => setStatus.mutate({ workflowId, version, action: status === "retired" ? "reactivate" : "retire" })}
-          >
-            {status === "retired" ? `Reactivate v${version}` : `Retire v${version}`}
+            Edit as v{latest + 1}
           </Button>
         )}
       </div>
-      <ErrorMessage error={setStatus.error ?? exportError} />
-      {editing && <DefinitionEditor workflowId={workflowId} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
+      <ErrorMessage error={exportError} />
+      {editing && <DefinitionEditor workflowId={workflowId} fromVersion={latest} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
     </div>
   );
 }
 
 function DefinitionView({ id }: { id: string }) {
-  const definition = useWorkflowDefinition(id);
+  const [version, setVersion] = useState<number | undefined>(undefined);
+  const definition = useWorkflowDefinition(id, version);
   const metrics = useWorkflowMetrics(id);
   const [view, setView] = useState<"steps" | "diagram">("steps");
   const graph = useWorkflowGraph(id, definition.data?.version, view === "diagram");
@@ -175,8 +172,9 @@ function DefinitionView({ id }: { id: string }) {
                 : "Registered in code"}
           </p>
         </div>
-        <DefinitionActions workflowId={d.workflow_id} version={d.version} source={d.source} status={d.status} generated={Boolean(d.origin)} />
+        <DefinitionActions workflowId={d.workflow_id} version={d.version} latest={Math.max(d.version, ...d.versions)} source={d.source} generated={Boolean(d.origin)} />
       </div>
+      <Classification workflow={d} />
       {m && (
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           {(
@@ -194,6 +192,7 @@ function DefinitionView({ id }: { id: string }) {
           ))}
         </dl>
       )}
+      {d.source === "stored" && <VersionsPanel workflowId={d.workflow_id} shown={d.version} onShow={setVersion} />}
       {d.source === "stored" && <TestsPanel workflowId={d.workflow_id} version={d.version} />}
       <div role="tablist" aria-label="Definition views" className="flex gap-1">
         {(["steps", "diagram"] as const).map((v) => (
@@ -425,13 +424,14 @@ const START_DIALOGS: Record<string, typeof StartApplicationDialog> = {
 
 function CatalogueTab({ onStarted, initial }: { onStarted: (id: string) => void; initial: string | null }) {
   const { can } = useAuth();
-  const [q, setQ] = useState(initial ?? "");
-  const workflows = useWorkflows(q || undefined);
+  const [filters, setFilters] = useState<CatalogueFilters>({ q: initial ?? undefined });
+  const catalogue = useCatalogue(filters);
+  const found = catalogue.data?.items;
   const [selected, setSelected] = useState<string | null>(initial);
   const [starting, setStarting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const current = selected ?? workflows.data?.[0]?.workflow_id ?? null;
-  const summary = workflows.data?.find((w) => w.workflow_id === current);
+  const current = selected ?? found?.[0]?.workflow_id ?? null;
+  const summary = found?.find((w) => w.workflow_id === current);
   const storedStartable = summary?.source === "stored" && summary.status === "active";
   const definition = useWorkflowDefinition(storedStartable ? current : null);
 
@@ -444,13 +444,19 @@ function CatalogueTab({ onStarted, initial }: { onStarted: (id: string) => void;
             aria-label="Search workflows"
             placeholder="Search workflows"
             className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pr-3 pl-8 text-sm"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
+            value={filters.q ?? ""}
+            onChange={(e) => setFilters({ ...filters, q: e.target.value || undefined })}
           />
         </div>
-        <ErrorMessage error={workflows.error} />
+        <CatalogueFilterBar filters={filters} facets={catalogue.data?.facets} onChange={setFilters} />
+        <ErrorMessage error={catalogue.error} />
+        {catalogue.data && (
+          <p role="status" className="text-xs text-slate-500">
+            {catalogue.data.total} workflow{catalogue.data.total === 1 ? "" : "s"}
+          </p>
+        )}
         <ul aria-label="Workflows" className="space-y-2">
-          {workflows.data?.map((w) => (
+          {found?.map((w) => (
             <li key={w.workflow_id}>
               <button
                 type="button"
@@ -463,14 +469,18 @@ function CatalogueTab({ onStarted, initial }: { onStarted: (id: string) => void;
                 <div className="text-sm font-medium text-slate-900">{w.name}</div>
                 <div className="text-xs text-slate-500">
                   v{w.version} · {w.step_count} steps
+                  {w.department && ` · ${w.department}`}
+                  {w.countries?.length ? ` · ${w.countries.length > 3 ? `${w.countries.length} countries` : w.countries.join(", ")}` : ""}
                 </div>
               </button>
             </li>
           ))}
-          {workflows.data?.length === 0 && <li className="text-sm text-slate-500">No workflows match.</li>}
+          {found?.length === 0 && <li className="text-sm text-slate-500">No workflows match.</li>}
         </ul>
-        {workflows.data?.length === CATALOGUE_LIMIT && (
-          <p className="text-xs text-slate-500">Showing the first {CATALOGUE_LIMIT}; search to find the others.</p>
+        {catalogue.data && catalogue.data.total > catalogue.data.items.length && (
+          <p className="text-xs text-slate-500">
+            Showing the first {CATALOGUE_LIMIT}; search or filter to find the others.
+          </p>
         )}
         {current && (START_LABELS[current] || storedStartable) && can("workflows:start") && (
           <Button className="w-full" onClick={() => setStarting(true)}>
@@ -505,7 +515,7 @@ function CatalogueTab({ onStarted, initial }: { onStarted: (id: string) => void;
           }}
         />
       )}
-      <div>{current && <DefinitionView id={current} />}</div>
+      <div>{current && <DefinitionView key={current} id={current} />}</div>
       {starting && current && (() => {
         const Dialog = START_DIALOGS[current];
         return Dialog ? (

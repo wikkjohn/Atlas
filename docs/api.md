@@ -217,15 +217,20 @@ unchanged.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/workflow-definitions` | `workflows:read` | Every stored version: status, content hash, importer, executions |
+| GET | `/api/v1/workflow-definitions?workflow_id=` | `workflows:read` | Every stored version (or one workflow's): status, content hash, importer, executions, who submitted and reviewed it and the review note |
 | GET | `/api/v1/workflow-definitions/handlers` | `workflows:read` | The handler library: name, step type, summary, output, `effect`, `requires_approval`, params as JSON Schema |
 | POST | `/api/v1/workflow-definitions/preview` | `workflows:define` | `{definition}` → `{report, graph}`: the editor's live validation and drawing of a draft (graph null when it does not parse) |
 | POST | `/api/v1/workflow-definitions/validate` | `workflows:define` | `{definition}` → `{valid, workflow_id, version, content_hash, existing, errors[], warnings[], effects}`; stores nothing |
-| POST | `/api/v1/workflow-definitions` | `workflows:define` | `{definition}` → 201 `{created, definition, warnings}`; 200 when this exact version is already stored; 422 `definition_invalid` with every error |
-| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | No new executions on that version; running ones finish on it |
-| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/reactivate` | `workflows:define` | Startable again |
+| POST | `/api/v1/workflow-definitions` | `workflows:define` | `{definition}` → 201 `{created, definition, warnings}` stored as a **draft** (Phase 22); 200 when this exact version is already stored; 422 `definition_invalid` with every error |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/submit` | `workflows:define` | Draft → in review |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/approve` | `workflows:define` | `{note?}`: in review → active. 403 `{rule: four_eyes}` for whoever imported or submitted it; 409 `{rule: tests_must_pass}` unless that version's latest generated test run passed. Applies the version's `catalogue` |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/return` | `workflows:define` | `{note}` (required): in review → draft |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | Active → retired: no new executions on that version; running ones finish on it |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/reactivate` | `workflows:define` | Retired → active |
 
-| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/tests` | `workflows:define` | Generate and run path tests (rolled back); returns and keeps the run: cases, uncovered routes, coverage |
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/tests` | `workflows:define` | Generate and run path tests (rolled back) on any version, drafts included; returns and keeps the run: cases, uncovered routes, coverage |
+| GET | `/api/v1/workflow-catalogue` | `workflows:read` | Search (Phase 22): `q`, `department`, `country`, `product`, `tag`, `status`, `source`, `owner` (username), `template_id`, `limit` (≤ 500), `offset` → `{items, total, facets}`. Each facet lists `{value, count}`, counted over the other filters |
+| PUT | `/api/v1/workflow-catalogue/{id}` | `workflows:define` | `{department, countries[], products[], tags[], owner_id}` → the workflow's summary; countries must exist (400), the owner must be an active user |
 | GET | `/api/v1/workflow-definitions/{id}/tests` | `workflows:read` | The latest 20 runs; a stored definition's detail carries `last_test` |
 
 #### Workflow templates (Phase 19)

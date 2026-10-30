@@ -80,9 +80,12 @@ millions of customers and an AI testing laboratory at that scale.
       every route, approval refusals, no-route probes; coverage; CI job)
 - [x] Visual workflow viewer, then editor with validation (Phase 21: layered diagram with
       metrics and test coverage; step form and JSON editor with live, located validation)
-- [ ] Catalogue search by department / country / product; ownership; lifecycle states
-- [ ] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green (5,056
-      registered in Phase 19's measurement; generated tests are the next step)
+- [x] Catalogue search by department / country / product; ownership; lifecycle states
+      (Phase 22: classification from definitions, templates or by hand; facet counts;
+      draft → review → active → retired with four-eyes approval behind passing tests)
+- [x] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green (Phase 22:
+      5,052 stored workflows, 111,168 generated cases, 0 failed, 100 % step and route
+      coverage, 1 h 30 min on 4 processes; see `performance.md`) — **Milestone B complete**
 
 ## Milestone C — Global footprint (5 → 120 countries)
 
@@ -182,4 +185,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 19 (B3) | Parameterised workflow templates and a deterministic, versioned variant generator; 5,040 variants generated and listed | complete |
 | Phase 20 (B4) | Generated path tests for every stored and generated workflow (route planning, input synthesis, fixtures, coverage), run in CI and from the UI | complete |
 | Phase 21 (B5) | Workflow diagram for every workflow (layout, route labels, live metrics, test coverage) and an editor for stored workflows with live, located validation | complete |
-| Phase 22 (B6, proposed) | Catalogue at scale: search and facets by department, country and product; ownership; lifecycle states (draft, review, active, retired) — then the Milestone B exit run | next |
+| Phase 22 (B6) | Catalogue at scale: search and facets by department, country and product; ownership; lifecycle (draft, review, active, retired) with four-eyes approval behind passing tests; parallel test runner; Milestone B exit run (5,052 workflows, 111,168 cases, 0 failed) — Milestone B done | complete |
+| Phase 23 (C1, proposed) | Global footprint, step 1: reference data for 120 countries (currency, minor units, time zone, holidays, language, regulator, identity documents, address formats) | next |

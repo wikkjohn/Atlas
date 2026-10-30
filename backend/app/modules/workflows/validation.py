@@ -118,9 +118,51 @@ def validate(
     _check_steps(report, definition, db)
     if not any(e["code"] == "unknown_step" for e in report.errors):
         _check_termination(report, definition)
+    if db is not None and definition.catalogue is not None:
+        _check_catalogue(db, report, definition)
     if db is not None and report.valid and versions:
         _check_versions(db, report, definition)
     return report
+
+
+def _check_catalogue(db: Session, report: Report, d: WorkflowDefinition) -> None:
+    """Countries must exist; a department nobody has heard of is only worth a warning."""
+    from app.modules.countries.models import Country
+    from app.modules.organizations.models import Organization, OrganizationType
+
+    catalogue = d.catalogue
+    assert catalogue is not None
+    if catalogue.countries:
+        known = set(
+            db.execute(
+                select(Country.iso_country_code).where(
+                    Country.iso_country_code.in_(catalogue.countries)
+                )
+            ).scalars()
+        )
+        for n, code in enumerate(catalogue.countries):
+            if code not in known:
+                report.error(
+                    f"catalogue.countries[{n}]", "unknown_country", f"No country {code!r}."
+                )
+    if catalogue.department:
+        departments = {
+            name.lower()
+            for name in db.execute(
+                select(Organization.name).where(
+                    Organization.organization_type == OrganizationType.DEPARTMENT
+                )
+            ).scalars()
+        } | {c.department.lower() for c in registry.all_catalogue() if c.department}
+        from app.seed import STRUCTURE  # the demo bank's departments, before it is seeded
+
+        departments |= {d.lower() for division in STRUCTURE.values() for d in division}
+        if catalogue.department.lower() not in departments:
+            report.warn(
+                "catalogue.department",
+                "unknown_department",
+                f"No department is called {catalogue.department!r}; check the spelling.",
+            )
 
 
 def _check_template_ownership(

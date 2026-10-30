@@ -20,7 +20,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -77,6 +77,8 @@ class DefinitionSource(StrEnum):
 
 
 class DefinitionStatus(StrEnum):
+    DRAFT = "draft"  # imported, not yet submitted (Phase 22)
+    IN_REVIEW = "in_review"  # submitted; another person approves or sends it back
     ACTIVE = "active"
     RETIRED = "retired"  # no new executions; running ones finish on this version
 
@@ -89,7 +91,9 @@ class WorkflowDefinitionRecord(UUIDPrimaryKey, Base):
     __table_args__ = (
         UniqueConstraint("workflow_id", "version", name="uq_workflow_definitions_id_version"),
         CheckConstraint("source IN ('code', 'stored')", name="source_valid"),
-        CheckConstraint("status IN ('active', 'retired')", name="status_valid"),
+        CheckConstraint(
+            "status IN ('draft', 'in_review', 'active', 'retired')", name="status_valid"
+        ),
         CheckConstraint(
             "source = 'stored' OR (status = 'active' AND imported_by IS NULL)",
             name="code_definitions_are_plain",
@@ -123,6 +127,16 @@ class WorkflowDefinitionRecord(UUIDPrimaryKey, Base):
     status_changed_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
+    # Review (Phase 22): who submitted the version and who approved or returned it.
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(String(500))
 
 
 class WorkflowExecution(Base):
@@ -360,5 +374,35 @@ class WorkflowTestRun(UUIDPrimaryKey, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     ran_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+
+
+class WorkflowCatalogueEntry(UUIDPrimaryKey, Base):
+    """How a workflow is classified and who owns it (Phase 22). One row per workflow,
+    not per version: ownership and classification change without a new version. A
+    definition (or a template's body) may carry a `catalogue` block that sets the
+    classification when that version is imported or generated."""
+
+    __tablename__ = "workflow_catalogue"
+
+    workflow_id: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    department: Mapped[str | None] = mapped_column(String(100), index=True)
+    countries: Mapped[list[str]] = mapped_column(
+        ARRAY(String(2)), nullable=False, default=list, server_default="{}"
+    )
+    products: Mapped[list[str]] = mapped_column(
+        ARRAY(String(50)), nullable=False, default=list, server_default="{}"
+    )
+    tags: Mapped[list[str]] = mapped_column(
+        ARRAY(String(50)), nullable=False, default=list, server_default="{}"
+    )
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )

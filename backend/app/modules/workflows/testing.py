@@ -711,6 +711,7 @@ def run_case(db: Session, d: WorkflowDefinition, case: Case, fx: Fixtures) -> Ca
             payload=payload,
             initiator=fx.initiator,
             now=now,
+            allow_inactive=True,
         )
         _drive(db, d, execution, case, fx, now, notes)
         runs = _runs(db, execution)

@@ -52,7 +52,13 @@ Last updated: Phase 27.
 
 ## Phase 27: verified results
 
-PENDING
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 551 passed (new: 6 — the blueprint, with every currency's pay band within the employee limit; launching Kenya: activation, the new Middle East & Africa headquarters, 12 generated units, 24 staff paid in KES, audit events; completing a partly built subsidiary and launching again without duplicates; refusals (no global bank, suspended country, unknown codes) and generation targets; reproducible staff names; the generation API and job with permissions) |
+| Frontend Vitest / typecheck / build | 95 passed (new: coverage and a generation job with a failed country) / clean / built |
+| Playwright on a fresh database | 29 passed on the first run (new: an administrator launches Kenya and opens its generated subsidiary) |
+| Migration 0024 | Upgrade, downgrade and upgrade again; `alembic check` clean |
+| Full generation (CLI, demo database) | 115 of 115 planned countries launched in 31.0 s: 1,381 organizations, 2,760 staff; a second run did nothing. The first attempt stopped at Lebanon on the employee pay limit (fixed by raising the limit, see above) |
 
 ## Phase 27: known limitations
 

@@ -140,7 +140,7 @@ to count them).
 
 | Set | Workflows | Cases | Failed | Time |
 | --- | ---: | ---: | ---: | ---: |
-| Freshly seeded bank (`--all`, as in CI) | 12 | 291 | 0 | 37.6 s |
+| Freshly seeded bank (`--all`, as in CI) | 12 | 288 | 0 | 37.6 s |
 | `TPL-SCALE-STATEMENT --sample 100` | 100 | ≈ 2,200 | 0 | 296 s |
 
 Each case is a full engine execution with synthetic records, rolled back: roughly 100–150 ms

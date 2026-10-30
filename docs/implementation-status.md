@@ -50,7 +50,7 @@ Last updated: Phase 20.
 | Migration 0017 → 0018 → 0017 → 0018, `alembic check` | clean |
 | Frontend Vitest / typecheck / build | 85 passed / clean / built |
 | Playwright on a fresh database | 23 passed (new: running WF-1002's generated tests from the catalogue) |
-| `workflows test --all` on a freshly seeded bank (what CI runs) | 12 workflows, 291 cases, 0 failed, 100 % steps and routes each, 37.6 s |
+| `workflows test --all` on a freshly seeded bank (what CI runs) | 12 workflows, 288 cases, 0 failed, 100 % steps and routes each, 37.6 s |
 | Scale sample: 100 variants of TPL-SCALE-STATEMENT | 0 failed, 296 s (about 3 s per workflow, single process) |
 
 ## Phase 20: known limitations

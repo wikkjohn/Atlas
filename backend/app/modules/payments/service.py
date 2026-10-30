@@ -11,7 +11,7 @@ fraud reviewer (`payments:review`) or the policy engine (`payments:release_low_r
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session, aliased
@@ -27,6 +27,7 @@ from app.core.money import to_minor_units
 from app.core.pagination import PageParams, paginate
 from app.core.permissions import Permission
 from app.modules.accounts.models import Account, AccountStatus
+from app.modules.countries.models import Country
 from app.modules.customers.models import Customer
 from app.modules.fx import service as fx
 from app.modules.fx.models import FxDeal
@@ -36,7 +37,11 @@ from app.modules.ledger import service as ledger
 from app.modules.ledger.models import Direction
 from app.modules.payments.models import PAYMENT_NUMBER_SEQUENCE, Payment, PaymentStatus
 from app.modules.payments.schemas import PaymentOut
+from app.modules.rules import service as rules
+from app.modules.rules.schemas import CountryRules
 
+# Fallbacks for payments created before Phase 25; since then each payment takes its limits
+# from the payer's country rules (app.modules.rules).
 HIGH_VALUE_MAJOR = 10_000  # whole units of the payment's currency
 MAX_PAYMENT_MAJOR = 1_000_000
 
@@ -45,12 +50,22 @@ def high_value_threshold(currency: str) -> int:
     return to_minor_units(HIGH_VALUE_MAJOR, currency)
 
 
-def max_amount(currency: str) -> int:
-    return to_minor_units(MAX_PAYMENT_MAJOR, currency)
+def payment_is_high_value(payment: Payment) -> bool:
+    threshold = payment.high_value_threshold or high_value_threshold(payment.currency)
+    return payment.amount >= threshold
 
 
-def is_high_value(amount: int, currency: str) -> bool:
-    return amount >= high_value_threshold(currency)
+def country_rules_of(db: Session, account: Account, on: date) -> tuple[Country, CountryRules]:
+    """The payer's country (where its customer is) and the rules in force there."""
+    country = db.get(Country, account.customer.country_id)
+    assert country is not None
+    return country, rules.rules_on(db, country, on)
+
+
+def limits_for(db: Session, account: Account, on: date) -> tuple[int, int]:
+    """(high-value threshold, single-payment limit) for the account, in its minor units."""
+    _, found = country_rules_of(db, account, on)
+    return rules.payment_limits(found, account.currency)
 
 
 def create_payment(
@@ -66,10 +81,12 @@ def create_payment(
 ) -> Payment:
     if debtor.id == creditor.id:
         raise BusinessRuleViolation("A payment needs two different accounts.")
-    if amount <= 0 or amount > max_amount(debtor.currency):
+    at = now or datetime.now(UTC)
+    country, country_rules = country_rules_of(db, debtor, at.date())
+    threshold, limit = rules.payment_limits(country_rules, debtor.currency)
+    if amount <= 0 or amount > limit:
         raise BusinessRuleViolation(
-            "The amount is outside the payment limits.",
-            {"amount": amount, "max": max_amount(debtor.currency)},
+            "The amount is outside the payment limits.", {"amount": amount, "max": limit}
         )
     creditor_currency = creditor_amount = None
     if creditor.currency != debtor.currency:
@@ -85,6 +102,8 @@ def create_payment(
         creditor_account_id=creditor.id,
         amount=amount,
         currency=debtor.currency,
+        high_value_threshold=threshold,
+        value_date=rules.value_date(country, country_rules, at),
         creditor_currency=creditor_currency,
         creditor_amount=creditor_amount,
         reference=reference,
@@ -136,7 +155,7 @@ def _lock_accounts(db: Session, ids: list[uuid.UUID]) -> dict[uuid.UUID, Account
 
 def check_approver(payment: Payment, approver: AuthenticatedUser | None) -> None:
     """Raise unless `approver` may release this payment (None: straight-through)."""
-    high_value = is_high_value(payment.amount, payment.currency)
+    high_value = payment_is_high_value(payment)
     if approver is None:
         if high_value:
             raise PermissionDeniedError(
@@ -222,7 +241,7 @@ def release(
             ledger.LineSpec(creditor.ledger_account_id, Direction.CREDIT, payment.amount, memo),
         ],
         actor_id=approver.id if approver else None,
-        effective_date=now.date(),
+        effective_date=payment.value_date or now.date(),
     )
     return _released(db, payment, entry.id, approver, now)
 
@@ -362,7 +381,8 @@ def payments_out(db: Session, payments: list[Payment]) -> list[PaymentOut]:
             fx_rate=str(deals[p.fx_deal_id].customer_rate) if p.fx_deal_id else None,
             reference=p.reference,
             status=p.status,
-            high_value=is_high_value(p.amount, p.currency),
+            high_value=payment_is_high_value(p),
+            value_date=p.value_date,
             initiated_by_username=names.get(p.initiated_by),
             approved_by_username=names.get(p.approved_by) if p.approved_by else None,
             journal_entry_id=p.journal_entry_id,

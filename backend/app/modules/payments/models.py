@@ -7,12 +7,13 @@ record keeps who started and who approved it so the controls can be re-checked l
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -66,6 +67,10 @@ class Payment(UUIDPrimaryKey, Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     # Cross-currency payments (Phase 24): the payee's currency, the amount it received (set
     # at release; an estimate before) and the conversion.
+    # From the payer's country rules when the payment is created (Phase 25): the amount from
+    # which it needs a second approver, and the business day it settles on (cut-off).
+    high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    value_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     creditor_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     creditor_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     fx_deal_id: Mapped[uuid.UUID | None] = mapped_column(

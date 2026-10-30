@@ -248,3 +248,35 @@ export interface Role {
   description: string;
   permissions: Permission[];
 }
+
+// --- Country rules (Phase 25) ----------------------------------------------------------------
+
+export interface CountryRules {
+  kyc: { min_age: number; identity_documents: ("passport" | "national_id")[]; proof_of_address: boolean };
+  screening: { lists: string[] };
+  payments: { cutoff: string; high_value_major: number; max_payment_major: number };
+}
+
+export interface RuleVersion {
+  id: string;
+  version: number;
+  effective_from: string;
+  rules: CountryRules;
+  note: string;
+  created_by_username: string | null;
+  created_at: string;
+}
+
+export interface CountryRulesView {
+  iso_country_code: string;
+  on: string;
+  current: RuleVersion | null;
+  effective: CountryRules;
+  versions: RuleVersion[];
+}
+
+export interface SanctionsList {
+  list_id: string;
+  description: string;
+  entries: number;
+}

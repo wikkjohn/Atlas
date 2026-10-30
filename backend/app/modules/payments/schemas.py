@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,7 @@ class PaymentOut(BaseModel):
     reference: str
     status: str
     high_value: bool
+    value_date: date | None = None  # Phase 25: settlement day after the country's cut-off
     initiated_by_username: str | None
     approved_by_username: str | None
     journal_entry_id: uuid.UUID | None

@@ -104,6 +104,7 @@ export function PaymentsPage() {
                     </div>
                   )}
                   {p.high_value && <div className="text-[11px] text-amber-700">High value</div>}
+                  {p.value_date && <div className="text-[11px] text-slate-500">Value date {p.value_date}</div>}
                 </td>
                 <td className="px-3 py-2">
                   <StatusPill tone={STATUS_TONE[p.status]} label={p.status === "pending" ? "In progress" : p.status === "released" ? "Released" : "Rejected"} />

@@ -4,6 +4,10 @@ import { apiGet, apiPatch, apiPost, query } from "@/services/api";
 import type {
   AuditEvent,
   Country,
+  CountryRules,
+  CountryRulesView,
+  RuleVersion,
+  SanctionsList,
   CountryCalendar,
   CountrySample,
   Currency,
@@ -67,6 +71,28 @@ export const useCheckCountryValue = (id: string) =>
   useMutation({
     mutationFn: (body: { kind: string; value: string }) => apiPost<ValueCheck>(`/api/v1/countries/${id}/check`, body),
   });
+
+export const useCountryRules = (id: string) =>
+  useQuery({
+    queryKey: ["countries", "rules", id],
+    queryFn: () => apiGet<CountryRulesView>(`/api/v1/countries/${id}/rules`),
+  });
+
+export const useSanctionsLists = () =>
+  useQuery({
+    queryKey: ["sanctions-lists"],
+    queryFn: () => apiGet<SanctionsList[]>("/api/v1/sanctions-lists"),
+    staleTime: Infinity,
+  });
+
+export function useAddRuleVersion(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { rules: CountryRules; effective_from: string; note: string }) =>
+      apiPost<RuleVersion>(`/api/v1/countries/${id}/rules`, body),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["countries", "rules", id] }),
+  });
+}
 
 // --- Organizations -----------------------------------------------------------------------
 

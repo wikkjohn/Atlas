@@ -23,9 +23,9 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import record_audit_event
 from app.core.money import minor_unit_exponent
-from app.modules.accounts.models import AccountStatus
+from app.modules.accounts.models import Account, AccountStatus
 from app.modules.accounts.service import find_account
-from app.modules.compliance.screening import SYNTHETIC_WATCHLIST
+from app.modules.compliance.screening import on_any_list
 from app.modules.customers.models import CustomerNotification
 from app.modules.fx import rates as fx_rates
 from app.modules.ledger import service as ledger
@@ -296,7 +296,8 @@ def validate_payment(ctx: StepContext) -> dict:
             reasons.append(
                 f"Payments from {debtor.currency} to {creditor.currency} are not offered."
             )
-        if data["amount"] > payments.max_amount(data["currency"]):
+        _, limit = payments.limits_for(ctx.db, debtor, ctx.now.date())
+        if data["amount"] > limit:
             reasons.append("The amount exceeds the single-payment limit.")
     if reasons:
         return {"valid": False, "reasons": reasons}
@@ -316,7 +317,8 @@ def validate_payment(ctx: StepContext) -> dict:
         "valid": True,
         "payment_id": str(payment.id),
         "payment_number": payment.payment_number,
-        "high_value": payments.is_high_value(payment.amount, payment.currency),
+        "high_value": payments.payment_is_high_value(payment),
+        "value_date": payment.value_date.isoformat() if payment.value_date else None,
         "debtor_account_id": str(debtor.id),
         "debtor_customer_id": str(debtor.customer_id),
         "creditor_account_id": str(creditor.id),
@@ -341,6 +343,13 @@ def funds_check(ctx: StepContext) -> dict:
     }
 
 
+def _screening_lists(ctx: StepContext, debtor_id: uuid.UUID) -> list[str]:
+    debtor = ctx.db.get(Account, debtor_id)
+    assert debtor is not None
+    _, found = payments.country_rules_of(ctx.db, debtor, ctx.now.date())
+    return found.screening.lists
+
+
 @service_task("wf0002.screen_payment")
 def screen_payment(ctx: StepContext) -> dict:
     debtor_id = uuid.UUID(ctx.get("validate_payment.debtor_account_id"))
@@ -350,8 +359,10 @@ def screen_payment(ctx: StepContext) -> dict:
     recent = payments.recent_count(ctx.db, debtor_id, ctx.now - VELOCITY_WINDOW, payment_id)
     share = ctx.get("funds_check.share_of_balance") or 0
     signals = {
-        "sanctions_hit": _normalize(ctx.get("validate_payment.creditor_name") or "")
-        in SYNTHETIC_WATCHLIST,
+        # The payer's country decides which synthetic lists apply (Phase 25).
+        "sanctions_hit": on_any_list(
+            ctx.get("validate_payment.creditor_name") or "", _screening_lists(ctx, debtor_id)
+        ),
         "scam_reference": any(phrase in reference for phrase in SCAM_PHRASES),
         "drains_account": share >= DRAIN_SHARE,
         "velocity": recent >= VELOCITY_LIMIT,

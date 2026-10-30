@@ -10,6 +10,7 @@ import type {
   ImportResult,
   LibraryHandler,
   StoredDefinition,
+  TestRun,
   ValidationReport,
   WorkflowDefinition,
   WorkflowEvent,
@@ -182,5 +183,23 @@ export function useGenerateVariants(templateId: string) {
     onSuccess: (result) => {
       if (result.stored) invalidate();
     },
+  });
+}
+
+// --- Generated tests (Phase 20) -------------------------------------------------------------
+
+export const useTestRuns = (workflowId: string | null, enabled = true) =>
+  useQuery({
+    queryKey: ["workflow-definitions", "tests", workflowId],
+    queryFn: () => apiGet<TestRun[]>(`/api/v1/workflow-definitions/${workflowId}/tests`),
+    enabled: Boolean(workflowId) && enabled,
+  });
+
+export function useRunTests() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ workflowId, version }: { workflowId: string; version: number }) =>
+      apiPost<TestRun>(`/api/v1/workflow-definitions/${workflowId}/versions/${version}/tests`, {}),
+    onSuccess: invalidate,
   });
 }

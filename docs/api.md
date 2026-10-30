@@ -223,6 +223,9 @@ unchanged.
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/retire` | `workflows:define` | No new executions on that version; running ones finish on it |
 | POST | `/api/v1/workflow-definitions/{id}/versions/{v}/reactivate` | `workflows:define` | Startable again |
 
+| POST | `/api/v1/workflow-definitions/{id}/versions/{v}/tests` | `workflows:define` | Generate and run path tests (rolled back); returns and keeps the run: cases, uncovered routes, coverage |
+| GET | `/api/v1/workflow-definitions/{id}/tests` | `workflows:read` | The latest 20 runs; a stored definition's detail carries `last_test` |
+
 #### Workflow templates (Phase 19)
 
 | Method | Path | Permission | Notes |

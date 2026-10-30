@@ -377,6 +377,11 @@ The first step towards the long-term scale in [roadmap.md](roadmap.md):
   definition, so the factory adds no second set of rules. Variant ids are stable per
   parameter set (`workflow_variants`), which makes regeneration an update of the same
   workflows rather than a flood of new ones.
+- **Generated tests (Phase 20).** Thousands of generated workflows cannot each get
+  hand-written tests, so tests are generated too: routes are planned from the graph and
+  their conditions, run through the real engine with synthetic records, and rolled back.
+  The test generator only steers (inputs, decisions, forced outputs, injected failures);
+  the handlers and the engine do the rest, so a defect in either still shows.
 - **Not yet.** Stored definitions do not run on schedules or in simulations.
 
 ## Planned design for later phases

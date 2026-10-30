@@ -76,7 +76,8 @@ millions of customers and an AI testing laboratory at that scale.
       (Phase 19: placeholders, country reference data, minor units, optional steps)
 - [x] Deterministic, versioned variant generator (Phase 19: stable ids per parameter set,
       new versions only for changed content, all or nothing)
-- [ ] Generated tests per workflow (happy, reject, approval, timeout) in CI
+- [x] Generated tests per workflow (happy, reject, approval, timeout) in CI (Phase 20:
+      every route, approval refusals, no-route probes; coverage; CI job)
 - [ ] Visual workflow viewer, then editor with validation
 - [ ] Catalogue search by department / country / product; ownership; lifecycle states
 - [ ] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green (5,056
@@ -178,4 +179,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 17 (B1) | Database-stored, versioned workflow definitions next to code-registered ones; import/export API and CLI with full validation; first handler library (`core.*`); WF-1001 imported as data | complete |
 | Phase 18 (B2) | Domain handler library (customers, accounts and fees, screening, notifications, AI advice) with declared effects; money moves only behind an approval; WF-1001 v2 and WF-1002 as data | complete |
 | Phase 19 (B3) | Parameterised workflow templates and a deterministic, versioned variant generator; 5,040 variants generated and listed | complete |
-| Phase 20 (B4, proposed) | Generated tests per workflow (happy, reject, approval, timeout paths) run for every stored and generated workflow in CI | next |
+| Phase 20 (B4) | Generated path tests for every stored and generated workflow (route planning, input synthesis, fixtures, coverage), run in CI and from the UI | complete |
+| Phase 21 (B5, proposed) | Visual workflow viewer (graph of steps and routes, coverage and live metrics on it), then an editor with validation | next |

@@ -24,6 +24,7 @@ class WorkflowDefinitionOut(WorkflowSummary):
     input_schema: dict[str, Any]
     presentation: dict[str, Any] | None = None
     origin: dict[str, Any] | None = None  # template, template version and variant key
+    last_test: "TestSummary | None" = None  # stored definitions: the latest generated tests
     steps: list[dict[str, Any]]
     transition_rules: list[dict[str, Any]]
     approval_policies: list[dict[str, Any]]
@@ -302,3 +303,42 @@ class VariantOut(BaseModel):
     template_version: int
     definition_version: int
     generated_at: datetime
+
+
+# --- Generated tests (Phase 20) --------------------------------------------------------------
+
+
+class TestCaseOut(BaseModel):
+    name: str
+    kind: str
+    route: str | None
+    status: Literal["passed", "failed", "skipped"]
+    detail: str
+    outcome: str | None
+    visited: list[str]
+    mocked: list[str]
+    ms: int
+
+
+class TestRunOut(BaseModel):
+    id: uuid.UUID
+    workflow_id: str
+    version: int
+    passed: int
+    failed: int
+    skipped: int
+    step_coverage: float
+    route_coverage: float
+    cases: list[TestCaseOut]
+    uncovered: list[dict[str, str]]
+    duration_ms: int
+    ran_at: datetime
+    ran_by_username: str | None
+
+
+class TestSummary(BaseModel):
+    passed: int
+    failed: int
+    step_coverage: float
+    route_coverage: float
+    ran_at: datetime

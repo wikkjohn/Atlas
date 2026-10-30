@@ -133,3 +133,15 @@ The catalogue summarises stored definitions in SQL from their JSON rather than l
 parsing each; the two "before" figures were found by this measurement and fixed (a
 definition's detail built the whole catalogue; the dashboard loaded every stored definition
 to count them).
+
+## Generated workflow tests (Phase 20)
+
+`python -m app.cli workflows test`, one process, development container:
+
+| Set | Workflows | Cases | Failed | Time |
+| --- | ---: | ---: | ---: | ---: |
+| Freshly seeded bank (`--all`, as in CI) | 12 | 288 | 0 | 37.6 s |
+| `TPL-SCALE-STATEMENT --sample 100` | 100 | ≈ 2,200 | 0 | 296 s |
+
+Each case is a full engine execution with synthetic records, rolled back: roughly 100–150 ms
+per case, 2–4 s per workflow.

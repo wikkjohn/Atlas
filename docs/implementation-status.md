@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 19.
+Last updated: Phase 20.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -24,6 +24,45 @@ Last updated: Phase 19.
 | 17 | Workflow factory, step 1: stored, versioned workflow definitions with an import API and full validation | **Complete** |
 | 18 | Workflow factory, step 2: domain step-handler library with declared effects; money moves only behind an approval | **Complete** |
 | 19 | Workflow factory, step 3: parameterised templates and a deterministic, versioned variant generator | **Complete** |
+| 20 | Workflow factory, step 4: generated path tests for every stored and generated workflow, in CI | **Complete** |
+
+## Phase 20: what exists
+
+- **Generated path tests** (`workflows/testing.py`): for each stored definition, a happy
+  case, one case per route (transitions, fallbacks, `on_failure`, timeouts) planned along
+  the shortest path with its conditions solved together, approval cases (initiator and
+  outsider refused), and no-route probes at decisions without a fallback. Inputs come from
+  the schema; looked-up records (customer, funded account) are created from the library
+  handlers' declared fixtures; staff are created per run. Cases run in rolled-back
+  savepoints; checks: a clean ending, the planned path visited, a declared outcome, no money
+  moved without a granted approval, refusals.
+- **Coverage and records:** step and route coverage, uncovered routes with reasons;
+  `workflow_test_runs` (migration 0018); `last_test` on stored definitions.
+- **Interfaces:** CLI `workflows test --all | --template | WF-ID … [--sample] [--output]`
+  (non-zero exit on failure); CI job *Workflow factory (generated tests)*; API run/list;
+  the Explorer's *Generated tests* panel.
+
+## Phase 20: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 375 passed (new: 7 — route planning incl. solved conflicts, fallbacks, rejects and injected failures; input synthesis and fixture inference; WF-1002 fully covered with refusals and nothing left behind; a generated variant with a steered product check; **defects found**: an input matching no route (probe) and a step reading the wrong record; run records and the API) |
+| Migration 0017 → 0018 → 0017 → 0018, `alembic check` | clean |
+| Frontend Vitest / typecheck / build | 85 passed / clean / built |
+| Playwright on a fresh database | 23 passed (new: running WF-1002's generated tests from the catalogue) |
+| `workflows test --all` on a freshly seeded bank (what CI runs) | 12 workflows, 288 cases, 0 failed, 100 % steps and routes each, 37.6 s |
+| Scale sample: 100 variants of TPL-SCALE-STATEMENT | 0 failed, 296 s (about 3 s per workflow, single process) |
+
+## Phase 20: known limitations
+
+- About 3 s per workflow in one process: all 5,040 scale variants would take about 4 hours,
+  so CI tests the seeded set; a template's variants differ only in parameters, so sampling
+  (`--sample`) or sharding across workers is the way to the full set (not built yet).
+- Code-registered workflows (WF-0001–0004) are not covered: their inputs are Pydantic
+  models with domain documents, and they keep their hand-written tests.
+- Planning steers single-level paths; nested input conditions, negated compound
+  conditions and conflicting requirements leave a route uncovered (reported).
+- Route coverage counts a route covered when a passing case planned through it.
 
 ## Phase 19: what exists
 

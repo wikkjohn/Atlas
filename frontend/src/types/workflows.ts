@@ -36,6 +36,7 @@ export interface WorkflowDefinition extends WorkflowSummary {
   input_schema: JsonSchema;
   presentation?: { subject_path: string; risk_path?: string; flags_path?: string } | null;
   origin?: { template_id: string; template_version: number; variant_key: string } | null;
+  last_test?: TestSummary | null;
   steps: StepDefinition[];
   transition_rules: Record<string, unknown>[];
   approval_policies: Record<string, unknown>[];
@@ -267,4 +268,42 @@ export interface GenerationResult {
     status: "created" | "updated" | "unchanged" | "invalid";
     errors: DefinitionProblem[];
   }[];
+}
+
+// --- Generated tests (Phase 20) -------------------------------------------------------------
+
+export interface TestSummary {
+  passed: number;
+  failed: number;
+  step_coverage: number;
+  route_coverage: number;
+  ran_at: string;
+}
+
+export interface TestCase {
+  name: string;
+  kind: "happy" | "route" | "approval";
+  route: string | null;
+  status: "passed" | "failed" | "skipped";
+  detail: string;
+  outcome: string | null;
+  visited: string[];
+  mocked: string[];
+  ms: number;
+}
+
+export interface TestRun {
+  id: string;
+  workflow_id: string;
+  version: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  step_coverage: number;
+  route_coverage: number;
+  cases: TestCase[];
+  uncovered: { route: string; reason: string }[];
+  duration_ms: number;
+  ran_at: string;
+  ran_by_username: string | null;
 }

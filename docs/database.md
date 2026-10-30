@@ -31,6 +31,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0013_partitioned_history` | 15 | Workflow executions, step runs and events become LIST-partitioned on `realm` (live, simulation); keys `(id, realm)`; `ai_tool_invocations.execution_realm`; events guard allows purging simulation rows only |
 | `0014_archives_observability` | 15 | `simulation_archives`, `simulation_runs.history_state`, `job_workers`, `slow_queries`; the (disabled) history retention schedule |
 | `0015_simulation_shards` | 16 | `simulation_shards`; the stored-balance trigger honours `atlas.balance_shard` |
+| `0018_workflow_test_runs` | 20 | `workflow_test_runs` |
 | `0017_workflow_templates` | 19 | `workflow_templates`, `workflow_variants` |
 | `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
 
@@ -246,6 +247,12 @@ runs older than 30 days.
 two shards' long transactions never lock the same balance row of a busy account (a
 currency's cash account) — without it, parallel payment shards deadlocked. Reads and
 reconciliation sum all eight rows and are unchanged.
+
+### Generated test runs (Phase 20, migration `0018_workflow_test_runs`)
+
+| Table | Contents |
+| --- | --- |
+| `workflow_test_runs` | One run of a stored version's generated tests: `definition_id` (deleted with it), `workflow_id`, `version`, `passed`, `failed`, `step_coverage`, `route_coverage`, `cases` and `uncovered` (jsonb), `duration_ms`, `ran_at`, `ran_by`. The cases themselves ran in a rolled-back savepoint |
 
 ### Workflow templates (Phase 19, migration `0017_workflow_templates`)
 

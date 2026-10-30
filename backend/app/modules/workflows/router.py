@@ -9,7 +9,7 @@ from app.core.idempotency import REPLAY_HEADER, IdempotencyKey
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.identity.dependencies import Authorized, CurrentUser
-from app.modules.workflows import authoring, engine, service, templates
+from app.modules.workflows import authoring, engine, service, templates, testing
 from app.modules.workflows.models import DefinitionStatus, ExecutionStatus
 from app.modules.workflows.schemas import (
     CancelIn,
@@ -32,6 +32,7 @@ from app.modules.workflows.schemas import (
     TemplateImportResult,
     TemplateOut,
     TemplateReportOut,
+    TestRunOut,
     ValidationReportOut,
     VariantOut,
     WorkflowDefinitionOut,
@@ -203,6 +204,29 @@ def reactivate_definition(
 ) -> StoredDefinitionOut:
     record = authoring.set_status(db, workflow_id, version, DefinitionStatus.ACTIVE, actor.id)
     return service.stored_definition_out(db, record)
+
+
+@authoring_router.post(
+    "/{workflow_id}/versions/{version}/tests",
+    response_model=TestRunOut,
+    summary="Generate and run path tests for a stored version (rolled back; the run is kept)",
+)
+def run_definition_tests(
+    workflow_id: str, version: int, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> TestRunOut:
+    _, run = testing.run_stored(db, workflow_id, version, actor.id)
+    return service.test_run_out(db, run)
+
+
+@authoring_router.get(
+    "/{workflow_id}/tests",
+    response_model=list[TestRunOut],
+    summary="The latest generated-test runs of a stored workflow",
+)
+def list_definition_tests(
+    workflow_id: str, db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+) -> list[TestRunOut]:
+    return service.test_runs(db, workflow_id)
 
 
 # --- Templates and variants (Phase 19) -------------------------------------------------------

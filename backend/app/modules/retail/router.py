@@ -131,7 +131,8 @@ def _numbers(db, ids) -> dict[uuid.UUID, str]:
     ids = list(set(ids))
     if not ids:
         return {}
-    return dict(db.execute(select(Account.id, Account.account_number).where(Account.id.in_(ids))))
+    rows = db.execute(select(Account.id, Account.account_number).where(Account.id.in_(ids)))
+    return dict(rows.tuples().all())
 
 
 def _orders_out(db, orders: list[StandingOrder]) -> list[StandingOrderOut]:

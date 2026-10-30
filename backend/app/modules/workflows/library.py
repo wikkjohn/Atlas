@@ -643,8 +643,9 @@ class IssueStatement(_Strict):
     IssueStatement,
     "{statement_number, period_start, period_end, opening_balance, closing_balance, "
     "currency, created}; a month that has not ended fails the step.",
-    reads=lambda params: [params.account_number_path]
-    + ([params.period_path] if params.period_path else []),
+    reads=lambda params: (
+        [params.account_number_path] + ([params.period_path] if params.period_path else [])
+    ),
     effect="writes",
     fixtures=lambda params: {params.account_number_path: "account.account_number"},
 )

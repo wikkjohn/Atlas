@@ -102,11 +102,13 @@ function download(name: string, data: unknown) {
 function DefinitionActions({
   workflowId,
   version,
+  latest,
   source,
   generated,
 }: {
   workflowId: string;
   version: number;
+  latest: number;
   source: string;
   generated: boolean;
 }) {
@@ -126,12 +128,12 @@ function DefinitionActions({
         </Button>
         {source === "stored" && !generated && can("workflows:define") && (
           <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
-            Edit as v{version + 1}
+            Edit as v{latest + 1}
           </Button>
         )}
       </div>
       <ErrorMessage error={exportError} />
-      {editing && <DefinitionEditor workflowId={workflowId} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
+      {editing && <DefinitionEditor workflowId={workflowId} fromVersion={latest} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} />}
     </div>
   );
 }
@@ -170,7 +172,7 @@ function DefinitionView({ id }: { id: string }) {
                 : "Registered in code"}
           </p>
         </div>
-        <DefinitionActions workflowId={d.workflow_id} version={d.version} source={d.source} generated={Boolean(d.origin)} />
+        <DefinitionActions workflowId={d.workflow_id} version={d.version} latest={Math.max(d.version, ...d.versions)} source={d.source} generated={Boolean(d.origin)} />
       </div>
       <Classification workflow={d} />
       {m && (

@@ -218,7 +218,7 @@ definitions may use), `examples/` (WF-1001).
 | Input | a Pydantic model | a JSON Schema (draft 2020-12) for an object |
 | Case naming | `register_presenter` | the definition's `presentation` |
 | Recorded in `workflow_definitions` | on first use (`source = 'code'`) | on import (`source = 'stored'`), with the importer |
-| Lifecycle | in code | `active` ⇄ `retired` (retired: no new cases; running ones finish) |
+| Lifecycle | in code | `draft` → `in_review` → `active` ⇄ `retired` (Phase 22; retired: no new cases; running ones finish) |
 | New process | must import the module | loads it from the database on first use |
 
 The model change was additive: `params` and `presentation` are optional and left out of the
@@ -309,9 +309,11 @@ why (`_failure.message`) and no money moved.
   *Retired*); *Start a case* opens a form generated from the input schema; *Export JSON*
   downloads any definition; *Import definition* (administrators, `workflows:define`)
   validates pasted JSON, lists every problem, and can start from a stored workflow as its
-  next version; *Retire / Reactivate* changes a stored version's status.
+  next version; the *Versions and review* panel submits, approves, returns, retires and
+  reactivates versions (Phase 22).
 - **CLI** — `python -m app.cli workflows list | validate FILE | import FILE [--as-user]
-  | export WF-ID [--version] [--output]`.
+  [--publish] | export WF-ID [--version] [--output] | test (WF-ID… | --all) [--processes N]`.
+  `import` stores a draft unless `--publish` (operators' own deployments) stores it active.
 - **API** — see `docs/api.md` (*Workflow definitions*).
 
 ## Templates and variants (Phase 19)
@@ -446,3 +448,50 @@ workflows — generated variants change through their template) opens an editor:
   has errors (routes to missing steps are left out), so you can see where;
 - *Save as v{n+1}* is enabled only for a valid draft and imports it through the usual
   validation, so the editor adds no rules of its own.
+
+## Catalogue and review (Phase 22)
+
+**Classification.** Each workflow can be classified for the catalogue: a department,
+the countries and products it serves, free tags, and an owner (a user). It lives in
+`workflow_catalogue`, one row per workflow, set:
+
+- by a definition's optional `catalogue` block (`{department, countries, products, tags}`)
+  when a version becomes active — on a published import, or on approval of a draft (a
+  draft never reclassifies an active workflow); a template can carry the block in its body,
+  so `TPL-PAPER-STATEMENT` v2 classifies every variant by its own `{{country_code}}` and
+  `{{account_type}}`;
+- by hand: `PUT /api/v1/workflow-catalogue/{id}` or *Classify* in the Explorer;
+- for code workflows by `register_catalogue` in `catalog.py` (WF-0001 Customer Onboarding,
+  WF-0002 Payments Operations, WF-0003 Lending, WF-0004 Collections); a stored row overrides it.
+
+Validation checks a `catalogue` block: countries must exist (an error), and a department no
+organization, code workflow or the demo structure knows is a warning. Like `params`, the
+block is left out of the canonical JSON when absent, so existing hashes are unchanged.
+
+**Search.** `GET /api/v1/workflow-catalogue` combines free text (id, name, description,
+owner, template, department, products, tags) with one value per facet — department,
+country, product, tag, status, source, owner — and returns, for each facet, how many
+workflows each value would leave, counted over the *other* filters (so choosing Germany
+still shows how many workflows Japan has). The Explorer's catalogue uses it: four facet
+filters with counts, a total, and paging past the first 200.
+
+**Review.** Versions imported through the API or the editor are **drafts**:
+
+| From | Action | To | Who |
+| --- | --- | --- | --- |
+| draft | submit | in review | `workflows:define` |
+| in review | approve (note optional) | active | `workflows:define`, not the importer or submitter (four-eyes), and only when that version's latest generated test run passed |
+| in review | return (note required) | draft | `workflows:define` |
+| active | retire | retired | `workflows:define` |
+| retired | reactivate | active | `workflows:define` |
+
+Drafts and versions in review cannot start cases (409) but can be tested: the generated
+test runner starts them with `allow_inactive`. Department managers now hold
+`workflows:define`, so an administrator can author and a manager review. The seed and the
+template generator publish directly; so does `workflows import --publish`. Every transition
+is audited (`workflow_definition.submitted|approved|returned|retired|reactivated`).
+
+**Parallel generated tests.** `workflows test --all --processes N` splits the workflows
+over N worker processes (spawned), each in its own sessions with its own ledger-balance
+shard; results and a summary are printed as one, and `--output` writes them as JSON.
+

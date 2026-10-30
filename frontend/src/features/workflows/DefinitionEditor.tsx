@@ -30,10 +30,12 @@ function problemsByStep(preview: DraftPreview | null): Record<string, string[]> 
  * draft that then goes through review. */
 export function DefinitionEditor({
   workflowId,
+  fromVersion,
   onClose,
   onSaved,
 }: {
   workflowId: string;
+  fromVersion?: number; // the latest version, which may be a draft above the active one
   onClose: () => void;
   onSaved: (workflowId: string) => void;
 }) {
@@ -48,11 +50,11 @@ export function DefinitionEditor({
   const latest = useRef(0);
 
   useEffect(() => {
-    exportDefinition(workflowId).then(
+    exportDefinition(workflowId, fromVersion).then(
       (document) => setText(JSON.stringify({ ...document, version: Number(document.version) + 1 }, null, 2)),
       setLoadError,
     );
-  }, [workflowId]);
+  }, [workflowId, fromVersion]);
 
   const draft = useMemo<Draft | null>(() => {
     try {

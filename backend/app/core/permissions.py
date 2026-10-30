@@ -31,6 +31,7 @@ class Permission(StrEnum):
     ACCOUNTS_MANAGE = "accounts:manage"  # freeze, unfreeze, close
     LEDGER_READ = "ledger:read"
     LEDGER_POST = "ledger:post"  # manual journal entries and reversals
+    FX_MANAGE = "fx:manage"  # revalue currency positions (Phase 24)
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -186,6 +187,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     RoleCode.SYSTEM_SCHEDULER: frozenset(
         {
             Permission.LEDGER_READ,
+            Permission.FX_MANAGE,
             Permission.LOANS_READ,
             Permission.LOANS_SERVICE,
             Permission.WORKFLOWS_READ,

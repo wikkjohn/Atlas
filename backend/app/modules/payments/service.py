@@ -1,5 +1,8 @@
 """Payment service: the only code that moves money between customer accounts.
 
+A payee account in another currency makes a cross-currency payment (Phase 24): the payer's
+amount is converted at release, at that day's rate, through an FX deal.
+
 `release` re-applies every control under row locks, whoever calls it — the payment
 workflow, a test or a future API: both accounts open and in the payment's currency, enough
 funds, and for a high-value payment an approval by someone else holding
@@ -25,6 +28,8 @@ from app.core.pagination import PageParams, paginate
 from app.core.permissions import Permission
 from app.modules.accounts.models import Account, AccountStatus
 from app.modules.customers.models import Customer
+from app.modules.fx import service as fx
+from app.modules.fx.models import FxDeal
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.ledger import service as ledger
@@ -66,6 +71,13 @@ def create_payment(
             "The amount is outside the payment limits.",
             {"amount": amount, "max": max_amount(debtor.currency)},
         )
+    creditor_currency = creditor_amount = None
+    if creditor.currency != debtor.currency:
+        # An estimate at today's rate; the payee gets the amount at the release date's rate.
+        terms = fx.quote(
+            db, debtor.currency, creditor.currency, amount, (now or datetime.now(UTC)).date()
+        )
+        creditor_currency, creditor_amount = creditor.currency, terms["buy_amount"]
     number = db.execute(PAYMENT_NUMBER_SEQUENCE.next_value()).scalar_one()
     payment = Payment(
         payment_number=f"PAY-{number:08d}",
@@ -73,6 +85,8 @@ def create_payment(
         creditor_account_id=creditor.id,
         amount=amount,
         currency=debtor.currency,
+        creditor_currency=creditor_currency,
+        creditor_amount=creditor_amount,
         reference=reference,
         status=PaymentStatus.PENDING.value,
         initiated_by=initiated_by,
@@ -167,9 +181,14 @@ def release(
             raise BusinessRuleViolation(
                 f"The {role} account is {account.status}.", {"rule": f"{role}_not_open"}
             )
-        if account.currency != payment.currency:
+        expected = (
+            payment.creditor_currency or payment.currency
+            if role == "creditor"
+            else payment.currency
+        )
+        if account.currency != expected:
             raise BusinessRuleViolation(
-                f"The {role} account is not in {payment.currency}.", {"rule": "currency"}
+                f"The {role} account is not in {expected}.", {"rule": "currency"}
             )
     available = ledger.balance(db, ledger.get_ledger_account(db, debtor.ledger_account_id))
     if payment.amount > available:
@@ -178,6 +197,19 @@ def release(
             {"rule": "insufficient_funds", "available": available, "requested": payment.amount},
         )
     memo = f"{payment.payment_number} {payment.reference}"[:200]
+    if payment.creditor_currency:
+        deal, _ = fx.convert(
+            db,
+            from_account=ledger.get_ledger_account(db, debtor.ledger_account_id),
+            to_account=ledger.get_ledger_account(db, creditor.ledger_account_id),
+            sell_amount=payment.amount,
+            day=now.date(),
+            idempotency_key=f"payment:{payment.id}",
+            purpose="payment",
+            reference=memo[:140],
+            actor_id=approver.id if approver else None,
+        )
+        return _released(db, payment, deal.sell_entry_id, approver, now, deal)
     entry, _ = ledger.post_entry(
         db,
         idempotency_key=f"payment:{payment.id}",
@@ -192,10 +224,23 @@ def release(
         actor_id=approver.id if approver else None,
         effective_date=now.date(),
     )
+    return _released(db, payment, entry.id, approver, now)
+
+
+def _released(
+    db: Session,
+    payment: Payment,
+    entry_id: uuid.UUID,
+    approver: AuthenticatedUser | None,
+    now: datetime,
+    deal: FxDeal | None = None,
+) -> Payment:
     payment.status = PaymentStatus.RELEASED.value
-    payment.journal_entry_id = entry.id
+    payment.journal_entry_id = entry_id
     payment.approved_by = approver.id if approver else None
     payment.decided_at = now
+    if deal is not None:
+        payment.fx_deal_id, payment.creditor_amount = deal.id, deal.buy_amount
     db.flush()
     record_audit_event(
         db,
@@ -203,7 +248,11 @@ def release(
         action="payment.released",
         entity_type="payment",
         entity_id=payment.id,
-        metadata={"payment_number": payment.payment_number, "entry": entry.entry_number},
+        metadata={
+            "payment_number": payment.payment_number,
+            "entry_id": str(entry_id),
+            **({"fx_deal": deal.deal_number} if deal is not None else {}),
+        },
     )
     return payment
 
@@ -291,6 +340,12 @@ def payments_out(db: Session, payments: list[Payment]) -> list[PaymentOut]:
         p.approved_by for p in payments if p.approved_by
     }
     names = dict(db.execute(select(User.id, User.username).where(User.id.in_(user_ids))).all())
+    deal_ids = {p.fx_deal_id for p in payments if p.fx_deal_id}
+    deals = (
+        {d.id: d for d in db.execute(select(FxDeal).where(FxDeal.id.in_(deal_ids))).scalars()}
+        if deal_ids
+        else {}
+    )
     return [
         PaymentOut(
             id=p.id,
@@ -301,6 +356,10 @@ def payments_out(db: Session, payments: list[Payment]) -> list[PaymentOut]:
             creditor_name=accounts[p.creditor_account_id][1],
             amount=p.amount,
             currency=p.currency,
+            creditor_currency=p.creditor_currency,
+            creditor_amount=p.creditor_amount,
+            fx_deal_number=deals[p.fx_deal_id].deal_number if p.fx_deal_id else None,
+            fx_rate=str(deals[p.fx_deal_id].customer_rate) if p.fx_deal_id else None,
             reference=p.reference,
             status=p.status,
             high_value=is_high_value(p.amount, p.currency),

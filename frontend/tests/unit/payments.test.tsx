@@ -134,11 +134,13 @@ function startRoutes(id: string, name: string) {
     "GET /api/v1/workflow-executions": () => jsonResponse(page([])),
     "GET /api/v1/workflow-executions/new-1": () => jsonResponse({ ...started, workflow_id: id }),
     "GET /api/v1/workflow-executions/new-1/history": () => jsonResponse([]),
+    "POST /api/v1/fx/quote": () =>
+      jsonResponse({ sell_currency: "USD", sell_amount: 125_050, buy_currency: "EUR", buy_amount: 107_237, mid_rate: "0.8618", customer_rate: "0.857533092082", margin_bps: 50, rate_date: "2026-03-02", base_amount: 125_050 }),
   };
 }
 
 describe("Starting payments and loan applications", () => {
-  it("sends a payment in minor units to a payee in the same currency", async () => {
+  it("sends a payment in minor units, and estimates the conversion for a payee in another currency", async () => {
     const api = mockApi(startRoutes("WF-0002", "Domestic Payment"));
     renderApp("/workflows");
 
@@ -147,25 +149,24 @@ describe("Starting payments and loan applications", () => {
     const paying = within(dialog).getByLabelText("Paying account");
     await userEvent.selectOptions(paying, await within(paying).findByRole("option", { name: /US000000004257/ }));
     const payees = within(within(dialog).getByLabelText("Payee account")).getAllByRole("option").map((o) => o.textContent);
-    expect(payees).toEqual(["Select…", "US000000004351 · Ines Costa"]); // not itself, not the EUR account
-    // Payees are searched on the server in the payer's currency, so any account can be found.
+    // Not itself; a payee in another currency is paid after conversion (Phase 24).
+    expect(payees).toEqual(["Select…", "US000000004351 · Ines Costa (USD)", "DE000000004444 · Jonas Weber (EUR)"]);
     await userEvent.type(within(dialog).getByLabelText("Search payees"), "Costa");
-    await waitFor(() =>
-      expect(
-        api.requests.some((r) => r.path === "/api/v1/accounts" && r.search.get("q") === "Costa" && r.search.get("currency") === "USD"),
-      ).toBe(true),
-    );
+    await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/accounts" && r.search.get("q") === "Costa")).toBe(true));
     await userEvent.click(within(dialog).getByRole("button", { name: "Submit payment" }));
     expect(within(dialog).getByText("Enter an amount above zero.")).toBeInTheDocument();
-    expect(api.requests.some((r) => r.method === "POST")).toBe(false);
+    expect(api.requests.some((r) => r.method === "POST" && r.path.endsWith("/executions"))).toBe(false);
 
-    await userEvent.selectOptions(within(dialog).getByLabelText("Payee account"), "US000000004351");
     await userEvent.type(within(dialog).getByLabelText("Amount (USD)"), "1250.50");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Payee account"), "DE000000004444");
+    expect(await within(dialog).findByLabelText("Conversion estimate")).toHaveTextContent("The payee receives about €1,072.37 at today's rate (0.857533, 0.5 % margin)");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Payee account"), "US000000004351");
+    expect(within(dialog).queryByLabelText("Conversion estimate")).not.toBeInTheDocument();
     await userEvent.type(within(dialog).getByLabelText("Reference"), "Invoice 1042");
     await userEvent.click(within(dialog).getByRole("button", { name: "Submit payment" }));
 
     await screen.findByRole("dialog", { name: "Workflow execution" });
-    const post = api.requests.find((r) => r.method === "POST");
+    const post = api.requests.find((r) => r.method === "POST" && r.path.endsWith("/executions"));
     expect(post?.body).toEqual({
       input: {
         debtor_account_number: "US000000004257",

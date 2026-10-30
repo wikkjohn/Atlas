@@ -96,9 +96,12 @@ account-opening step, history and metrics.
 
 ## WF-0002 Domestic Payment (Phase 9)
 
-A customer pays another account at the bank in the same currency. Business owner:
-Payments Operations. Input: debtor and creditor account numbers, amount (minor units),
-currency, reference (≤ 140 characters) and channel.
+A customer pays another account at the bank. Business owner: Payments Operations. Input:
+debtor and creditor account numbers, amount (minor units), currency, reference (≤ 140
+characters) and channel. The paying account must be held in the payment's currency. Since
+Phase 24, the payee's account may be in another currency: the payment converts at release
+through an FX deal (see [fx.md](fx.md)). The definition is unchanged; the name still says
+domestic.
 
 | # | Step | Type | Notes |
 | --- | --- | --- | --- |

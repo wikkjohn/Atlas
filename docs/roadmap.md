@@ -93,7 +93,9 @@ millions of customers and an AI testing laboratory at that scale.
       language, regulator, identity documents, address formats (Phase 23: 93 currencies,
       1,167 holiday rules with computed calendars, document and postal masks, address
       layouts; see `reference-data.md`; lunar-calendar holidays follow with the calendars)
-- [ ] Multi-currency: synthetic FX rates, cross-currency payments, revaluation, positions
+- [x] Multi-currency: synthetic FX rates, cross-currency payments, revaluation, positions
+      (Phase 24: deterministic daily rates for 93 currencies with pegs, conversions through
+      position accounts, WF-0002 payees in any currency, daily revaluation; see `fx.md`)
 - [ ] Country rules engine: KYC documents, age limits, sanctions lists, cut-offs, limits
 - [ ] Business calendars used by the scheduler and the simulation's arrivals
 - [ ] Generated country subsidiaries in the organization hierarchy
@@ -189,4 +191,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 21 (B5) | Workflow diagram for every workflow (layout, route labels, live metrics, test coverage) and an editor for stored workflows with live, located validation | complete |
 | Phase 22 (B6) | Catalogue at scale: search and facets by department, country and product; ownership; lifecycle (draft, review, active, retired) with four-eyes approval behind passing tests; parallel test runner; Milestone B exit run (5,052 workflows, 111,168 cases, 0 failed) — Milestone B done | complete |
 | Phase 23 (C1) | Global footprint, step 1: reference data for 120 countries (currency, minor units, time zone, weekend, holidays, language, regulator, identity documents, address formats), computed holiday calendars, synthetic document numbers and addresses | complete |
-| Phase 24 (C2, proposed) | Multi-currency: synthetic FX rates, cross-currency payments, revaluation and positions | next |
+| Phase 24 (C2) | Multi-currency: synthetic FX rates, conversions through currency positions, cross-currency payments, daily revaluation, Foreign Exchange page | complete |
+| Phase 25 (C3, proposed) | Country rules engine: KYC documents, age limits, sanctions lists, cut-offs and limits per country | next |

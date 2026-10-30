@@ -1,14 +1,16 @@
+import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
 import { Button } from "@/components/Button";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { Field, inputClass } from "@/components/Field";
 import { Modal } from "@/components/Modal";
-import { newIdempotencyKey } from "@/services/api";
+import { apiPost, newIdempotencyKey } from "@/services/api";
 import { useAccounts } from "@/services/banking";
 import { currencyDigits, formatExactMoney } from "@/services/format";
 import { useStartExecution } from "@/services/workflows";
 import type { Account } from "@/types/banking";
+import type { FxQuote } from "@/types/fx";
 
 interface DialogProps {
   onClose: () => void;
@@ -101,11 +103,19 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
   const [form, setForm] = useState({ amount: "", reference: "" });
   const [submitted, setSubmitted] = useState(false);
   const set = (k: keyof typeof form, v: string) => setForm({ ...form, [k]: v });
-  const payable = (a: Account) => a.id !== debtor?.id && (!debtor || a.currency === debtor.currency);
+  const payable = (a: Account) => a.id !== debtor?.id;
   const amount = debtor ? minorUnits(form.amount, debtor.currency) : Number.NaN;
+  // A payee in another currency receives the amount converted at release (Phase 24).
+  const converting = Boolean(debtor && creditor && debtor.currency !== creditor.currency);
+  const estimate = useQuery({
+    queryKey: ["fx", "quote", debtor?.currency, creditor?.currency, amount],
+    queryFn: () =>
+      apiPost<FxQuote>("/api/v1/fx/quote", { sell_currency: debtor!.currency, buy_currency: creditor!.currency, sell_amount: amount }),
+    enabled: converting && !Number.isNaN(amount),
+  });
   const errors = {
     debtor: debtor ? null : "Choose the paying account.",
-    creditor: creditor && payable(creditor) ? null : "Choose a payee in the same currency.",
+    creditor: creditor && payable(creditor) ? null : "Choose a payee.",
     amount: Number.isNaN(amount) ? "Enter an amount above zero." : null,
     reference: form.reference.trim() ? null : "A reference is required.",
   };
@@ -134,11 +144,11 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
   return (
     <Modal
       wide
-      title="New domestic payment (WF-0002)"
+      title="New payment (WF-0002)"
       onClose={onClose}
       footer={<StartFooter form="wf0002-start" pending={start.isPending} label="Submit payment" onClose={onClose} />}
     >
-      <form id="wf0002-start" aria-label="New domestic payment" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <form id="wf0002-start" aria-label="New payment" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <AccountPicker
           label="Paying account"
           searchLabel="Search paying accounts"
@@ -154,9 +164,8 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
           searchLabel="Search payees"
           value={creditor}
           onChange={setCreditor}
-          filters={{ currency: debtor?.currency }}
           allow={payable}
-          describe={(a) => `${a.account_number} · ${a.customer_name}`}
+          describe={(a) => `${a.account_number} · ${a.customer_name} (${a.currency})`}
           error={show("creditor")}
         />
         <Field label={`Amount${debtor ? ` (${debtor.currency})` : ""}`} hint="High-value payments (10,000 or more) need a second approver." error={show("amount")}>
@@ -166,6 +175,13 @@ export function StartPaymentDialog({ onClose, onStarted }: DialogProps) {
           {(p) => <input {...p} maxLength={140} className={inputClass} value={form.reference} onChange={(e) => set("reference", e.target.value)} />}
         </Field>
       </form>
+      {converting && (
+        <p role="status" aria-label="Conversion estimate" className="mt-3 text-sm text-slate-700">
+          {estimate.data
+            ? `The payee receives about ${formatExactMoney(estimate.data.buy_amount, estimate.data.buy_currency)} at today's rate (${Number(estimate.data.customer_rate).toPrecision(6)}, ${estimate.data.margin_bps / 100} % margin); the rate on the release date applies.`
+            : `The amount is converted from ${debtor!.currency} to ${creditor!.currency} when the payment is released.`}
+        </p>
+      )}
       <p className="mt-3 text-xs text-slate-500">
         Screening holds payments with scam indicators (for example a reference mentioning gift cards), payees on the synthetic
         watchlist and first payments that empty an account; fraud analysts decide them.

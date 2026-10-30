@@ -13,6 +13,11 @@ class PaymentOut(BaseModel):
     creditor_name: str
     amount: int = Field(description="Minor units")
     currency: str
+    # Cross-currency payments (Phase 24).
+    creditor_currency: str | None = None
+    creditor_amount: int | None = None
+    fx_deal_number: str | None = None
+    fx_rate: str | None = None  # the customer rate applied
     reference: str
     status: str
     high_value: bool

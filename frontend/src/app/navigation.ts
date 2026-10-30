@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   Banknote,
+  CandlestickChart,
   Bot,
   Building2,
   FlaskConical,
@@ -30,7 +31,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 9;
+export const IMPLEMENTED_PHASE = 24;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -46,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Customers", path: "/customers", icon: UserRound, phase: 3, permission: "customers:read" },
   { label: "Accounts", path: "/accounts", icon: Banknote, phase: 3, permission: "accounts:read" },
   { label: "Payments", path: "/payments", icon: ArrowLeftRight, phase: 9, permission: "payments:read" },
+  { label: "Foreign Exchange", path: "/fx", icon: CandlestickChart, phase: 24, permission: "payments:read" },
   { label: "Lending", path: "/lending", icon: HandCoins, phase: 9, permission: "loans:read" },
   {
     label: "Workflow Explorer",

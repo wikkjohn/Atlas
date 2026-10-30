@@ -164,6 +164,11 @@ export interface Payment {
   creditor_name: string;
   amount: number;
   currency: string;
+  // Cross-currency payments (Phase 24).
+  creditor_currency?: string | null;
+  creditor_amount?: number | null;
+  fx_deal_number?: string | null;
+  fx_rate?: string | null;
   reference: string;
   status: PaymentStatus;
   high_value: boolean;

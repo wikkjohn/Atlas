@@ -97,6 +97,12 @@ export function PaymentsPage() {
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {formatExactMoney(p.amount, p.currency)}
+                  {p.creditor_currency && p.creditor_amount != null && (
+                    <div className="text-[11px] text-slate-500" title={p.fx_rate ? `Rate ${p.fx_rate}` : "Estimate at today's rate"}>
+                      → {formatExactMoney(p.creditor_amount, p.creditor_currency)}
+                      {p.fx_deal_number ? ` · ${p.fx_deal_number}` : " (est.)"}
+                    </div>
+                  )}
                   {p.high_value && <div className="text-[11px] text-amber-700">High value</div>}
                 </td>
                 <td className="px-3 py-2">

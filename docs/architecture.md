@@ -56,7 +56,10 @@ experiment management and analytics. No module may introduce its own version of 
 Modules implemented so far: `identity` (users, roles, auth), `countries`, `organizations`,
 `employees`, `audit` (read API over `app/core/audit.py`). `app/modules/reference` (Phase 23)
 holds the country reference data as version-controlled Python data with its calendar,
-format and loader code; it has no tables of its own (see [reference-data.md](reference-data.md)). `app/models.py` imports every
+format and loader code; it has no tables of its own (see [reference-data.md](reference-data.md)).
+`app/modules/fx` (Phase 24) publishes synthetic rates and converts between currencies by
+posting one balanced entry per currency through position accounts, so the ledger never mixes
+currencies in an entry (see [fx.md](fx.md)). `app/models.py` imports every
 module's models so Alembic and tests see the complete schema.
 
 ## Cross-cutting behaviour

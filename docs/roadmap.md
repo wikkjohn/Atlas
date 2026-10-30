@@ -102,7 +102,10 @@ millions of customers and an AI testing laboratory at that scale.
 - [x] Business calendars used by the scheduler and the simulation's arrivals
       (Phase 26: lunar holidays dated 2025–2030 for 50 countries; schedules and scenario
       arrivals follow a country's business days; see `business-calendars.md`)
-- [ ] Generated country subsidiaries in the organization hierarchy
+- [x] Generated country subsidiaries in the organization hierarchy
+      (Phase 27: a versioned blueprint of divisions, departments, teams and staff;
+      launching a country activates it and builds what is missing; all 115 planned
+      countries generated in 31 s; see `subsidiaries.md`)
 - [ ] **Exit:** onboarding and payment variants pass in all 120 countries
 
 ## Milestone D — 35+ departments and their products
@@ -198,4 +201,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 24 (C2) | Multi-currency: synthetic FX rates, conversions through currency positions, cross-currency payments, daily revaluation, Foreign Exchange page | complete |
 | Phase 25 (C3) | Country rules engine: versioned per-country KYC, screening and payment rules applied by account opening and payments; value dates; rules editing on the Countries page | complete |
 | Phase 26 (C4) | Business calendars: lunar holidays as dated tables; schedules and simulation arrivals on a country's business days | complete |
-| Phase 27 (C5, proposed) | Generated country subsidiaries in the organization hierarchy | next |
+| Phase 27 (C5) | Generated country subsidiaries: a versioned blueprint; launching a country activates it and builds its subsidiary and staff | complete |
+| Phase 28 (C6, proposed) | Milestone C exit: onboarding and payment variants pass in all 120 countries | next |

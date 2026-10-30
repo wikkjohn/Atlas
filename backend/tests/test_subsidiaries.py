@@ -13,8 +13,10 @@ from app.core.errors import BusinessRuleViolation
 from app.core.permissions import RoleCode
 from app.modules.countries.models import Country, OperationalStatus, Region
 from app.modules.employees.models import Employee
+from app.modules.employees.schemas import MAX_COMPENSATION
 from app.modules.organizations import blueprint
 from app.modules.organizations.models import Organization, OrganizationType
+from app.modules.reference import data
 from app.simulation.router import get_simulation_sessionmaker
 from tests.factories import auth, make_org_tree, make_user
 
@@ -48,6 +50,9 @@ def test_the_blueprint_describes_a_subsidiary() -> None:
     assert set(described["regional_headquarters"]) == {r.value for r in Region}
     assert blueprint.salary_band("USD") == (62_000, 240_000)
     assert blueprint.salary_band("KWD")[1] < 100_000  # a dinar is worth about 3 dollars
+    # Every currency's band fits an employee record, the Lebanese pound included.
+    for code, (_, minor_units) in data.CURRENCIES.items():
+        assert blueprint.salary_band(code)[1] * 10**minor_units <= MAX_COMPENSATION
 
 
 def test_launching_a_country_builds_its_subsidiary(db: Session) -> None:

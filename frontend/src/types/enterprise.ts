@@ -191,6 +191,8 @@ export interface Organization {
   currency: string | null;
   region: Region | null;
   status: "active" | "inactive";
+  /** The blueprint a generated organization came from (Phase 27); null when built by hand. */
+  generated_from: string | null;
   child_count: number;
   employee_count: number;
   created_at: string;
@@ -279,4 +281,24 @@ export interface SanctionsList {
   list_id: string;
   description: string;
   entries: number;
+}
+
+export interface SubsidiaryCoverage {
+  region: Region;
+  countries: number;
+  subsidiaries: number;
+  generated: number;
+  without_subsidiary: string[];
+}
+
+/** The subsidiary blueprint and coverage by region (Phase 27). */
+export interface SubsidiaryBlueprint {
+  version: number;
+  generated_from: string;
+  regional_headquarters: Record<Region, string>;
+  structure: Record<string, Record<string, string[]>>;
+  units_per_subsidiary: number;
+  staff_per_subsidiary: number;
+  usd_salary_band: [number, number];
+  coverage: SubsidiaryCoverage[];
 }

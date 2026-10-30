@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 26.
+Last updated: Phase 27.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -31,6 +31,36 @@ Last updated: Phase 26.
 | 24 | Global footprint, step 2: multi-currency — FX rates, conversions, cross-currency payments, revaluation ([fx.md](fx.md)) | **Complete** |
 | 25 | Global footprint, step 3: country rules engine ([country-rules.md](country-rules.md)) | **Complete** |
 | 26 | Global footprint, step 4: business calendars ([business-calendars.md](business-calendars.md)) | **Complete** |
+| 27 | Global footprint, step 5: generated country subsidiaries ([subsidiaries.md](subsidiaries.md)) | **Complete** |
+
+## Phase 27: what exists
+
+- **Subsidiary blueprint** (version 1): 3 divisions, 4 departments and 4 teams with 24
+  synthetic staff, paid in the country's currency on a dollar band converted at the FX
+  anchor rates; names from a seed fixed per country.
+- **Launching a country:** activates a planned country, adds its regional headquarters
+  when the region has none, and builds whatever the subsidiary is missing; staff only for
+  new units; generated units record `generated_from` (migration 0024); audited.
+- **API, job, UI and CLI:** `GET /organizations/blueprint` (with coverage by region),
+  `POST /organizations/generate` (an `organizations.generate` job, one transaction per
+  country), the *Country subsidiaries* panel on the Organization page, and
+  `python -m app.cli subsidiaries coverage|generate`.
+- **Measured:** all 115 planned countries launched in 31 s (1,381 organizations, 2,760
+  staff); a second run created nothing.
+- **Employee pay limit** raised to 10¹⁵ minor units (the Lebanese pound band needs more
+  than the previous 10¹²).
+
+## Phase 27: verified results
+
+PENDING
+
+## Phase 27: known limitations
+
+- One blueprint for every country, whatever its size; names are not country-specific.
+- Launching does not start customers, products or simulation workloads in a country; that
+  is the Milestone C exit (Phase 28).
+- Simulations hire staff in the first active country by code, so on a fully launched
+  database that is the United Arab Emirates instead of Germany.
 
 ## Phase 26: what exists
 

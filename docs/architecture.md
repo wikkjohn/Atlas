@@ -99,7 +99,8 @@ module's models so Alembic and tests see the complete schema.
   `INSERT … ON CONFLICT DO NOTHING` inside the request transaction; concurrent duplicates
   block on the key and then replay the stored response.
 - **Country configuration (Phase 2):** a country's operational status gates creating
-  subsidiaries, units and staff in it; its region constrains which headquarters it can sit
+  subsidiaries, units and staff in it (Phase 27 generates a subsidiary from a blueprint when
+  a country is launched; see `subsidiaries.md`); its region constrains which headquarters it can sit
   under; its currency becomes the compensation currency of staff placed there.
 - **Migrations:** schema changes are Alembic migrations only. `/api/system/status` compares
   the database's revision with the code's head revision and reports `needs_migration`.

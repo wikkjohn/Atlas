@@ -47,3 +47,13 @@ export function useRunSchedule() {
     onSuccess: invalidate,
   });
 }
+
+/** One job, refreshed while it is queued or running. */
+export function useJob(id: string | null) {
+  return useQuery({
+    queryKey: ["jobs", "detail", id],
+    queryFn: () => apiGet<Job>(`/api/v1/jobs/${id}`),
+    enabled: Boolean(id),
+    refetchInterval: (q) => (q.state.data?.status === "queued" || q.state.data?.status === "running" ? 1500 : false),
+  });
+}

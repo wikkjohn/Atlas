@@ -35,6 +35,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0017_workflow_templates` | 19 | `workflow_templates`, `workflow_variants` |
 | `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
 | `0019_catalogue_lifecycle` | 22 | `workflow_catalogue`; definition lifecycle `draft`, `in_review`, `active`, `retired` with submitter and reviewer |
+| `0024_generated_subsidiaries` | 27 | `organizations.generated_from`: the blueprint a generated organization came from |
 | `0023_business_calendars` | 26 | Reference data 2026.2 (dated lunar holidays) from `0023_reference_data.json`; `job_schedules.business_calendar` |
 | `0022_country_rules` | 25 | `country_rules` (versioned per country; version 1 loaded from `0022_country_rules.json`); payments gain `high_value_threshold` and `value_date` |
 | `0021_foreign_exchange` | 24 | `fx_rates`, `fx_deals` (`fx_deal_number_seq`), `fx_revaluations`; payments gain `creditor_currency`, `creditor_amount`, `fx_deal_id` (released cross-currency payments must carry a deal); the `fx-daily` schedule |
@@ -123,6 +124,7 @@ reference data.
 | `organization_type` | `varchar(30)` | global_bank, regional_headquarters, country_subsidiary, business_division, department, team |
 | `parent_organization_id` | `uuid` | FK → organizations; NULL only for the global bank (CHECK) |
 | `country_id` | `uuid` | FK → countries; set from the subsidiary downward |
+| `generated_from` | `varchar(40)` | Blueprint that generated it (e.g. `subsidiary-blueprint/1`); null when built by hand (Phase 27) |
 | `region` | `varchar(30)` | Set from the regional headquarters downward |
 | `status` | `varchar(20)` | active, inactive |
 | `created_at`, `updated_at` | `timestamptz` | |
@@ -155,7 +157,7 @@ Partial unique indexes: one `global_bank`; one `country_subsidiary` per country.
 | `role_id` | `uuid` | FK → roles (default platform role for a user account) |
 | `country_id` | `uuid` | FK → countries |
 | `employment_status` | `varchar(20)` | active, on_leave, terminated |
-| `annual_compensation` | `bigint` | Minor units; CHECK ≥ 0 |
+| `annual_compensation` | `bigint` | Minor units; CHECK ≥ 0; the API accepts up to 10¹⁵ |
 | `compensation_currency` | `varchar(3)` | From the country's default currency |
 | `created_at`, `updated_at` | `timestamptz` | |
 

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 21.
+Last updated: Phase 22.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -26,6 +26,41 @@ Last updated: Phase 21.
 | 19 | Workflow factory, step 3: parameterised templates and a deterministic, versioned variant generator | **Complete** |
 | 20 | Workflow factory, step 4: generated path tests for every stored and generated workflow, in CI | **Complete** |
 | 21 | Workflow factory, step 5: workflow diagram and an editor with live validation | **Complete** |
+| 22 | Workflow factory, step 6: catalogue search, ownership, review lifecycle; the Milestone B exit run — roadmap Milestone B complete | **Complete** |
+
+## Phase 22: what exists
+
+- **Catalogue** (`workflow_catalogue`, migration 0019): department, countries, products,
+  tags and owner per workflow — from a definition's or template's `catalogue` block, by hand
+  (`PUT /workflow-catalogue/{id}`, *Classify*), or registered in code for WF-0001–0004.
+  `GET /workflow-catalogue` searches by text and facets with counts; the Explorer filters by
+  department, country, product and status.
+- **Review lifecycle:** API and editor imports are drafts; submit → approve (four-eyes, the
+  version's latest generated tests must pass) or return with a note; retire/reactivate.
+  Drafts can be tested but not started. Department managers hold `workflows:define`.
+  *Versions and review* panel in the Explorer; `workflows import --publish` for operators.
+- **Parallel generated tests:** `workflows test --processes N`.
+- **TPL-PAPER-STATEMENT v2** classifies its variants by country and product; the seed
+  classifies WF-1001/WF-1002.
+
+## Phase 22: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 389 passed (new: 10 — review to active under four-eyes and passing tests; return with a note; a draft does not reclassify an active workflow; department managers define; catalogue validation; hashes without a catalogue; code workflows classified and searchable; facets counted over the other filters with paging; the catalogue and review API; the seed classification is valid) |
+| Frontend Vitest / typecheck / build | 90 passed (new: facet filters; submit, refused self-approval, return with a note; classification with an owner) / clean / built |
+| Playwright on a fresh database | see the PR (new: WF-1001 edited, saved as a draft, submitted, tested, refused to its author and approved by a manager; variants found by country, product and department) |
+| Milestone B exit run (`workflows test --all --processes 4`, 5,052 stored workflows) | 111,168 cases, 0 failed, 100 % step and route coverage, 5,381.6 s; 50 → 54.7 s, 500 → 604.6 s (linear) |
+
+## Phase 22: known limitations
+
+- Catalogue search builds every summary per request (0.37 s at 5,056 workflows); at tens
+  of thousands it will want facet counts in SQL.
+- One department, a country list and a product list per workflow; no per-country owners.
+- Approval is by any holder of `workflows:define` other than the author; there is no
+  routing of reviews to the owning department yet.
+- Generated tests remain the only automatic gate; the exit run took 1 h 30 min on four
+  processes, so CI tests the seeded bank, not the 5,000.
 
 ## Phase 21: what exists
 

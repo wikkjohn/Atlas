@@ -52,9 +52,9 @@ Last updated: Phase 25.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | see the PR |
-| Frontend Vitest / typecheck / build | see the PR |
-| Playwright on a fresh database | see the PR |
+| Backend pytest (real PostgreSQL) | 537 passed (new: 9 — valid defaults for all 120 countries and their spot values; versions take effect on their date, are audited and cannot predate the latest; rules validation; screening across several lists; value dates over the cut-off, weekends and holidays; WF-0001 applying a country's minimum age and accepted documents; a waived proof of address and an EU-style list hit; WF-0002 limits, high-value threshold and value date from the payer's country; the rules API and permissions) |
+| Frontend Vitest / typecheck / build | 93 passed (new: the rules in force, versions and a manager's new version) / clean / built |
+| Playwright on a fresh database | First run: 27 passed, 1 failed — the new rules test's sign-in landed on the Overview instead of the Countries page (the deep link was lost); it passed twice alone and in the full rerun. Like the Phase 24 shell failure, it occurs only under full parallel load; root cause not yet found (see known limitations). Second run on a fresh database: 28 passed |
 | Migration 0022 | Upgrade, downgrade and upgrade again; `alembic check` clean |
 
 ## Phase 25: known limitations
@@ -65,6 +65,10 @@ Last updated: Phase 25.
   units of their currency) so earlier simulations reproduce. In Japan that leaves a
   10,000-yen high-value threshold; change it with a new rules version.
 - The defaults are compiled for the simulation, not regulatory advice.
+- Under full parallel Playwright load, a sign-in has twice (Phases 24 and 25) ended on the
+  Overview or the "API unavailable" state instead of the requested page; both passed on
+  rerun. The login redirect keeps the requested page in navigation state, so something
+  under load replaces it; not yet diagnosed.
 
 
 ## Phase 24: what exists

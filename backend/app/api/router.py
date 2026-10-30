@@ -29,6 +29,7 @@ from app.modules.workflows.router import (
     definitions_router,
     executions_router,
     tasks_router,
+    templates_router,
 )
 from app.observability.router import metrics_router
 from app.observability.router import router as observability_router
@@ -54,6 +55,7 @@ for module_router in (
     loans_router,
     definitions_router,
     authoring_router,
+    templates_router,
     executions_router,
     tasks_router,
     simulations_router,

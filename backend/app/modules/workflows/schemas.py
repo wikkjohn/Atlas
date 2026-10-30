@@ -16,12 +16,14 @@ class WorkflowSummary(BaseModel):
     step_count: int
     source: Literal["code", "stored"] = "code"
     status: Literal["active", "retired"] = "active"  # of the version shown
+    template_id: str | None = None  # generated from this template (Phase 19)
 
 
 class WorkflowDefinitionOut(WorkflowSummary):
     start: str
     input_schema: dict[str, Any]
     presentation: dict[str, Any] | None = None
+    origin: dict[str, Any] | None = None  # template, template version and variant key
     steps: list[dict[str, Any]]
     transition_rules: list[dict[str, Any]]
     approval_policies: list[dict[str, Any]]
@@ -205,3 +207,98 @@ class LibraryHandlerOut(BaseModel):
     effect: Literal["none", "reads", "writes", "moves_money", "advisory"]
     requires_approval: bool
     params_schema: dict[str, Any]
+
+
+# --- Templates and variants (Phase 19) --------------------------------------------------------
+
+
+class TemplateDocumentIn(BaseModel):
+    """A template as JSON (taken raw so that validation can report every problem)."""
+
+    template: dict[str, Any]
+
+
+class TemplateReportOut(BaseModel):
+    valid: bool
+    template_id: str | None
+    version: int | None
+    existing: Literal["new", "identical"] | None
+    errors: list[DefinitionProblem]
+    warnings: list[DefinitionProblem]
+    preview: dict[str, Any] | None  # the example parameters rendered
+
+
+class TemplateOut(BaseModel):
+    id: uuid.UUID
+    template_id: str
+    version: int
+    name: str
+    description: str
+    status: Literal["active", "retired"]
+    content_hash: str
+    id_range: tuple[int, int]
+    parameters: dict[str, Any]
+    example: dict[str, Any]
+    imported_by_username: str | None
+    imported_at: datetime
+    variants: int  # generated from any version of this template
+
+
+class TemplateDetail(TemplateOut):
+    body: dict[str, Any]
+
+
+class TemplateImportResult(BaseModel):
+    created: bool
+    template: TemplateOut
+    warnings: list[DefinitionProblem]
+
+
+class RenderIn(BaseModel):
+    params: dict[str, Any]
+    version: int | None = Field(default=None, ge=1)
+
+
+class RenderOut(BaseModel):
+    definition: dict[str, Any] | None
+    report: ValidationReportOut
+
+
+class GenerateIn(BaseModel):
+    """Parameter sets: the cartesian product of `grid` plus `variants`, each over `fixed`."""
+
+    grid: dict[str, list[Any]] | None = None
+    variants: list[dict[str, Any]] | None = None
+    fixed: dict[str, Any] | None = None
+    version: int | None = Field(default=None, ge=1)
+    dry_run: bool = False
+
+
+class VariantResultOut(BaseModel):
+    variant_key: str
+    params: dict[str, Any]
+    workflow_id: str | None
+    version: int | None
+    status: Literal["created", "updated", "unchanged", "invalid"]
+    errors: list[DefinitionProblem]
+
+
+class GenerationOut(BaseModel):
+    template_id: str
+    template_version: int
+    dry_run: bool
+    stored: bool  # false for a dry run, or when any variant was invalid (nothing stored)
+    created: int
+    updated: int
+    unchanged: int
+    invalid: int
+    results: list[VariantResultOut]
+
+
+class VariantOut(BaseModel):
+    workflow_id: str
+    variant_key: str
+    params: dict[str, Any]
+    template_version: int
+    definition_version: int
+    generated_at: datetime

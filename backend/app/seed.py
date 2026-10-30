@@ -143,6 +143,8 @@ class SeedReport:
     skipped_payments_and_loans: bool = False
     ai_tools: list[str] = field(default_factory=list)
     stored_definitions: list[str] = field(default_factory=list)
+    templates: list[str] = field(default_factory=list)
+    generated_variants: int = 0
 
 
 def _org(
@@ -621,6 +623,20 @@ def _import_example_definitions(db: Session, report: SeedReport) -> None:
         record, created, _ = authoring.import_definition(db, document, admin)
         if created:
             report.stored_definitions.append(f"{record.workflow_id} v{record.version}")
+    from app.modules.workflows import templates
+
+    for document in examples.templates():
+        template, created, _ = templates.import_template(db, document, admin)
+        if created:
+            report.templates.append(f"{template.template_id} v{template.version}")
+    demo = examples.DEMO_GENERATION
+    generated = templates.generate(
+        db,
+        demo["template_id"],
+        templates.expand(demo["grid"], None, demo["fixed"]),
+        admin,
+    )
+    report.generated_variants = generated.count("created") + generated.count("updated")
 
 
 # The candidate tools of the AI Innovation Lab and a deliberately unreliable test double.

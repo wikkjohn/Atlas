@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
@@ -9,21 +9,31 @@ from app.core.idempotency import REPLAY_HEADER, IdempotencyKey
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.identity.dependencies import Authorized, CurrentUser
-from app.modules.workflows import authoring, engine, service
+from app.modules.workflows import authoring, engine, service, templates
 from app.modules.workflows.models import DefinitionStatus, ExecutionStatus
 from app.modules.workflows.schemas import (
     CancelIn,
     DefinitionDocument,
     ExecutionDetail,
     ExecutionSummary,
+    GenerateIn,
+    GenerationOut,
     ImportResult,
     LibraryHandlerOut,
+    RenderIn,
+    RenderOut,
     SignalIn,
     StartExecution,
     StoredDefinitionOut,
     TaskCompletion,
     TaskOut,
+    TemplateDetail,
+    TemplateDocumentIn,
+    TemplateImportResult,
+    TemplateOut,
+    TemplateReportOut,
     ValidationReportOut,
+    VariantOut,
     WorkflowDefinitionOut,
     WorkflowEventOut,
     WorkflowMetrics,
@@ -32,6 +42,7 @@ from app.modules.workflows.schemas import (
 
 definitions_router = APIRouter(prefix="/workflows", tags=["workflows"])
 authoring_router = APIRouter(prefix="/workflow-definitions", tags=["workflows"])
+templates_router = APIRouter(prefix="/workflow-templates", tags=["workflows"])
 executions_router = APIRouter(prefix="/workflow-executions", tags=["workflows"])
 tasks_router = APIRouter(prefix="/workflow-tasks", tags=["workflows"])
 
@@ -44,8 +55,11 @@ def list_workflows(
     db: DbSession,
     _: Authorized(Permission.WORKFLOWS_READ),
     q: Annotated[str | None, Query(max_length=100)] = None,
+    source: Annotated[Literal["code", "stored"] | None, Query()] = None,
+    template_id: Annotated[str | None, Query(max_length=40)] = None,
+    limit: Annotated[int | None, Query(ge=1, le=10_000, description="At most this many")] = None,
 ) -> list[WorkflowSummary]:
-    return service.list_workflows(db, q)
+    return service.list_workflows(db, q, source=source, template_id=template_id, limit=limit)
 
 
 @definitions_router.get(
@@ -189,6 +203,121 @@ def reactivate_definition(
 ) -> StoredDefinitionOut:
     record = authoring.set_status(db, workflow_id, version, DefinitionStatus.ACTIVE, actor.id)
     return service.stored_definition_out(db, record)
+
+
+# --- Templates and variants (Phase 19) -------------------------------------------------------
+
+
+@templates_router.get("", response_model=list[TemplateOut], summary="Every template version")
+def list_templates(db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)) -> list[TemplateOut]:
+    return service.list_templates(db)
+
+
+@templates_router.post(
+    "/validate",
+    response_model=TemplateReportOut,
+    summary="Validate a template without importing it (its example is rendered and validated)",
+)
+def validate_template(
+    body: TemplateDocumentIn, db: DbSession, _: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> TemplateReportOut:
+    return service.template_report_out(templates.validate_template(db, body.template))
+
+
+@templates_router.post(
+    "",
+    response_model=TemplateImportResult,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import a template version (201; 200 when this exact version is already stored)",
+)
+def import_template(
+    body: TemplateDocumentIn, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+):
+    record, created, report = templates.import_template(db, body.template, actor.id)
+    result = TemplateImportResult(
+        created=created, template=service.template_out(db, record), warnings=report.warnings
+    )
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        content=result.model_dump(mode="json"),
+    )
+
+
+@templates_router.get(
+    "/{template_id}", response_model=TemplateDetail, summary="A template with its body"
+)
+def get_template(
+    template_id: str,
+    db: DbSession,
+    _: Authorized(Permission.WORKFLOWS_READ),
+    version: Annotated[int | None, Query(ge=1)] = None,
+) -> TemplateDetail:
+    return service.template_out(db, templates.template_record(db, template_id, version), True)
+
+
+@templates_router.get(
+    "/{template_id}/variants",
+    response_model=list[VariantOut],
+    summary="The workflows generated from a template, with their parameters",
+)
+def list_variants(
+    template_id: str, db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+) -> list[VariantOut]:
+    templates.template_record(db, template_id)
+    return service.variants_out(db, template_id)
+
+
+@templates_router.post(
+    "/{template_id}/render",
+    response_model=RenderOut,
+    summary="Render one parameter set and validate the result (stores nothing)",
+)
+def render_template(
+    template_id: str, body: RenderIn, db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+) -> RenderOut:
+    return service.render_out(db, template_id, body.params, body.version)
+
+
+@templates_router.post(
+    "/{template_id}/generate",
+    response_model=GenerationOut,
+    summary="Generate one workflow per parameter set; all are stored or none",
+)
+def generate_variants(
+    template_id: str,
+    body: GenerateIn,
+    db: DbSession,
+    actor: Authorized(Permission.WORKFLOWS_DEFINE),
+) -> GenerationOut:
+    param_sets = templates.expand(body.grid, body.variants, body.fixed)
+    report = templates.generate(
+        db, template_id, param_sets, actor.id, version=body.version, dry_run=body.dry_run
+    )
+    return service.generation_out(report)
+
+
+@templates_router.post(
+    "/{template_id}/versions/{version}/retire",
+    response_model=TemplateOut,
+    summary="Retire a template version: it generates nothing more; its workflows stay",
+)
+def retire_template(
+    template_id: str, version: int, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> TemplateOut:
+    record = templates.set_status(db, template_id, version, DefinitionStatus.RETIRED, actor.id)
+    return service.template_out(db, record)
+
+
+@templates_router.post(
+    "/{template_id}/versions/{version}/reactivate",
+    response_model=TemplateOut,
+    summary="Make a retired template version generate again",
+)
+def reactivate_template(
+    template_id: str, version: int, db: DbSession, actor: Authorized(Permission.WORKFLOWS_DEFINE)
+) -> TemplateOut:
+    record = templates.set_status(db, template_id, version, DefinitionStatus.ACTIVE, actor.id)
+    return service.template_out(db, record)
 
 
 # --- Executions ----------------------------------------------------------------------------

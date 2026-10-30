@@ -72,12 +72,15 @@ millions of customers and an AI testing laboratory at that scale.
       call, application call) so most workflows need no new code (Phases 17–18: `core.*`,
       customers, accounts and fees, screening, notifications, AI advice; approvals and waits
       are step types; application calls arrive with Milestone E's applications)
-- [ ] Parameterized workflow templates (country, product, currency, limits, documents, AI)
-- [ ] Deterministic, versioned variant generator
+- [x] Parameterized workflow templates (country, product, currency, limits, documents, AI)
+      (Phase 19: placeholders, country reference data, minor units, optional steps)
+- [x] Deterministic, versioned variant generator (Phase 19: stable ids per parameter set,
+      new versions only for changed content, all or nothing)
 - [ ] Generated tests per workflow (happy, reject, approval, timeout) in CI
 - [ ] Visual workflow viewer, then editor with validation
 - [ ] Catalogue search by department / country / product; ownership; lifecycle states
-- [ ] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green
+- [ ] **Exit:** 50 → 500 → 5,000 registered workflows, generated tests green (5,056
+      registered in Phase 19's measurement; generated tests are the next step)
 
 ## Milestone C — Global footprint (5 → 120 countries)
 
@@ -174,4 +177,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 16 (A5) | Sharded simulation runs across worker processes; performance suite with recorded targets; 100,000 applications measured — Milestone A done (journal-line and audit-log partitioning deferred, see above) | complete |
 | Phase 17 (B1) | Database-stored, versioned workflow definitions next to code-registered ones; import/export API and CLI with full validation; first handler library (`core.*`); WF-1001 imported as data | complete |
 | Phase 18 (B2) | Domain handler library (customers, accounts and fees, screening, notifications, AI advice) with declared effects; money moves only behind an approval; WF-1001 v2 and WF-1002 as data | complete |
-| Phase 19 (B3, proposed) | Parameterised workflow templates (country, product, currency, limits, documents, AI) and a deterministic variant generator | next |
+| Phase 19 (B3) | Parameterised workflow templates and a deterministic, versioned variant generator; 5,040 variants generated and listed | complete |
+| Phase 20 (B4, proposed) | Generated tests per workflow (happy, reject, approval, timeout paths) run for every stored and generated workflow in CI | next |

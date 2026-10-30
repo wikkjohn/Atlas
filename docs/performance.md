@@ -104,3 +104,32 @@ roughly half the time waiting on PostgreSQL and half in the ORM. Parallel shards
 this latency rather than remove it; batching the engine's writes (for example, events
 inserted after each step rather than flushed one by one) is the next lever, and it needs
 care because some flushes order foreign-key inserts.
+
+## Workflow variants at scale (Phase 19)
+
+`TPL-SCALE-STATEMENT` (the paper-statement template with ids 3000–9999), generated with the
+CLI on the Phase 17 demo database: 5 countries × 3 products × 2 approving permissions ×
+screening on/off × N fees.
+
+| Step | Variants | Result | Time |
+| --- | ---: | --- | ---: |
+| First grid (1 fee) | 60 | 60 created | 0.6 s |
+| Second grid (9 fees) | 540 | 480 created, 60 unchanged | 5.4 s |
+| Full grid (84 fees) | 5,040 | 4,500 created, 540 unchanged | 52.5 s |
+| Same grid, dry run | 5,040 | 5,040 unchanged | 33.4 s |
+
+Each variant is rendered, fully validated (graph, handlers, paths, permissions, approvals,
+versions) and imported: about 86 per second. Afterwards: 5,056 registered workflows (4 in
+code), 17 MB of definitions.
+
+| Request with 5,056 workflows | Before | After |
+| --- | ---: | ---: |
+| `GET /workflows` (all, 2.5 MB) | — | 0.31–0.42 s |
+| `GET /workflows?limit=200` (what the catalogue asks for) | — | 0.27 s |
+| `GET /workflows/WF-5000` | 0.27 s | 0.012–0.017 s |
+| `GET /analytics/overview` | 2.6 s | 0.05–0.13 s |
+
+The catalogue summarises stored definitions in SQL from their JSON rather than loading and
+parsing each; the two "before" figures were found by this measurement and fixed (a
+definition's detail built the whole catalogue; the dashboard loaded every stored definition
+to count them).

@@ -79,7 +79,15 @@ def _location(loc: tuple[Any, ...]) -> str:
     return out or "document"
 
 
-def validate(db: Session | None, document: dict[str, Any]) -> Report:
+def validate(
+    db: Session | None,
+    document: dict[str, Any],
+    *,
+    versions: bool = True,
+    generated: bool = False,
+) -> Report:
+    """`versions=False` skips the version rules (a template preview); `generated=True` is
+    the variant generator, the only author allowed to set `origin`."""
     report = Report()
     size = len(json.dumps(document, separators=(",", ":")).encode())
     if size > MAX_DOCUMENT_BYTES:
@@ -102,13 +110,36 @@ def validate(db: Session | None, document: dict[str, Any]) -> Report:
     report.errors.extend(definition.graph_problems())
 
     _check_ownership(report, definition)
+    if db is not None:
+        _check_template_ownership(db, report, definition, generated)
+    elif definition.origin is not None and not generated:
+        report.error("origin", "origin_reserved", "Only the template generator sets `origin`.")
     _check_input_schema(report, definition)
     _check_steps(report, definition, db)
     if not any(e["code"] == "unknown_step" for e in report.errors):
         _check_termination(report, definition)
-    if db is not None and report.valid:
+    if db is not None and report.valid and versions:
         _check_versions(db, report, definition)
     return report
+
+
+def _check_template_ownership(
+    db: Session, report: Report, d: WorkflowDefinition, generated: bool
+) -> None:
+    """A template's variants are changed by regenerating the template, never by hand."""
+    from app.modules.workflows.models import WorkflowVariant
+
+    owner = db.execute(
+        select(WorkflowVariant.template_id).where(WorkflowVariant.workflow_id == d.workflow_id)
+    ).scalar_one_or_none()
+    if not generated and d.origin is not None:
+        report.error("origin", "origin_reserved", "Only the template generator sets `origin`.")
+    elif owner is not None and (d.origin is None or d.origin.template_id != owner):
+        report.error(
+            "workflow_id",
+            "owned_by_template",
+            f"{d.workflow_id} is generated from {owner}; change the template and regenerate.",
+        )
 
 
 def _check_ownership(report: Report, d: WorkflowDefinition) -> None:

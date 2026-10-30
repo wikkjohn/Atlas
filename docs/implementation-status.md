@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 18.
+Last updated: Phase 19.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -23,6 +23,48 @@ Last updated: Phase 18.
 | 16 | Scale foundation, step 5: sharded simulation runs, performance suite, 100,000 applications — roadmap Milestone A complete | **Complete** |
 | 17 | Workflow factory, step 1: stored, versioned workflow definitions with an import API and full validation | **Complete** |
 | 18 | Workflow factory, step 2: domain step-handler library with declared effects; money moves only behind an approval | **Complete** |
+| 19 | Workflow factory, step 3: parameterised templates and a deterministic, versioned variant generator | **Complete** |
+
+## Phase 19: what exists
+
+- **Templates** (`workflow_templates`, migration 0017): a definition body with typed
+  `{{param}}` placeholders, country reference data (`{{country.currency}}` …), minor-unit
+  conversion (`{{fee|minor}}`) and optional steps (`$include`, routed around when off), a
+  parameter JSON Schema, an example and an id range. Import validates the template and
+  renders its example through the full definition validation. Versions are immutable.
+- **Variant generator:** grid × explicit variants over fixed values; one stored definition
+  per parameter set, with a stable workflow id per variant key (`workflow_variants`), new
+  versions only for changed content, all-or-nothing, dry run. Generated definitions carry
+  `origin`; only the generator sets it, and variants cannot be imported by hand.
+- **Interfaces:** `/api/v1/workflow-templates` (list, detail, variants, validate, import,
+  render, generate, retire/reactivate); `GET /workflows` filters `source`, `template_id`,
+  `limit`; CLI `workflows templates | import-template | generate`; the Workflow Explorer's
+  Templates tab (parameters, variants, generate with preview) and template badges.
+- **TPL-PAPER-STATEMENT** (WF-1002 as a template), imported by `seed-demo` with ten
+  variants WF-2000–2009 (five countries × current and savings).
+- **Scale:** 5,040 variants of one template generated (4,500 new in 52.5 s); 5,056
+  registered workflows; two slow paths found and fixed (definition detail 0.27 → 0.015 s,
+  dashboard 2.6 → 0.05–0.13 s); the catalogue summarises stored definitions in SQL.
+
+## Phase 19: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 368 passed (new: 10 — rendering types, text, country data, minor units, optional steps; located render errors; example template clean; template validation incl. the rendered example's approval rule; immutable versions; generation deterministic in any input order (found a real ordering bug, fixed), idempotent, versioned on template change, skipping held ids; all-or-nothing, dry run, range full, limit, retired; variants owned by their template and `origin` reserved; a GB variant charging 500 and a US variant refusing a GB account; the API) |
+| Migration 0016 → 0017 → 0016 → 0017, `alembic check` | clean |
+| Code definition hashes | unchanged (`origin` is optional and omitted when unset) |
+| Frontend Vitest / typecheck / build | 84 passed / clean / built |
+| Playwright on a fresh database | 22 passed (new: the Templates tab — 10 seeded variants, a preview finding all unchanged, the Japanese variant's 5 JPY fee step) |
+| Scale (CLI, demo database) | 60 / 540 / 5,040 variants: 0.6 / 5.4 / 52.5 s; dry run of 5,040 in 33.4 s; see `docs/performance.md` |
+
+## Phase 19: known limitations
+
+- The full catalogue response is 2.5 MB at 5,000 workflows; the UI asks for the first 200
+  and relies on search. Catalogue facets (department, country, product) are a later step.
+- Variants are not yet tested automatically per path; that is Milestone B step 4.
+- One template renders one definition shape; templates do not compose or inherit.
+- Generation runs in the request (at most 1,000 sets per API call; the CLI is unlimited);
+  it is not a background job yet.
 
 ## Phase 18: what exists
 

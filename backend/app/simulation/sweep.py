@@ -26,6 +26,17 @@ from app.simulation.scenarios import Scenario, get_scenario, normalized
 from app.simulation.workloads import workload_for
 
 SCENARIOS = ("global-onboarding", "global-payments")
+# Steps a case of a kind must (True) or must not (False) pass through. An outcome alone can
+# hide a wrong path: a high-value payment is approved either way, but only one on the
+# country's own scale reaches the second person's approval.
+PATH_RULES: dict[str, dict[str, dict[str, bool]]] = {
+    "domestic_payments": {
+        "high_value": {"payment_approval": True},
+        "routine": {"payment_approval": False},
+        "new_payee": {"payment_approval": False},
+        "large_share": {"payment_approval": False},
+    },
+}
 # The random stream each workload draws a case's kind from (its first draw).
 KIND_STREAM = {"retail_onboarding": "application", "domestic_payments": "payment"}
 
@@ -142,6 +153,21 @@ def run_one(
                 f"case {i} ({kind}): expected {expected}, got {outcome}"
                 for i, kind, expected, outcome in mismatched
             ]
+        rules = PATH_RULES.get(scenario.workload, {})
+        if rules:
+            for index, kind, path in db.execute(
+                select(
+                    SimulationCaseResult.case_index,
+                    SimulationCaseResult.kind,
+                    SimulationCaseResult.path,
+                )
+                .where(SimulationCaseResult.run_id == run_id)
+                .order_by(SimulationCaseResult.case_index)
+            ).all():
+                for step, required in rules.get(kind, {}).items():
+                    if (step in path) != required:
+                        verb = "skipped" if required else "went through"
+                        problems.append(f"case {index} ({kind}) {verb} {step}")
         problems += [f"control violation: {v['rule']}" for v in violations]
         kinds = {kind: entry["cases"] for kind, entry in results.get("by_kind", {}).items()}
         missing = sorted(set(scenario.config.mix) - set(kinds))

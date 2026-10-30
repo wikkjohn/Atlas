@@ -2,7 +2,17 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Sequence, String, Uuid, text
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Sequence,
+    String,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -91,6 +101,7 @@ class Account(UUIDPrimaryKey, Base):
         ),
         CheckConstraint("status IN ('open', 'frozen', 'closed')", name="status_valid"),
         CheckConstraint("(status = 'closed') = (closed_at IS NOT NULL)", name="closed_has_date"),
+        CheckConstraint("overdraft_limit >= 0", name="overdraft_non_negative"),
         # No duplicate live accounts of the same type and currency for a customer.
         Index(
             "uq_accounts_one_live_per_type_currency",
@@ -111,6 +122,11 @@ class Account(UUIDPrimaryKey, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     ledger_account_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("ledger_accounts.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    # The arranged overdraft in minor units (Phase 29): the balance may go this far below
+    # zero. 0: no overdraft.
+    overdraft_limit: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
     )
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

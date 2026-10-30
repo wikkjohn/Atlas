@@ -17,7 +17,9 @@ test("Countries: the 120-country reference data — Saudi Arabia's weekend, cale
   await expect(dialog.getByText("SAR · Saudi riyal, 2 decimals")).toBeVisible();
   const holidays = dialog.getByRole("region", { name: "Holiday calendar" });
   await expect(holidays.getByText("Founding Day")).toBeVisible();
-  await expect(holidays.getByRole("status")).toHaveText("259 business days");
+  // Lunar holidays are dated from Phase 26: four days of Eid al-Fitr from 20 March 2026.
+  await expect(holidays.getByText("Eid al-Fitr (day 4)")).toBeVisible();
+  await expect(holidays.getByRole("status")).toHaveText("254 business days");
 
   const check = dialog.getByRole("region", { name: "Check a value" });
   await check.getByLabel("Value").fill("12345");

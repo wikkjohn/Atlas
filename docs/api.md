@@ -210,7 +210,7 @@ See [fx.md](fx.md).
 | POST | `/api/v1/jobs` | `jobs:manage` | `{kind, payload}` for kinds marked manual (`ledger.reconcile`, `workflows.run_due`, `lending.service_loans`, `system.ping`); runs as the caller; audited; 202 |
 | POST | `/api/v1/jobs/{id}/cancel` | `jobs:manage` | Queued jobs only |
 | GET | `/api/v1/job-schedules` | `jobs:read` | Schedules with interval, next run and last job |
-| PATCH | `/api/v1/job-schedules/{name}` | `jobs:manage` | `{enabled?, interval_seconds?}` (60 s – 7 days); audited |
+| PATCH | `/api/v1/job-schedules/{name}` | `jobs:manage` | `{enabled?, interval_seconds?, business_calendar?}` (60 s – 7 days; a country code to run on its business days only, `""` to clear); audited |
 | POST | `/api/v1/job-schedules/{name}/run` | `jobs:manage` | Queue the schedule's job now (one active job per schedule); 202 |
 
 ### Observability (Phase 15)

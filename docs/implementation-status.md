@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 25.
+Last updated: Phase 26.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -30,6 +30,33 @@ Last updated: Phase 25.
 | 23 | Global footprint, step 1: reference data for 120 countries ([reference-data.md](reference-data.md)) | **Complete** |
 | 24 | Global footprint, step 2: multi-currency — FX rates, conversions, cross-currency payments, revaluation ([fx.md](fx.md)) | **Complete** |
 | 25 | Global footprint, step 3: country rules engine ([country-rules.md](country-rules.md)) | **Complete** |
+| 26 | Global footprint, step 4: business calendars ([business-calendars.md](business-calendars.md)) | **Complete** |
+
+## Phase 26: what exists
+
+- **Dated lunar holidays** for 2025–2030 (`reference/dated.py`): 12 festivals, 257 rules in
+  50 countries, with weekend observance; reference data 2026.2 loaded by migration 0023.
+- **Schedules on business days:** `job_schedules.business_calendar`; a schedule due on a
+  weekend or holiday of its country moves to the next business day without running. Set
+  in System Settings → Background jobs or with `PATCH /job-schedules/{name}`.
+- **Simulation arrivals on business days:** scenario configuration `business_calendar`;
+  new scenario `payments-easter` (UK Easter weekend 2026).
+
+## Phase 26: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 545 passed (new: 8 — one date a year for every festival and valid country rules; dated holidays and their observance (Saudi Eid, Singapore Vesak, Korean Chuseok, Israeli holidays, Vietnam's Tết eve); none outside 2025–2030; a schedule due on a Saturday moved to Monday without a job; business runs over Christmas, without a calendar and over a Friday–Saturday weekend; the schedule API setting, rejecting and clearing a calendar; simulation arrivals moved past the UK Easter weekend; the `payments-easter` run) |
+| Frontend Vitest / typecheck / build | 94 passed (new: an administrator setting and clearing a schedule's business calendar) / clean / built |
+| Playwright on a fresh database | 28 passed on the first run (updated: Saudi Arabia's 2026 calendar shows Eid al-Fitr and 254 business days; System Settings sets and clears a schedule's business calendar) |
+| Migration 0023 | Upgrade, downgrade and upgrade again; `alembic check` clean |
+
+## Phase 26: known limitations
+
+- Dated holidays cover 2025–2030 only; Islamic dates can move by a day with the moon.
+- Scheduler calendars move whole days; simulated staff still work every day.
+- Working weekends (China, Vietnam, Korea), bridge days and regional holidays are not
+  modelled.
 
 ## Phase 25: what exists
 

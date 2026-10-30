@@ -8,17 +8,20 @@ A rule is one of
 - the last weekday before, or the first after, a date: `{"name", "before": [month, day,
   iso_weekday]}` (Canada's Victoria Day), `{"name", "after": [...]}`;
 - Japan's equinox days: `{"name", "equinox": "vernal" | "autumnal"}` (the published
-  approximation, valid 1980–2099).
+  approximation, valid 1980–2099);
+- a festival of a lunar calendar, from the dated tables of `dated.py` (Phase 26):
+  `{"name", "festival": key, "offset": days}`; not computed in years the tables lack.
 
 Fixed dates that fall on a weekend move to the next business day when the country's
 `observance` is `next_weekday`, to the nearest weekday (Saturday → Friday, Sunday →
-Monday) for `nearest_weekday`, and only from a Sunday for `sunday_to_next`. Holidays of
-lunar calendars (Eid, Lunar New Year, Diwali …) are not computed: they need dated tables,
-which arrive with the business calendars of a later step.
+Monday) for `nearest_weekday`, and only from a Sunday for `sunday_to_next` (fixed dates and
+festivals alike).
 """
 
 from datetime import date, timedelta
 from typing import Any
+
+from app.modules.reference import dated
 
 MAX_SHIFT_DAYS = 7
 
@@ -61,7 +64,18 @@ def _equinox(year: int, kind: str) -> date:
     return date(year, 3 if kind == "vernal" else 9, day)
 
 
-def _date(rule: dict[str, Any], year: int, easter: date) -> date:
+def _festival(rule: dict[str, Any], year: int) -> date | None:
+    """The festival's occurrence (plus offset) that falls in `year`, if the tables know it."""
+    for candidate in (year - 1, year, year + 1):
+        start = dated.on(rule["festival"], candidate)
+        if start is not None:
+            on = start + timedelta(days=rule.get("offset", 0))
+            if on.year == year:
+                return on
+    return None
+
+
+def _date(rule: dict[str, Any], year: int, easter: date) -> date | None:
     if "date" in rule:
         month, day = map(int, rule["date"].split("-"))
         return date(year, month, day)
@@ -79,6 +93,8 @@ def _date(rule: dict[str, Any], year: int, easter: date) -> date:
         return on + timedelta(days=(weekday - on.isoweekday()) % 7)
     if "equinox" in rule:
         return _equinox(year, rule["equinox"])
+    if "festival" in rule:
+        return _festival(rule, year)
     raise ValueError(f"Unknown holiday rule {rule!r}.")
 
 
@@ -90,7 +106,9 @@ def holidays(profile: dict[str, Any], year: int) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     for rule in profile["holidays"]:
         on = _date(rule, year, easter)
-        movable = "date" in rule or "equinox" in rule
+        if on is None:
+            continue
+        movable = "date" in rule or "equinox" in rule or "festival" in rule
         found.append({"date": on, "name": rule["name"], "observed": on, "fixed": movable})
     found.sort(key=lambda h: (h["date"], h["name"]))
 

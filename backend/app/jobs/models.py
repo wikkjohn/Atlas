@@ -93,7 +93,8 @@ class Job(UUIDPrimaryKey, Base):
 
 
 class JobSchedule(UUIDPrimaryKey, Base):
-    """A job queued every `interval_seconds` while enabled."""
+    """A job queued every `interval_seconds` while enabled; with a `business_calendar` (a
+    country code, Phase 26) only on that country's business days, in its local time."""
 
     __tablename__ = "job_schedules"
     __table_args__ = (CheckConstraint("interval_seconds >= 60", name="interval_valid"),)
@@ -104,6 +105,7 @@ class JobSchedule(UUIDPrimaryKey, Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    business_calendar: Mapped[str | None] = mapped_column(String(2), nullable=True)
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_job_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True

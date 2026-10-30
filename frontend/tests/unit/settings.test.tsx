@@ -7,6 +7,7 @@ import type { Job, JobSchedule } from "@/types/jobs";
 import type { ObservabilityOverview, SlowQueryGroup } from "@/types/observability";
 import type { HistoryOverview } from "@/types/simulations";
 
+import { germany, japan } from "./enterprise-fixtures";
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
 
@@ -60,6 +61,7 @@ const schedules: JobSchedule[] = [
     payload: { mode: "incremental" },
     interval_seconds: 900,
     enabled: true,
+    business_calendar: null,
     next_run_at: "2026-10-29T10:15:00Z",
     last_job: job({}),
   },
@@ -71,6 +73,7 @@ const schedules: JobSchedule[] = [
     payload: {},
     interval_seconds: 86_400,
     enabled: false,
+    business_calendar: "DE",
     next_run_at: "2026-10-29T10:00:00Z",
     last_job: null,
   },
@@ -115,6 +118,7 @@ const routes = {
   "GET /api/v1/observability/slow-queries": () => jsonResponse(slowQueries),
   "GET /api/v1/simulations/history": () => jsonResponse(history),
   "GET /api/v1/job-schedules": () => jsonResponse(schedules),
+  "GET /api/v1/countries": () => jsonResponse(page([germany, japan])),
   "GET /api/v1/jobs": () =>
     jsonResponse(
       page([
@@ -157,6 +161,25 @@ describe("System Settings users and roles", () => {
     await waitFor(() => expect(api.requests.filter((r) => r.method !== "GET")).toHaveLength(2));
     const patch = api.requests.find((r) => r.method === "PATCH");
     expect(patch?.body).toEqual({ enabled: true });
+  });
+
+  it("lets an administrator run a schedule on a country's business days", async () => {
+    const api = mockApi({
+      ...routes,
+      "PATCH /api/v1/job-schedules/ledger-incremental-reconciliation": () => jsonResponse({ ...schedules[0], business_calendar: "JP" }),
+      "PATCH /api/v1/job-schedules/loan-servicing": () => jsonResponse({ ...schedules[1], business_calendar: null }),
+    });
+    renderApp("/settings");
+
+    const table = await screen.findByRole("table", { name: "Job schedules" });
+    const recon = await within(table).findByLabelText("Business calendar of ledger-incremental-reconciliation");
+    const servicing = within(table).getByLabelText("Business calendar of loan-servicing");
+    await waitFor(() => expect(servicing).toHaveValue("DE"));
+    expect(recon).toHaveValue("");
+    await userEvent.selectOptions(recon, "Japan");
+    await userEvent.selectOptions(servicing, "Every day");
+    await waitFor(() => expect(api.requests.filter((r) => r.method === "PATCH")).toHaveLength(2));
+    expect(api.requests.filter((r) => r.method === "PATCH").map((r) => r.body)).toEqual([{ business_calendar: "JP" }, { business_calendar: "" }]);
   });
 
   it("shows request latency, the job queue, workers and slow queries", async () => {

@@ -34,7 +34,7 @@ export function useJobSchedules() {
 export function useUpdateSchedule() {
   const invalidate = useInvalidateJobs();
   return useMutation({
-    mutationFn: ({ name, ...body }: { name: string; enabled?: boolean; interval_seconds?: number }) =>
+    mutationFn: ({ name, ...body }: { name: string; enabled?: boolean; interval_seconds?: number; business_calendar?: string }) =>
       apiPatch<JobSchedule>(`/api/v1/job-schedules/${name}`, body),
     onSuccess: invalidate,
   });

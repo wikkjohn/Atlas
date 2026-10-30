@@ -7,9 +7,9 @@ from pydantic import BaseModel
 
 from app.modules.workflows.definition import (
     HANDLER_TYPES,
+    Presentation,
     StepType,
     WorkflowDefinition,
-    resolve,
 )
 
 Handler = Callable[[Any], dict[str, Any] | None]
@@ -18,29 +18,14 @@ _DEFINITIONS: dict[tuple[str, int], WorkflowDefinition] = {}
 _INPUT_MODELS: dict[tuple[str, int], type[BaseModel]] = {}
 _SERVICE_HANDLERS: dict[str, Handler] = {}
 _AI_HANDLERS: dict[str, Handler] = {}
-_PRESENTERS: dict[str, "Presenter"] = {}
+_PRESENTERS: dict[str, Presentation] = {}
 # Called when an execution is cancelled, so a workflow can close what it opened.
 CancelHandler = Callable[[Any, Any, str, Any], None]  # (db, execution, reason, now)
 _CANCEL_HANDLERS: dict[str, CancelHandler] = {}
 
 
-class Presenter(BaseModel):
-    """How a workflow's cases are named in lists and inboxes: what the case is about
-    (`subject_path`) and its risk (`risk_path`), both dotted paths into the context."""
-
-    subject_path: str
-    risk_path: str | None = None
-    flags_path: str | None = None
-
-    def present(self, context: dict[str, Any]) -> dict[str, Any]:
-        def value(path: str | None) -> Any:
-            return resolve(context, path)[1] if path else None
-
-        return {
-            "subject": value(self.subject_path),
-            "risk_rating": value(self.risk_path),
-            "flags": value(self.flags_path) or [],
-        }
+# How a workflow's cases are named in lists and inboxes (also used by stored definitions).
+Presenter = Presentation
 
 
 def present(workflow_id: str, context: dict[str, Any]) -> dict[str, Any]:

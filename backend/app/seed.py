@@ -142,6 +142,7 @@ class SeedReport:
     loan_cases: int = 0
     skipped_payments_and_loans: bool = False
     ai_tools: list[str] = field(default_factory=list)
+    stored_definitions: list[str] = field(default_factory=list)
 
 
 def _org(
@@ -605,7 +606,21 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
     else:
         _build_payment_and_loan_cases(db, SyntheticNameGenerator(seed + 3), report)
     _register_ai_tools(db, report)
+    _import_example_definitions(db, report)
     return report
+
+
+def _import_example_definitions(db: Session, report: SeedReport) -> None:
+    """Import the example stored workflows (e.g. WF-1001), unless already there."""
+    from app.modules.workflows import authoring, examples
+
+    admin = db.execute(select(User.id).where(User.username == "admin")).scalar_one_or_none()
+    if admin is None:
+        return
+    for document in examples.documents():
+        record, created, _ = authoring.import_definition(db, document, admin)
+        if created:
+            report.stored_definitions.append(f"{record.workflow_id} v{record.version}")
 
 
 # The candidate tools of the AI Innovation Lab and a deliberately unreliable test double.

@@ -36,7 +36,7 @@ from app.core.errors import (
 from app.core.logging import correlation_id_var
 from app.core.permissions import Permission
 from app.modules.identity.service import AuthenticatedUser
-from app.modules.workflows import registry
+from app.modules.workflows import registry, store
 from app.modules.workflows.definition import (
     HANDLER_TYPES,
     WAITING_TYPES,
@@ -49,6 +49,7 @@ from app.modules.workflows.definition import (
 from app.modules.workflows.models import (
     ACTIVE_STATUSES,
     STEP_RUN_EXECUTION,
+    DefinitionSource,
     ExecutionStatus,
     Realm,
     RunStatus,
@@ -147,7 +148,7 @@ def definition_record(db: Session, definition: WorkflowDefinition) -> WorkflowDe
             WorkflowDefinitionRecord.version == definition.version,
         )
     ).scalar_one()
-    if record.content_hash != digest:
+    if record.content_hash != digest or record.source != DefinitionSource.CODE:
         raise ConflictError(
             f"{definition.workflow_id} v{definition.version} changed after it was first used; "
             "definitions are immutable — publish a new version."
@@ -155,8 +156,8 @@ def definition_record(db: Session, definition: WorkflowDefinition) -> WorkflowDe
     return record
 
 
-def _definition_for(execution: WorkflowExecution) -> WorkflowDefinition:
-    definition = registry.get_definition(execution.workflow_id, execution.workflow_version)
+def _definition_for(db: Session, execution: WorkflowExecution) -> WorkflowDefinition:
+    definition = store.for_execution(db, execution)
     if definition is None:
         raise ConflictError(
             f"{execution.workflow_id} v{execution.workflow_version} is not loaded in this "
@@ -501,7 +502,7 @@ def _lock(
 def _driver(db: Session, execution: WorkflowExecution, now: datetime | None) -> _Driver:
     return _Driver(
         db=db,
-        definition=_definition_for(execution),
+        definition=_definition_for(db, execution),
         execution=execution,
         now=now or utc_now(),
         live=now is None,
@@ -535,9 +536,7 @@ def start(
     live = now is None
     now = now or utc_now()
     realm = Realm.SIMULATION if simulation_run_id else Realm.LIVE
-    definition = registry.get_definition(workflow_id, version)
-    if definition is None:
-        raise NotFoundError(f"Workflow {workflow_id} is not registered.")
+    definition, stored = store.for_start(db, workflow_id, version)
     if idempotency_key:
         existing = db.execute(
             select(WorkflowExecution).where(
@@ -548,19 +547,12 @@ def start(
         ).scalar_one_or_none()
         if existing is not None:
             return existing, True
-    model: type[BaseModel] = registry.input_model(definition.workflow_id, definition.version)
-    try:
-        data = model.model_validate(payload)
-    except ValidationError as exc:
-        raise WorkflowInputError(
-            "The workflow input is invalid.",
-            [
-                {"location": list(e["loc"]), "message": e["msg"], "type": e["type"]}
-                for e in exc.errors()
-            ],
-        ) from exc
-
-    record = definition_record(db, definition)
+    if stored is None:
+        data = _validated_input(definition, payload)
+        record = definition_record(db, definition)
+    else:
+        data = _validated_stored_input(stored, payload)
+        record = stored
     execution = WorkflowExecution(
         workflow_id=definition.workflow_id,
         workflow_version=definition.version,
@@ -568,7 +560,7 @@ def start(
         status=ExecutionStatus.RUNNING.value,
         current_steps=[],
         context={
-            "input": data.model_dump(mode="json"),
+            "input": data,
             **({"_settings": settings} if settings else {}),
         },
         initiated_by=initiator.id,
@@ -612,6 +604,38 @@ def start(
     )
     driver.advance(max_steps)
     return execution, False
+
+
+def _validated_input(definition: WorkflowDefinition, payload: dict[str, Any]) -> dict[str, Any]:
+    model: type[BaseModel] = registry.input_model(definition.workflow_id, definition.version)
+    try:
+        return model.model_validate(payload).model_dump(mode="json")
+    except ValidationError as exc:
+        raise WorkflowInputError(
+            "The workflow input is invalid.",
+            [
+                {"location": list(e["loc"]), "message": e["msg"], "type": e["type"]}
+                for e in exc.errors()
+            ],
+        ) from exc
+
+
+def _validated_stored_input(
+    record: WorkflowDefinitionRecord, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Stored definitions declare their input as JSON Schema (draft 2020-12)."""
+    errors = sorted(
+        store.input_validator(record).iter_errors(payload), key=lambda e: list(e.absolute_path)
+    )
+    if errors:
+        raise WorkflowInputError(
+            "The workflow input is invalid.",
+            [
+                {"location": list(e.absolute_path), "message": e.message, "type": e.validator}
+                for e in errors
+            ],
+        )
+    return payload
 
 
 def advance(

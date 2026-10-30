@@ -58,3 +58,45 @@ test("WF-0001: missing documents → wait → resume → four-eyes approval → 
   await customerRow.click();
   await expect(manager.getByRole("region", { name: "Accounts" }).getByText("Open")).toBeVisible();
 });
+
+test("WF-1001 (stored definition): generated start form → colleague approval → updated; next version validates", async ({ browser }) => {
+  const customer = `CUS-9${String(Math.floor(Math.random() * 1e7)).padStart(7, "0")}`;
+
+  // A teller starts the imported workflow from the form generated from its input schema.
+  const teller = await as(browser, "employee", "/workflows");
+  await teller.getByRole("list", { name: "Workflows" }).getByText("Customer Address Change").click();
+  await expect(teller.getByText("Stored definition (imported as data)")).toBeVisible();
+  await teller.getByRole("button", { name: "Start a case" }).click();
+  const form = teller.getByRole("dialog", { name: /Start Customer Address Change/ });
+  await form.getByLabel("Customer number").fill(customer);
+  await form.getByLabel("Street").fill("12 Synthetic Lane");
+  await form.getByLabel("City").fill("Leeds");
+  await form.getByLabel("Postal code").fill("LS1 4AP");
+  await form.getByLabel("Country code").fill("GB");
+  await form.getByLabel("Reason").selectOption("moved");
+  await form.getByRole("button", { name: "Start case" }).click();
+  const caseView = teller.getByRole("dialog", { name: "Workflow execution" });
+  await expect(caseView.getByRole("row", { name: /Colleague checks the new address/ }).getByText("waiting")).toBeVisible();
+
+  // A colleague (four-eyes) approves from the task inbox; the case completes.
+  const manager = await as(browser, "manager", "/workflows?tab=tasks");
+  const task = manager.getByRole("listitem").filter({ hasText: customer });
+  await task.getByRole("button", { name: /Approve/ }).click();
+  await expect(task).toHaveCount(0);
+  await manager.getByRole("tab", { name: "Executions" }).click();
+  await manager.getByRole("row").filter({ hasText: customer }).first().click();
+  const done = manager.getByRole("dialog", { name: "Workflow execution" });
+  await expect(done.getByText("Completed", { exact: true })).toBeVisible();
+  await expect(done.getByText("Updated", { exact: true })).toBeVisible();
+  await expect(done.getByRole("row", { name: /Confirm to the customer/ }).getByText("completed")).toBeVisible();
+
+  // An administrator drafts the next version from the stored one and validates it.
+  const admin = await as(browser, "admin", "/workflows");
+  await admin.getByRole("list", { name: "Workflows" }).getByText("Customer Address Change").click();
+  await admin.getByRole("button", { name: "Import definition" }).click();
+  const importer = admin.getByRole("dialog", { name: "Import a workflow definition" });
+  await importer.getByRole("button", { name: /Start from WF-1001/ }).click();
+  await expect(importer.getByLabel("Definition (JSON)")).toHaveValue(/"workflow_id": "WF-1001"/);
+  await importer.getByRole("button", { name: "Validate" }).click();
+  await expect(importer.getByText(/is valid and can be imported/)).toBeVisible();
+});

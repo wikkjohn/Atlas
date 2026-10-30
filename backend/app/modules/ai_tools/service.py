@@ -31,7 +31,7 @@ from app.modules.ai_tools.schemas import (
     ToolOut,
 )
 from app.modules.identity.models import User
-from app.modules.workflows import registry
+from app.modules.workflows import store
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
 
@@ -107,7 +107,7 @@ def register_tool(db: Session, data: ToolCreate, actor_id: uuid.UUID | None) -> 
     bad_permissions = [p for p in data.permissions if p not in valid_permissions]
     if bad_permissions:
         raise BusinessRuleViolation("Unknown permissions.", {"permissions": bad_permissions})
-    workflows = {d.workflow_id for d in registry.all_definitions()}
+    workflows = store.workflow_ids(db)
     unknown_workflows = [w for w in data.compatible_workflows if w not in workflows]
     if unknown_workflows:
         raise BusinessRuleViolation("Unknown workflows.", {"workflows": unknown_workflows})

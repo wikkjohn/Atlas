@@ -135,6 +135,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "workflows:read",
   "workflows:start",
   "workflows:manage",
+  "workflows:define",
   "simulations:read",
   "simulations:run",
   "simulations:manage",

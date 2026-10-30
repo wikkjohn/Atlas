@@ -64,8 +64,10 @@ millions of customers and an AI testing laboratory at that scale.
 
 ## Milestone B — Workflow factory
 
-- [ ] Database-stored, versioned workflow definitions alongside code-registered ones
-- [ ] Definition import API with full validation (reachability, permissions, handlers)
+- [x] Database-stored, versioned workflow definitions alongside code-registered ones
+      (Phase 17: import, export, active/retired lifecycle, loaded by any process)
+- [x] Definition import API with full validation (reachability, permissions, handlers)
+      (Phase 17: every problem located; also termination, context paths, versions)
 - [ ] Reusable step-handler library (validate, screen, approve, post, notify, wait, AI
       call, application call) so most workflows need no new code
 - [ ] Parameterized workflow templates (country, product, currency, limits, documents, AI)
@@ -168,4 +170,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 14 (A3) | Durable job queue, worker processes, schedules; simulations and experiments as jobs | complete |
 | Phase 15 (A4) | Partitioned workflow history; archive, restore and reset of simulation history; observability (metrics, slow queries, workers) | complete |
 | Phase 16 (A5) | Sharded simulation runs across worker processes; performance suite with recorded targets; 100,000 applications measured — Milestone A done (journal-line and audit-log partitioning deferred, see above) | complete |
-| Phase 17 (B1, proposed) | Milestone B begins: database-stored, versioned workflow definitions next to code-registered ones, with an import API and full validation | next |
+| Phase 17 (B1) | Database-stored, versioned workflow definitions next to code-registered ones; import/export API and CLI with full validation; first handler library (`core.*`); WF-1001 imported as data | complete |
+| Phase 18 (B2, proposed) | Reusable step-handler library: domain handlers (customer updates, screening, ledger postings, payments), AI-tool calls and waits, so stored workflows change banking records with no new code | next |

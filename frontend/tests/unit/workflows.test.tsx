@@ -17,6 +17,8 @@ const definition: WorkflowDefinition = {
   business_owner: "Retail Banking",
   trigger_type: "api",
   step_count: 3,
+  source: "code",
+  status: "active",
   start: "receive_application",
   input_schema: {},
   steps: [
@@ -192,5 +194,97 @@ describe("Workflow Explorer", () => {
     const dialog = await screen.findByRole("dialog", { name: "Workflow execution" });
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Failed at open_account: The customer is no longer eligible");
     expect(within(dialog).getByText("business_rule_violation: The customer is no longer eligible")).toBeInTheDocument();
+  });
+
+  it("starts a stored workflow from a form generated from its input schema", async () => {
+    const stored: WorkflowDefinition = {
+      ...definition,
+      workflow_id: "WF-1001",
+      name: "Customer Address Change",
+      source: "stored",
+      steps: [{ id: "assign_key", type: "service_task", name: "Assign case reference", handler: "core.business_key", next: "done" }, { id: "done", type: "completion", name: "Done" }],
+      input_schema: {
+        type: "object",
+        required: ["customer_number", "reason"],
+        properties: {
+          customer_number: { type: "string", pattern: "^CUS-[0-9]{7,}$" },
+          reason: { type: "string", enum: ["moved", "correction"] },
+          urgent: { type: "boolean" },
+          floor: { type: "integer", minimum: 0 },
+        },
+      },
+    };
+    const started = { ...failedExecution, id: "new-2", workflow_id: "WF-1001", status: "completed", outcome: "updated", error: null, steps: [] };
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflows": () => jsonResponse([definition, stored]),
+        "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
+        "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
+        "POST /api/v1/workflows/WF-1001/executions": () => jsonResponse(started, 201),
+        "GET /api/v1/workflow-executions": () => jsonResponse(page([])),
+        "GET /api/v1/workflow-executions/new-2": () => jsonResponse(started),
+        "GET /api/v1/workflow-executions/new-2/history": () => jsonResponse([]),
+      }),
+    );
+    renderApp("/workflows");
+
+    const list = await screen.findByRole("list", { name: "Workflows" });
+    await userEvent.click(await within(list).findByText("Customer Address Change"));
+    expect(within(list).getByText("Stored")).toBeInTheDocument();
+    expect(await screen.findByText("Handler core.business_key")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Start a case" }));
+    const dialog = await screen.findByRole("dialog", { name: "Start Customer Address Change (WF-1001)" });
+    await userEvent.type(within(dialog).getByLabelText("Customer number"), "CUS-0000042");
+    await userEvent.selectOptions(within(dialog).getByLabelText("Reason"), "moved");
+    await userEvent.click(within(dialog).getByLabelText("Urgent"));
+    await userEvent.type(within(dialog).getByLabelText("Floor"), "3");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Start case" }));
+
+    await screen.findByRole("dialog", { name: "Workflow execution" });
+    const post = api.requests.find((r) => r.method === "POST");
+    expect(post?.body).toEqual({ input: { customer_number: "CUS-0000042", reason: "moved", urgent: true, floor: 3 } });
+  });
+
+  it("validates a definition, lists every problem and imports it", async () => {
+    const problems = [
+      { location: "steps.assign_key.handler", code: "unknown_handler", message: "'core.nope' is not in the handler library." },
+      { location: "start", code: "unknown_step", message: "Start step 'x' does not exist." },
+    ];
+    let attempts = 0;
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflow-definitions/handlers": () =>
+          jsonResponse([{ name: "core.check", step_type: "service_task", summary: "Checks a condition.", output: "", params_schema: { properties: { condition: {} } } }]),
+        "POST /api/v1/workflow-definitions/validate": () =>
+          jsonResponse({ valid: false, workflow_id: "WF-1002", version: 1, content_hash: "abc", existing: null, errors: problems, warnings: [] }),
+        "POST /api/v1/workflow-definitions": () =>
+          ++attempts === 1
+            ? jsonResponse({ error: { code: "definition_invalid", message: "The definition has 2 problem(s); nothing was imported.", details: { errors: problems, warnings: [] }, correlation_id: null } }, 422)
+            : jsonResponse({ created: true, definition: { workflow_id: "WF-1002", version: 1 }, warnings: [] }, 201),
+      }),
+    );
+    renderApp("/workflows");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Import definition" }));
+    const dialog = screen.getByRole("dialog", { name: "Import a workflow definition" });
+    const editor = within(dialog).getByLabelText("Definition (JSON)");
+    await userEvent.type(editor, "not json");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Validate" }));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Not valid JSON");
+
+    await userEvent.clear(editor);
+    await userEvent.click(editor);
+    await userEvent.paste('{"workflow_id": "WF-1002"}');
+    await userEvent.click(within(dialog).getByRole("button", { name: "Validate" }));
+    const errors = await within(dialog).findByRole("list", { name: "Errors" });
+    expect(within(errors).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(errors).getByText("steps.assign_key.handler")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Import" }));
+    expect(await within(dialog).findByRole("list", { name: "Errors" })).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Import" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const posts = api.requests.filter((r) => r.method === "POST" && r.path === "/api/v1/workflow-definitions");
+    expect(posts.at(-1)?.body).toEqual({ definition: { workflow_id: "WF-1002" } });
   });
 });

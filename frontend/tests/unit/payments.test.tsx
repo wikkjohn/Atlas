@@ -91,6 +91,8 @@ const workflow = (id: string, name: string): WorkflowDefinition => ({
   business_owner: "Payments Operations",
   trigger_type: "api",
   step_count: 1,
+  source: "code",
+  status: "active",
   start: "complete",
   input_schema: {},
   steps: [{ id: "complete", type: "completion", name: "Closed" }],

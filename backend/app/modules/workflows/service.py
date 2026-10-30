@@ -9,13 +9,15 @@ from app.core.errors import DomainError, NotFoundError
 from app.core.pagination import PageParams, paginate
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
-from app.modules.workflows import registry
+from app.modules.workflows import library, registry, store, validation
 from app.modules.workflows.definition import StepType, WorkflowDefinition
 from app.modules.workflows.engine import check_task_access
 from app.modules.workflows.models import (
     STEP_RUN_EXECUTION,
+    DefinitionStatus,
     Realm,
     RunStatus,
+    WorkflowDefinitionRecord,
     WorkflowEvent,
     WorkflowExecution,
     WorkflowStepRun,
@@ -23,9 +25,12 @@ from app.modules.workflows.models import (
 from app.modules.workflows.schemas import (
     ExecutionDetail,
     ExecutionSummary,
+    LibraryHandlerOut,
     StepMetric,
     StepRunOut,
+    StoredDefinitionOut,
     TaskOut,
+    ValidationReportOut,
     WorkflowDefinitionOut,
     WorkflowEventOut,
     WorkflowMetrics,
@@ -33,28 +38,49 @@ from app.modules.workflows.schemas import (
 )
 
 
-def _versions(workflow_id: str) -> list[int]:
-    return sorted(d.version for d in registry.all_definitions() if d.workflow_id == workflow_id)
-
-
-def summary(definition: WorkflowDefinition) -> WorkflowSummary:
+def summary(
+    definition: WorkflowDefinition,
+    versions: list[int],
+    source: str = "code",
+    status: str = "active",
+) -> WorkflowSummary:
     return WorkflowSummary(
         workflow_id=definition.workflow_id,
         name=definition.name,
         version=definition.version,
-        versions=_versions(definition.workflow_id),
+        versions=versions,
         description=definition.description,
         business_owner=definition.business_owner,
         trigger_type=definition.trigger_type,
         step_count=len(definition.steps),
+        source=source,
+        status=status,
     )
 
 
-def list_workflows(q: str | None = None) -> list[WorkflowSummary]:
-    latest: dict[str, WorkflowDefinition] = {}
-    for definition in registry.all_definitions():
-        latest[definition.workflow_id] = definition  # sorted by version, so last wins
-    items = [summary(d) for d in latest.values()]
+def _catalogue(db: Session) -> dict[str, tuple[WorkflowDefinition, list[int], str, str]]:
+    """Each workflow's latest (active) definition, its versions, source and status."""
+    found: dict[str, tuple[WorkflowDefinition, list[int], str, str]] = {}
+    for definition in registry.all_definitions():  # sorted by version, so last wins
+        versions = [*found.get(definition.workflow_id, (None, []))[1], definition.version]
+        found[definition.workflow_id] = (definition, versions, "code", "active")
+    by_workflow: dict[str, list[WorkflowDefinitionRecord]] = {}
+    for record in store.stored_records(db):
+        by_workflow.setdefault(record.workflow_id, []).append(record)
+    for workflow_id, records in by_workflow.items():
+        active = [r for r in records if r.status == DefinitionStatus.ACTIVE]
+        shown = (active or records)[-1]
+        found[workflow_id] = (
+            store.parsed(shown),
+            [r.version for r in records],
+            "stored",
+            shown.status,
+        )
+    return dict(sorted(found.items()))
+
+
+def list_workflows(db: Session, q: str | None = None) -> list[WorkflowSummary]:
+    items = [summary(*entry) for entry in _catalogue(db).values()]
     if q:
         needle = q.casefold()
         items = [
@@ -65,18 +91,29 @@ def list_workflows(q: str | None = None) -> list[WorkflowSummary]:
     return items
 
 
-def get_definition(workflow_id: str, version: int | None = None) -> WorkflowDefinition:
-    definition = registry.get_definition(workflow_id, version)
+def get_definition(db: Session, workflow_id: str, version: int | None = None) -> WorkflowDefinition:
+    definition = store.resolve(db, workflow_id, version)
     if definition is None:
         raise NotFoundError(f"Workflow {workflow_id} is not registered.")
     return definition
 
 
-def definition_out(definition: WorkflowDefinition) -> WorkflowDefinitionOut:
+def definition_out(db: Session, definition: WorkflowDefinition) -> WorkflowDefinitionOut:
+    entry = _catalogue(db).get(definition.workflow_id)
+    versions, source = (entry[1], entry[2]) if entry else ([definition.version], "code")
+    status = "active"
+    if source == "stored":
+        record = store.stored_record(db, definition.workflow_id, definition.version)
+        status = record.status if record else "active"
     return WorkflowDefinitionOut(
-        **summary(definition).model_dump(),
+        **summary(definition, versions, source, status).model_dump(),
         start=definition.start,
         input_schema=definition.input_schema,
+        presentation=(
+            definition.presentation.model_dump(exclude_none=True)
+            if definition.presentation
+            else None
+        ),
         steps=[s.model_dump(mode="json", exclude_none=True) for s in definition.steps],
         transition_rules=definition.transition_rules(),
         approval_policies=definition.approval_policies(),
@@ -92,7 +129,7 @@ def _usernames(db: Session, ids: set[uuid.UUID | None]) -> dict[uuid.UUID, str]:
     return dict(db.execute(select(User.id, User.username).where(User.id.in_(ids))).all())
 
 
-def _summary(e: WorkflowExecution, names: dict[uuid.UUID, str]) -> ExecutionSummary:
+def _summary(db: Session, e: WorkflowExecution, names: dict[uuid.UUID, str]) -> ExecutionSummary:
     duration = (
         int((e.completed_at - e.started_at).total_seconds() * 1000) if e.completed_at else None
     )
@@ -104,7 +141,7 @@ def _summary(e: WorkflowExecution, names: dict[uuid.UUID, str]) -> ExecutionSumm
         outcome=e.outcome,
         current_steps=e.current_steps,
         business_key=e.business_key,
-        subject=registry.present(e.workflow_id, e.context)["subject"],
+        subject=store.present(db, e)["subject"],
         initiated_by=e.initiated_by,
         initiated_by_username=names.get(e.initiated_by),
         correlation_id=e.correlation_id,
@@ -147,7 +184,7 @@ def list_executions(
         query = query.where(WorkflowExecution.business_key == business_key)
     items, total = paginate(db, query, params)
     names = _usernames(db, {e.initiated_by for e in items})
-    return [_summary(e, names) for e in items], total
+    return [_summary(db, e, names) for e in items], total
 
 
 def get_execution(db: Session, execution_id: uuid.UUID) -> WorkflowExecution:
@@ -157,8 +194,8 @@ def get_execution(db: Session, execution_id: uuid.UUID) -> WorkflowExecution:
     return execution
 
 
-def _step_name(execution: WorkflowExecution, step_id: str) -> str:
-    definition = registry.get_definition(execution.workflow_id, execution.workflow_version)
+def _step_name(db: Session, execution: WorkflowExecution, step_id: str) -> str:
+    definition = store.for_execution(db, execution)
     try:
         return definition.step(step_id).name if definition else step_id
     except KeyError:
@@ -175,7 +212,7 @@ def execution_detail(db: Session, execution: WorkflowExecution) -> ExecutionDeta
     )
     names = _usernames(db, {execution.initiated_by} | {r.actor_id for r in runs})
     return ExecutionDetail(
-        **_summary(execution, names).model_dump(),
+        **_summary(db, execution, names).model_dump(),
         context=execution.context,
         error=execution.error,
         steps=[
@@ -183,7 +220,7 @@ def execution_detail(db: Session, execution: WorkflowExecution) -> ExecutionDeta
                 id=r.id,
                 sequence=r.sequence,
                 step_id=r.step_id,
-                step_name=_step_name(execution, r.step_id),
+                step_name=_step_name(db, execution, r.step_id),
                 step_type=r.step_type,
                 status=r.status,
                 branch=r.branch,
@@ -242,7 +279,7 @@ def open_tasks(
     names = _usernames(db, {e.initiated_by for _, e in rows})
     tasks: list[TaskOut] = []
     for run, execution in rows:
-        definition = registry.get_definition(execution.workflow_id, execution.workflow_version)
+        definition = store.for_execution(db, execution)
         if definition is None:
             continue
         step = definition.step(run.step_id)
@@ -253,7 +290,7 @@ def open_tasks(
             blocked = exc.message
         if actionable_only and blocked:
             continue
-        shown = registry.present(execution.workflow_id, execution.context)
+        shown = store.present(db, execution)
         tasks.append(
             TaskOut(
                 run_id=run.id,
@@ -280,7 +317,7 @@ def open_tasks(
 
 def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
     """Throughput, durations and failures per step: where cases slow down or break."""
-    definition = get_definition(workflow_id)
+    definition = get_definition(db, workflow_id)
     statuses = dict(
         db.execute(
             select(WorkflowExecution.status, func.count())
@@ -371,4 +408,59 @@ def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:
         avg_execution_ms=float(avg_execution) if avg_execution is not None else None,
         bottleneck_step=bottleneck,
         steps=steps,
+    )
+
+
+def stored_definition_out(
+    db: Session, record: WorkflowDefinitionRecord, names: dict[uuid.UUID, str] | None = None
+) -> StoredDefinitionOut:
+    names = names if names is not None else _usernames(db, {record.imported_by})
+    executions = db.execute(
+        select(func.count()).where(WorkflowExecution.definition_id == record.id)
+    ).scalar_one()
+    return StoredDefinitionOut(
+        id=record.id,
+        workflow_id=record.workflow_id,
+        version=record.version,
+        name=record.name,
+        status=record.status,
+        content_hash=record.content_hash,
+        step_count=len(record.definition.get("steps", [])),
+        imported_by=record.imported_by,
+        imported_by_username=names.get(record.imported_by) if record.imported_by else None,
+        imported_at=record.registered_at,
+        status_changed_at=record.status_changed_at,
+        executions=executions,
+    )
+
+
+def stored_definitions(db: Session) -> list[StoredDefinitionOut]:
+    records = store.stored_records(db)
+    names = _usernames(db, {r.imported_by for r in records})
+    return [stored_definition_out(db, r, names) for r in records]
+
+
+def library_handlers() -> list[LibraryHandlerOut]:
+    return [
+        LibraryHandlerOut(
+            name=h.name,
+            step_type=h.step_type.value,
+            summary=h.summary,
+            output=h.output,
+            params_schema=h.params_schema(),
+        )
+        for h in sorted(library.LIBRARY.values(), key=lambda h: h.name)
+    ]
+
+
+def report_out(report: validation.Report) -> ValidationReportOut:
+    d = report.definition
+    return ValidationReportOut(
+        valid=report.valid,
+        workflow_id=d.workflow_id if d else None,
+        version=d.version if d else None,
+        content_hash=d.content_hash() if d else None,
+        existing=report.existing if report.valid else None,
+        errors=report.errors,
+        warnings=report.warnings,
     )

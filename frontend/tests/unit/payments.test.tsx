@@ -125,7 +125,7 @@ const started: ExecutionDetail = {
 function startRoutes(id: string, name: string) {
   return {
     ...healthyRoutes,
-    "GET /api/v1/workflows": () => jsonResponse([workflow(id, name)]),
+    "GET /api/v1/workflow-catalogue": () => jsonResponse({ items: [workflow(id, name)], total: 1, facets: {} }),
     [`GET /api/v1/workflows/${id}`]: () => jsonResponse(workflow(id, name)),
     [`GET /api/v1/workflows/${id}/metrics`]: () =>
       jsonResponse({ workflow_id: id, executions: {}, outcomes: {}, avg_execution_ms: null, bottleneck_step: null, steps: [] }),

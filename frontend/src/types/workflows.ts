@@ -10,8 +10,39 @@ export interface WorkflowSummary {
   trigger_type: string;
   step_count: number;
   source: "code" | "stored";
-  status: "active" | "retired";
+  status: DefinitionStatus;
   template_id?: string | null;
+  // Catalogue classification and ownership (Phase 22).
+  department?: string | null;
+  countries?: string[];
+  products?: string[];
+  tags?: string[];
+  owner_id?: string | null;
+  owner_username?: string | null;
+  in_review?: boolean;
+}
+
+export type DefinitionStatus = "draft" | "in_review" | "active" | "retired";
+
+export interface CatalogueFacet {
+  value: string;
+  count: number;
+}
+
+export type CatalogueFacetName = "department" | "country" | "product" | "tag" | "status" | "source" | "owner";
+
+export interface CatalogueResult {
+  items: WorkflowSummary[];
+  total: number;
+  facets: Partial<Record<CatalogueFacetName, CatalogueFacet[]>>;
+}
+
+export interface Classification {
+  department: string | null;
+  countries: string[];
+  products: string[];
+  tags: string[];
+  owner_id: string | null;
 }
 
 export interface StepDefinition {
@@ -191,7 +222,7 @@ export interface StoredDefinition {
   workflow_id: string;
   version: number;
   name: string;
-  status: "active" | "retired";
+  status: DefinitionStatus;
   content_hash: string;
   step_count: number;
   imported_by: string | null;
@@ -199,6 +230,11 @@ export interface StoredDefinition {
   imported_at: string;
   status_changed_at: string | null;
   executions: number;
+  submitted_by_username?: string | null;
+  submitted_at?: string | null;
+  reviewed_by_username?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string | null;
 }
 
 export interface ImportResult {

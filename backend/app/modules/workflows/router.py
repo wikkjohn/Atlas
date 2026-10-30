@@ -157,9 +157,11 @@ def start_execution(
     "", response_model=list[StoredDefinitionOut], summary="Every imported definition version"
 )
 def list_stored_definitions(
-    db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+    db: DbSession,
+    _: Authorized(Permission.WORKFLOWS_READ),
+    workflow_id: Annotated[str | None, Query(max_length=20, description="One workflow")] = None,
 ) -> list[StoredDefinitionOut]:
-    return service.stored_definitions(db)
+    return service.stored_definitions(db, workflow_id)
 
 
 @authoring_router.get(

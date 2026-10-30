@@ -608,8 +608,8 @@ def stored_definition_out(
     )
 
 
-def stored_definitions(db: Session) -> list[StoredDefinitionOut]:
-    records = store.stored_records(db)
+def stored_definitions(db: Session, workflow_id: str | None = None) -> list[StoredDefinitionOut]:
+    records = store.stored_records(db, workflow_id)
     names = _usernames(
         db, {p for r in records for p in (r.imported_by, r.submitted_by, r.reviewed_by)}
     )

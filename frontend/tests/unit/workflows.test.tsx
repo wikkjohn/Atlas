@@ -2,7 +2,14 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { syntheticDocumentNumber } from "@/services/workflows";
-import type { ExecutionDetail, WorkflowDefinition, WorkflowMetrics, WorkflowTask } from "@/types/workflows";
+import type {
+  CatalogueResult,
+  ExecutionDetail,
+  WorkflowDefinition,
+  WorkflowMetrics,
+  WorkflowSummary,
+  WorkflowTask,
+} from "@/types/workflows";
 
 import { germany } from "./enterprise-fixtures";
 import { healthyRoutes, jsonResponse, mockApi, page, type RecordedRequest } from "./fixtures";
@@ -97,10 +104,14 @@ const failedExecution: ExecutionDetail = {
   ],
 };
 
+function catalogue(items: object[]): CatalogueResult {
+  return { items: items as WorkflowSummary[], total: items.length, facets: {} };
+}
+
 function routes(extra = {}) {
   return {
     ...healthyRoutes,
-    "GET /api/v1/workflows": () => jsonResponse([definition]),
+    "GET /api/v1/workflow-catalogue": () => jsonResponse(catalogue([definition])),
     "GET /api/v1/workflows/WF-0001": () => jsonResponse(definition),
     "GET /api/v1/workflows/WF-0001/metrics": () => jsonResponse(metrics),
     "GET /api/v1/countries": () => jsonResponse(page([germany])),
@@ -217,7 +228,7 @@ describe("Workflow Explorer", () => {
     const started = { ...failedExecution, id: "new-2", workflow_id: "WF-1001", status: "completed", outcome: "updated", error: null, steps: [] };
     const api = mockApi(
       routes({
-        "GET /api/v1/workflows": () => jsonResponse([definition, stored]),
+        "GET /api/v1/workflow-catalogue": () => jsonResponse(catalogue([definition, stored])),
         "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
         "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
         "GET /api/v1/workflow-definitions/handlers": () =>
@@ -324,7 +335,7 @@ describe("Workflow Explorer", () => {
           jsonResponse([{ workflow_id: "WF-2000", variant_key: '{"account_type":"current","country_code":"GB","fee":5}', params: {}, template_version: 1, definition_version: 1, generated_at: "2026-10-30T10:00:00Z" }]),
         "POST /api/v1/workflow-templates/TPL-PAPER-STATEMENT/generate": (request: RecordedRequest) =>
           jsonResponse(generated(Boolean((request.body as { dry_run: boolean }).dry_run))),
-        "GET /api/v1/workflows": (request: RecordedRequest) => jsonResponse(request.search.get("q") === "WF-2000" ? [variant] : [definition]),
+        "GET /api/v1/workflow-catalogue": (request: RecordedRequest) => jsonResponse(catalogue(request.search.get("q") === "WF-2000" ? [variant] : [definition])),
         "GET /api/v1/workflows/WF-2000": () => jsonResponse(variant),
         "GET /api/v1/workflows/WF-2000/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-2000", steps: [] }),
         "GET /api/v1/workflow-definitions/handlers": () => jsonResponse([]),
@@ -365,7 +376,7 @@ describe("Workflow Explorer", () => {
     };
     const api = mockApi(
       routes({
-        "GET /api/v1/workflows": () => jsonResponse([stored]),
+        "GET /api/v1/workflow-catalogue": () => jsonResponse(catalogue([stored])),
         "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
         "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
         "GET /api/v1/workflow-definitions/handlers": () => jsonResponse([]),
@@ -420,7 +431,7 @@ describe("Workflow Explorer", () => {
     const bodies: { definition: { steps: { id: string; name: string }[] } }[] = [];
     const api = mockApi(
       routes({
-        "GET /api/v1/workflows": () => jsonResponse([stored]),
+        "GET /api/v1/workflow-catalogue": () => jsonResponse(catalogue([stored])),
         "GET /api/v1/workflows/WF-1001": () => jsonResponse(stored),
         "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
         "GET /api/v1/workflows/WF-1001/export": () => jsonResponse(exported),
@@ -455,12 +466,113 @@ describe("Workflow Explorer", () => {
     const name = within(form).getByLabelText("Name");
     await userEvent.clear(name);
     await userEvent.type(name, "Reference");
-    await waitFor(() => expect(within(editor).getByRole("status")).toHaveTextContent("Valid: v2 can be saved."), { timeout: 3000 });
+    await waitFor(() => expect(within(editor).getByRole("status")).toHaveTextContent("Valid: v2 can be saved as a draft for review."), { timeout: 3000 });
     expect(bodies.at(-1)?.definition.steps[0].name).toBe("Reference");
 
     await userEvent.click(within(editor).getByRole("button", { name: "Save as v2" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit WF-1001 as v2" })).not.toBeInTheDocument());
     const saved = api.requests.find((r) => r.method === "POST" && r.path === "/api/v1/workflow-definitions");
     expect((saved?.body as { definition: { version: number } }).definition.version).toBe(2);
+  });
+
+  it("filters the catalogue by facets that count what each choice leaves", async () => {
+    const lending = { ...definition, workflow_id: "WF-0003", name: "Personal Loan Origination", department: "Lending", countries: ["GB", "US"], products: ["personal_loan"] };
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflow-catalogue": (request: RecordedRequest) =>
+          jsonResponse({
+            items: request.search.get("department") === "Lending" ? [lending] : [definition, lending],
+            total: request.search.get("department") === "Lending" ? 1 : 2,
+            facets: {
+              department: [{ value: "Customer Onboarding", count: 1 }, { value: "Lending", count: 1 }],
+              country: [{ value: "GB", count: 2 }],
+              status: [{ value: "active", count: 2 }],
+            },
+          }),
+        "GET /api/v1/workflows/WF-0003": () => jsonResponse(lending),
+        "GET /api/v1/workflows/WF-0003/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-0003", steps: [] }),
+      }),
+    );
+    renderApp("/workflows");
+
+    expect(await screen.findByText("2 workflows")).toBeInTheDocument();
+    const department = screen.getByRole("combobox", { name: "Filter by department" });
+    expect(within(department).getByRole("option", { name: "Lending (1)" })).toBeInTheDocument();
+    await userEvent.selectOptions(department, "Lending");
+    expect(await screen.findByText("1 workflow")).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: "Workflows" });
+    expect(within(list).getAllByRole("button")).toHaveLength(1);
+    expect(list).toHaveTextContent("Lending · GB, US");
+    expect(api.requests.some((r) => r.path === "/api/v1/workflow-catalogue" && r.search.get("department") === "Lending")).toBe(true);
+    expect(await screen.findByLabelText("Classification")).toHaveTextContent("Department: Lending · Countries: GB, US · Products: Personal loan");
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByText("2 workflows")).toBeInTheDocument();
+  });
+
+  it("takes a draft through review: submit, then return with a note or approve", async () => {
+    const stored = { ...definition, workflow_id: "WF-1001", name: "Customer Address Change", source: "stored", status: "draft", versions: [1] };
+    const version = {
+      id: "d1", workflow_id: "WF-1001", version: 1, name: "Customer Address Change", content_hash: "abc", step_count: 3,
+      imported_by: "u1", imported_by_username: "admin", imported_at: "2026-10-30T12:00:00Z", status_changed_at: null, executions: 0,
+    };
+    let status = "draft";
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflow-catalogue": () => jsonResponse(catalogue([{ ...stored, status }])),
+        "GET /api/v1/workflows/WF-1001": () => jsonResponse({ ...stored, status }),
+        "GET /api/v1/workflows/WF-1001/metrics": () => jsonResponse({ ...metrics, workflow_id: "WF-1001", steps: [] }),
+        "GET /api/v1/workflow-definitions/handlers": () => jsonResponse([]),
+        "GET /api/v1/workflow-definitions/WF-1001/tests": () => jsonResponse([]),
+        "GET /api/v1/workflow-definitions": () => jsonResponse([{ ...version, status, submitted_by_username: status === "draft" ? null : "admin" }]),
+        "POST /api/v1/workflow-definitions/WF-1001/versions/1/submit": () => {
+          status = "in_review";
+          return jsonResponse({ ...version, status });
+        },
+        "POST /api/v1/workflow-definitions/WF-1001/versions/1/return": () => {
+          status = "draft";
+          return jsonResponse({ ...version, status });
+        },
+        "POST /api/v1/workflow-definitions/WF-1001/versions/1/approve": () =>
+          jsonResponse({ error: { code: "permission_denied", message: "Four-eyes rule: the person who imported or submitted this version cannot approve it.", details: { rule: "four_eyes" } } }, 403),
+      }),
+    );
+    renderApp("/workflows");
+
+    const versions = await screen.findByRole("region", { name: "Versions" });
+    expect(await within(versions).findByText("Draft")).toBeInTheDocument();
+    await userEvent.click(within(versions).getByRole("button", { name: "Submit for review v1" }));
+    expect(await within(versions).findByText("In review")).toBeInTheDocument();
+    expect(within(versions).getByText(/submitted by admin/)).toBeInTheDocument();
+
+    await userEvent.click(within(versions).getByRole("button", { name: "Approve v1" }));
+    expect(await within(versions).findByText(/Four-eyes rule/)).toBeInTheDocument();
+    const returnButton = within(versions).getByRole("button", { name: "Return to draft v1" });
+    expect(returnButton).toBeDisabled();
+    await userEvent.type(within(versions).getByRole("textbox", { name: "Review note for v1" }), "Screen the customer first.");
+    await userEvent.click(returnButton);
+    expect(await within(versions).findByText("Draft")).toBeInTheDocument();
+    const returned = api.requests.find((r) => r.method === "POST" && r.path.endsWith("/versions/1/return"));
+    expect(returned?.body).toEqual({ note: "Screen the customer first." });
+  });
+
+  it("classifies a workflow and sets its owner", async () => {
+    const api = mockApi(
+      routes({
+        "GET /api/v1/users": () => jsonResponse(page([{ id: "u7", username: "manager", email: "", display_name: "Manager", role: "department_manager", role_name: "Department Manager", employee_id: null, is_active: true }])),
+        "PUT /api/v1/workflow-catalogue/WF-0001": () => jsonResponse({ ...definition, department: "Customer Onboarding" }),
+      }),
+    );
+    renderApp("/workflows");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Classify" }));
+    const dialog = screen.getByRole("dialog", { name: "Classify WF-0001" });
+    await userEvent.type(within(dialog).getByLabelText("Department"), "Customer Onboarding");
+    await userEvent.click(await within(dialog).findByRole("checkbox", { name: "DE" }));
+    await userEvent.type(within(dialog).getByLabelText(/Products/), "current, savings");
+    await userEvent.selectOptions(await within(dialog).findByLabelText("Owner"), await within(dialog).findByRole("option", { name: "manager" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save classification" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Classify WF-0001" })).not.toBeInTheDocument());
+    const put = api.requests.find((r) => r.method === "PUT");
+    expect(put?.body).toEqual({ department: "Customer Onboarding", countries: ["DE"], products: ["current", "savings"], tags: [], owner_id: "u7" });
   });
 });

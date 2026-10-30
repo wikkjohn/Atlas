@@ -26,7 +26,8 @@ function problemsByStep(preview: DraftPreview | null): Record<string, string[]> 
 }
 
 /** Edit a stored workflow as its next version: a step form and the JSON, with the draft
- * validated and drawn as you type. Saving imports it through the usual validation. */
+ * validated and drawn as you type. Saving imports it through the usual validation, as a
+ * draft that then goes through review. */
 export function DefinitionEditor({
   workflowId,
   onClose,
@@ -250,7 +251,7 @@ export function DefinitionEditor({
           <p role="status" className={`text-sm ${preview?.report.valid ? "text-emerald-800" : "text-rose-800"}`}>
             {preview
               ? preview.report.valid
-                ? `Valid: v${preview.report.version} can be saved.`
+                ? `Valid: v${preview.report.version} can be saved as a draft for review.`
                 : `${preview.report.errors.length} problem(s) to fix before saving.`
               : "Checking…"}
           </p>

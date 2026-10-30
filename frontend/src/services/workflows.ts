@@ -1,9 +1,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPost, query } from "@/services/api";
+import { apiGet, apiPost, apiPut, query } from "@/services/api";
 import type { WorkflowGraphData } from "@/features/workflows/WorkflowGraph";
 import type { Page } from "@/types/enterprise";
 import type {
+  CatalogueFacetName,
+  CatalogueResult,
+  Classification,
   DraftPreview,
   ExecutionDetail,
   ExecutionSummary,
@@ -43,10 +46,28 @@ export const useWorkflows = (q?: string) =>
     queryFn: () => apiGet<WorkflowSummary[]>(`/api/v1/workflows${query({ q, limit: CATALOGUE_LIMIT })}`),
   });
 
-export const useWorkflowDefinition = (id: string | null) =>
+export type CatalogueFilters = Partial<Record<CatalogueFacetName, string>> & { q?: string };
+
+/** Catalogue search (Phase 22): free text and one value per facet, with facet counts. */
+export const useCatalogue = (filters: CatalogueFilters) =>
   useQuery({
-    queryKey: ["workflows", "definition", id],
-    queryFn: () => apiGet<WorkflowDefinition>(`/api/v1/workflows/${id}`),
+    queryKey: ["workflows", "catalogue", filters],
+    queryFn: () => apiGet<CatalogueResult>(`/api/v1/workflow-catalogue${query({ ...filters, limit: CATALOGUE_LIMIT })}`),
+    placeholderData: keepPreviousData,
+  });
+
+export function useClassify(workflowId: string) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (body: Classification) => apiPut<WorkflowSummary>(`/api/v1/workflow-catalogue/${workflowId}`, body),
+    onSuccess: invalidate,
+  });
+}
+
+export const useWorkflowDefinition = (id: string | null, version?: number) =>
+  useQuery({
+    queryKey: ["workflows", "definition", id, version],
+    queryFn: () => apiGet<WorkflowDefinition>(`/api/v1/workflows/${id}${query({ version })}`),
     enabled: Boolean(id),
   });
 
@@ -121,10 +142,11 @@ export function syntheticDocumentNumber(kind: "passport" | "national_id" | "proo
 
 // --- Stored definitions (Phase 17) ----------------------------------------------------------
 
-export const useStoredDefinitions = () =>
+export const useStoredVersions = (workflowId: string | null) =>
   useQuery({
-    queryKey: ["workflow-definitions", "list"],
-    queryFn: () => apiGet<StoredDefinition[]>("/api/v1/workflow-definitions"),
+    queryKey: ["workflow-definitions", "versions", workflowId],
+    queryFn: () => apiGet<StoredDefinition[]>(`/api/v1/workflow-definitions${query({ workflow_id: workflowId })}`),
+    enabled: Boolean(workflowId),
   });
 
 export const useLibraryHandlers = (enabled = true) =>
@@ -153,11 +175,16 @@ export function useImportDefinition() {
   });
 }
 
+export type VersionAction = "submit" | "approve" | "return" | "retire" | "reactivate";
+
 export function useSetDefinitionStatus() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({ workflowId, version, action }: { workflowId: string; version: number; action: "retire" | "reactivate" }) =>
-      apiPost<StoredDefinition>(`/api/v1/workflow-definitions/${workflowId}/versions/${version}/${action}`, {}),
+    mutationFn: ({ workflowId, version, action, note }: { workflowId: string; version: number; action: VersionAction; note?: string }) =>
+      apiPost<StoredDefinition>(
+        `/api/v1/workflow-definitions/${workflowId}/versions/${version}/${action}`,
+        action === "approve" || action === "return" ? { note: note || null } : {},
+      ),
     onSuccess: invalidate,
   });
 }

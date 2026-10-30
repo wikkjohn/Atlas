@@ -72,7 +72,8 @@ test("Simulation Center: a run in parallel shards, each with its own staff", asy
   await form.getByRole("button", { name: "Start run" }).click();
 
   const details = page.getByRole("region", { name: "Run details" });
-  await expect(details.getByText("Completed", { exact: true })).toBeVisible({ timeout: 120_000 });
+  // The run's status comes first; each shard has its own status pill further down.
+  await expect(details.getByText("Completed", { exact: true }).first()).toBeVisible({ timeout: 120_000 });
   await expect(details.getByText("12 / 12")).toBeVisible();
   await expect(details.getByText(/12 staff · 2 shards/)).toBeVisible();
   await details.getByText("Ran as 2 parallel shards").click();

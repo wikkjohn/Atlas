@@ -232,6 +232,51 @@ amount is far above the usual), and the simulated analysts,
 following it, release 4 rather than 3, so card testing is 4 of the 6 wrong releases.
 That rests on the scenario's stated reviewer assumptions, not on measured behaviour.
 
+## WF-1009 v2 and the mortgage underwriting assistant (Phase 34)
+
+WF-1009 v2 is a stored workflow. It records an application only when every lending rule
+passes. Before the underwriter decides, it reads the application profile
+(`mortgages.application_profile`) and asks the assistant through `ai.review`. A person
+always decides, so the scenario runs baseline and AI assisted only.
+
+What the assistant (`rule_based_mortgage_underwriting`) weighs:
+- **Keep declined:** a stretched borrower (a payment above 30 % of income at 85 %
+  loan-to-value or more), or a payment above 35 % of the bureau's income estimate.
+- **Concerns:** declared income above 125 % of that estimate, loan-to-value of 80 % or
+  more, a credit score below 660, and an automated valuation below 90 % of the price.
+
+Its **blind spot** is age. The profile includes the applicant's age when the term ends,
+and the assistant never reads it, so a 30- to 35-year mortgage for a 56- to 64-year-old
+with prime figures is recommended for approval.
+
+What `mortgage-applications` v1 measured (seed 2030, 300 applications, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 89.7 % | 94.7 % |
+| Wrong approvals | 17 | 15 |
+| Wrong declines | 14 | 1 |
+| Terms past retirement approved (of 54) | 2 | 7 |
+| Review labour hours | 127.0 | 81.5 |
+| Median cycle time (hours) | 7.50 | 3.56 |
+| Tool's recommendation accuracy | — | 79 % (37 escalated) |
+
+**Where the assistant helps:**
+- Good applications declined fall from 14 to 1.
+- Stretched and inflated-income applications approved fall from 9 to 2.
+- Review time falls by more than a third.
+
+**Where it does not:**
+- Wrong approvals barely change (17 to 15). The assistant recommends approval for every
+  application whose term runs past retirement, and the simulated underwriters, following
+  it, approve 7 of 54 rather than 2.
+- Thin credit files are escalated, which leaves the underwriter where the baseline was
+  (6 approved either way).
+
+These results rest on the scenario's stated reviewer assumptions, not on measured
+behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

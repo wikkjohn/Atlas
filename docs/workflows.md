@@ -287,6 +287,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `mortgages.desktop_valuation` | writes | `property_number_path` | values it with the synthetic model; reports value to price (Phase 33) |
 | `mortgages.confirm_value` | writes (approval required) | `property_number_path`, `surveyor_path` | records the surveyor's valuation at the purchase price (Phase 33) |
 | `mortgages.quote` | reads | `customer_number_path`, `property_number_path`, `account_number_path`, `product_path`, `loan_amount_path`, `term_years_path`, `income_path` | the decision in principle: `eligible`, the failed rules and their detail, loan-to-value, payment (Phase 33) |
+| `mortgages.application_profile` | reads | `offer_id_path` | what an underwriter reviews: loan-to-value, the payment against declared and estimated income, the income gap, the credit score, the valuation against the model, age at the end of the term (Phase 34) |
 | `mortgages.request_offer` | writes | as `mortgages.quote` | records the application; a failed rule fails the step (Phase 33) |
 | `mortgages.issue_offer` | writes (approval required) | `offer_id_path`, `decided_by_path` | issues the offer, valid for 90 days; four-eyes (Phase 33) |
 | `mortgages.decline_offer` | writes | `offer_id_path`, `decided_by_path` | declines the application (Phase 33) |
@@ -361,6 +362,10 @@ application and has an underwriter other than the requester issue or decline the
 WF-1010 records the customer's acceptance and completes after a second person's review.
 WF-1011 registers and values a property, with a surveyor's review when the model values
 it below 90 % of the price. See [mortgages.md](mortgages.md).
+
+WF-1009 **v2** (Phase 34) reads the application profile (`mortgages.application_profile`)
+after the application is recorded and asks the AGB Mortgage Underwriting Assistant
+(`ai.review`, advisory) before the underwriter decides (`mortgage-applications`).
 
 ### Authoring
 

@@ -444,8 +444,14 @@ def set_fx_limit(db: Session, currency: str, limit_usd: int, actor_id: uuid.UUID
         row.limit_usd, row.changed_by, row.updated_at = limit_usd, actor_id, func.now()
     db.flush()
     metadata = {"currency": currency, "from": before, "to": limit_usd}
-    record_audit_event(db, actor_id=actor_id, action="treasury.fx_limit_set",
-                       entity_type="treasury_fx_limit", entity_id=None, metadata=metadata)
+    record_audit_event(
+        db,
+        actor_id=actor_id,
+        action="treasury.fx_limit_set",
+        entity_type="treasury_fx_limit",
+        entity_id=None,
+        metadata=metadata,
+    )
     return row
 
 

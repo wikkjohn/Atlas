@@ -122,6 +122,21 @@ coverage (WF-1003: 14 cases, WF-1004: 17, WF-1005: 10). To give a standing order
 different accounts, the generated tests now provide a second customer's account, the
 fixture kind `payee.account_number`.
 
+## Simulation workload and AI tool (Phase 30)
+
+The `retail_overdrafts` workload drives WF-1003 v2 (scenario `retail-overdrafts`).
+- **Customers:** each case is an existing customer whose current account has three months
+  of history in the ledger: salaries and spending, effective on past dates.
+- **Ground truth:** affordable requests from steady earners are approved. Declined:
+  limits above a month's income, income in only one of three months, customers already
+  overdrawn most days, and limits above the product's maximum.
+- **Decisions:** credit officers decide. In AI-assisted runs the AGB Overdraft
+  Affordability Assistant advises them.
+- **Control check:** four-eyes and approval authority on each decision, and no limit set
+  without an approval.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Retail banking*). Reading needs `accounts:read`. Standing orders
@@ -130,8 +145,6 @@ new permission `retail:manage`, held by department managers and the scheduler.
 
 ## Limitations
 
-- No simulation workload or AI tool for retail banking yet. The Milestone D exit asks for
-  both, and they are planned for the next step.
 - Interest is simple and daily on the closing balance, with 365 days every year. There is
   no compounding within the month, no tiered rates and no unarranged-overdraft fees.
 - Standing orders are same-currency only and never at or above the high-value threshold.

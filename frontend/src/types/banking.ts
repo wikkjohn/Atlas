@@ -185,7 +185,7 @@ export interface Payment {
   decided_at: string | null;
 }
 
-export type LoanPurpose = "home_improvement" | "vehicle" | "education" | "debt_consolidation" | "other";
+export type LoanPurpose = "home_improvement" | "vehicle" | "education" | "debt_consolidation" | "other" | "mortgage";
 
 export type LoanStatus = "active" | "repaid" | "written_off";
 export type ArrearsBucket = "current" | "1-29" | "30-59" | "60-89" | "90+";

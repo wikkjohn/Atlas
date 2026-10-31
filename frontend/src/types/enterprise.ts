@@ -23,6 +23,7 @@ export type Permission =
   | "fx:manage"
   | "retail:manage"
   | "cards:manage"
+  | "mortgages:manage"
   | "ledger:post"
   | "workflows:read"
   | "workflows:start"

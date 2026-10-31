@@ -230,6 +230,45 @@ def originate(
         raise BusinessRuleViolation("The term is outside the product limits.")
     _check_deciders(principal, account.currency, requested_by, underwriter, committee)
 
+    return book_loan(
+        db,
+        customer_id=customer.id,
+        account_id=account.id,
+        principal=principal,
+        annual_rate_bps=annual_rate_bps,
+        term_months=term_months,
+        purpose=purpose,
+        requested_by=requested_by,
+        underwritten_by=underwriter.id,
+        committee_approved_by=committee.id if committee else None,
+        actor_id=underwriter.id,
+        workflow_execution_id=workflow_execution_id,
+        now=now,
+    )
+
+
+def book_loan(
+    db: Session,
+    *,
+    customer_id: uuid.UUID,
+    account_id: uuid.UUID,
+    principal: int,
+    annual_rate_bps: int,
+    term_months: int,
+    purpose: str,
+    requested_by: uuid.UUID,
+    underwritten_by: uuid.UUID,
+    actor_id: uuid.UUID,
+    committee_approved_by: uuid.UUID | None = None,
+    property_id: uuid.UUID | None = None,
+    workflow_execution_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> Loan:
+    """Book a loan its product's rules have already approved: the receivable, the
+    disbursement into the account, the loan and its schedule. Personal loans come through
+    `originate`; mortgages through their completion (Phase 33)."""
+    now = now or datetime.now(UTC)
+    account = db.get(Account, account_id)
     number = db.execute(LOAN_NUMBER_SEQUENCE.next_value()).scalar_one()
     loan_number = f"LN-{number:08d}"
     receivable = ledger.ensure_ledger_account(
@@ -250,12 +289,12 @@ def originate(
             ledger.LineSpec(receivable.id, Direction.DEBIT, principal, memo),
             ledger.LineSpec(account.ledger_account_id, Direction.CREDIT, principal, memo),
         ],
-        actor_id=underwriter.id,
+        actor_id=actor_id,
         effective_date=now.date(),
     )
     loan = Loan(
         loan_number=loan_number,
-        customer_id=customer.id,
+        customer_id=customer_id,
         disbursement_account_id=account.id,
         ledger_account_id=receivable.id,
         principal=principal,
@@ -266,18 +305,19 @@ def originate(
         purpose=purpose,
         status=LoanStatus.ACTIVE.value,
         requested_by=requested_by,
-        underwritten_by=underwriter.id,
-        committee_approved_by=committee.id if committee else None,
+        underwritten_by=underwritten_by,
+        committee_approved_by=committee_approved_by,
         disbursement_entry_id=entry.id,
         workflow_execution_id=workflow_execution_id,
         disbursed_at=now,
+        property_id=property_id,
     )
     db.add(loan)
     db.flush()
     servicing.ensure_schedule(db, loan)  # the repayment schedule exists from day one
     record_audit_event(
         db,
-        actor_id=underwriter.id,
+        actor_id=actor_id,
         action="loan.originated",
         entity_type="loan",
         entity_id=loan.id,
@@ -285,7 +325,8 @@ def originate(
             "loan_number": loan_number,
             "principal": principal,
             "currency": account.currency,
-            "committee": str(committee.id) if committee else None,
+            "committee": str(committee_approved_by) if committee_approved_by else None,
+            "purpose": purpose,
         },
     )
     return loan

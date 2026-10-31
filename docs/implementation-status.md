@@ -82,10 +82,10 @@ Last updated: Phase 40.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 613 passed (new: 4 — the back-office rules and their duplicate blind spot; the deal profile with an off-market same-day duplicate; baseline and AI-assisted deal runs with every case decided by back office, no control violations, every kind's advice as designed, settlement only after confirmation; the bought side squaring only and a US$100m LBP deal maturing within the ledger line limit (PR #30 review)) |
 | Generated workflow tests | 30 workflows, 607 cases, 0 failed (WF-1018 v2: 15 cases, 100 % steps and routes) |
 | Frontend Vitest / typecheck / build | 117 passed (new: paging back through deals and FX trades (PR #30 review)) / clean / built |
-| Playwright on a fresh database | PLAYWRIGHT_RESULT |
+| Playwright on a fresh database | 43 passed on the first run (new: the back-office check assistant in the AI Lab console, recommending confirmation of a same-day duplicate) |
 | Measurement | `deal-confirmations`, seed 2030, 300 deals each: baseline 83.3 % accurate (33 wrongly confirmed, 17 wrongly cancelled, 98.7 back-office hours); AI assisted 91.3 % (25, 1, 63.6); duplicates confirmed 14 against 18 |
 
 Found while building it:

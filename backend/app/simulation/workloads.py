@@ -1198,6 +1198,177 @@ class MortgageApplications(Workload):
         return check
 
 
+# --- Covenant breaches (WF-1013 v2, Phase 36) ------------------------------------------------
+
+COVENANT_SHOULD_KEEP = frozenset({"structural_decline", "over_leveraged", "repeat_breach",
+                                  "stretched_facility"})  # fmt: skip
+TRADES = ("Engineering", "Logistics", "Foods", "Textiles", "Print", "Joinery", "Plastics")
+
+
+class CovenantBreaches(Workload):
+    """Covenant breaches on commercial facilities through WF-1013 v2: businesses with a
+    revolving facility and two years of covenant tests behind it submit this year's
+    figures, which breach, so the credit committee decides whether to waive the breach or
+    keep the facility frozen, with the AGB Covenant Breach Assistant's advice in AI-assisted
+    runs.
+
+    Ground truth: a one-off dip after strong years and a near miss are waived; EBITDA
+    falling year after year, leverage far over its limit, a second breach a year after a
+    waiver, and thin cover on a facility drawn to its limit keep the facility frozen."""
+
+    key = "covenant_breaches"
+    workflow_id = "WF-1013"
+    kinds = frozenset({"one_off_dip", "seasonal_borderline"} | COVENANT_SHOULD_KEEP)
+    reviewer_roles = {"committee_review": "executive"}
+    job_titles = {"teller": "Relationship Manager", "manager": "Credit Approver",
+                  "executive": "Credit Committee Member"}  # fmt: skip
+    ai_step = "ai_review"
+    automated_path = None  # the credit committee always decides
+
+    def _business(self, sim: "_Simulation", name: str, country_code: str) -> Account:
+        db = sim.db
+        country_id = db.execute(
+            select(Country.id).where(Country.iso_country_code == country_code)
+        ).scalar_one()
+        business = create_customer(
+            db,
+            CustomerCreate(customer_type=CustomerType.BUSINESS, name=name,
+                           date_of_birth_or_incorporation=date(2008, 5, 1),
+                           country_id=country_id),
+            actor_id=None,
+            today=sim.clock.start.date(),
+        )  # fmt: skip
+        review_customer(db, business, CustomerReview(kyc_status=KycStatus.PENDING), None)
+        review_customer(db, business, CustomerReview(kyc_status=KycStatus.VERIFIED,
+                                                     risk_rating=RiskRating.LOW), None)  # fmt: skip
+        teller, manager = sim.population_staff()
+        request = submit_request(db, customer_id=business.id,
+                                 account_type=AccountType.BUSINESS_CURRENT, currency=None,
+                                 requested_by=teller.id)  # fmt: skip
+        return approve_request(db, request.id, manager, "Existing customer (simulation "
+                               "population)", now=sim.history_at)  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.commercial import service as commercial
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        start = sim.clock.start
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        current = date(start.year - 1, 12, 31)
+        periods = [current.replace(year=current.year - 2), current.replace(year=current.year - 1)]
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "covenant")
+            kind = _pick(rng, mix)
+            country = rng.choice(sim.countries)
+            name = f"{rng.choice(LAST_NAMES)} {rng.choice(TRADES)} Ltd"
+            account = self._business(sim, name, country)
+            currency = account.currency
+            facility = commercial.propose_facility(
+                db, customer=account.customer, account=account, facility_type="revolving",
+                credit_limit=_usd(rng.randint(200, 900) * 1_000, currency), term_months=48,
+                purpose="Working capital", requested_by=teller.id,
+            )  # fmt: skip
+            commercial.approve_facility(db, facility, manager.id, now=start - timedelta(days=200))
+            use = rng.uniform(0.92, 0.98) if kind == "stretched_facility" else rng.uniform(0.2, 0.6)
+            commercial.draw(db, facility, int(facility.credit_limit * use), teller.id,
+                            now=start - timedelta(days=10))  # fmt: skip
+            # Debt service cover (EBITDA / debt service) for the two earlier years and this
+            # one; leverage (debt / EBITDA) likewise.
+            u = rng.uniform
+            if kind == "one_off_dip":
+                d2 = u(1.8, 2.2)
+                cover = [d2, max(d2 * u(0.97, 1.05), 1.35), u(1.05, 1.20)]
+            elif kind == "seasonal_borderline":
+                cover = [u(1.35, 1.55), u(1.35, 1.55), u(1.15, 1.24)]
+            elif kind == "structural_decline":
+                d2 = u(1.85, 2.0)
+                d1 = d2 * u(0.72, 0.80)
+                cover = [d2, d1, min(d1 * u(0.70, 0.80), 1.20)]
+            elif kind == "over_leveraged":
+                cover = [u(1.4, 1.8), u(1.4, 1.8), u(1.35, 1.8)]
+            elif kind == "repeat_breach":
+                d1 = u(1.13, 1.20)
+                cover = [u(1.45, 1.6), d1, d1 * u(0.97, 1.03)]
+            else:  # stretched_facility
+                cover = [u(1.35, 1.5), u(1.35, 1.5), u(1.00, 1.08)]
+            lever = [u(2.0, 3.0), u(2.0, 3.0),
+                     u(4.6, 6.0) if kind == "over_leveraged" else u(2.0, 3.2)]  # fmt: skip
+            service = _usd(rng.randint(150, 500) * 1_000, currency)
+            figures = [(int(service * c), service, int(service * c * lev))
+                       for c, lev in zip(cover, lever, strict=True)]  # fmt: skip
+            for period, (ebitda, debt_service, debt) in zip(periods, figures, strict=False):
+                test = commercial.run_covenant_test(
+                    db, facility, period_end=period, ebitda=ebitda, debt_service=debt_service,
+                    total_debt=debt, actor_id=teller.id,
+                )  # fmt: skip
+                if test.breached:  # only a repeat breach has one: the committee waived it
+                    commercial.waive_breach(db, test, manager.id, now=start - timedelta(days=300))
+            ebitda, debt_service, debt = figures[2]
+            breached = ebitda * 100 // debt_service < 125 or debt * 100 // ebitda > 350
+            if facility.status != "active" or not breached:
+                raise RuntimeError(f"{kind} case {index}: expected an active facility and a "
+                                   "breach this year")  # fmt: skip
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="rejected" if kind in COVENANT_SHOULD_KEEP else "approved",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "customer_number": account.customer.customer_number,
+                        "facility_number": facility.facility_number,
+                        "period_end": current.isoformat(),
+                        "ebitda": ebitda,
+                        "debt_service": debt_service,
+                        "total_debt": debt,
+                    },
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every committee decision against four-eyes and authority, and every waiver only
+        after an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["committee_review", "waive"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "committee_review":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.LOANS_APPROVE_LARGE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "waive" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "waiver_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -1208,6 +1379,7 @@ WORKLOADS: dict[str, Workload] = {
         RetailOverdrafts(),
         CardFraudAlerts(),
         MortgageApplications(),
+        CovenantBreaches(),
     )
 }
 STAFF_ROLES = {

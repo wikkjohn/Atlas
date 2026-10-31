@@ -1535,6 +1535,28 @@ def _test_covenants(ctx: StepContext, params: CovenantFigures) -> dict[str, Any]
     return {"test_id": str(test.id), "breached": test.breached, "results": results}
 
 
+class TestRef(_Strict):
+    test_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "commercial.breach_profile",
+    "Read what the credit committee reviews: the period's ratios, the EBITDA trend, the "
+    "facility's use and its earlier breaches.",
+    TestRef,
+    "{dscr_centi, dscr_threshold_centi, leverage_centi, leverage_threshold_centi, "
+    "ebitda_change_bps, previous_ebitda_change_bps, consecutive_declines, utilisation_bps, "
+    "periods_tested, previous_breaches, previous_waivers} (Phase 36).",
+    reads=lambda params: [params.test_id_path],
+    effect="reads",
+)
+def _breach_profile(ctx: StepContext, params: TestRef) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    test = commercial.get_test(ctx.db, uuid.UUID(str(_required(ctx, params.test_id_path))))
+    return commercial.breach_profile(ctx.db, test)
+
+
 class WaiveBreach(_Strict):
     test_id_path: str = Field(min_length=1, max_length=200)
     waived_by_path: str = Field(min_length=1, max_length=200)

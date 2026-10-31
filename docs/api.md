@@ -231,6 +231,27 @@ See [mortgages.md](mortgages.md). Amounts are minor units of the property's curr
 | POST | `/api/v1/mortgages/offers/{id}/withdraw` | `accounts:transact` | Pending, offered or accepted offers |
 | GET | `/api/v1/mortgages/summary/counts` | `loans:read` | Properties, offers by status, active mortgages |
 
+### Commercial lending (Phase 35)
+
+See [commercial-lending.md](commercial-lending.md). Amounts are minor units of the facility's
+currency; covenant thresholds and ratios are hundredths (125 = 1.25×).
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/commercial/facilities` | `loans:read` | Filter `status`; drawn, available, why it cannot be drawn, covenants, review and maturity dates |
+| POST | `/api/v1/commercial/facilities` | `accounts:transact` | `{customer_number, account_number, facility_type, credit_limit, term_months, purpose?, min_dscr_centi?, max_leverage_centi?}`; 201 `proposed` |
+| POST | `/api/v1/commercial/facilities/{id}/approve` | `loans:approve` | Not by the proposer; active unless above US$1m |
+| POST | `/api/v1/commercial/facilities/{id}/committee` | `loans:approve_large` | Above US$1m, after the credit approval; a third person |
+| POST | `/api/v1/commercial/facilities/{id}/decline` | `loans:approve` | |
+| POST | `/api/v1/commercial/facilities/{id}/draw` · `/repay` | `accounts:transact` | `{amount}`; through the ledger |
+| GET | `/api/v1/commercial/facilities/{id}/tests` | `loans:read` | Newest first |
+| POST | `/api/v1/commercial/facilities/{id}/tests` | `accounts:transact` | `{period_end, ebitda, debt_service, total_debt}`; a breach freezes the facility; 201 |
+| POST | `/api/v1/commercial/tests/{id}/waive` | `loans:approve_large` | Not by the submitter |
+| POST | `/api/v1/commercial/facilities/{id}/reviews` | `accounts:transact` | Opens the annual review from 60 days before it is due; 201 |
+| GET | `/api/v1/commercial/reviews` | `loans:read` | The latest 50 |
+| POST | `/api/v1/commercial/reviews/{id}/decide` | `loans:approve` | `{renew, new_limit?}`; not by the opener |
+| GET | `/api/v1/commercial/summary/counts` | `loans:read` | Proposed, active, frozen, reviews due, open reviews |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

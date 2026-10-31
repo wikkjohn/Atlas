@@ -543,6 +543,9 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         if kinds & mortgage_kinds:
             # A valued house the customer is buying, and an issued offer on another (Phase 33).
             known.update(_mortgage_fixtures(db, customer, account, kinds))
+        if kinds & {"business.customer_number", "business.account_number",
+                     "facility.facility_number"}:  # fmt: skip
+            known.update(_business_fixtures(db, kinds))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -579,6 +582,56 @@ def _mortgage_fixtures(db: Session, customer, account, kinds: set[str]) -> dict[
             )  # fmt: skip
             mortgages.decide_offer(db, offer, True, surveyor.id)
             out[kind] = offer.offer_number
+    return out
+
+
+def _business_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
+    """A verified business with a funded business current account and, if asked, an active
+    revolving facility whose annual review is due in 30 days (Phase 35)."""
+    from app.modules.accounts.models import AccountType
+    from app.modules.accounts.service import approve_request, deposit, submit_request
+    from app.modules.commercial import service as commercial
+    from app.modules.countries.models import Country
+    from app.modules.customers.models import CustomerType, KycStatus, RiskRating
+    from app.modules.customers.schemas import CustomerCreate, CustomerReview
+    from app.modules.customers.service import create_customer, review_customer
+
+    country = db.execute(select(Country).where(Country.iso_country_code == "GB")).scalar_one()
+    business = create_customer(
+        db,
+        CustomerCreate(
+            customer_type=CustomerType.BUSINESS,
+            name=f"Generated Test Trading {uuid.uuid4().hex[:6].upper()} Ltd",
+            date_of_birth_or_incorporation=date(2010, 3, 1),
+            country_id=country.id,
+        ),
+        actor_id=None,
+    )
+    review_customer(db, business, CustomerReview(kyc_status=KycStatus.PENDING), None)
+    review_customer(
+        db, business, CustomerReview(kyc_status=KycStatus.VERIFIED, risk_rating=RiskRating.LOW),
+        None,
+    )  # fmt: skip
+    clerk, manager = (
+        _person(db, RoleCode.BANKING_EMPLOYEE),
+        _person(db, RoleCode.DEPARTMENT_MANAGER),
+    )
+    request = submit_request(db, customer_id=business.id, account_type=AccountType.BUSINESS_CURRENT,
+                             currency=None, requested_by=clerk.id)  # fmt: skip
+    account = approve_request(db, request.id, manager)
+    deposit(db, account.id, amount=10_000_000, memo="Generated test funds",
+            idempotency_key=f"wftest-{account.id}", actor_id=clerk.id)  # fmt: skip
+    out = {"business.customer_number": business.customer_number,
+           "business.account_number": account.account_number}  # fmt: skip
+    if "facility.facility_number" in kinds:
+        facility = commercial.propose_facility(
+            db, customer=business, account=account, facility_type="revolving",
+            credit_limit=25_000_000, term_months=36, purpose="Working capital",
+            requested_by=clerk.id,
+        )  # fmt: skip
+        commercial.approve_facility(db, facility, manager.id)
+        facility.review_due_on = datetime.now(UTC).date() + timedelta(days=30)
+        out["facility.facility_number"] = facility.facility_number
     return out
 
 

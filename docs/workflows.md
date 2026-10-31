@@ -294,6 +294,16 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `mortgages.lookup_offer` | reads | `offer_number_path`, `customer_id_path` (optional) | an offer's status, expiry and figures; another customer's fails (Phase 33) |
 | `mortgages.accept_offer` | writes | `offer_id_path` | records the customer's acceptance; an expired offer fails (Phase 33) |
 | `mortgages.complete` | moves money (approval required) | `offer_id_path`, `completed_by_path` | books the mortgage loan, charged on the property, into the account; four-eyes (Phase 33) |
+| `commercial.propose_facility` | writes | `customer_number_path`, `account_number_path`, `facility_type_path`, `limit_path`, `term_path`, `purpose_path` (optional) | proposes a facility for a business; reports whether the committee must approve (Phase 35) |
+| `commercial.approve_facility` | writes (approval required) | `facility_id_path`, `decided_by_path` | the credit approval; active unless the committee must approve (Phase 35) |
+| `commercial.committee_approve` | writes (approval required) | `facility_id_path`, `decided_by_path` | the credit committee's approval above US$1m (Phase 35) |
+| `commercial.decline_facility` | writes | `facility_id_path`, `decided_by_path` | declines a proposal (Phase 35) |
+| `commercial.lookup_facility` | reads | `facility_number_path`, `customer_number_path` (optional) | a facility's status, limit, drawn, available and review date; another customer's fails (Phase 35) |
+| `commercial.test_covenants` | writes | `facility_id_path`, `period_end_path`, `ebitda_path`, `debt_service_path`, `total_debt_path` | tests the covenants on a year's figures; a breach freezes the facility (Phase 35) |
+| `commercial.waive_breach` | writes (approval required) | `test_id_path`, `waived_by_path` | the credit committee waives a breach (Phase 35) |
+| `commercial.open_review` | writes | `facility_id_path` | opens the annual review from 60 days before it is due (Phase 35) |
+| `commercial.renew_facility` | writes (approval required) | `review_id_path`, `decided_by_path` | renews for another year (Phase 35) |
+| `commercial.terminate_facility` | writes | `review_id_path`, `decided_by_path` | terminates: repayments only (Phase 35) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -366,6 +376,13 @@ it below 90 % of the price. See [mortgages.md](mortgages.md).
 WF-1009 **v2** (Phase 34) reads the application profile (`mortgages.application_profile`)
 after the application is recorded and asks the AGB Mortgage Underwriting Assistant
 (`ai.review`, advisory) before the underwriter decides (`mortgage-applications`).
+
+### WF-1012, WF-1013 and WF-1014: commercial lending (Phase 35)
+
+The commercial lending base processes. WF-1012 proposes a facility and has a credit
+approver, and above US$1m the credit committee, approve it. WF-1013 tests a year's figures
+against the covenants and lets the committee waive a breach. WF-1014 is the annual review,
+renewing or terminating the facility. See [commercial-lending.md](commercial-lending.md).
 
 ### Authoring
 

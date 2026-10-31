@@ -131,7 +131,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       over every lending rule, four-eyes offers valid 90 days, completion into a loan
       charged on the property; WF-1009–1011; see `mortgages.md`. Phase 34: the
       `mortgage-applications` workload and the mortgage underwriting assistant)
-- [ ] SME and commercial lending: facilities, covenants, annual reviews
+- [x] SME and commercial lending: facilities, covenants, annual reviews
+      (Phase 35: term loans and revolving credit with four-eyes and committee approval,
+      drawdowns through the ledger, covenant tests that freeze a facility until waived,
+      annual reviews; WF-1012–1014; see `commercial-lending.md`)
 - [ ] Trade finance: letters of credit, guarantees
 - [ ] Treasury and markets: FX desk, liquidity, interbank placements
 - [ ] Payments operations: bulk payments, external clearing simulation, recalls
@@ -224,4 +227,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 32 (D4) | Cards, step 2: the `card-fraud-alerts` workload on stored WF-1008 v2, built through the real authorisation service, and the AGB Card Fraud Alert Assistant | complete |
 | Phase 33 (D5) | Mortgages and secured lending: properties and valuations, a decision in principle, four-eyes offers, completion into a loan charged on the property; WF-1009–1011 | complete |
 | Phase 34 (D6) | Mortgages, step 2: the `mortgage-applications` workload on stored WF-1009 v2 and the AGB Mortgage Underwriting Assistant | complete |
-| Phase 35 (D7, proposed) | SME and commercial lending: facilities, covenants, annual reviews | next |
+| Phase 35 (D7) | SME and commercial lending: facilities, drawdowns, covenant tests and waivers, annual reviews; WF-1012–1014 | complete |
+| Phase 36 (D8, proposed) | Commercial lending, step 2: a covenant-review workload and an AI credit-review tool candidate | next |

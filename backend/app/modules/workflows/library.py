@@ -1290,6 +1290,342 @@ def _complete_mortgage(ctx: StepContext, params: CompleteMortgage) -> dict[str, 
             "currency": loan.currency, "monthly_payment": loan.monthly_payment}  # fmt: skip
 
 
+# --- Commercial lending (Phase 35) -----------------------------------------------------------
+
+
+def _commercial_call(code: str, call, *args, **kwargs):
+    from app.core.errors import DomainError
+
+    try:
+        return call(*args, **kwargs)
+    except DomainError as exc:
+        raise StepError(code, getattr(exc, "message", str(exc))) from exc
+
+
+def _facility(ctx: StepContext, path: str):
+    from app.modules.commercial import service as commercial
+
+    return commercial.get_facility(ctx.db, uuid.UUID(str(_required(ctx, path))), for_update=True)
+
+
+class ProposeFacility(_Strict):
+    customer_number_path: str = Field(min_length=1, max_length=200)
+    account_number_path: str = Field(min_length=1, max_length=200)
+    facility_type_path: str = Field(min_length=1, max_length=200)
+    limit_path: str = Field(min_length=1, max_length=200)
+    term_path: str = Field(min_length=1, max_length=200)
+    purpose_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "commercial.propose_facility",
+    "Propose a term loan or revolving credit for a business customer.",
+    ProposeFacility,
+    "{facility_id, facility_number, currency, customer_id, customer_name, needs_committee}; a "
+    "rule the proposal breaks "
+    "fails the step.",
+    reads=lambda params: (
+        [
+            params.customer_number_path,
+            params.account_number_path,
+            params.facility_type_path,
+            params.limit_path,
+            params.term_path,
+        ]
+        + ([params.purpose_path] if params.purpose_path else [])
+    ),  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {
+        params.customer_number_path: "business.customer_number",
+        params.account_number_path: "business.account_number",
+    },  # fmt: skip
+)
+def _propose_facility(ctx: StepContext, params: ProposeFacility) -> dict[str, Any]:
+    from app.modules.accounts.service import find_account
+    from app.modules.commercial import service as commercial
+
+    number = str(_required(ctx, params.customer_number_path))
+    customer = commercial.find_customer(ctx.db, number)
+    if customer is None:
+        raise StepError("customer_not_found", f"No customer {number}.")
+    account_number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, account_number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {account_number}.")
+    facility = _commercial_call(
+        "proposal_refused", commercial.propose_facility, ctx.db, customer=customer,
+        account=account, facility_type=str(_required(ctx, params.facility_type_path)),
+        credit_limit=int(_required(ctx, params.limit_path)),
+        term_months=int(_required(ctx, params.term_path)),
+        purpose=str(ctx.get(params.purpose_path) or "Working capital")
+        if params.purpose_path else "Working capital",
+        requested_by=ctx.initiator_id,
+    )  # fmt: skip
+    return {"facility_id": str(facility.id), "facility_number": facility.facility_number,
+            "currency": facility.currency, "customer_id": str(customer.id),
+            "customer_name": customer.name,
+            "needs_committee": commercial.needs_committee(facility)}  # fmt: skip
+
+
+class FacilityDecision(_Strict):
+    facility_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _facility_out(facility) -> dict[str, Any]:
+    return {"facility_number": facility.facility_number, "status": facility.status,
+            "awaiting_committee": facility.status == "proposed",
+            "review_due_on": facility.review_due_on.isoformat()
+            if facility.review_due_on else None}  # fmt: skip
+
+
+@_library_handler(
+    "commercial.approve_facility",
+    "Record the credit approval; the facility is active unless the committee must approve.",
+    FacilityDecision,
+    "{facility_number, status, awaiting_committee, review_due_on}",
+    reads=lambda params: [params.facility_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,  # a credit approver other than the proposer
+)
+def _approve_facility(ctx: StepContext, params: FacilityDecision) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    facility = _commercial_call(
+        "approval_refused", commercial.approve_facility, ctx.db,
+        _facility(ctx, params.facility_id_path),
+        uuid.UUID(str(_required(ctx, params.decided_by_path))), now=ctx.now,
+    )  # fmt: skip
+    return _facility_out(facility)
+
+
+@_library_handler(
+    "commercial.committee_approve",
+    "Record the credit committee's approval of a facility above US$1m.",
+    FacilityDecision,
+    "{facility_number, status, awaiting_committee, review_due_on}",
+    reads=lambda params: [params.facility_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _committee_approve(ctx: StepContext, params: FacilityDecision) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    facility = _commercial_call(
+        "committee_refused", commercial.committee_approve, ctx.db,
+        _facility(ctx, params.facility_id_path),
+        uuid.UUID(str(_required(ctx, params.decided_by_path))), now=ctx.now,
+    )  # fmt: skip
+    return _facility_out(facility)
+
+
+@_library_handler(
+    "commercial.decline_facility",
+    "Decline the facility proposal.",
+    FacilityDecision,
+    "{facility_number, status, awaiting_committee, review_due_on}",
+    reads=lambda params: [params.facility_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _decline_facility(ctx: StepContext, params: FacilityDecision) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    facility = _commercial_call(
+        "decline_refused", commercial.decline_facility, ctx.db,
+        _facility(ctx, params.facility_id_path),
+        uuid.UUID(str(_required(ctx, params.decided_by_path))),
+    )  # fmt: skip
+    return _facility_out(facility)
+
+
+class LookupFacility(_Strict):
+    facility_number_path: str = Field(min_length=1, max_length=200)
+    customer_number_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "commercial.lookup_facility",
+    "Find a facility and, if asked, check whose it is.",
+    LookupFacility,
+    "{facility_id, facility_number, status, credit_limit, drawn, available, currency, "
+    "review_due_on, customer_id, customer_name}; an unknown facility or another customer's "
+    "fails the step.",
+    reads=lambda params: (
+        [params.facility_number_path]
+        + ([params.customer_number_path] if params.customer_number_path else [])
+    ),
+    effect="reads",
+    fixtures=lambda params: {
+        params.facility_number_path: "facility.facility_number",
+        **(
+            {params.customer_number_path: "business.customer_number"}
+            if params.customer_number_path
+            else {}
+        ),
+    },  # fmt: skip
+)
+def _lookup_facility(ctx: StepContext, params: LookupFacility) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    number = str(_required(ctx, params.facility_number_path))
+    facility = commercial.find_facility(ctx.db, number)
+    if facility is None:
+        raise StepError("facility_not_found", f"No facility {number}.")
+    from app.modules.customers.models import Customer
+
+    customer = ctx.db.get(Customer, facility.customer_id)
+    if (
+        params.customer_number_path
+        and customer.customer_number
+        != str(_required(ctx, params.customer_number_path)).strip().upper()
+    ):
+        raise StepError("facility_not_owned", "The facility belongs to another customer.")
+    return {"facility_id": str(facility.id), "facility_number": facility.facility_number,
+            "status": facility.status, "credit_limit": facility.credit_limit,
+            "drawn": facility.drawn, "available": commercial.available(facility),
+            "currency": facility.currency,
+            "customer_id": str(customer.id), "customer_name": customer.name,
+            "review_due_on": facility.review_due_on.isoformat()
+            if facility.review_due_on else None}  # fmt: skip
+
+
+class CovenantFigures(_Strict):
+    facility_id_path: str = Field(min_length=1, max_length=200)
+    period_end_path: str = Field(min_length=1, max_length=200)
+    ebitda_path: str = Field(min_length=1, max_length=200)
+    debt_service_path: str = Field(min_length=1, max_length=200)
+    total_debt_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "commercial.test_covenants",
+    "Test the facility's covenants on a year's figures; a breach freezes the facility.",
+    CovenantFigures,
+    "{test_id, breached, results}; results reads e.g. 'min_dscr 1.10× (needs 1.25×): breached'.",
+    reads=lambda params: [
+        params.facility_id_path,
+        params.period_end_path,
+        params.ebitda_path,
+        params.debt_service_path,
+        params.total_debt_path,
+    ],  # fmt: skip
+    effect="writes",
+)
+def _test_covenants(ctx: StepContext, params: CovenantFigures) -> dict[str, Any]:
+    from datetime import date as date_type
+
+    from app.modules.commercial import service as commercial
+
+    try:
+        period_end = date_type.fromisoformat(str(_required(ctx, params.period_end_path)))
+    except ValueError as exc:
+        raise StepError("invalid_date", "The period end is not a date (YYYY-MM-DD).") from exc
+    test = _commercial_call(
+        "test_refused", commercial.run_covenant_test, ctx.db,
+        _facility(ctx, params.facility_id_path), period_end=period_end,
+        ebitda=int(_required(ctx, params.ebitda_path)),
+        debt_service=int(_required(ctx, params.debt_service_path)),
+        total_debt=int(_required(ctx, params.total_debt_path)), actor_id=ctx.initiator_id,
+    )  # fmt: skip
+    results = "; ".join(
+        f"{r['kind']} {r['actual_centi'] / 100:.2f}× (limit {r['threshold_centi'] / 100:.2f}×): "
+        + ("met" if r["passed"] else "breached")
+        for r in test.results
+    )
+    return {"test_id": str(test.id), "breached": test.breached, "results": results}
+
+
+class WaiveBreach(_Strict):
+    test_id_path: str = Field(min_length=1, max_length=200)
+    waived_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "commercial.waive_breach",
+    "Record the credit committee's waiver of a covenant breach.",
+    WaiveBreach,
+    "{facility_number, status, awaiting_committee, review_due_on}",
+    reads=lambda params: [params.test_id_path, params.waived_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _waive_breach(ctx: StepContext, params: WaiveBreach) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    test = commercial.get_test(ctx.db, uuid.UUID(str(_required(ctx, params.test_id_path))))
+    facility = _commercial_call(
+        "waiver_refused", commercial.waive_breach, ctx.db, test,
+        uuid.UUID(str(_required(ctx, params.waived_by_path))), now=ctx.now,
+    )  # fmt: skip
+    return _facility_out(facility)
+
+
+class FacilityRef(_Strict):
+    facility_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "commercial.open_review",
+    "Open the facility's annual review (from 60 days before it is due).",
+    FacilityRef,
+    "{review_id, review_number, due_on}; too early, or a review already open, fails the step.",
+    reads=lambda params: [params.facility_id_path],
+    effect="writes",
+)
+def _open_review(ctx: StepContext, params: FacilityRef) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    review = _commercial_call(
+        "review_refused", commercial.open_review, ctx.db,
+        _facility(ctx, params.facility_id_path), ctx.initiator_id, today=ctx.now.date(),
+    )  # fmt: skip
+    return {"review_id": str(review.id), "review_number": review.review_number,
+            "due_on": review.due_on.isoformat()}  # fmt: skip
+
+
+class ReviewDecision(_Strict):
+    review_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _decide_review(ctx: StepContext, params: ReviewDecision, *, renew: bool) -> dict[str, Any]:
+    from app.modules.commercial import service as commercial
+
+    review = commercial.get_review(ctx.db, uuid.UUID(str(_required(ctx, params.review_id_path))))
+    review = _commercial_call(
+        "review_not_decided", commercial.decide_review, ctx.db, review, renew,
+        uuid.UUID(str(_required(ctx, params.decided_by_path))), now=ctx.now,
+    )  # fmt: skip
+    facility = commercial.get_facility(ctx.db, review.facility_id)
+    return {"review_number": review.review_number, "outcome": review.outcome,
+            **_facility_out(facility)}  # fmt: skip
+
+
+@_library_handler(
+    "commercial.renew_facility",
+    "Renew the facility for another year.",
+    ReviewDecision,
+    "{review_number, outcome, facility_number, status, review_due_on}",
+    reads=lambda params: [params.review_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,  # a credit approver other than the person who opened the review
+)
+def _renew_facility(ctx: StepContext, params: ReviewDecision) -> dict[str, Any]:
+    return _decide_review(ctx, params, renew=True)
+
+
+@_library_handler(
+    "commercial.terminate_facility",
+    "Terminate the facility: no further drawdowns, repayments only.",
+    ReviewDecision,
+    "{review_number, outcome, facility_number, status, review_due_on}",
+    reads=lambda params: [params.review_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _terminate_facility(ctx: StepContext, params: ReviewDecision) -> dict[str, Any]:
+    return _decide_review(ctx, params, renew=False)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

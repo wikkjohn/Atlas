@@ -1,4 +1,5 @@
 import {
+  BriefcaseBusiness,
   ArrowLeftRight,
   Banknote,
   CandlestickChart,
@@ -34,7 +35,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 33;
+export const IMPLEMENTED_PHASE = 35;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -55,6 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Foreign Exchange", path: "/fx", icon: CandlestickChart, phase: 24, permission: "payments:read" },
   { label: "Lending", path: "/lending", icon: HandCoins, phase: 9, permission: "loans:read" },
   { label: "Mortgages", path: "/mortgages", icon: House, phase: 33, permission: "loans:read" },
+  { label: "Commercial Lending", path: "/commercial", icon: BriefcaseBusiness, phase: 35, permission: "loans:read" },
   {
     label: "Workflow Explorer",
     path: "/workflows",

@@ -120,3 +120,19 @@ export async function mortgageApplicant(request: APIRequestContext): Promise<{
   }
   throw new Error("No seeded customer qualifies for a mortgage.");
 }
+
+/** A seeded verified business with an open business current account in GBP, EUR or USD
+ * (Phase 35). */
+export async function businessAccount(request: APIRequestContext): Promise<{ customerNumber: string; accountNumber: string }> {
+  const login = await request.post(`${API_URL}/api/v1/auth/login`, {
+    data: { username: "admin", password: DEMO_PASSWORD },
+  });
+  const { access_token: token } = (await login.json()) as { access_token: string };
+  const response = await request.get(`${API_URL}/api/v1/accounts?status=open&account_type=business_current&limit=100`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { items } = (await response.json()) as { items: { account_number: string; customer_number: string; currency: string }[] };
+  const account = items.find((a) => ["GBP", "EUR", "USD"].includes(a.currency));
+  if (!account) throw new Error("No seeded business current account in GBP, EUR or USD.");
+  return { customerNumber: account.customer_number, accountNumber: account.account_number };
+}

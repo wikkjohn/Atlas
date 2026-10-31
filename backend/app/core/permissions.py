@@ -40,6 +40,11 @@ class Permission(StrEnum):
     MORTGAGES_MANAGE = "mortgages:manage"
     # Trade finance: pay or reject documents and claims, close expired instruments (Phase 37)
     TRADE_MANAGE = "trade:manage"
+    # Treasury (Phase 39): book money-market deals and FX desk trades; confirm and settle
+    # them in back office (never one's own); set counterparty and position limits.
+    TREASURY_DEAL = "treasury:deal"
+    TREASURY_CONFIRM = "treasury:confirm"
+    TREASURY_LIMITS = "treasury:limits"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -141,9 +146,14 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.USERS_READ,
         Permission.LEDGER_READ,
         Permission.LOANS_APPROVE_LARGE,
+        Permission.TREASURY_LIMITS,
     },
     RoleCode.REGIONAL_EXECUTIVE: _BASE
-    | {Permission.EMPLOYEES_READ_COMPENSATION, Permission.LOANS_APPROVE_LARGE},
+    | {
+        Permission.EMPLOYEES_READ_COMPENSATION,
+        Permission.LOANS_APPROVE_LARGE,
+        Permission.TREASURY_LIMITS,
+    },
     RoleCode.DEPARTMENT_MANAGER: _BASE
     | _FRONT_OFFICE
     | {
@@ -156,9 +166,11 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.CARDS_MANAGE,
         Permission.MORTGAGES_MANAGE,
         Permission.TRADE_MANAGE,
+        Permission.TREASURY_DEAL,
+        Permission.TREASURY_CONFIRM,  # back office: confirm and settle others' deals
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
-    RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
+    RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE | {Permission.TREASURY_DEAL},
     RoleCode.COMPLIANCE_OFFICER: _BASE
     | {
         Permission.AUDIT_READ,

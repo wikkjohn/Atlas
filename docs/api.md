@@ -211,6 +211,26 @@ returned masked.
 | POST | `/api/v1/cards/disputes/{id}/decide` | `cards:manage` | `{refund}`; not by the person who opened it; a refund charges back through card settlement |
 | GET | `/api/v1/cards/summary/counts` | `accounts:read` | Active and blocked cards, purchases, declines, open disputes |
 
+### Mortgages (Phase 33)
+
+See [mortgages.md](mortgages.md). Amounts are minor units of the property's currency.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/mortgages/products` | `loans:read` | Products: loan-to-value, rate, term and loan sizes in USD |
+| GET | `/api/v1/mortgages/properties` | `loans:read` | With the latest valuation and the loan the property secures |
+| POST | `/api/v1/mortgages/properties` | `accounts:transact` | `{customer_number, property_type, purchase_price}`; country and currency are the customer's; 201 |
+| GET | `/api/v1/mortgages/properties/{id}/valuations` | `loans:read` | Newest first |
+| POST | `/api/v1/mortgages/properties/{id}/valuations` | `accounts:transact`; surveyor: `mortgages:manage` | `{method: desktop}` or `{method: surveyor, value, notes?}`; 201 |
+| POST | `/api/v1/mortgages/quote` | `accounts:transact` | `{customer_number, property_number, product_code, account_number, loan_amount, term_years, declared_monthly_income}`: every rule, passed or failed, with the payment and loan-to-value; writes nothing |
+| GET | `/api/v1/mortgages/offers` | `loans:read` | Filter `status` |
+| POST | `/api/v1/mortgages/offers` | `accounts:transact` | The quote's body; refused unless every rule passes; 201 `pending` |
+| POST | `/api/v1/mortgages/offers/{id}/decide` | `loans:approve` | `{approve}`; not by the requester; approved offers are valid for 90 days |
+| POST | `/api/v1/mortgages/offers/{id}/accept` | `accounts:transact` | Before the offer expires |
+| POST | `/api/v1/mortgages/offers/{id}/complete` | `loans:approve` | Not by the requester; books a `mortgage` loan charged on the property and pays it into the account |
+| POST | `/api/v1/mortgages/offers/{id}/withdraw` | `accounts:transact` | Pending, offered or accepted offers |
+| GET | `/api/v1/mortgages/summary/counts` | `loans:read` | Properties, offers by status, active mortgages |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

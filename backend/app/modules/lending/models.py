@@ -60,7 +60,11 @@ class LoanPurpose(StrEnum):
     EDUCATION = "education"
     DEBT_CONSOLIDATION = "debt_consolidation"
     OTHER = "other"
-    MORTGAGE = "mortgage"  # Phase 33: charged on a property, up to 35 years
+
+
+# A mortgage loan's purpose (Phase 33): charged on a property, up to 35 years. Not a
+# LoanPurpose, which lists what a personal loan (WF-0003) may be for.
+MORTGAGE_PURPOSE = "mortgage"
 
 
 class Loan(UUIDPrimaryKey, Base):

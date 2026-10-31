@@ -205,3 +205,7 @@ def test_the_mortgages_api(client: TestClient, db: Session) -> None:
     assert listed[0]["charged_loan_number"] == completed["loan_number"]
     counts = client.get("/api/v1/mortgages/summary/counts", headers=teller).json()
     assert counts["active_mortgages"] == 1
+    # The mortgage is an ordinary loan to the lending API.
+    loans = client.get("/api/v1/loans", headers=manager).json()["items"]
+    mortgage = next(loan for loan in loans if loan["loan_number"] == completed["loan_number"])
+    assert mortgage["purpose"] == "mortgage" and mortgage["term_months"] == 300

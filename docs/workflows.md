@@ -283,6 +283,16 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `cards.reject_dispute` | writes | `dispute_id_path`, `decided_by_path` | rejects a dispute; no money moves (Phase 31) |
 | `cards.fraud_profile` | reads | `card_id_path` | the purchase the fraud rules declined most recently and the card's history before it: approved purchases over 90 days and their median, earlier high-risk purchases, when the card was first used in that country, attempts in the hour before (Phase 32) |
 | `cards.unblock` | writes (approval required) | `card_id_path` | releases a block (Phase 31) |
+| `mortgages.register_property` | writes | `customer_number_path`, `property_type_path`, `purchase_price_path` | registers the property a customer is buying (Phase 33) |
+| `mortgages.desktop_valuation` | writes | `property_number_path` | values it with the synthetic model; reports value to price (Phase 33) |
+| `mortgages.confirm_value` | writes (approval required) | `property_number_path`, `surveyor_path` | records the surveyor's valuation at the purchase price (Phase 33) |
+| `mortgages.quote` | reads | `customer_number_path`, `property_number_path`, `account_number_path`, `product_path`, `loan_amount_path`, `term_years_path`, `income_path` | the decision in principle: `eligible`, the failed rules and their detail, loan-to-value, payment (Phase 33) |
+| `mortgages.request_offer` | writes | as `mortgages.quote` | records the application; a failed rule fails the step (Phase 33) |
+| `mortgages.issue_offer` | writes (approval required) | `offer_id_path`, `decided_by_path` | issues the offer, valid for 90 days; four-eyes (Phase 33) |
+| `mortgages.decline_offer` | writes | `offer_id_path`, `decided_by_path` | declines the application (Phase 33) |
+| `mortgages.lookup_offer` | reads | `offer_number_path`, `customer_id_path` (optional) | an offer's status, expiry and figures; another customer's fails (Phase 33) |
+| `mortgages.accept_offer` | writes | `offer_id_path` | records the customer's acceptance; an expired offer fails (Phase 33) |
+| `mortgages.complete` | moves money (approval required) | `offer_id_path`, `completed_by_path` | books the mortgage loan, charged on the property, into the account; four-eyes (Phase 33) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -343,6 +353,14 @@ WF-1008 **v2** (Phase 32) reads the declined purchase and the card's history
 (`cards.fraud_profile`) and asks the AGB Card Fraud Alert Assistant (`ai.review`,
 advisory) before the fraud analyst decides; its completions are `approved` (released) and
 `rejected`, as the simulation expects (`card-fraud-alerts`).
+
+### WF-1009, WF-1010 and WF-1011: mortgages (Phase 33)
+
+The mortgages base processes. WF-1009 runs a decision in principle, records an eligible
+application and has an underwriter other than the requester issue or decline the offer.
+WF-1010 records the customer's acceptance and completes after a second person's review.
+WF-1011 registers and values a property, with a surveyor's review when the model values
+it below 90 % of the price. See [mortgages.md](mortgages.md).
 
 ### Authoring
 

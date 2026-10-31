@@ -19,7 +19,7 @@ from app.modules.countries.models import Country
 from app.modules.customers.models import Customer, KycStatus
 from app.modules.fx import rates
 from app.modules.lending import service as lending
-from app.modules.lending.models import Loan, LoanPurpose, LoanStatus
+from app.modules.lending.models import MORTGAGE_PURPOSE, Loan, LoanStatus
 from app.modules.mortgages.models import (
     LIVE_OFFER_STATUSES,
     OFFER_SEQUENCE,
@@ -432,7 +432,7 @@ def complete_offer(
         principal=offer.loan_amount,
         annual_rate_bps=offer.annual_rate_bps,
         term_months=offer.term_months,
-        purpose=LoanPurpose.MORTGAGE.value,
+        purpose=MORTGAGE_PURPOSE,
         requested_by=offer.requested_by,
         underwritten_by=offer.decided_by,
         actor_id=actor_id,
@@ -471,6 +471,6 @@ def summary(db: Session) -> dict[str, Any]:
         "offered": count(MortgageOffer.status == OfferStatus.OFFERED),
         "accepted": count(MortgageOffer.status == OfferStatus.ACCEPTED),
         "active_mortgages": count(
-            Loan.purpose == LoanPurpose.MORTGAGE, Loan.status == LoanStatus.ACTIVE
+            Loan.purpose == MORTGAGE_PURPOSE, Loan.status == LoanStatus.ACTIVE
         ),
     }

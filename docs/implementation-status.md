@@ -78,10 +78,10 @@ Last updated: Phase 36.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | 593 passed (new: 4 — the assistant's rules and its history blind spot; the breach profile over three years with a waived breach; baseline and AI-assisted covenant runs with every case decided by the committee, no control violations, every kind's advice as designed, waivers only after approval; and, for the Codex fixes, every mortgage kind within its product at its extreme draws) |
+| Backend pytest (real PostgreSQL) | 594 passed (new: 5 — the assistant's rules and its history blind spot; the breach profile over three years with a waived breach; baseline and AI-assisted covenant runs with every case decided by the committee, no control violations, every kind's advice as designed, waivers only after approval; every mortgage kind within its product at its extreme draws (PR #25 review); leverage just over its limit, a frozen account's repayment and a review past the committee threshold (PR #26 review)) |
 | Generated workflow tests | 24 workflows, 499 cases, 0 failed (WF-1013 v2: 19 cases, 100 % steps and routes) |
-| Frontend Vitest / typecheck / build | 107 passed / clean / built |
-| Playwright on a fresh database | 39 passed on the first run (new: the covenant breach assistant in the AI Lab console, recommending another waiver after a waived breach) |
+| Frontend Vitest / typecheck / build | 108 passed (new: a terminated facility offers Repay, not Draw; the proposal converts a JPY limit in yen) / clean / built |
+| Playwright on a fresh database | 39 passed, both before and after the PR #26 fixes (new: the covenant breach assistant in the AI Lab console, recommending another waiver after a waived breach) |
 | Measurement | `covenant-breaches`, seed 2030, 300 breaches each: baseline 84.3 % accurate (20 wrong waivers, 27 wrongly kept frozen, 192.8 committee hours); AI assisted 94.3 % (15, 2, 123.7); repeat breaches waived 8 against 11 |
 
 Found while building it:

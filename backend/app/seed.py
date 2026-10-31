@@ -761,6 +761,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["loans:read"],
         "compatible_workflows": ["WF-1009"],
     },
+    {
+        "tool_id": "agb-covenant-breach-assistant",
+        "tool_name": "AGB Covenant Breach Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews covenant breaches on commercial facilities: debt service cover, "
+        "leverage, the EBITDA trend and how much is drawn, with an explanation and a waive, "
+        "keep frozen or escalate recommendation. Advisory: it never waives a breach "
+        "(Phase 36).",
+        "adapter": "rule_based_covenant_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["loans:read"],
+        "compatible_workflows": ["WF-1013"],
+    },
 ]
 
 

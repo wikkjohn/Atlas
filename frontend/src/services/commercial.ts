@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
+import { toMinorUnits } from "@/services/format";
 import type { CommercialSummary, CovenantTest, Facility, FacilityReview } from "@/types/commercial";
 import type { Page } from "@/types/enterprise";
 
@@ -39,14 +40,29 @@ export interface Proposal {
   customer_number: string;
   account_number: string;
   facility_type: string;
-  credit_limit: number;
+  /** In major units of the account's currency: converted once the account is found. */
+  credit_limit_major: number;
   term_months: number;
   purpose: string;
 }
 
+/** The currency of an account, looked up by its number. */
+export async function accountCurrency(number: string): Promise<string> {
+  const found = await apiGet<Page<{ account_number: string; currency: string }>>(`/api/v1/accounts${query({ q: number, limit: 5 })}`);
+  const account = found.items.find((a) => a.account_number === number);
+  if (!account) throw new Error(`No account ${number}.`);
+  return account.currency;
+}
+
 export function useProposeFacility() {
   const invalidate = useInvalidate();
-  return useMutation({ mutationFn: (body: Proposal) => apiPost<Facility>("/api/v1/commercial/facilities", body), onSuccess: invalidate });
+  return useMutation({
+    mutationFn: async ({ credit_limit_major, ...body }: Proposal) => {
+      const currency = await accountCurrency(body.account_number);
+      return apiPost<Facility>("/api/v1/commercial/facilities", { ...body, credit_limit: toMinorUnits(credit_limit_major, currency) });
+    },
+    onSuccess: invalidate,
+  });
 }
 
 export function useFacilityAction() {

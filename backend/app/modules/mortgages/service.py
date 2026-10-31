@@ -461,18 +461,18 @@ def withdraw_offer(db: Session, offer: MortgageOffer, actor_id: uuid.UUID | None
     return offer
 
 
-def application_profile(db: Session, offer: MortgageOffer) -> dict[str, Any]:
+def application_profile(db: Session, offer: MortgageOffer, today: date) -> dict[str, Any]:
     """What an underwriter looks at (Phase 34): the application's figures against the
     declared income and the bureau's estimate, the credit file, the valuation against the
-    automated model, and the applicant's age when the term ends."""
+    automated model, and the applicant's age when the term ends. `today` is the caller's
+    date (a workflow's, simulated or not), so ages do not depend on the wall clock."""
     customer = db.get(Customer, offer.customer_id)
     prop = get_property(db, offer.property_id)
     valuation = db.get(PropertyValuation, offer.valuation_id)
     estimate = monthly_income_estimate(customer, offer.currency)
     bureau = lending.bureau_report(customer.name, customer.date_of_birth_or_incorporation)
     born = customer.date_of_birth_or_incorporation
-    start = (offer.created_at or datetime.now(UTC)).date()
-    age_now = start.year - born.year - ((start.month, start.day) < (born.month, born.day))
+    age_now = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
     def bps(part: int, whole: int) -> int:
         return part * 10_000 // whole if whole > 0 else 0

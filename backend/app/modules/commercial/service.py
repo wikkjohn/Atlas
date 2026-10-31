@@ -331,6 +331,8 @@ def repay(
     if not 0 < amount <= facility.drawn:
         raise BusinessRuleViolation(f"Repay between 1 and the {facility.drawn} drawn.")
     account = accounts.get_account(db, facility.account_id, for_update=True)
+    if account.status != AccountStatus.OPEN:
+        raise BusinessRuleViolation(f"The business account is {account.status}.")
     if amount > accounts.available(db, account):
         raise BusinessRuleViolation("The business account cannot pay that.")
     repaid = facility.drawn_total - facility.drawn + amount
@@ -371,10 +373,12 @@ def run_covenant_test(
     results = []
     for covenant in covenants(db, facility):
         actual = dscr if covenant.kind == CovenantKind.MIN_DSCR else leverage
+        # Compliance by exact cross-multiplication; the truncated ratio is for display only
+        # (3.505× must not pass a 3.50× maximum).
         passed = (
-            actual >= covenant.threshold_centi
+            ebitda * 100 >= covenant.threshold_centi * debt_service
             if covenant.kind == CovenantKind.MIN_DSCR
-            else actual <= covenant.threshold_centi
+            else total_debt * 100 <= covenant.threshold_centi * ebitda
         )
         results.append({"kind": covenant.kind, "threshold_centi": covenant.threshold_centi,
                         "actual_centi": actual, "passed": passed})  # fmt: skip
@@ -407,6 +411,12 @@ def waive_breach(
 ) -> CommercialFacility:
     """The credit committee waives a breach; with no other unwaived breach the facility
     can be drawn again. Not by the person who submitted the figures."""
+    test = db.execute(
+        select(CovenantTest)
+        .where(CovenantTest.id == test.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
     if not test.breached or test.waived_by is not None:
         raise ConflictError("This test has no breach to waive.")
     if actor_id == test.submitted_by:
@@ -478,6 +488,13 @@ def decide_review(
     """Renew for another year (optionally with a new limit, not below what is drawn) or
     terminate (no further drawdowns). Not by the person who opened the review."""
     now = now or datetime.now(UTC)
+    # Re-read the review under a row lock, so two deciders cannot both see it open.
+    review = db.execute(
+        select(FacilityReview)
+        .where(FacilityReview.id == review.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
     if review.outcome is not None:
         raise ConflictError(f"Review {review.review_number} is decided.")
     if actor_id == review.opened_by:
@@ -490,6 +507,14 @@ def decide_review(
             if not (max(low, facility.drawn) <= new_limit <= high):
                 raise BusinessRuleViolation("The new limit must cover what is drawn and stay "
                                             "within the limits.")  # fmt: skip
+            if new_limit > facility.credit_limit and new_limit > _usd(
+                COMMITTEE_LIMIT_USD, facility.currency
+            ):
+                raise BusinessRuleViolation(
+                    "Raising a limit above US$1m needs the credit committee: propose a new "
+                    "facility for the larger amount.",
+                    {"rule": "committee_required"},
+                )
             facility.credit_limit = new_limit
         facility.review_due_on = review.due_on + timedelta(days=REVIEW_EVERY_DAYS)
         review.outcome = ReviewOutcome.RENEWED.value
@@ -501,6 +526,51 @@ def decide_review(
     _audit(db, actor_id, "facility.reviewed", facility, review_number=review.review_number,
            outcome=review.outcome)  # fmt: skip
     return review
+
+
+def breach_profile(db: Session, test: CovenantTest) -> dict[str, Any]:
+    """What the credit committee looks at when a breach is reviewed (Phase 36): the
+    period's ratios against the thresholds, how EBITDA moved over the last periods, how
+    much of the facility is drawn, and the facility's earlier breaches and waivers."""
+    facility = get_facility(db, test.facility_id)
+    history = list(
+        db.execute(
+            select(CovenantTest)
+            .where(CovenantTest.facility_id == facility.id,
+                   CovenantTest.period_end <= test.period_end)
+            .order_by(CovenantTest.period_end)
+        ).scalars()
+    )  # fmt: skip
+    earlier = [t for t in history if t.period_end < test.period_end]
+    ebitdas = [t.ebitda for t in history]
+
+    def change(new: int, old: int) -> int:
+        return int((new - old) * 10_000 / old) if old > 0 else 0  # toward zero
+
+    changes = [change(b, a) for a, b in zip(ebitdas, ebitdas[1:], strict=False)]
+    declines = 0
+    for c in reversed(changes):
+        if c >= 0:
+            break
+        declines += 1
+    by_kind = {r["kind"]: r for r in test.results}
+    dscr = by_kind.get(CovenantKind.MIN_DSCR, {})
+    leverage = by_kind.get(CovenantKind.MAX_LEVERAGE, {})
+    return {
+        "currency": facility.currency,
+        "facility_type": facility.facility_type,
+        "dscr_centi": dscr.get("actual_centi", 0),
+        "dscr_threshold_centi": dscr.get("threshold_centi", 0),
+        "leverage_centi": leverage.get("actual_centi", 0),
+        "leverage_threshold_centi": leverage.get("threshold_centi", 0),
+        "ebitda_change_bps": changes[-1] if changes else 0,
+        "previous_ebitda_change_bps": changes[-2] if len(changes) > 1 else 0,
+        "consecutive_declines": declines,
+        "utilisation_bps": facility.drawn * 10_000 // facility.credit_limit,
+        "periods_tested": len(history),
+        "previous_breaches": sum(t.breached for t in earlier),
+        "previous_waivers": sum(t.waived_by is not None for t in earlier),
+    }
 
 
 def summary(db: Session) -> dict[str, Any]:

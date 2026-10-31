@@ -47,10 +47,8 @@ function RegisterForm() {
   const [price, setPrice] = useState("");
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    // The price is entered in major units of the customer's currency; two decimals is right
-    // for most and the API checks it.
     register.mutate(
-      { customer_number: customer.trim(), property_type: type, purchase_price: Math.round(Number(price) * 100) },
+      { customer_number: customer.trim(), property_type: type, purchase_price_major: Number(price) },
       { onSuccess: () => setPrice("") },
     );
   };

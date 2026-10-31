@@ -1,0 +1,275 @@
+{
+  "workflow_id": "WF-1013",
+  "name": "Covenant Compliance Test",
+  "version": 2,
+  "description": "Version 2 (Phase 36): when the covenants are breached, what the credit committee reviews is read (commercial.breach_profile: the ratios against their thresholds, the EBITDA trend, how much is drawn and the facility's earlier breaches and waivers) and the AGB Covenant Breach Assistant reviews it; its recommendation is advice only. A business submits its figures for a year. The facility's covenants (DSCR at least 1.25×, leverage at most 3.5× by default) are tested; a breach freezes the facility. The credit committee (loans:approve_large, not the person who took the figures) may waive the breach, which lets the facility be drawn again. Stored definition: built only from library handlers (Phase 35).",
+  "business_owner": "Commercial Lending",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "facility_number",
+      "period_end",
+      "ebitda",
+      "debt_service",
+      "total_debt"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "facility_number": {
+        "type": "string",
+        "pattern": "^FAC-[0-9]{7,}$"
+      },
+      "period_end": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+        "examples": [
+          "2026-06-30"
+        ]
+      },
+      "ebitda": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000000000000,
+        "examples": [
+          22000000
+        ],
+        "description": "The year's EBITDA, minor units"
+      },
+      "debt_service": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000000,
+        "examples": [
+          20000000
+        ]
+      },
+      "total_debt": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000000000000,
+        "examples": [
+          60000000
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_facility.customer_name"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.facility_number",
+        "prefix": "CCT-"
+      },
+      "next": "find_facility"
+    },
+    {
+      "id": "find_facility",
+      "type": "service_task",
+      "name": "Find the facility",
+      "handler": "commercial.lookup_facility",
+      "params": {
+        "facility_number_path": "input.facility_number",
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "test"
+    },
+    {
+      "id": "test",
+      "type": "service_task",
+      "name": "Test the covenants",
+      "handler": "commercial.test_covenants",
+      "params": {
+        "facility_id_path": "find_facility.facility_id",
+        "period_end_path": "input.period_end",
+        "ebitda_path": "input.ebitda",
+        "debt_service_path": "input.debt_service",
+        "total_debt_path": "input.total_debt"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_breach"
+    },
+    {
+      "id": "route_breach",
+      "type": "decision",
+      "name": "Breached?",
+      "transitions": [
+        {
+          "to": "profile",
+          "when": {
+            "path": "test.breached",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_compliant"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the breach profile",
+      "handler": "commercial.breach_profile",
+      "params": {
+        "test_id_path": "test.test_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI covenant review (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-covenant-breach-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "committee_review"
+    },
+    {
+      "id": "committee_review",
+      "type": "approval",
+      "name": "Credit committee review",
+      "description": "The credit committee decides whether to waive the breach (not the person who took the figures).",
+      "approval": {
+        "permissions": [
+          "loans:approve_large"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 604800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "waive",
+          "when": {
+            "path": "committee_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_frozen"
+    },
+    {
+      "id": "waive",
+      "type": "service_task",
+      "name": "Waive the breach",
+      "handler": "commercial.waive_breach",
+      "params": {
+        "test_id_path": "test.test_id",
+        "waived_by_path": "committee_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_waived"
+    },
+    {
+      "id": "notify_compliant",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Covenant test",
+        "body": "Dear {find_facility.customer_name}, facility {find_facility.facility_number} meets its covenants: {test.results}."
+      },
+      "next": "compliant"
+    },
+    {
+      "id": "notify_waived",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Covenant test",
+        "body": "Dear {find_facility.customer_name}, the breach on facility {find_facility.facility_number} is waived ({test.results}); it can be drawn again."
+      },
+      "next": "waived"
+    },
+    {
+      "id": "notify_frozen",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Covenant test",
+        "body": "Dear {find_facility.customer_name}, facility {find_facility.facility_number} is frozen after a covenant breach: {test.results}."
+      },
+      "next": "frozen"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Covenant test",
+        "body": "Dear {find_facility.customer_name}, we could not test the covenants: {_failure.message}"
+      },
+      "next": "refused_after"
+    },
+    {
+      "id": "compliant",
+      "type": "completion",
+      "name": "Compliant",
+      "outcome": "approved"
+    },
+    {
+      "id": "waived",
+      "type": "completion",
+      "name": "Breach waived",
+      "outcome": "approved"
+    },
+    {
+      "id": "frozen",
+      "type": "completion",
+      "name": "Frozen",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Unknown facility",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

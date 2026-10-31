@@ -79,6 +79,8 @@ describe("Commercial Lending page", () => {
   it("proposes, approves, draws, tests covenants, waives and renews", async () => {
     const api = mockApi({
       ...routes,
+      // The proposal form finds the account's currency (JPY: no decimals) before converting.
+      "GET /api/v1/accounts": () => jsonResponse(page([{ account_number: "JP000000000900", currency: "JPY" }])),
       "POST /api/v1/commercial/facilities": () => jsonResponse(proposed, 201),
       "POST /api/v1/commercial/facilities/fac-2/approve": () => jsonResponse({ ...proposed, status: "active" }),
       "POST /api/v1/commercial/facilities/fac-3/committee": () => jsonResponse({ ...awaiting, status: "active" }),
@@ -91,9 +93,9 @@ describe("Commercial Lending page", () => {
 
     const form = await screen.findByRole("form", { name: "Propose a facility" });
     await userEvent.type(within(form).getByLabelText("Business customer"), "CUS-0000777");
-    await userEvent.type(within(form).getByLabelText("Business account"), "GB000000000900");
+    await userEvent.type(within(form).getByLabelText("Business account"), "JP000000000900");
     await userEvent.selectOptions(within(form).getByLabelText("Facility type"), "term_loan");
-    await userEvent.type(within(form).getByLabelText("Credit limit"), "250000");
+    await userEvent.type(within(form).getByLabelText("Credit limit"), "25000000");
     await userEvent.click(within(form).getByRole("button", { name: "Propose" }));
 
     await userEvent.click(await screen.findByRole("button", { name: "Approve FAC-0000002" }));
@@ -116,9 +118,9 @@ describe("Commercial Lending page", () => {
     const bodies = Object.fromEntries(api.requests.filter((r) => r.method !== "GET").map((r) => [`${r.method} ${r.path}`, r.body]));
     expect(bodies["POST /api/v1/commercial/facilities"]).toEqual({
       customer_number: "CUS-0000777",
-      account_number: "GB000000000900",
+      account_number: "JP000000000900",
       facility_type: "term_loan",
-      credit_limit: 25_000_000,
+      credit_limit: 25_000_000, // ¥25,000,000: yen have no minor units
       term_months: 36,
       purpose: "Working capital",
     });
@@ -130,6 +132,19 @@ describe("Commercial Lending page", () => {
       total_debt: 60_000_000,
     });
     expect(bodies["POST /api/v1/commercial/reviews/rev-1/decide"]).toEqual({ renew: true });
+  });
+
+  it("lets a terminated facility be repaid but not drawn", async () => {
+    mockApi({
+      ...routes,
+      "GET /api/v1/commercial/facilities": () => jsonResponse(page([facility({ status: "terminated", draw_block: "terminated", available: 0 })])),
+    });
+    renderApp("/commercial");
+    await userEvent.click(await screen.findByRole("button", { name: "Select FAC-0000001" }));
+    const detail = await screen.findByRole("region", { name: "Facility FAC-0000001" });
+    expect(within(detail).getByRole("button", { name: "Repay" })).toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: "Draw" })).not.toBeInTheDocument();
+    expect(within(detail).queryByRole("form", { name: "Covenant figures" })).not.toBeInTheDocument();
   });
 
   it("is read-only without the permissions", async () => {

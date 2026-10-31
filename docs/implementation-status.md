@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 35.
+Last updated: Phase 36.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -40,6 +40,68 @@ Last updated: Phase 35.
 | 33 | Departments, step 5: mortgages and secured lending ([mortgages.md](mortgages.md)) | **Complete** |
 | 34 | Departments, step 6: the mortgages workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 35 | Departments, step 7: SME and commercial lending ([commercial-lending.md](commercial-lending.md)) | **Complete** |
+| 36 | Departments, step 8: the commercial lending workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 36: what exists
+
+- **`commercial.breach_profile`:** what the credit committee reviews about a breached
+  covenant test: ratios against thresholds, the EBITDA change over the last two periods,
+  consecutive declines, utilisation, and earlier breaches and waivers. It is also a
+  library handler.
+- **AGB Covenant Breach Assistant** (`rule_based_covenant_review`, `recommend_decision`
+  only, compatible with WF-1013), with a deliberate blind spot for earlier breaches. The
+  seed registers it, and the AI Lab console has a sample.
+- **WF-1013 v2:** breach profile and AI review before the committee.
+- **Workload `covenant_breaches` and scenario `covenant-breaches` v1:**
+  - Businesses whose two years of covenant history run through the real service; this
+    year breaches.
+  - Six kinds with ground truth, decided by simulated executives.
+  - A control check covers four-eyes, `loans:approve_large`, and no waiver without
+    approval.
+- **Fixes from the Codex review of PR #25 (Phase 34):**
+  - `mortgage_applications` caps applicants' income estimates at US$9,000 a month, so a
+    generated loan can no longer exceed its product's maximum and stop the run.
+  - `mortgages.application_profile` computes age from the workflow's date, not the offer
+    row's creation time.
+- **Fixes from the Codex review of PR #26 (Phase 35):**
+  - A review can no longer raise a limit above US$1m without the committee.
+  - Covenant compliance is decided exactly, not on truncated ratios.
+  - A frozen business account cannot repay.
+  - Reviews and covenant tests are locked before a decision.
+  - The proposal form and the mortgage property form convert amounts in the account's or
+    customer's own currency (JPY, KWD and others), not by a fixed ×100.
+  - A terminated facility shows *Repay* on the page.
+- **Measured** (300 breaches): AI assisted 94.3 % accurate against 84.3 %, committee hours
+  124 against 193. Repeat breaches waived rose to 11 from 8, the one kind it made worse.
+
+## Phase 36: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 594 passed (new: 5 — the assistant's rules and its history blind spot; the breach profile over three years with a waived breach; baseline and AI-assisted covenant runs with every case decided by the committee, no control violations, every kind's advice as designed, waivers only after approval; every mortgage kind within its product at its extreme draws (PR #25 review); leverage just over its limit, a frozen account's repayment and a review past the committee threshold (PR #26 review)) |
+| Generated workflow tests | 24 workflows, 499 cases, 0 failed (WF-1013 v2: 19 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 108 passed (new: a terminated facility offers Repay, not Draw; the proposal converts a JPY limit in yen) / clean / built |
+| Playwright on a fresh database | 39 passed, both before and after the PR #26 fixes (new: the covenant breach assistant in the AI Lab console, recommending another waiver after a waived breach) |
+| Measurement | `covenant-breaches`, seed 2030, 300 breaches each: baseline 84.3 % accurate (20 wrong waivers, 27 wrongly kept frozen, 192.8 committee hours); AI assisted 94.3 % (15, 2, 123.7); repeat breaches waived 8 against 11 |
+
+Found while building it:
+- **Breach-profile test:** two expectations in the new test were wrong on the first run.
+  - An EBITDA change of −4.35 % came out as −435 basis points; the profile now rounds
+    changes toward zero, so it reads −434.
+  - The expected count of earlier breaches had left out the breach the test itself waived.
+- **Codex review of PR #25** (Phase 34, merged before the review finished): its two
+  findings were confirmed and fixed here. The mortgage extremes test fails with the old
+  income ceiling and passes with the new one.
+- **Ordering:** this phase ran the backend suite before Playwright, not alongside it.
+
+## Phase 36: known limitations
+
+- The commercial workload covers covenant breaches only; proposals and reviews are not
+  simulated.
+- WF-1013 v2 has no automated decision: AI assisted is the only AI mode.
+- The assistant's advice and the committee's response to it rest on stated assumptions.
+- The Phase 34 mortgage measurement was not rerun after the income cap; the cap changes
+  which applicants are drawn, so its figures would differ somewhat.
 
 ## Phase 35: what exists
 

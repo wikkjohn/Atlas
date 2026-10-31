@@ -165,6 +165,37 @@ def test_annual_reviews_renew_or_terminate(db: Session) -> None:
         commercial.draw(db, facility, 1_000, None, now=NOW)
 
 
+def test_review_findings_on_pr_26(db: Session) -> None:
+    """The Codex review of PR #26: leverage just over its limit breaches; a frozen business
+    account cannot repay; a review cannot raise a limit past the committee's threshold."""
+    from app.modules.accounts.models import AccountStatus
+    from app.modules.accounts.service import change_status
+
+    staff = make_staff(db)
+    customer, account = _business(db, staff, balance=1_000_000)
+    facility = _propose(db, staff, customer, account)
+    commercial.approve_facility(db, facility, staff.manager.id, now=NOW)
+    # 3.505× against 3.50×: truncated to 350 for display, but a breach.
+    test = commercial.run_covenant_test(
+        db, facility, period_end=date(2026, 6, 30), ebitda=100_000, debt_service=50_000,
+        total_debt=350_500, actor_id=staff.employee.id,
+    )  # fmt: skip
+    leverage = next(r for r in test.results if r["kind"] == "max_leverage")
+    assert leverage["actual_centi"] == 350 and not leverage["passed"] and test.breached
+    commercial.waive_breach(db, test, make_user(db, RoleCode.GLOBAL_EXECUTIVE).id, now=NOW)
+    commercial.draw(db, facility, 100_000, None, now=NOW)
+    change_status(db, account.id, AccountStatus.FROZEN, staff.manager.id, "Investigation")
+    with pytest.raises(BusinessRuleViolation, match="business account is frozen"):
+        commercial.repay(db, facility, 50_000, None, now=NOW)
+    # A renewal may raise the limit, but not past US$1m without the committee.
+    review = commercial.open_review(db, facility, staff.employee.id,
+                                    today=facility.review_due_on)  # fmt: skip
+    with pytest.raises(BusinessRuleViolation, match="needs the credit committee"):
+        commercial.decide_review(db, review, True, staff.manager.id, new_limit=200_000_000)
+    commercial.decide_review(db, review, True, staff.manager.id, new_limit=90_000_000, now=NOW)
+    assert facility.credit_limit == 90_000_000
+
+
 def test_the_commercial_api(client: TestClient, db: Session) -> None:
     staff = make_staff(db)
     customer, account = _business(db, staff)

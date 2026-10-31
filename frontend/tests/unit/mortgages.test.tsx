@@ -97,6 +97,7 @@ describe("Mortgages page", () => {
   it("registers, values, checks eligibility, applies and moves offers along", async () => {
     const api = mockApi({
       ...routes,
+      "GET /api/v1/customers": () => jsonResponse(page([{ customer_number: "CUS-0000042", currency: "GBP" }])),
       "POST /api/v1/mortgages/properties": () => jsonResponse({ ...property, id: "prop-2" }, 201),
       "POST /api/v1/mortgages/properties/prop-1/valuations": () => jsonResponse(property.latest_valuation, 201),
       "POST /api/v1/mortgages/quote": () => jsonResponse(quote),

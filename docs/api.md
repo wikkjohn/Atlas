@@ -192,6 +192,25 @@ See [retail-banking.md](retail-banking.md). Amounts are minor units unless named
 | POST | `/api/v1/retail/month-ends` | `retail:manage` | `{period?}` (any day of a month that has ended; default the last one); 202 with a `retail.month_end` job |
 | GET | `/api/v1/retail/summary` | `accounts:read` | Counts of arranged overdrafts, active standing orders and statements |
 
+### Cards (Phase 31)
+
+See [cards.md](cards.md). Amounts are minor units of the card's currency. Card numbers are
+returned masked.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/cards/products` | `accounts:read` | Products with their daily limit in USD and validity |
+| GET | `/api/v1/cards` | `accounts:read` | Filters `account_id`, `status` |
+| POST | `/api/v1/cards` | `accounts:transact` | `{account_number, product_code?}` (default `debit-standard`); current accounts, at most two live cards; 201 |
+| POST | `/api/v1/cards/{id}/block` | `accounts:transact` | `{reason}`: `lost`, `stolen`, `customer_request`, `fraud_suspected` |
+| POST | `/api/v1/cards/{id}/unblock` · `/{id}/cancel` | `cards:manage` | |
+| POST | `/api/v1/cards/{id}/authorizations` | `accounts:transact` | The merchant terminal: `{merchant_name, merchant_category, merchant_country, amount}`; 201 with `approved` or `declined`, the reason, fraud score and signals |
+| GET | `/api/v1/cards/authorizations/list` | `accounts:read` | Filters `card_id`, `status` |
+| GET | `/api/v1/cards/disputes/list` | `accounts:read` | Filter `status` |
+| POST | `/api/v1/cards/disputes` | `accounts:transact` | `{auth_code, reason, amount?}`; approved purchases within 120 days; 201 |
+| POST | `/api/v1/cards/disputes/{id}/decide` | `cards:manage` | `{refund}`; not by the person who opened it; a refund charges back through card settlement |
+| GET | `/api/v1/cards/summary/counts` | `accounts:read` | Active and blocked cards, purchases, declines, open disputes |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

@@ -121,7 +121,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       in every funds check, standing orders on business days, month end with daily
       interest, fees and statements; WF-1003–1005; see `retail-banking.md`. Phase 30:
       the `retail-overdrafts` workload and the overdraft affordability assistant)
-- [ ] Cards: issuing, authorisation, disputes and chargebacks, fraud blocks
+- [x] Cards: issuing, authorisation, disputes and chargebacks, fraud blocks
+      (Phase 31: synthetic Luhn-checked numbers, a merchant terminal with limits, funds
+      and fraud rules that block the card, four-eyes chargebacks through card
+      settlement; WF-1006–1008; see `cards.md`. Phase 32: the cards workload and an AI
+      fraud tool)
 - [ ] Mortgages and secured lending: valuation, collateral, offers
 - [ ] SME and commercial lending: facilities, covenants, annual reviews
 - [ ] Trade finance: letters of credit, guarantees
@@ -212,4 +216,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 28 (C6) | Milestone C exit: cases that follow each country's rules; onboarding and payments swept through all 120 countries — Milestone C done | complete |
 | Phase 29 (D1) | Retail banking: products, arranged overdrafts, standing orders, month-end interest, fees and statements; WF-1003–1005 | complete |
 | Phase 30 (D2) | Retail banking, step 2: the `retail-overdrafts` workload on stored WF-1003 v2 and the AGB Overdraft Affordability Assistant; simulations run stored workflows | complete |
-| Phase 31 (D3, proposed) | Cards: issuing, authorisation, disputes and chargebacks, fraud blocks | next |
+| Phase 31 (D3) | Cards: issuing, a merchant terminal with fraud rules and blocks, disputes and chargebacks; WF-1006–1008 | complete |
+| Phase 32 (D4, proposed) | Cards, step 2: a cards workload (purchases, fraud and disputes) and an AI fraud tool candidate | next |

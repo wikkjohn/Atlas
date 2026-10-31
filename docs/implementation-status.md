@@ -57,7 +57,18 @@ Last updated: Phase 30.
 
 ## Phase 30: verified results
 
-PENDING
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 566 passed (new: 4 — the assistant's rules and blind spot; the account profile over 90 days of ledger history; baseline and AI-assisted overdraft runs with no control violations, tool calls only when assisted, the blind spot's approvals and limits set only after approval; the automated mode refused) |
+| Generated workflow tests | All stored workflows: 15 workflows, 331 cases, 0 failed (WF-1003 v2: 16 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 98 passed / clean / built |
+| Playwright on a fresh database | 33 passed on the first run (new: the overdraft assistant in the AI Lab console, recommending approval for a customer overdrawn most days) |
+| Measurement | `retail-overdrafts`, seed 2030, 300 requests each: baseline 94.3 % accurate (3 false approvals, 14 false rejections, 70.6 review hours); AI assisted 96.3 % (7, 4, 42.4) |
+
+Found while building it: the first seeding failed (a tool may only name existing workflows
+as compatible, and WF-1003 is imported after the tools), and the first assisted runs
+counted every tool call as failed (the simulation read `invocation_status`, which
+`ai.review` did not report). Both fixed as described above.
 
 ## Phase 30: known limitations
 

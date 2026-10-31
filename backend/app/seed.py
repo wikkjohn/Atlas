@@ -733,6 +733,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["accounts:read"],
         "compatible_workflows": ["WF-1003"],
     },
+    {
+        "tool_id": "agb-card-fraud-assistant",
+        "tool_name": "AGB Card Fraud Alert Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews cards blocked by the fraud rules against the card's history: "
+        "where it has been used, its usual amounts, earlier high-risk purchases and bursts of "
+        "attempts, with an explanation and a release, keep or escalate recommendation. "
+        "Advisory: it never releases a card (Phase 32).",
+        "adapter": "rule_based_card_fraud_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["accounts:read"],
+        "compatible_workflows": ["WF-1008"],
+    },
 ]
 
 

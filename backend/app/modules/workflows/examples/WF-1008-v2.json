@@ -1,0 +1,236 @@
+{
+  "workflow_id": "WF-1008",
+  "name": "Card Fraud Block Release",
+  "version": 2,
+  "description": "Version 2 (Phase 32): before the fraud analyst decides, the declined purchase and the card's history are read (cards.fraud_profile) and the AGB Card Fraud Alert Assistant reviews them; its recommendation is advice only. Completions are approved (block released) or rejected (kept blocked, not blocked, could not be done, or an unknown customer), as the simulation and experiments expect. Stored definition: built only from library handlers.",
+  "business_owner": "Cards",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "card_number"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "card_number": {
+        "type": "string",
+        "pattern": "^\\d{16}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "FRB-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "find_card"
+    },
+    {
+      "id": "find_card",
+      "type": "service_task",
+      "name": "Find the card",
+      "handler": "cards.lookup",
+      "params": {
+        "card_number_path": "input.card_number",
+        "customer_id_path": "find_customer.customer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_status"
+    },
+    {
+      "id": "route_status",
+      "type": "decision",
+      "name": "Blocked?",
+      "transitions": [
+        {
+          "to": "profile",
+          "when": {
+            "path": "find_card.status",
+            "op": "eq",
+            "value": "blocked"
+          }
+        }
+      ],
+      "next": "notify_not_blocked"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the declined purchase and the card's history",
+      "handler": "cards.fraud_profile",
+      "params": {
+        "card_id_path": "find_card.card_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI fraud alert review (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-card-fraud-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "fraud_review"
+    },
+    {
+      "id": "fraud_review",
+      "type": "approval",
+      "name": "Review the blocked purchases",
+      "approval": {
+        "permissions": [
+          "cards:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "release",
+          "when": {
+            "path": "fraud_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_kept",
+      "description": "A card fraud analyst other than the person who took the request decides (four-eyes)."
+    },
+    {
+      "id": "release",
+      "type": "service_task",
+      "name": "Release the block",
+      "handler": "cards.unblock",
+      "params": {
+        "card_id_path": "find_card.card_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_released"
+    },
+    {
+      "id": "notify_released",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your card is unblocked",
+        "body": "Dear {find_customer.name}, your card ending {find_card.card_last4} can be used again."
+      },
+      "next": "released"
+    },
+    {
+      "id": "notify_kept",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your card stays blocked",
+        "body": "Dear {find_customer.name}, your card ending {find_card.card_last4} stays blocked; we will send a replacement."
+      },
+      "next": "kept_blocked"
+    },
+    {
+      "id": "notify_not_blocked",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your card",
+        "body": "Dear {find_customer.name}, your card ending {find_card.card_last4} is not blocked."
+      },
+      "next": "not_blocked"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Explain why it could not be done",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "released",
+      "type": "completion",
+      "name": "Block released",
+      "outcome": "approved"
+    },
+    {
+      "id": "kept_blocked",
+      "type": "completion",
+      "name": "Kept blocked",
+      "outcome": "rejected"
+    },
+    {
+      "id": "not_blocked",
+      "type": "completion",
+      "name": "Not blocked",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

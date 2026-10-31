@@ -110,10 +110,34 @@ const SAMPLE_OVERDRAFT = {
   },
   as_of: "2026-04-07",
 };
+/** Card testing at home: tiny test purchases, then crypto — the fraud assistant's blind spot (Phase 32). */
+const SAMPLE_CARD_FRAUD = {
+  profile: {
+    currency: "USD",
+    home_country: "US",
+    daily_limit: 150000,
+    blocked: {
+      auth_code: "AUTH-00000042",
+      merchant_name: "Coin Exchange",
+      merchant_category: "6051",
+      merchant_country: "US",
+      abroad: false,
+      amount: 12000,
+      fraud_score: 70,
+      fraud_signals: ["high_risk_category", "velocity"],
+    },
+    purchases_90d: 17,
+    median_amount: 5200,
+    high_risk_purchases_90d: 0,
+    country_first_seen_hours: null,
+    attempts_last_hour: [110, 95, 180, 60, 150],
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
   rule_based_overdraft_affordability: SAMPLE_OVERDRAFT,
+  rule_based_card_fraud_review: SAMPLE_CARD_FRAUD,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

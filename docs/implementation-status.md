@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 31.
+Last updated: Phase 32.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -36,6 +36,51 @@ Last updated: Phase 31.
 | 29 | Departments, step 1: retail banking ([retail-banking.md](retail-banking.md)) | **Complete** |
 | 30 | Departments, step 2: the retail workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 31 | Departments, step 3: cards ([cards.md](cards.md)) | **Complete** |
+| 32 | Departments, step 4: the cards workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 32: what exists
+
+- **`cards.fraud_profile`:** the purchase the fraud rules declined most recently and the
+  card's history before it (approved purchases over 90 days and their median, earlier
+  high-risk purchases, when the card was first used in that country, attempts in the
+  hour before); a library handler of the same name.
+- **AGB Card Fraud Alert Assistant** (`rule_based_card_fraud_review`,
+  `recommend_decision` only, compatible with WF-1008), with a deliberate blind spot for
+  card testing; registered by the seed, with a sample in the AI Lab console.
+- **WF-1008 v2:** fraud profile and AI review before the fraud analyst; completions
+  `approved` (released) and `rejected`.
+- **Workload `card_fraud_alerts` and scenario `card-fraud-alerts` v1:** card histories
+  built through the real authorisation service, so the real fraud rules make every
+  block; six kinds with ground truth; control check (four-eyes, `cards:manage`, no
+  release without approval).
+- **Authorisation windows bounded:** the daily-limit and velocity checks count only
+  attempts up to the purchase's time, so backdated purchases are judged as they were.
+- **Measured** (300 cases): AI assisted 96.3 % accurate against 88.0 %, review hours 38
+  against 61; card testing released 4 against 3, the one kind it made worse.
+
+## Phase 32: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 574 passed (new: 3 — the assistant's rules and its card-testing blind spot; the fraud profile from a card's history; baseline and AI-assisted fraud-alert runs with no control violations, every kind's advice as designed, releases only after approval) |
+| Generated workflow tests | 18 workflows, 383 cases, 0 failed (WF-1008 v2: 19 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 101 passed / clean / built |
+| Playwright on a fresh database | 35 passed on the first run (new: the card fraud assistant in the AI Lab console, recommending release of a card-testing block) |
+| Measurement | `card-fraud-alerts`, seed 2030, 300 cases each: baseline 88.0 % accurate (19 wrong releases, 17 wrong refusals, 60.8 review hours); AI assisted 96.3 % (6, 5, 38.0); card testing released 3 against 4 |
+
+Found while building it: the first simulation run stopped because a regular crypto
+buyer's card was blocked too early. The workload backdates purchases out of order, and the
+velocity and daily-limit checks counted every attempt after the window's start, including
+later ones. Both checks now stop at the purchase's own time. This never happened outside
+the simulation, where purchases are always made at the current time.
+
+## Phase 32: known limitations
+
+- The cards workload covers fraud blocks only; disputes and chargebacks are not simulated.
+- WF-1008 v2 has no automated decision: AI assisted is the only AI mode.
+- The assistant's advice and the analysts' response to it rest on stated assumptions.
+- Building each card's history through the authorisation service costs about 20
+  authorisations a case (300 cases took about 3 minutes per run).
 
 ## Phase 31: what exists
 

@@ -231,6 +231,39 @@ register_scenario(
     )
 )
 
+register_scenario(
+    Scenario(
+        scenario_id="retail-overdrafts",
+        version=1,
+        name="Arranged overdraft requests (retail banking)",
+        description="A working day of arranged-overdraft requests through WF-1003 v2 from "
+        "existing customers with three months of account history: affordable requests from "
+        "steady earners, limits large against income, irregular income, customers already "
+        "living in an overdraft, and limits above the product's maximum. Credit officers "
+        "decide; in AI-assisted runs the AGB Overdraft Affordability Assistant advises them "
+        "(Phase 30).",
+        workload="retail_overdrafts",
+        workflow_id="WF-1003",
+        workflow_version=2,
+        simulated_start=datetime(2026, 4, 7, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "steady_small": 0.45,
+                "steady_large": 0.20,
+                "stretched": 0.12,
+                "habitual_overdraft": 0.10,
+                "irregular_income": 0.07,
+                "over_maximum": 0.06,
+            },
+            reviewers={"credit_decision": ReviewerModel(mean_minutes=15, accuracy=0.92)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)
+
 # The Milestone C exit (Phase 28): the same workflows in any active country, with cases that
 # follow each country's rules and reviewers who always decide correctly, so every outcome
 # that differs from the ground truth is the workflow's or the rules', not a person's.

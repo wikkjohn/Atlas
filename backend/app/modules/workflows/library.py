@@ -761,7 +761,7 @@ def _ai_review(ctx: StepContext, params: AiReview) -> dict[str, Any]:
 
     if (ctx.get("_settings") or {}).get("ai_mode") == "off":
         # An experiment's baseline (Phase 30): the case runs without the tool.
-        return {"available": False, "skipped": True, "recommendation": "escalate"}
+        return {"available": False, "skipped": True, "mode": "off", "recommendation": "escalate"}
     try:
         tool = find_tool(ctx.db, params.tool_id)
     except NotFoundError as exc:
@@ -781,6 +781,8 @@ def _ai_review(ctx: StepContext, params: AiReview) -> dict[str, Any]:
     return {
         "available": True,
         **identity,
+        # Read by the simulation's AI metrics, like the code workflows' AI steps.
+        "invocation_status": call.status,
         "recommendation": out.get("recommendation", "escalate"),
         "risk_classification": out.get("risk_classification"),
         "risk_score": out.get("risk_score"),

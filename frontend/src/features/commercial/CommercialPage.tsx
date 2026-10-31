@@ -41,13 +41,13 @@ function ProposeForm() {
   const set = (key: keyof typeof empty) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    // The limit is entered in major units; the API checks it against the account's currency.
+    // The limit is entered in major units of the account's currency.
     propose.mutate(
       {
         customer_number: form.customer.trim(),
         account_number: form.account.trim(),
         facility_type: form.type,
-        credit_limit: Math.round(Number(form.limit) * 100),
+        credit_limit_major: Number(form.limit),
         term_months: Number(form.term),
         purpose: form.purpose,
       },
@@ -103,6 +103,8 @@ function FacilityDetail({ facility }: { facility: Facility }) {
     figures.mutate({ id: facility.id, period_end: period, ebitda: minor(ebitda), debt_service: minor(service), total_debt: minor(debt) });
   };
   const live = facility.status === "active" || facility.status === "frozen";
+  // A terminated facility is repaid, never drawn.
+  const repayable = (live || facility.status === "terminated") && facility.drawn > 0;
   return (
     <section aria-label={`Facility ${facility.facility_number}`} className="mt-4 rounded-lg border border-slate-200 p-3 text-xs">
       <h3 className="mb-2 text-sm font-semibold text-slate-900">
@@ -114,19 +116,24 @@ function FacilityDetail({ facility }: { facility: Facility }) {
         {facility.draw_block && facility.status !== "proposed" && <span className="text-rose-700"> · cannot draw: {facility.draw_block}</span>}
       </p>
       <ErrorMessage error={action.error ?? figures.error ?? waive.error ?? tests.error} />
-      {live && can("accounts:transact") && (
+      {(live || repayable) && can("accounts:transact") && (
         <div className="flex flex-wrap items-end gap-4">
           <form aria-label="Draw or repay" onSubmit={(e) => e.preventDefault()} className="flex items-end gap-2">
             <Field label={`Amount (${facility.currency})`}>
               <input aria-label="Amount" inputMode="decimal" className={`w-28 ${INPUT}`} value={amount} onChange={(e) => setAmount(e.target.value)} />
             </Field>
-            <Button size="sm" type="button" disabled={!amount || action.isPending} onClick={() => move("draw")}>
-              Draw
-            </Button>
-            <Button size="sm" type="button" variant="secondary" disabled={!amount || action.isPending} onClick={() => move("repay")}>
-              Repay
-            </Button>
+            {live && (
+              <Button size="sm" type="button" disabled={!amount || action.isPending} onClick={() => move("draw")}>
+                Draw
+              </Button>
+            )}
+            {repayable && (
+              <Button size="sm" type="button" variant="secondary" disabled={!amount || action.isPending} onClick={() => move("repay")}>
+                Repay
+              </Button>
+            )}
           </form>
+          {live && (
           <form aria-label="Covenant figures" onSubmit={onFigures} className="flex flex-wrap items-end gap-2">
             <Field label="Year to">
               <input aria-label="Period end" type="date" required className={INPUT} value={period} onChange={(e) => setPeriod(e.target.value)} />
@@ -144,9 +151,12 @@ function FacilityDetail({ facility }: { facility: Facility }) {
               Test covenants
             </Button>
           </form>
-          <Button size="sm" variant="secondary" onClick={() => action.mutate({ id: facility.id, action: "reviews" })}>
-            Open review
-          </Button>
+          )}
+          {live && (
+            <Button size="sm" variant="secondary" onClick={() => action.mutate({ id: facility.id, action: "reviews" })}>
+              Open review
+            </Button>
+          )}
         </div>
       )}
       <table aria-label="Covenant tests" className="mt-3 min-w-full">

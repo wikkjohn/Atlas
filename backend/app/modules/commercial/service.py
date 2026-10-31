@@ -331,6 +331,8 @@ def repay(
     if not 0 < amount <= facility.drawn:
         raise BusinessRuleViolation(f"Repay between 1 and the {facility.drawn} drawn.")
     account = accounts.get_account(db, facility.account_id, for_update=True)
+    if account.status != AccountStatus.OPEN:
+        raise BusinessRuleViolation(f"The business account is {account.status}.")
     if amount > accounts.available(db, account):
         raise BusinessRuleViolation("The business account cannot pay that.")
     repaid = facility.drawn_total - facility.drawn + amount
@@ -371,10 +373,12 @@ def run_covenant_test(
     results = []
     for covenant in covenants(db, facility):
         actual = dscr if covenant.kind == CovenantKind.MIN_DSCR else leverage
+        # Compliance by exact cross-multiplication; the truncated ratio is for display only
+        # (3.505× must not pass a 3.50× maximum).
         passed = (
-            actual >= covenant.threshold_centi
+            ebitda * 100 >= covenant.threshold_centi * debt_service
             if covenant.kind == CovenantKind.MIN_DSCR
-            else actual <= covenant.threshold_centi
+            else total_debt * 100 <= covenant.threshold_centi * ebitda
         )
         results.append({"kind": covenant.kind, "threshold_centi": covenant.threshold_centi,
                         "actual_centi": actual, "passed": passed})  # fmt: skip
@@ -407,6 +411,12 @@ def waive_breach(
 ) -> CommercialFacility:
     """The credit committee waives a breach; with no other unwaived breach the facility
     can be drawn again. Not by the person who submitted the figures."""
+    test = db.execute(
+        select(CovenantTest)
+        .where(CovenantTest.id == test.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
     if not test.breached or test.waived_by is not None:
         raise ConflictError("This test has no breach to waive.")
     if actor_id == test.submitted_by:
@@ -478,6 +488,13 @@ def decide_review(
     """Renew for another year (optionally with a new limit, not below what is drawn) or
     terminate (no further drawdowns). Not by the person who opened the review."""
     now = now or datetime.now(UTC)
+    # Re-read the review under a row lock, so two deciders cannot both see it open.
+    review = db.execute(
+        select(FacilityReview)
+        .where(FacilityReview.id == review.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one()
     if review.outcome is not None:
         raise ConflictError(f"Review {review.review_number} is decided.")
     if actor_id == review.opened_by:
@@ -490,6 +507,14 @@ def decide_review(
             if not (max(low, facility.drawn) <= new_limit <= high):
                 raise BusinessRuleViolation("The new limit must cover what is drawn and stay "
                                             "within the limits.")  # fmt: skip
+            if new_limit > facility.credit_limit and new_limit > _usd(
+                COMMITTEE_LIMIT_USD, facility.currency
+            ):
+                raise BusinessRuleViolation(
+                    "Raising a limit above US$1m needs the credit committee: propose a new "
+                    "facility for the larger amount.",
+                    {"rule": "committee_required"},
+                )
             facility.credit_limit = new_limit
         facility.review_due_on = review.due_on + timedelta(days=REVIEW_EVERY_DAYS)
         review.outcome = ReviewOutcome.RENEWED.value

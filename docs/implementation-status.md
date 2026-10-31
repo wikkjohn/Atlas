@@ -63,6 +63,14 @@ Last updated: Phase 36.
     generated loan can no longer exceed its product's maximum and stop the run.
   - `mortgages.application_profile` computes age from the workflow's date, not the offer
     row's creation time.
+- **Fixes from the Codex review of PR #26 (Phase 35):**
+  - A review can no longer raise a limit above US$1m without the committee.
+  - Covenant compliance is decided exactly, not on truncated ratios.
+  - A frozen business account cannot repay.
+  - Reviews and covenant tests are locked before a decision.
+  - The proposal form and the mortgage property form convert amounts in the account's or
+    customer's own currency (JPY, KWD and others), not by a fixed ×100.
+  - A terminated facility shows *Repay* on the page.
 - **Measured** (300 breaches): AI assisted 94.3 % accurate against 84.3 %, committee hours
   124 against 193. Repeat breaches waived rose to 11 from 8, the one kind it made worse.
 

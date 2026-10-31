@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
+import { toMinorUnits } from "@/services/format";
 import type { Page } from "@/types/enterprise";
 import type {
   MortgageApplication,
@@ -43,11 +44,22 @@ export function useOffers() {
   });
 }
 
+/** The currency of a customer (their country's), looked up by customer number. */
+export async function customerCurrency(number: string): Promise<string> {
+  const found = await apiGet<Page<{ customer_number: string; currency: string }>>(`/api/v1/customers${query({ q: number, limit: 5 })}`);
+  const customer = found.items.find((c) => c.customer_number === number);
+  if (!customer) throw new Error(`No customer ${number}.`);
+  return customer.currency;
+}
+
 export function useRegisterProperty() {
   const invalidate = useInvalidateMortgages();
   return useMutation({
-    mutationFn: (body: { customer_number: string; property_type: string; purchase_price: number }) =>
-      apiPost<Property>("/api/v1/mortgages/properties", body),
+    // The price is entered in major units of the customer's currency.
+    mutationFn: async ({ purchase_price_major, ...body }: { customer_number: string; property_type: string; purchase_price_major: number }) => {
+      const currency = await customerCurrency(body.customer_number);
+      return apiPost<Property>("/api/v1/mortgages/properties", { ...body, purchase_price: toMinorUnits(purchase_price_major, currency) });
+    },
     onSuccess: invalidate,
   });
 }

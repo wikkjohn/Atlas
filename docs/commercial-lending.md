@@ -33,8 +33,9 @@ the facility matures at the end of its term.
 ## Drawdowns and repayments
 
 - **Drawdown:** the facility's receivable is debited and the business account credited.
-- **Repayment:** the reverse. The business account must be able to pay, counting any
-  arranged overdraft.
+- **Repayment:** the reverse. The business account must be open and able to pay, counting
+  any arranged overdraft. A terminated facility can still be repaid, on the page and through
+  the API.
 
 **What can be drawn:**
 - **Revolving credit:** up to the limit less what is drawn; repaid amounts can be drawn
@@ -48,7 +49,9 @@ overdue, or after it matures. The facilities table shows why a facility cannot b
 
 Each year's figures (EBITDA, debt service and total debt, in minor units) are tested
 against the facility's covenants: once per period, recording the actual ratio and whether
-each covenant was met.
+each covenant was met. Compliance is decided exactly, by cross-multiplication. The
+recorded ratio is truncated to hundredths for display only, so leverage of 3.505× breaches
+a 3.50× maximum.
 
 **A breach freezes the facility.** The credit committee (`loans:approve_large`), but not
 the person who submitted the figures, may waive it. When no unwaived breach is left, the
@@ -59,10 +62,12 @@ facility can be drawn again. Tests, breaches and waivers are audited.
 A review can be opened from 60 days before the facility's review is due, one at a time.
 A credit approver other than the person who opened it decides:
 - **Renew:** the next review is due a year after this one; the limit may change, but not
-  below what is drawn.
+  below what is drawn. A renewal cannot raise a limit above US$1m, which needs the credit
+  committee; that takes a new facility proposal.
 - **Terminate:** no further drawdowns; repayments only.
 
-A review left undecided past its due date stops drawdowns.
+A review left undecided past its due date stops drawdowns. A decision locks the review
+first, so two approvers cannot both decide it.
 
 ## The base processes (workflow factory)
 

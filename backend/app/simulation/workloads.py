@@ -1307,7 +1307,7 @@ class CovenantBreaches(Workload):
                 if test.breached:  # only a repeat breach has one: the committee waived it
                     commercial.waive_breach(db, test, manager.id, now=start - timedelta(days=300))
             ebitda, debt_service, debt = figures[2]
-            breached = ebitda * 100 // debt_service < 125 or debt * 100 // ebitda > 350
+            breached = ebitda * 100 < 125 * debt_service or debt * 100 > 350 * ebitda
             if facility.status != "active" or not breached:
                 raise RuntimeError(f"{kind} case {index}: expected an active facility and a "
                                    "breach this year")  # fmt: skip

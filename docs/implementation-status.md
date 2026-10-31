@@ -82,11 +82,11 @@ Last updated: Phase 39.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 609 passed (new: 6 — booking rules (principal, tenor, rating, counterparty limit, cancelled deals freeing it); a placement settling and maturing with ACT/365 or ACT/360 interest and four-eyes on both; a placement refused for taking liquidity coverage to 50 % while the same amount for 30 days is allowed; a borrowing repaid with interest expense, refused while the cash is short; the FX desk squaring a EUR position over its limit with four-eyes; the API with its permissions) |
 | Migration 0030 | upgrade, `alembic check` clean, downgrade and upgrade again |
 | Generated workflow tests | 30 workflows, 605 cases, 0 failed (WF-1018: 13 cases, WF-1019: 11, WF-1020: 16; each 100 % steps and routes, on their first run) |
 | Frontend Vitest / typecheck / build | 116 passed (new: 3 — deals, liquidity, positions and counterparties; booking a JPY borrowing in yen, confirming, settling a maturity, squaring a EUR position; read-only without the treasury permissions) / clean / built |
-| Playwright on a fresh database | PLAYWRIGHT_RESULT |
+| Playwright on a fresh database | 42 passed on the first run (new: a dealer's placement with a BB+ bank is refused; the dealer books one with CP-NORTHGATE and cannot confirm it; back office confirms and it settles) |
 
 Found while building it:
 - **New backend tests:** one expectation in `test_treasury.py` assumed the test account

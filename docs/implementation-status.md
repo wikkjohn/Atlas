@@ -86,11 +86,11 @@ Last updated: Phase 41.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 619 passed (new: 6 — outgoing payments validated with four-eyes for high value; a clearing cycle settling, returning (AC04) and rejecting (AM04) with the ledger checked; a bulk file with an invalid line, refused when over the funds, released with four-eyes; recalls cancelled before clearing, returned in the window, refused after it; the API with its permissions; the treasury lock mode and duplicate terms (PR #31 review)) |
 | Migration 0031 | upgrade, `alembic check` clean, downgrade and upgrade again |
 | Generated workflow tests | 33 workflows, 650 cases, 0 failed (WF-1021: 13 cases, WF-1022: 11, WF-1023: 19; each 100 % steps and routes, on their first run) |
 | Frontend Vitest / typecheck / build | 120 passed (new: 3 — payments, returns, batches, bulk errors and recalls; sending a JPY payment in yen, approving, running a cycle, a bulk file in major units, recalls approved and answered; read-only without the permissions) / clean / built |
-| Playwright on a fresh database | PLAYWRIGHT_RESULT |
+| Playwright on a fresh database | 44 passed on the first run (new: a teller pays another bank and cannot run clearing; a manager runs the cycle and it settles; the teller asks for it back and cannot approve; the manager approves and records the answer, and the payment is recalled) |
 
 Found while building it:
 - **New backend tests:** four tests failed on the first run because their payments of

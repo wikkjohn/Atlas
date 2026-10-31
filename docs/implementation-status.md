@@ -59,7 +59,16 @@ Last updated: Phase 31.
 
 ## Phase 31: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 571 passed (new: 5 — synthetic Luhn-checked numbers and the issuing rules; authorisation against funds, overdraft and the daily limit with ledger postings; fraud rules declining and blocking, release by a manager; disputes with four-eyes, chargeback and rejection; the API with its permissions) |
+| Generated workflow tests | 18 workflows, 381 cases, 0 failed (WF-1006: 15 cases, WF-1007: 18, WF-1008: 17; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 101 passed / clean / built |
+| Playwright on a fresh database | 34 passed (new: a teller issues a card and pays, a purchase abroad at a gambling merchant is declined and blocks the card, the teller cannot release it, a manager does). The first run failed 1 test: the test's own `Merchant` label locator also matched `Merchant country`; the locator was made exact and the full suite passed on a newly rebuilt database |
+
+Found while building it: the partial unique index for live disputes needed a `text()`
+predicate in the migration, and a stray unfinished query in the fraud rules was removed
+before the first test run.
 
 ## Phase 31: known limitations
 

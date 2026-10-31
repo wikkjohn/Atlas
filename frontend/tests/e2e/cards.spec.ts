@@ -22,7 +22,7 @@ test("Cards: a teller issues a card and pays; a fraud decline blocks it; a manag
   await expect(page.getByRole("status").filter({ hasText: /AUTH-\d+: approved/ })).toBeVisible();
 
   // Abroad at a gambling merchant: fraud score 70, declined, and the card is blocked.
-  await terminal.getByLabel("Merchant").fill("Lucky Spins");
+  await terminal.getByLabel("Merchant", { exact: true }).fill("Lucky Spins");
   await terminal.getByLabel("Category").selectOption("7995");
   await terminal.getByLabel("Merchant country").fill("KY");
   await terminal.getByRole("button", { name: "Pay" }).click();

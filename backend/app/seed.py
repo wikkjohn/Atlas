@@ -775,6 +775,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["loans:read"],
         "compatible_workflows": ["WF-1013"],
     },
+    {
+        "tool_id": "agb-document-check-assistant",
+        "tool_name": "AGB Document Check Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews discrepant presentations under letters of credit before the "
+        "applicant's waiver: the discrepancy, days to expiry, how much is drawn and whether the "
+        "applicant can pay, with an explanation and a pay, reject or escalate recommendation. "
+        "Advisory: it never pays (Phase 38).",
+        "adapter": "rule_based_document_check",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["loans:read"],
+        "compatible_workflows": ["WF-1016"],
+    },
 ]
 
 

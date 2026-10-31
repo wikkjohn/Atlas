@@ -1198,6 +1198,31 @@ class MortgageApplications(Workload):
         return check
 
 
+def _verified_business(sim: "_Simulation", name: str, country_code: str) -> Account:
+    """A verified business with an open business current account (Phases 36 and 38)."""
+    db = sim.db
+    country_id = db.execute(
+        select(Country.id).where(Country.iso_country_code == country_code)
+    ).scalar_one()
+    business = create_customer(
+        db,
+        CustomerCreate(customer_type=CustomerType.BUSINESS, name=name,
+                       date_of_birth_or_incorporation=date(2008, 5, 1),
+                       country_id=country_id),
+        actor_id=None,
+        today=sim.clock.start.date(),
+    )  # fmt: skip
+    review_customer(db, business, CustomerReview(kyc_status=KycStatus.PENDING), None)
+    review_customer(db, business, CustomerReview(kyc_status=KycStatus.VERIFIED,
+                                                 risk_rating=RiskRating.LOW), None)  # fmt: skip
+    teller, manager = sim.population_staff()
+    request = submit_request(db, customer_id=business.id,
+                             account_type=AccountType.BUSINESS_CURRENT, currency=None,
+                             requested_by=teller.id)  # fmt: skip
+    return approve_request(db, request.id, manager, "Existing customer (simulation "
+                           "population)", now=sim.history_at)  # fmt: skip
+
+
 # --- Covenant breaches (WF-1013 v2, Phase 36) ------------------------------------------------
 
 COVENANT_SHOULD_KEEP = frozenset({"structural_decline", "over_leveraged", "repeat_breach",
@@ -1225,29 +1250,6 @@ class CovenantBreaches(Workload):
     ai_step = "ai_review"
     automated_path = None  # the credit committee always decides
 
-    def _business(self, sim: "_Simulation", name: str, country_code: str) -> Account:
-        db = sim.db
-        country_id = db.execute(
-            select(Country.id).where(Country.iso_country_code == country_code)
-        ).scalar_one()
-        business = create_customer(
-            db,
-            CustomerCreate(customer_type=CustomerType.BUSINESS, name=name,
-                           date_of_birth_or_incorporation=date(2008, 5, 1),
-                           country_id=country_id),
-            actor_id=None,
-            today=sim.clock.start.date(),
-        )  # fmt: skip
-        review_customer(db, business, CustomerReview(kyc_status=KycStatus.PENDING), None)
-        review_customer(db, business, CustomerReview(kyc_status=KycStatus.VERIFIED,
-                                                     risk_rating=RiskRating.LOW), None)  # fmt: skip
-        teller, manager = sim.population_staff()
-        request = submit_request(db, customer_id=business.id,
-                                 account_type=AccountType.BUSINESS_CURRENT, currency=None,
-                                 requested_by=teller.id)  # fmt: skip
-        return approve_request(db, request.id, manager, "Existing customer (simulation "
-                               "population)", now=sim.history_at)  # fmt: skip
-
     def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
         from app.modules.commercial import service as commercial
 
@@ -1264,7 +1266,7 @@ class CovenantBreaches(Workload):
             kind = _pick(rng, mix)
             country = rng.choice(sim.countries)
             name = f"{rng.choice(LAST_NAMES)} {rng.choice(TRADES)} Ltd"
-            account = self._business(sim, name, country)
+            account = _verified_business(sim, name, country)
             currency = account.currency
             facility = commercial.propose_facility(
                 db, customer=account.customer, account=account, facility_type="revolving",
@@ -1369,6 +1371,152 @@ class CovenantBreaches(Workload):
         return check
 
 
+# --- Discrepant presentations (WF-1016 v2, Phase 38) -----------------------------------------
+
+PRESENTATION_SHOULD_REJECT = frozenset({"missing_document", "last_minute_shipment",
+                                        "repeat_discrepancy", "stretched_applicant"})  # fmt: skip
+GOODS = ("Coffee", "Cotton", "Machine Parts", "Ceramics", "Timber", "Rice", "Steel Coil")
+DISCREPANCY_OF = {"late_presentation": "late_presentation", "wording_slip": "description_mismatch",
+                  "missing_document": "missing_document", "last_minute_shipment": "late_shipment",
+                  "stretched_applicant": "late_shipment"}  # fmt: skip
+
+
+class DiscrepantPresentations(Workload):
+    """Discrepant documents under letters of credit through WF-1016 v2: each business has an
+    issued letter of credit, and the exporter presents documents with one discrepancy, so a
+    trade officer decides whether to pay on the applicant's waiver, with the AGB Document
+    Check Assistant's advice in AI-assisted runs.
+
+    Ground truth: a late presentation or a wording slip is paid; a missing document, a late
+    shipment presented in the last days of the credit, the same discrepancy presented again
+    after the bank rejected it, and a late shipment the applicant can barely fund are
+    rejected."""
+
+    key = "discrepant_presentations"
+    workflow_id = "WF-1016"
+    kinds = frozenset({"late_presentation", "wording_slip"} | PRESENTATION_SHOULD_REJECT)
+    reviewer_roles = {"applicant_waiver": "manager"}
+    job_titles = {"teller": "Trade Documents Checker", "manager": "Trade Officer"}
+    ai_step = "ai_review"
+    automated_path = None  # a trade officer always decides
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.trade import service as trade
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        start = sim.clock.start
+        today = start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "presentation")
+            kind = _pick(rng, mix)
+            name = f"{rng.choice(LAST_NAMES)} {rng.choice(TRADES)} Ltd"
+            account = _verified_business(sim, name, rng.choice(sim.countries))
+            currency = account.currency
+            amount = _usd(rng.randint(50, 900) * 1_000, currency)
+            requested_on = today - timedelta(days=60)
+            expires = today + timedelta(
+                days=rng.randint(1, 6) if kind == "last_minute_shipment" else rng.randint(60, 200)
+            )
+            share = rng.uniform(0.3, 0.7)
+            draw = max(int(amount * share), 1)
+            margin = amount * trade.MARGIN_BPS["letter_of_credit"] // 10_000
+            if kind == "stretched_applicant":
+                # After the margin is taken, funds (with the margin released on payment)
+                # cover the payment 1.00-1.08 times.
+                cover = rng.uniform(1.0, 1.08)
+                funding = margin + int(draw * cover) - margin * draw // amount + 1
+            else:
+                funding = margin + 2 * amount
+            key = f"sim-trade-{sim.run_id}-{index}"
+            deposit(db, account.id, amount=funding, memo="Trading receipts (simulation)",
+                    actor_id=teller.id, idempotency_key=key)  # fmt: skip
+            instrument = trade.request_instrument(
+                db, customer=account.customer, account=account, kind="letter_of_credit",
+                beneficiary_name=f"{rng.choice(LAST_NAMES)} {rng.choice(GOODS)} Exports",
+                beneficiary_country=rng.choice(("VN", "IN", "BR", "KE", "TR", "MX")),
+                amount=amount, expires_on=expires, purpose=f"{rng.choice(GOODS)}, one shipment",
+                requested_by=teller.id, today=requested_on,
+            )  # fmt: skip
+            trade.approve_instrument(db, instrument, manager.id, now=start - timedelta(days=59))
+            if instrument.status != "issued":
+                raise RuntimeError(f"{kind} case {index}: the letter of credit was not issued")
+            if kind == "repeat_discrepancy":
+                discrepancy = rng.choice(("late_presentation", "description_mismatch"))
+                earlier = trade.receive_demand(
+                    db, instrument, amount=draw, presented_on=today - timedelta(days=20),
+                    discrepancies=[discrepancy], received_by=teller.id,
+                )  # fmt: skip
+                trade.reject_demand(db, earlier, manager.id, "Discrepancy not waived",
+                                    now=start - timedelta(days=19))  # fmt: skip
+            else:
+                discrepancy = DISCREPANCY_OF[kind]
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome=(
+                        "rejected" if kind in PRESENTATION_SHOULD_REJECT else "approved"
+                    ),
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "customer_number": account.customer.customer_number,
+                        "instrument_number": instrument.instrument_number,
+                        "amount": draw,
+                        "discrepancy": discrepancy,
+                    },
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every waiver decision against four-eyes and authority, and every payment only
+        after an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["applicant_waiver", "document_check", "pay",
+                                             "pay_waived"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()  # fmt: skip
+        roles = _roles(db)
+        approved: set[tuple[uuid.UUID, str]] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id in ("applicant_waiver", "document_check"):
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add((execution.id, step_run.step_id))
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.TRADE_MANAGE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        needs = {"pay": "document_check", "pay_waived": "applicant_waiver"}
+        for step_run, execution, _, _ in runs:
+            if (
+                step_run.step_id in needs
+                and (execution.id, needs[step_run.step_id]) not in approved
+            ):
+                check.violations.append(
+                    {"rule": "payment_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -1380,6 +1528,7 @@ WORKLOADS: dict[str, Workload] = {
         CardFraudAlerts(),
         MortgageApplications(),
         CovenantBreaches(),
+        DiscrepantPresentations(),
     )
 }
 STAFF_ROLES = {

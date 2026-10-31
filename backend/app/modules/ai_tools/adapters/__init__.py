@@ -4,6 +4,7 @@ from app.modules.ai_tools.adapters.base import AIToolAdapter
 from app.modules.ai_tools.adapters.card_fraud import CardFraudAdapter
 from app.modules.ai_tools.adapters.covenant_review import CovenantReviewAdapter
 from app.modules.ai_tools.adapters.credit_underwriting import CreditUnderwritingAdapter
+from app.modules.ai_tools.adapters.document_check import DocumentCheckAdapter
 from app.modules.ai_tools.adapters.fault_injection import FaultInjectionAdapter
 from app.modules.ai_tools.adapters.kyc_assistant import KycAssistantAdapter
 from app.modules.ai_tools.adapters.mortgage_underwriting import MortgageUnderwritingAdapter
@@ -20,6 +21,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         CardFraudAdapter(),
         MortgageUnderwritingAdapter(),
         CovenantReviewAdapter(),
+        DocumentCheckAdapter(),
         FaultInjectionAdapter(),
     )
 }

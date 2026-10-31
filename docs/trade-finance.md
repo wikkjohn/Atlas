@@ -29,6 +29,9 @@ The screening result is kept on the instrument. Numbers are `LC-` (letter of cre
 - Above US$1,000,000 the credit committee (`loans:approve_large`) must approve as well,
   and that must be a third person.
 
+**Too late to issue.** An approval after the expiry date is refused; the request can only be
+declined.
+
 **Issue.** Once approved, the instrument is issued and its margin is moved from the
 business account to `TRADE-MARGIN-<currency>`, a liability. If the account cannot provide
 the margin, counting any arranged overdraft, the approval is refused.
@@ -61,7 +64,8 @@ pays or rejects it. Payment locks the demand, the instrument and the account, th
 When the full amount is drawn the instrument is `paid`. A rejection leaves it issued.
 
 **Expiry.** After its expiry date, `trade:manage` can close an issued instrument with no
-pending demand. What is left of the margin returns to the business account. Requests,
+pending demand. What is left of the margin returns to the business account, which cannot
+be closed while it backs a requested or issued instrument. Requests,
 decisions, demands, payments, rejections and expiries are audited.
 
 ## The base processes (workflow factory)
@@ -80,6 +84,11 @@ decisions, demands, payments, rejections and expiries are audited.
 - **WF-1017** finds the guarantee, records the claim, and has `trade:manage` pay or reject
   it.
 
+**Version 2** of WF-1015 and WF-1017 (fixes from the review of PR #28) accepts amounts up
+to 10^14 minor units, enough for US$5m in every supported currency (the largest is LBP at
+4.5 × 10^13); the service applies the limits. The committee's task in WF-1015 v2 cannot be
+taken by the credit approver. WF-1016 v2 (Phase 38) has the same ceiling.
+
 `seed-demo` imports all three. Their generated path tests pass with 100 % step and route
 coverage (WF-1015: 23 cases, WF-1016: 25, WF-1017: 16). The generated tests provide two new
 fixture kinds:
@@ -88,6 +97,27 @@ fixture kinds:
 
 Both are issued instruments of 5,000,000 minor units valid for 120 days, for a test
 business whose account now holds 100,000,000.
+
+## Simulation workload and AI tool (Phase 38)
+
+The `discrepant_presentations` workload drives WF-1016 v2 (scenario
+`discrepant-presentations`).
+- **Cases:** each case is a business with an issued letter of credit, run through the real
+  service. The exporter presents documents with one discrepancy, so a trade officer
+  (simulated department managers with `trade:manage`) decides every case on the applicant's
+  waiver.
+- **Ground truth, pay:** a late presentation; a description that does not match.
+- **Ground truth, reject:**
+  - a missing document;
+  - a late shipment presented 1–6 days before the credit expires;
+  - the same discrepancy presented again after the bank rejected it;
+  - a late shipment the applicant can fund only 1.00–1.08 times.
+- **Decisions:** in AI-assisted runs the AGB Document Check Assistant advises the officer,
+  from the profile `trade.presentation_profile` reads.
+- **Control check:** four-eyes and authority on each decision, and no payment without an
+  approval.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
 
 ## API and permissions
 
@@ -107,4 +137,5 @@ See [api.md](api.md) (*Trade finance*). Reading needs `loans:read`.
 - **Fees and limits:** no commissions are charged, and there are no customer trade limits
   beyond the margin.
 - **Expiry:** nothing closes expired instruments automatically.
-- **Simulation:** no trade finance workload or AI tool yet (Phase 38).
+- **Simulation:** the workload covers discrepant presentations (`discrepant-presentations`);
+  requests, complying documents and guarantee claims are not simulated.

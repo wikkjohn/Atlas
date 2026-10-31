@@ -117,6 +117,24 @@ describe("Trade finance page", () => {
     expect(bodies["POST /api/v1/trade/instruments/lc-1/demands"]).toEqual({ amount: 2_000_000, presented_on: "2026-10-30", discrepancies: ["missing_document"] });
   });
 
+  it("pages back to older instruments beyond the first 25 (PR #28 review)", async () => {
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/trade/instruments": (request) =>
+        request.search.get("offset") === "25"
+          ? jsonResponse(page([instrument({ id: "lc-old", instrument_number: "LC-0000099" })], 26, 25, 25))
+          : jsonResponse(page([instrument({}), requested, awaiting], 26, 25, 0)),
+    });
+    renderApp("/trade");
+    const pages = await screen.findByRole("navigation", { name: "Instrument pages" });
+    expect(pages).toHaveTextContent("1–25 of 26");
+    expect(within(pages).getByRole("button", { name: "Newer" })).toBeDisabled();
+    await userEvent.click(within(pages).getByRole("button", { name: "Older" }));
+    expect(await screen.findByRole("button", { name: "Select LC-0000099" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Instrument pages" })).toHaveTextContent("26–26 of 26");
+    expect(api.requests.some((r) => r.path === "/api/v1/trade/instruments" && r.search.get("offset") === "25")).toBe(true);
+  });
+
   it("is read-only without the permissions", async () => {
     mockApi({ ...routes, ...authRoutes({ ...employeeUser, permissions: ["loans:read"] }) });
     renderApp("/trade");

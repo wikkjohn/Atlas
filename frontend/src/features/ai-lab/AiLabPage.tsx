@@ -172,6 +172,21 @@ const SAMPLE_COVENANT = {
     previous_waivers: 1,
   },
 };
+/** The same late presentation the bank rejected before: the document check assistant's blind spot (Phase 38). */
+const SAMPLE_DOCUMENT_CHECK = {
+  profile: {
+    currency: "GBP",
+    kind: "letter_of_credit",
+    discrepancy: "late_presentation",
+    discrepancy_count: 1,
+    draw_share_bps: 4000,
+    days_to_expiry: 75,
+    funding_cover_bps: 25000,
+    earlier_presentations: 1,
+    earlier_rejected: 1,
+    earlier_same_discrepancy: 1,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -179,6 +194,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_card_fraud_review: SAMPLE_CARD_FRAUD,
   rule_based_mortgage_underwriting: SAMPLE_MORTGAGE,
   rule_based_covenant_review: SAMPLE_COVENANT,
+  rule_based_document_check: SAMPLE_DOCUMENT_CHECK,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

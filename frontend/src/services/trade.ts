@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
 import { accountCurrency } from "@/services/commercial";
@@ -18,10 +18,14 @@ export function useTradeSummary() {
   return useQuery({ queryKey: ["trade", "summary"], queryFn: () => apiGet<TradeSummary>("/api/v1/trade/summary/counts") });
 }
 
-export function useInstruments() {
+export const INSTRUMENTS_PAGE = 25;
+
+/** A page of instruments, newest first; `offset` pages back through older ones. */
+export function useInstruments(offset = 0) {
   return useQuery({
-    queryKey: ["trade", "instruments"],
-    queryFn: () => apiGet<Page<TradeInstrument>>(`/api/v1/trade/instruments${query({ limit: 25 })}`),
+    queryKey: ["trade", "instruments", offset],
+    queryFn: () => apiGet<Page<TradeInstrument>>(`/api/v1/trade/instruments${query({ limit: INSTRUMENTS_PAGE, offset })}`),
+    placeholderData: keepPreviousData, // the page stays while the next one loads
   });
 }
 

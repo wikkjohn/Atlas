@@ -140,7 +140,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 37: beneficiaries screened against the sanctions lists, four-eyes and
       committee approval, a cash margin held while live, documents checked for
       discrepancies and paid with the applicant's waiver, guarantee claims, expiry;
-      WF-1015–1017; see `trade-finance.md`)
+      WF-1015–1017; see `trade-finance.md`. Phase 38: the `discrepant-presentations`
+      workload and the document check assistant)
 - [ ] Treasury and markets: FX desk, liquidity, interbank placements
 - [ ] Payments operations: bulk payments, external clearing simulation, recalls
 - [ ] Wealth and investments: synthetic securities, custody, suitability
@@ -235,4 +236,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 35 (D7) | SME and commercial lending: facilities, drawdowns, covenant tests and waivers, annual reviews; WF-1012–1014 | complete |
 | Phase 36 (D8) | Commercial lending, step 2: the `covenant-breaches` workload on stored WF-1013 v2, decided by the credit committee, and the AGB Covenant Breach Assistant | complete |
 | Phase 37 (D9) | Trade finance: letters of credit and guarantees, sanctions screening, cash margin, documentary presentations and guarantee claims; WF-1015–1017 | complete |
-| Phase 38 (D10, proposed) | Trade finance, step 2: a documentary presentation workload on stored WF-1016 v2 and an AI document-check assistant | next |
+| Phase 38 (D10) | Trade finance, step 2: the `discrepant-presentations` workload on stored WF-1016 v2, decided by trade officers, and the AGB Document Check Assistant | complete |
+| Phase 39 (D11, proposed) | Treasury and markets: FX desk, liquidity, interbank placements | next |

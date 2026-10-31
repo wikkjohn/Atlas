@@ -546,6 +546,20 @@ def change_status(
     if current == target:
         raise ConflictError(f"The account is already {target.value}.")
     if target == AccountStatus.CLOSED:
+        from app.modules.trade.models import InstrumentStatus, TradeInstrument
+
+        live = db.execute(
+            select(TradeInstrument.instrument_number).where(
+                TradeInstrument.account_id == account.id,
+                TradeInstrument.status.in_([InstrumentStatus.REQUESTED, InstrumentStatus.ISSUED]),
+            )
+        ).scalars().first()  # fmt: skip
+        if live:
+            # Its margin would come back to a closed account (PR #28 review).
+            raise BusinessRuleViolation(
+                f"The account backs trade instrument {live}, which is still live.",
+                {"rule": "live_trade_instrument", "instrument_number": live},
+            )
         remaining = ledger.balance(db, _ledger_account(db, account))
         if remaining != 0:
             raise BusinessRuleViolation(

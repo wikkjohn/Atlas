@@ -516,7 +516,9 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         mortgage_kinds = {"property.property_number", "mortgage_offer.offer_number"}
         customer, account = _customer_and_account(
             db,
-            "account.account_number" in kinds or bool(kinds & (card_kinds | mortgage_kinds)),
+            "account.account_number" in kinds
+            or "outgoing_payment.payment_number" in kinds
+            or bool(kinds & (card_kinds | mortgage_kinds)),
             creditworthy=bool(kinds & mortgage_kinds),
         )
         known = {
@@ -547,6 +549,19 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
                      "facility.facility_number", "letter_of_credit.instrument_number",
                      "guarantee.instrument_number"}:  # fmt: skip
             known.update(_business_fixtures(db, kinds))
+        if "outgoing_payment.payment_number" in kinds:
+            # A payment from the fixture account, settled through a clearing cycle today
+            # (Phase 41).
+            from app.modules.clearing import service as clearing
+
+            payment = clearing.create_outgoing(
+                db, debtor=account, beneficiary_name="Generated Test Supplier",
+                beneficiary_bank="NBKAGB22",
+                beneficiary_account=clearing.account_number("123456789012"), amount=100_000,
+                reference="Generated test", initiated_by=_person(db, RoleCode.BANKING_EMPLOYEE).id,
+            )  # fmt: skip
+            clearing.run_cycle(db, account.currency, None)
+            known["outgoing_payment.payment_number"] = payment.payment_number
         if kinds & {"counterparty.code", "treasury_deal.deal_number", "fx_long.currency"}:
             known.update(_treasury_fixtures(db, kinds))
         if "payee.account_number" in kinds:

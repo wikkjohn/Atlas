@@ -1,0 +1,182 @@
+{
+  "workflow_id": "WF-1022",
+  "name": "Bulk Payment File",
+  "version": 1,
+  "description": "A business sends a bulk payment file from one of its accounts. Every line is validated (beneficiary bank, check digits, amount within limits, a name); the valid lines must not add up to more than the account can pay. Someone other than the person who received it (payments:approve) releases the file, and each valid line becomes a payment waiting for clearing, or rejects it. Stored definition: built only from library handlers (Phase 41).",
+  "business_owner": "Payments Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "account_number",
+      "file_name",
+      "lines"
+    ],
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}[0-9]{6,32}$"
+      },
+      "file_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 140,
+        "examples": [
+          "payroll-october.csv"
+        ]
+      },
+      "lines": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 500,
+        "items": {
+          "type": "object"
+        },
+        "examples": [
+          [
+            {
+              "name": "Supplier A",
+              "bank": "ALPEDEFF",
+              "account": "12345678901218",
+              "amount": 100000,
+              "reference": "Invoice 7"
+            },
+            {
+              "name": "Supplier B",
+              "bank": "LACBFRPP",
+              "account": "22345678901223",
+              "amount": 250000,
+              "reference": "Invoice 8"
+            },
+            {
+              "name": "Supplier C",
+              "bank": "HARBSGSG",
+              "account": "12345678901299",
+              "amount": 50000
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "receive.file_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.account_number",
+        "prefix": "BLK-"
+      },
+      "next": "receive"
+    },
+    {
+      "id": "receive",
+      "type": "service_task",
+      "name": "Receive and validate the file",
+      "handler": "clearing.receive_bulk",
+      "params": {
+        "account_number_path": "input.account_number",
+        "file_name_path": "input.file_name",
+        "lines_path": "input.lines"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Release the file",
+      "description": "Someone other than the person who received it checks the file and releases it.",
+      "approval": {
+        "permissions": [
+          "payments:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 28800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "release",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "release",
+      "type": "service_task",
+      "name": "Release the file",
+      "handler": "clearing.release_bulk",
+      "params": {
+        "bulk_id_path": "receive.bulk_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "released"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the file",
+      "handler": "clearing.reject_bulk",
+      "params": {
+        "bulk_id_path": "receive.bulk_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "File not released"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "released",
+      "type": "completion",
+      "name": "Released",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

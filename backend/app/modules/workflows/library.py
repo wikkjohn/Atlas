@@ -2218,6 +2218,318 @@ def _cancel_fx_trade(ctx: StepContext, params: FxTradeDecision) -> dict[str, Any
     return _fx_trade_out(trade)
 
 
+# --- Payments operations (Phase 41) ----------------------------------------------------------
+
+
+def _clearing_account(ctx: StepContext, path: str):
+    from app.modules.clearing import service as clearing
+
+    number = str(_required(ctx, path))
+    account = clearing.find_account(ctx.db, number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {number}.")
+    return account
+
+
+def _outgoing_out(payment) -> dict[str, Any]:
+    return {"payment_id": str(payment.id), "payment_number": payment.payment_number,
+            "status": payment.status, "high_value": payment.high_value,
+            "amount": payment.amount, "currency": payment.currency}  # fmt: skip
+
+
+class CreateOutgoing(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+    beneficiary_name_path: str = Field(min_length=1, max_length=200)
+    bank_path: str = Field(min_length=1, max_length=200)
+    beneficiary_account_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+    reference_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "clearing.create_outgoing",
+    "Enter a payment to an account at another bank; high value waits for an approval.",
+    CreateOutgoing,
+    "{payment_id, payment_number, status, high_value, amount, currency}; an unknown bank, "
+    "wrong check digits or an amount beyond the limits fails the step.",
+    reads=lambda params: (
+        [params.account_number_path, params.beneficiary_name_path, params.bank_path,
+         params.beneficiary_account_path, params.amount_path]
+        + ([params.reference_path] if params.reference_path else [])
+    ),
+    effect="writes",
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
+)  # fmt: skip
+def _create_outgoing(ctx: StepContext, params: CreateOutgoing) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    payment = _trade_call(
+        "payment_refused", clearing.create_outgoing, ctx.db,
+        debtor=_clearing_account(ctx, params.account_number_path),
+        beneficiary_name=str(_required(ctx, params.beneficiary_name_path)),
+        beneficiary_bank=str(_required(ctx, params.bank_path)),
+        beneficiary_account=str(_required(ctx, params.beneficiary_account_path)),
+        amount=int(_required(ctx, params.amount_path)),
+        reference=str(ctx.get(params.reference_path) or "") if params.reference_path else "",
+        initiated_by=ctx.initiator_id, today=ctx.now.date(),
+    )  # fmt: skip
+    return _outgoing_out(payment)
+
+
+class OutgoingDecision(_Strict):
+    payment_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _outgoing(ctx: StepContext, path: str):
+    from app.modules.clearing import service as clearing
+
+    return clearing.get_outgoing(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "clearing.approve_outgoing",
+    "Approve a high-value payment: it waits for the next clearing cycle.",
+    OutgoingDecision,
+    "{payment_id, payment_number, status, high_value, amount, currency}",
+    reads=lambda params: [params.payment_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _approve_outgoing(ctx: StepContext, params: OutgoingDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    payment = _trade_call("approval_refused", clearing.approve_outgoing, ctx.db,
+                          _outgoing(ctx, params.payment_id_path), decider)  # fmt: skip
+    return _outgoing_out(payment)
+
+
+@_library_handler(
+    "clearing.reject_outgoing",
+    "Reject the payment before clearing.",
+    OutgoingDecision,
+    "{payment_id, payment_number, status, high_value, amount, currency}",
+    reads=lambda params: [params.payment_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _reject_outgoing(ctx: StepContext, params: OutgoingDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    payment = _trade_call("rejection_refused", clearing.reject_outgoing, ctx.db,
+                          _outgoing(ctx, params.payment_id_path), decider, params.note)  # fmt: skip
+    return _outgoing_out(payment)
+
+
+class ReceiveBulk(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+    file_name_path: str = Field(min_length=1, max_length=200)
+    lines_path: str = Field(min_length=1, max_length=200)
+
+
+def _bulk_out(bulk) -> dict[str, Any]:
+    return {"bulk_id": str(bulk.id), "file_number": bulk.file_number, "status": bulk.status,
+            "valid_count": bulk.valid_count, "invalid_count": bulk.invalid_count,
+            "valid_total": bulk.valid_total, "currency": bulk.currency}  # fmt: skip
+
+
+@_library_handler(
+    "clearing.receive_bulk",
+    "Receive a bulk payment file: every line validated, the valid ones within the funds.",
+    ReceiveBulk,
+    "{bulk_id, file_number, status, valid_count, invalid_count, valid_total, currency}; no "
+    "valid line, or more than the account can pay, fails the step.",
+    reads=lambda params: [params.account_number_path, params.file_name_path, params.lines_path],
+    effect="writes",
+    fixtures=lambda params: {params.account_number_path: "business.account_number"},
+)
+def _receive_bulk(ctx: StepContext, params: ReceiveBulk) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    lines = _required(ctx, params.lines_path)
+    if not isinstance(lines, list):
+        raise StepError("bad_lines", "The file's lines must be a list.")
+    bulk = _trade_call(
+        "file_refused", clearing.receive_bulk, ctx.db,
+        account=_clearing_account(ctx, params.account_number_path),
+        file_name=str(_required(ctx, params.file_name_path)),
+        lines=[dict(line) for line in lines if isinstance(line, dict)],
+        received_by=ctx.initiator_id, today=ctx.now.date(),
+    )  # fmt: skip
+    return _bulk_out(bulk)
+
+
+class BulkDecision(_Strict):
+    bulk_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _bulk(ctx: StepContext, path: str):
+    from app.modules.clearing import service as clearing
+
+    return clearing.get_bulk(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "clearing.release_bulk",
+    "Approve the file: each valid line becomes a payment waiting for clearing.",
+    BulkDecision,
+    "{bulk_id, file_number, status, valid_count, invalid_count, valid_total, currency, payments}",
+    reads=lambda params: [params.bulk_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _release_bulk(ctx: StepContext, params: BulkDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    bulk = _bulk(ctx, params.bulk_id_path)
+    created = _trade_call("release_refused", clearing.release_bulk, ctx.db, bulk, decider,
+                          today=ctx.now.date())  # fmt: skip
+    return {**_bulk_out(_bulk(ctx, params.bulk_id_path)), "payments": len(created)}
+
+
+@_library_handler(
+    "clearing.reject_bulk",
+    "Reject the file; no payment is made.",
+    BulkDecision,
+    "{bulk_id, file_number, status, valid_count, invalid_count, valid_total, currency}",
+    reads=lambda params: [params.bulk_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _reject_bulk(ctx: StepContext, params: BulkDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    bulk = _trade_call("rejection_refused", clearing.reject_bulk, ctx.db,
+                       _bulk(ctx, params.bulk_id_path), decider, params.note)  # fmt: skip
+    return _bulk_out(bulk)
+
+
+class LookupOutgoing(_Strict):
+    payment_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "clearing.lookup_outgoing",
+    "Find an outgoing payment and its status.",
+    LookupOutgoing,
+    "{payment_id, payment_number, status, high_value, amount, currency, settled_on}; an "
+    "unknown payment fails the step.",
+    reads=lambda params: [params.payment_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.payment_number_path: "outgoing_payment.payment_number"},
+)
+def _lookup_outgoing(ctx: StepContext, params: LookupOutgoing) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    number = str(_required(ctx, params.payment_number_path))
+    payment = clearing.find_outgoing(ctx.db, number)
+    if payment is None:
+        raise StepError("payment_not_found", f"No outgoing payment {number}.")
+    settled = payment.settled_on.isoformat() if payment.settled_on else None
+    return {**_outgoing_out(payment), "settled_on": settled}
+
+
+class RequestRecall(_Strict):
+    payment_id_path: str = Field(min_length=1, max_length=200)
+    reason_path: str = Field(min_length=1, max_length=200)
+
+
+def _recall_out(recall) -> dict[str, Any]:
+    return {"recall_id": str(recall.id), "recall_number": recall.recall_number,
+            "status": recall.status, "sent": recall.status == "sent",
+            "returned": recall.status == "accepted",
+            "outcome": recall.outcome_note or ""}  # fmt: skip
+
+
+@_library_handler(
+    "clearing.request_recall",
+    "Ask for a payment back (not while it is in a clearing batch).",
+    RequestRecall,
+    "{recall_id, recall_number, status, sent, returned, outcome}",
+    reads=lambda params: [params.payment_id_path, params.reason_path],
+    effect="writes",
+)
+def _request_recall(ctx: StepContext, params: RequestRecall) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    recall = _trade_call("recall_refused", clearing.request_recall, ctx.db,
+                         _outgoing(ctx, params.payment_id_path),
+                         str(_required(ctx, params.reason_path)), ctx.initiator_id)  # fmt: skip
+    return _recall_out(recall)
+
+
+class RecallDecision(_Strict):
+    recall_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _recall(ctx: StepContext, path: str):
+    from app.modules.clearing import service as clearing
+
+    return clearing.get_recall(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "clearing.approve_recall",
+    "Approve the recall: a payment not yet cleared is cancelled; a settled one is sent to "
+    "the beneficiary's bank.",
+    RecallDecision,
+    "{recall_id, recall_number, status, sent, returned, outcome}",
+    reads=lambda params: [params.recall_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _approve_recall(ctx: StepContext, params: RecallDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    recall = _trade_call("approval_refused", clearing.approve_recall, ctx.db,
+                         _recall(ctx, params.recall_id_path), decider, now=ctx.now)  # fmt: skip
+    return _recall_out(recall)
+
+
+@_library_handler(
+    "clearing.withdraw_recall",
+    "Withdraw a recall that was not approved.",
+    RecallDecision,
+    "{recall_id, recall_number, status, sent, returned, outcome}",
+    reads=lambda params: [params.recall_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _withdraw_recall(ctx: StepContext, params: RecallDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    recall = _trade_call("withdraw_refused", clearing.withdraw_recall, ctx.db,
+                         _recall(ctx, params.recall_id_path), decider)  # fmt: skip
+    return _recall_out(recall)
+
+
+@_library_handler(
+    "clearing.resolve_recall",
+    "Record the beneficiary bank's answer: the money comes back within the reason's window "
+    "after settlement, otherwise the recall is refused.",
+    RecallDecision,
+    "{recall_id, recall_number, status, sent, returned, outcome}",
+    reads=lambda params: [params.recall_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _resolve_recall(ctx: StepContext, params: RecallDecision) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    recall = _trade_call("resolution_refused", clearing.resolve_recall, ctx.db,
+                         _recall(ctx, params.recall_id_path), decider,
+                         today=ctx.now.date())  # fmt: skip
+    return _recall_out(recall)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

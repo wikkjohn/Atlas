@@ -275,6 +275,13 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `retail.set_overdraft` | writes (approval required) | `account_number_path`, `limit_path` | arranges, changes or removes an overdraft within the product's maximum (Phase 29) |
 | `retail.create_standing_order` | writes | `debtor_account_path`, `creditor_account_path`, `amount_path`, `frequency`, `start_in_days`, `reference_path` | sets up a standing order in the payer's currency, below the high-value threshold (Phase 29) |
 | `retail.account_profile` | reads | `account_number_path` | the account's last 90 days by effective date: average money in a month, months with money in, days overdrawn, balance, limit and the product's maximum (Phase 30) |
+| `cards.issue` | writes | `account_number_path`, `product_code` | issues a debit card on a current account; a third live card fails (Phase 31) |
+| `cards.lookup` | reads | `card_number_path`, `customer_id_path` (optional) | a card's status, block reason and account; another customer's card fails (Phase 31) |
+| `cards.lookup_authorization` | reads | `auth_code_path`, `customer_id_path` (optional) | a purchase: status, amount, currency and merchant (Phase 31) |
+| `cards.open_dispute` | writes | `authorization_id_path`, `reason_path` | opens a dispute on an approved purchase within 120 days (Phase 31) |
+| `cards.chargeback` | moves money (approval required) | `dispute_id_path`, `decided_by_path` | refunds a dispute through card settlement; four-eyes (Phase 31) |
+| `cards.reject_dispute` | writes | `dispute_id_path`, `decided_by_path` | rejects a dispute; no money moves (Phase 31) |
+| `cards.unblock` | writes (approval required) | `card_id_path` | releases a block (Phase 31) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -323,6 +330,13 @@ The simulation runs stored workflows such as this one (`retail-overdrafts`).
 These are the retail banking base processes. WF-1003 arranges an overdraft after a credit
 officer's approval. WF-1004 sets up a standing order, holding a payee on a sanctions list
 for compliance. WF-1005 sends a statement copy. See [retail-banking.md](retail-banking.md).
+
+### WF-1006, WF-1007 and WF-1008: cards (Phase 31)
+
+The cards base processes. WF-1006 issues a debit card, premium or standard. WF-1007 opens
+a dispute and, after a reviewer with `cards:manage` other than the requester upholds it,
+charges it back; otherwise it rejects it. WF-1008 releases a fraud block only after a
+fraud review. See [cards.md](cards.md).
 
 ### Authoring
 

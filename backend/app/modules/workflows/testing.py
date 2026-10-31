@@ -512,13 +512,31 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
     values: dict[str, Any] = {}
     kinds = set(needs.values())
     if kinds:
-        customer, account = _customer_and_account(db, "account.account_number" in kinds)
+        card_kinds = {"blocked_card.card_number", "authorization.auth_code"}
+        customer, account = _customer_and_account(
+            db, "account.account_number" in kinds or bool(kinds & card_kinds)
+        )
         known = {
             "customer.customer_number": customer.customer_number,
             "customer.name": customer.name,
             "customer.id": str(customer.id),
             "account.account_number": account.account_number if account else None,
         }
+        if kinds & card_kinds:
+            # A card on the account, blocked by the fraud rules, and an approved purchase on
+            # another card of the same account (Phase 31).
+            from app.modules.cards import service as cards
+
+            if "blocked_card.card_number" in kinds:
+                blocked = cards.issue_card(db, account, "debit-standard", None)
+                cards.block_card(db, blocked, "fraud_suspected", None)
+                known["blocked_card.card_number"] = blocked.card_number
+            if "authorization.auth_code" in kinds:
+                card = cards.issue_card(db, account, "debit-standard", None)
+                auth = cards.authorize(db, card, merchant_name="Generated Test Grocer",
+                                       merchant_category="5411", merchant_country="GB",
+                                       amount=2_500)  # fmt: skip
+                known["authorization.auth_code"] = auth.auth_code
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)

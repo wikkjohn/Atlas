@@ -45,3 +45,21 @@ export async function fundedAccount(
   if (!account) throw new Error(`No seeded open account holds ${minimum} minor units.`);
   return { accountNumber: account.account_number, customerNumber: account.customer_number, customerName: account.customer_name };
 }
+
+/** A seeded open current account holding at least `minimum` minor units with room for another
+ * card (at most two live cards an account), so card tests leave other accounts alone. */
+export async function cardAccount(request: APIRequestContext, minimum: number): Promise<string> {
+  const login = await request.post(`${API_URL}/api/v1/auth/login`, {
+    data: { username: "admin", password: DEMO_PASSWORD },
+  });
+  const { access_token: token } = (await login.json()) as { access_token: string };
+  const headers = { Authorization: `Bearer ${token}` };
+  const accounts = await request.get(`${API_URL}/api/v1/accounts?status=open&account_type=current&limit=100`, { headers });
+  const { items } = (await accounts.json()) as { items: { id: string; account_number: string; balance: number }[] };
+  for (const account of items.filter((a) => a.balance >= minimum)) {
+    const cards = await request.get(`${API_URL}/api/v1/cards?account_id=${account.id}`, { headers });
+    const { items: issued } = (await cards.json()) as { items: { status: string }[] };
+    if (issued.filter((c) => c.status !== "cancelled").length < 2) return account.account_number;
+  }
+  throw new Error(`No seeded current account holds ${minimum} minor units with room for a card.`);
+}

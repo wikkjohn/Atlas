@@ -34,6 +34,8 @@ class Permission(StrEnum):
     FX_MANAGE = "fx:manage"  # revalue currency positions (Phase 24)
     # Retail products, overdraft limits and month-end interest, fees and statements (Phase 29)
     RETAIL_MANAGE = "retail:manage"
+    # Card blocks and their release, dispute decisions (Phase 31)
+    CARDS_MANAGE = "cards:manage"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -147,6 +149,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.LOANS_APPROVE,
         Permission.LOANS_SERVICE,
         Permission.RETAIL_MANAGE,
+        Permission.CARDS_MANAGE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
@@ -158,6 +161,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.ACCOUNTS_MANAGE,
         Permission.LEDGER_READ,
         Permission.PAYMENTS_REVIEW,
+        Permission.CARDS_MANAGE,
     },
     RoleCode.AI_RESEARCHER: _BASE
     | {

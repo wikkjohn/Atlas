@@ -134,6 +134,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "ledger:post",
   "fx:manage",
   "retail:manage",
+  "cards:manage",
   "workflows:read",
   "workflows:start",
   "workflows:manage",

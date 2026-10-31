@@ -402,6 +402,47 @@ def interest(
     return int(earned.quantize(whole, ROUND_HALF_UP)), int(owed.quantize(whole, ROUND_HALF_UP))
 
 
+def account_profile(db: Session, account: Account, today: date) -> dict[str, Any]:
+    """The account's last 90 days before `today` (by effective date): average money in a
+    month, in how many of the three 30-day windows any came in, and the days it ended
+    overdrawn; with its balance, limit and its product's maximum (Phase 30)."""
+    start = today - timedelta(days=90)
+    end = today - timedelta(days=1)
+    credit = case((JournalLine.direction == Direction.CREDIT, JournalLine.amount), else_=0)
+    credits_by_day = dict(
+        db.execute(
+            select(JournalEntry.effective_date, func.sum(credit))
+            .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+            .where(
+                JournalLine.ledger_account_id == account.ledger_account_id,
+                JournalEntry.effective_date.between(start, end),
+            )
+            .group_by(JournalEntry.effective_date)
+        )
+        .tuples()
+        .all()
+    )
+    windows = [0, 0, 0]
+    for day, amount in credits_by_day.items():
+        windows[min((day - start).days // 30, 2)] += int(amount)
+    moves = _movements(db, account.ledger_account_id, start, end)
+    balance, overdrawn, day = moves["opening"], 0, start
+    while day <= end:
+        balance += moves["by_day"].get(day, 0)
+        overdrawn += balance < 0
+        day += timedelta(days=1)
+    product = db.get(RetailProduct, account.account_type)
+    return {
+        "currency": account.currency,
+        "balance": ledger.balance(db, ledger.get_ledger_account(db, account.ledger_account_id)),
+        "overdraft_limit": account.overdraft_limit,
+        "max_overdraft": max_overdraft(product, account.currency) if product else 0,
+        "monthly_credits": sum(windows) // 3,
+        "months_with_credits": sum(1 for w in windows if w > 0),
+        "days_overdrawn": overdrawn,
+    }
+
+
 # --- Statements ---------------------------------------------------------------------------------
 
 

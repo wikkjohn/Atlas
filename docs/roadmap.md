@@ -119,8 +119,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
 - [x] Retail banking: deposits, statements, interest and fees, overdrafts, standing orders
       (Phase 29: products with dollar terms converted per currency, arranged overdrafts
       in every funds check, standing orders on business days, month end with daily
-      interest, fees and statements; WF-1003–1005; see `retail-banking.md`. The retail
-      workload and AI tool follow in step 2)
+      interest, fees and statements; WF-1003–1005; see `retail-banking.md`. Phase 30:
+      the `retail-overdrafts` workload and the overdraft affordability assistant)
 - [ ] Cards: issuing, authorisation, disputes and chargebacks, fraud blocks
 - [ ] Mortgages and secured lending: valuation, collateral, offers
 - [ ] SME and commercial lending: facilities, covenants, annual reviews
@@ -211,4 +211,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 27 (C5) | Generated country subsidiaries: a versioned blueprint; launching a country activates it and builds its subsidiary and staff | complete |
 | Phase 28 (C6) | Milestone C exit: cases that follow each country's rules; onboarding and payments swept through all 120 countries — Milestone C done | complete |
 | Phase 29 (D1) | Retail banking: products, arranged overdrafts, standing orders, month-end interest, fees and statements; WF-1003–1005 | complete |
-| Phase 30 (D2, proposed) | Retail banking, step 2: a month-in-the-life simulation workload and an AI tool candidate; then cards | next |
+| Phase 30 (D2) | Retail banking, step 2: the `retail-overdrafts` workload on stored WF-1003 v2 and the AGB Overdraft Affordability Assistant; simulations run stored workflows | complete |
+| Phase 31 (D3, proposed) | Cards: issuing, authorisation, disputes and chargebacks, fraud blocks | next |

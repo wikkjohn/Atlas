@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 29.
+Last updated: Phase 30.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -34,6 +34,48 @@ Last updated: Phase 29.
 | 27 | Global footprint, step 5: generated country subsidiaries ([subsidiaries.md](subsidiaries.md)) | **Complete** |
 | 28 | Global footprint, step 6: the 120-country sweep ([country-sweep.md](country-sweep.md)) — roadmap Milestone C complete | **Complete** |
 | 29 | Departments, step 1: retail banking ([retail-banking.md](retail-banking.md)) | **Complete** |
+| 30 | Departments, step 2: the retail workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 30: what exists
+
+- **Simulations run stored workflows:** the runner resolves code or stored definitions,
+  and an AI-automated run is refused for a workload without an automated decision path.
+- **`retail.account_profile`:** an account's last 90 days from the ledger (money in,
+  months with money in, days overdrawn, limits).
+- **AGB Overdraft Affordability Assistant** (`rule_based_overdraft_affordability`,
+  `recommend_decision` only, compatible with WF-1003), with a deliberate blind spot for
+  customers already living in an overdraft; registered by the seed.
+- **WF-1003 v2:** account profile and AI review before the credit officer; completions
+  `approved` and `rejected`. `ai.review` skips the tool in an experiment's baseline and
+  reports `invocation_status`.
+- **Workload `retail_overdrafts` and scenario `retail-overdrafts` v1:** customers with
+  three months of ledger history; ground truth; control check (four-eyes, authority, no
+  limit without approval).
+- **Seed order:** examples without AI steps, then the tools, then WF-1003 v2.
+- **Measured** (300 requests): AI assisted 96.3 % accurate against 94.3 %, review hours
+  42 against 71, but 7 false approvals against 3, all from the blind spot.
+
+## Phase 30: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 566 passed (new: 4 — the assistant's rules and blind spot; the account profile over 90 days of ledger history; baseline and AI-assisted overdraft runs with no control violations, tool calls only when assisted, the blind spot's approvals and limits set only after approval; the automated mode refused) |
+| Generated workflow tests | All stored workflows: 15 workflows, 331 cases, 0 failed (WF-1003 v2: 16 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 98 passed / clean / built |
+| Playwright on a fresh database | 33 passed on the first run (new: the overdraft assistant in the AI Lab console, recommending approval for a customer overdrawn most days) |
+| Measurement | `retail-overdrafts`, seed 2030, 300 requests each: baseline 94.3 % accurate (3 false approvals, 14 false rejections, 70.6 review hours); AI assisted 96.3 % (7, 4, 42.4) |
+
+Found while building it: the first seeding failed (a tool may only name existing workflows
+as compatible, and WF-1003 is imported after the tools), and the first assisted runs
+counted every tool call as failed (the simulation read `invocation_status`, which
+`ai.review` did not report). Both fixed as described above.
+
+## Phase 30: known limitations
+
+- Retail banking has one workload (overdraft requests); standing orders and month end
+  are not simulated as workloads.
+- WF-1003 v2 has no automated decision: AI assisted is the only AI mode.
+- The assistant's advice and the reviewers' response to it rest on stated assumptions.
 
 ## Phase 29: what exists
 

@@ -96,9 +96,24 @@ const SAMPLE_LOAN = {
   income: { estimated_monthly_income: 450000, declared_to_estimate: 2.0 },
   as_of: "2026-01-07",
 };
+/** An overdraft request from a customer overdrawn most days: the assistant's blind spot (Phase 30). */
+const SAMPLE_OVERDRAFT = {
+  limit: 150000,
+  profile: {
+    currency: "USD",
+    balance: -42000,
+    overdraft_limit: 75000,
+    max_overdraft: 250000,
+    monthly_credits: 380000,
+    months_with_credits: 3,
+    days_overdrawn: 81,
+  },
+  as_of: "2026-04-07",
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
+  rule_based_overdraft_affordability: SAMPLE_OVERDRAFT,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

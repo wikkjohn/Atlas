@@ -274,6 +274,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `accounts.charge_fee` | **moves money** (approval required) | `account_number_path`, `amount` or `amount_path`, `fee_code`, `memo` | debits the account and credits `FEE-INCOME-<currency>`; within the balance and any arranged overdraft; idempotent per step run, so a retry never charges twice |
 | `retail.set_overdraft` | writes (approval required) | `account_number_path`, `limit_path` | arranges, changes or removes an overdraft within the product's maximum (Phase 29) |
 | `retail.create_standing_order` | writes | `debtor_account_path`, `creditor_account_path`, `amount_path`, `frequency`, `start_in_days`, `reference_path` | sets up a standing order in the payer's currency, below the high-value threshold (Phase 29) |
+| `retail.account_profile` | reads | `account_number_path` | the account's last 90 days by effective date: average money in a month, months with money in, days overdrawn, balance, limit and the product's maximum (Phase 30) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -313,6 +314,11 @@ another customer's account or insufficient funds end the case with a letter expl
 why (`_failure.message`) and no money moved.
 
 ### WF-1003, WF-1004 and WF-1005: retail banking (Phase 29)
+
+WF-1003 **v2** (Phase 30) reads the account's history (`retail.account_profile`) and asks
+the AGB Overdraft Affordability Assistant (`ai.review`, advisory) before the credit
+officer decides; its completions are `approved` and `rejected`, as the simulation expects.
+The simulation runs stored workflows such as this one (`retail-overdrafts`).
 
 These are the retail banking base processes. WF-1003 arranges an overdraft after a credit
 officer's approval. WF-1004 sets up a standing order, holding a payee on a sanctions list

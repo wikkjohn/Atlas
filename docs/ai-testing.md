@@ -64,6 +64,7 @@ against `output_schema` (`invalid_output`); otherwise `succeeded`.
 | `rule_based_kyc` | **AGB Intelligent KYC Assistant** (proof of concept). Checks for missing identity document / proof of address, document check digits, name consistency (≤ 2 edits is a typo), date-of-birth match, document expiry, age, sanctions screening result, politically exposed status and large expected deposits. Each finding has a severity; the score gives low/medium/high risk; any critical finding → **reject**, any high or medium → **escalate**, otherwise **approve**; plus a confidence and a written explanation. Deterministic. |
 | `rule_based_payment_screening` | **AGB Payment Fraud Screener** (Phase 9, proof of concept). Reviews payments that WF-0002's screening held: scam phrases in the reference (high), payee on the synthetic watchlist (critical), share of the balance and payment velocity (medium), first payment to the payee and high value (low). Any critical or high finding → **reject**; score ≥ 5 → **escalate**; otherwise **approve** at low risk — behavioural signals alone are common for legitimate first payments. Its blind spot is deliberate and documented: a scam with an ordinary reference looks like a legitimate large payment. Deterministic. |
 | `rule_based_credit_underwriting` | **AGB Credit Underwriting Assistant** (Phase 11, proof of concept). Reviews loan applications WF-0003's credit policy refers to an underwriter: declared income against the synthetic bureau's income estimate (≥ 1.4× → high, ≥ 1.15× → medium), a recent default, a near-prime score (< 660) and a debt-to-income above 35 % (medium), self-employed income, five or more credit lines and a committee-size loan (low). Any high finding → **reject**; score ≥ 4 → **escalate**; a single medium finding → **approve** at medium risk; otherwise **approve** at low risk. Its blind spot is the same income rule: an honest self-employed applicant whose irregular income runs well above the estimate looks inflated. Deterministic. |
+| `rule_based_overdraft_affordability` | **AGB Overdraft Affordability Assistant** (Phase 30, proof of concept). Reviews arranged-overdraft requests in WF-1003 v2 against the account's last 90 days (`retail.account_profile`). Findings: a limit above the product's maximum (critical); no money in, or a limit above a month's money in (high); money in during fewer than all three months, or overdrawn on 15 or more of 90 days (medium); a limit above half a month's money in (low). Any critical or high finding → **reject**; score ≥ 4 → **escalate**; a single medium finding → **approve** at medium risk; otherwise **approve** at low risk. Its blind spot is deliberate and documented: a customer with regular income who already lives in an overdraft raises one medium finding only, and is recommended for approval. Deterministic. |
 | `fault_injection` | Behaves like the KYC assistant but fails, times out or returns malformed output for a configurable share of requests, decided by a hash of the request (reproducible). Exists to test failure handling. |
 
 The demo seed registers `agb-intelligent-kyc-assistant 1.0.0` (all three actions),
@@ -72,7 +73,10 @@ The demo seed registers `agb-intelligent-kyc-assistant 1.0.0` (all three actions
 `recommend_decision`, `complete_low_risk_review`; compatible with WF-0002). Phase 9 adds
 `release_payment` and `approve_loan` to the actions no tool can ever be granted. Phase 11
 registers `agb-credit-underwriting-assistant 1.0.0` (`analyze_credit_application`,
-`recommend_decision`, `complete_low_risk_review`; compatible with WF-0003).
+`recommend_decision`, `complete_low_risk_review`; compatible with WF-0003). Phase 30
+registers `agb-overdraft-affordability-assistant 1.0.0` (`recommend_decision` only;
+compatible with WF-1003, a stored workflow; the seed imports the examples without AI
+steps first, then registers the tools, then imports WF-1003 v2, which calls the tool).
 
 ## WF-0001 version 2
 
@@ -160,6 +164,35 @@ Unlike the fraud screener, this tool's main rule matches the scenario's main ris
 rests on the scenario's stated assumptions about reviewers and on a synthetic income
 estimate that is better than real ones; it shows the platform working, not that such a
 tool would perform like this on real applications.
+
+## WF-1003 v2 and the overdraft affordability assistant (Phase 30)
+
+WF-1003 v2 is a **stored** workflow. Before the credit officer decides, it reads the
+account's last 90 days from the ledger (`retail.account_profile`), then asks the assistant
+through `ai.review`. The advice is shown to the officer; no policy engine decides alone,
+so the scenario runs baseline and AI assisted only (an AI-automated run is refused).
+`ai.review` now skips the tool in an experiment's baseline (`ai_mode: off`) and reports
+`invocation_status`, so the simulation's AI metrics count it like the code workflows'
+AI steps.
+
+What `retail-overdrafts` v1 measured (seed 2030, 300 requests, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 94.3 % | 96.3 % |
+| False approvals | 3 | 7 |
+| False rejections | 14 | 4 |
+| Customers living in an overdraft approved (of 33) | 2 | 7 |
+| Review labour hours | 70.6 | 42.4 |
+| Median cycle time (hours) | 1.87 | 0.18 |
+| Tool's recommendation accuracy | — | 89 % |
+
+Overall the assistant helps — fewer wrong refusals and much less review time — but every
+extra false approval is the blind spot: simulated officers follow its approval of
+customers who are already overdrawn most days. That is the trade-off an experiment's
+evaluation should surface before such a tool is relied on, and it rests on the scenario's
+stated reviewer assumptions, not on measured behaviour.
 
 ## Experiment configurations
 

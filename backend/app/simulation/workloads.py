@@ -29,6 +29,7 @@ from app.modules.customers.models import Customer, CustomerType, KycStatus, Risk
 from app.modules.customers.schemas import CustomerCreate, CustomerReview
 from app.modules.customers.service import create_customer, review_customer
 from app.modules.identity.models import Role, User
+from app.modules.ledger import service as ledger
 from app.modules.lending import service as lending
 from app.modules.lending.models import Loan
 from app.modules.payments import service as payments
@@ -662,6 +663,176 @@ class PersonalLoansWithIncomeCheck(PersonalLoans):
         return round(lending.income_estimate(name, born) * ratio)
 
 
+# --- Retail overdrafts (WF-1003 v2, Phase 30) -----------------------------------------------------
+
+OVERDRAFT_SHOULD_REJECT = frozenset(
+    {"stretched", "habitual_overdraft", "irregular_income", "over_maximum"}
+)
+# Salary days before the simulated start: one in each 30-day window of the last 90 days.
+SALARY_DAYS = (88, 58, 28)
+
+
+def _usd(amount: float, currency: str) -> int:
+    """Whole US dollars as minor units of `currency`, at the FX anchor rate."""
+    from decimal import Decimal
+
+    from app.core.money import minor_unit_exponent
+    from app.modules.fx import rates
+
+    units = Decimal(str(amount)) * rates.units_per_usd(currency, rates.ANCHOR_DATE)
+    return int(units * 10 ** minor_unit_exponent(currency))
+
+
+class RetailOverdrafts(Workload):
+    """Arranged-overdraft requests through WF-1003 v2: existing customers with three months
+    of account history in the ledger, asking for an overdraft a credit officer decides on,
+    with the AGB Overdraft Affordability Assistant's advice in AI-assisted runs.
+
+    Ground truth: affordable requests from steady earners are approved; limits large against
+    income, irregular income, a customer already living in an overdraft, and limits above
+    the product's maximum are declined."""
+
+    key = "retail_overdrafts"
+    workflow_id = "WF-1003"
+    kinds = frozenset({"steady_small", "steady_large"} | OVERDRAFT_SHOULD_REJECT)
+    reviewer_roles = {"credit_decision": "manager"}
+    job_titles = {"teller": "Customer Service Officer", "manager": "Retail Credit Officer"}
+    ai_step = "ai_review"
+    automated_path = None  # no policy engine: a person always decides
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.ledger.models import Direction
+        from app.modules.retail import service as retail
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        currencies = _currencies(db)
+        start = sim.clock.start
+        today = start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        product = retail.get_product(db, "current")
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "overdraft")
+            kind = _pick(rng, mix)
+            country = rng.choice(sim.countries)
+            currency = currencies[country]
+            ceiling = retail.max_overdraft(product, currency)
+            name, born = _person(rng, today)
+            account = _customer_account(sim, name=name, born=born, country_code=country)
+            account.opened_at = start - timedelta(days=120)
+            cash = ledger.cash_account(db, currency)
+
+            def post(
+                amount: int, days_before: int, label: str, *, _a=account, _c=cash, _ccy=currency
+            ) -> None:
+                inbound = amount > 0
+                ledger.post_entry(
+                    db,
+                    idempotency_key=f"sim-{sim.run_id}-{_a.id}-{label}",
+                    currency=_ccy,
+                    description="Salary" if inbound else "Card spending",
+                    source="simulation",
+                    lines=[
+                        ledger.LineSpec(
+                            _c.id, Direction.DEBIT if inbound else Direction.CREDIT, abs(amount)
+                        ),
+                        ledger.LineSpec(
+                            _a.ledger_account_id,
+                            Direction.CREDIT if inbound else Direction.DEBIT,
+                            abs(amount),
+                        ),
+                    ],
+                    actor_id=None,
+                    effective_date=today - timedelta(days=days_before),
+                )
+
+            salary_usd = {
+                "steady_small": rng.uniform(2_000, 6_000),
+                "steady_large": rng.uniform(1_500, 2_600),
+                "stretched": rng.uniform(600, 1_200),
+                "habitual_overdraft": rng.uniform(2_500, 5_000),
+                "irregular_income": rng.uniform(3_000, 6_000),
+                "over_maximum": rng.uniform(5_000, 9_000),
+            }[kind]
+            salary = _usd(round(salary_usd), currency)
+            share = {
+                "steady_small": (0.1, 0.3),
+                "steady_large": (0.6, 0.9),
+                "stretched": (1.5, 2.0),
+                "habitual_overdraft": (0.3, 0.5),
+                "irregular_income": (0.4, 0.6),
+            }.get(kind)
+            if kind == "over_maximum":
+                limit = int(ceiling * rng.uniform(1.2, 2.0))
+            else:
+                assert share is not None
+                limit = min(int(salary * rng.uniform(*share)), int(ceiling * 0.95))
+            paydays = SALARY_DAYS[1:2] if kind == "irregular_income" else SALARY_DAYS
+            for n, days in enumerate(paydays):
+                post(salary, days, f"salary-{n}")
+                if kind == "habitual_overdraft":
+                    # Spends the salary and more the next day: overdrawn almost every day.
+                    account.overdraft_limit = max(account.overdraft_limit, limit // 2)
+                    post(-(salary + limit // 3), days - 1, f"spend-{n}")
+                else:
+                    post(-int(salary * rng.uniform(0.6, 0.9)), days - 3, f"spend-{n}")
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="rejected" if kind in OVERDRAFT_SHOULD_REJECT else "approved",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "customer_number": account.customer.customer_number,
+                        "account_number": account.account_number,
+                        "limit": max(0, limit),
+                    },
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every credit decision against four-eyes and authority, and every limit set
+        only after an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["credit_decision", "set_limit"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "credit_decision":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            permissions = roles.get(role_id, frozenset())
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.ACCOUNTS_APPROVE not in permissions:
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "set_limit" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "limit_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -669,6 +840,7 @@ WORKLOADS: dict[str, Workload] = {
         DomesticPayments(),
         PersonalLoans(),
         PersonalLoansWithIncomeCheck(),
+        RetailOverdrafts(),
     )
 }
 STAFF_ROLES = {

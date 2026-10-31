@@ -281,6 +281,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `cards.open_dispute` | writes | `authorization_id_path`, `reason_path` | opens a dispute on an approved purchase within 120 days (Phase 31) |
 | `cards.chargeback` | moves money (approval required) | `dispute_id_path`, `decided_by_path` | refunds a dispute through card settlement; four-eyes (Phase 31) |
 | `cards.reject_dispute` | writes | `dispute_id_path`, `decided_by_path` | rejects a dispute; no money moves (Phase 31) |
+| `cards.fraud_profile` | reads | `card_id_path` | the purchase the fraud rules declined most recently and the card's history before it: approved purchases over 90 days and their median, earlier high-risk purchases, when the card was first used in that country, attempts in the hour before (Phase 32) |
 | `cards.unblock` | writes (approval required) | `card_id_path` | releases a block (Phase 31) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
@@ -337,6 +338,11 @@ The cards base processes. WF-1006 issues a debit card, premium or standard. WF-1
 a dispute and, after a reviewer with `cards:manage` other than the requester upholds it,
 charges it back; otherwise it rejects it. WF-1008 releases a fraud block only after a
 fraud review. See [cards.md](cards.md).
+
+WF-1008 **v2** (Phase 32) reads the declined purchase and the card's history
+(`cards.fraud_profile`) and asks the AGB Card Fraud Alert Assistant (`ai.review`,
+advisory) before the fraud analyst decides; its completions are `approved` (released) and
+`rejected`, as the simulation expects (`card-fraud-alerts`).
 
 ### Authoring
 

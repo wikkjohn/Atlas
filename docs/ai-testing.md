@@ -194,6 +194,44 @@ customers who are already overdrawn most days. That is the trade-off an experime
 evaluation should surface before such a tool is relied on, and it rests on the scenario's
 stated reviewer assumptions, not on measured behaviour.
 
+## WF-1008 v2 and the card fraud alert assistant (Phase 32)
+
+WF-1008 v2 is a stored workflow. Before the fraud analyst decides whether to release a
+card the fraud rules blocked, it reads the declined purchase and the card's history
+(`cards.fraud_profile`), then asks the assistant through `ai.review`. As with WF-1003 v2,
+a person always decides, so the scenario runs baseline and AI assisted only.
+
+The assistant (`rule_based_card_fraud_review`) recommends keeping the block when the card
+had not been used in the purchase's country before the last 24 hours, and weighs a first
+high-risk purchase, an amount far above the usual and a burst of attempts. Its **blind
+spot** is card testing: it leaves out attempts below 2 % of the daily limit as noise, so
+five tiny test purchases before a crypto purchase at home look like one ordinary first
+high-risk purchase, and it recommends releasing the card.
+
+The workload builds every card's history through the real authorisation service, so the
+blocks come from the real fraud rules (a case whose last purchase is not declined for
+suspected fraud stops the run).
+
+What `card-fraud-alerts` v1 measured (seed 2030, 300 cases, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 88.0 % | 96.3 % |
+| Wrong releases (fraud released) | 19 | 6 |
+| Wrong refusals (genuine kept blocked) | 17 | 5 |
+| Card testing released (of 27) | 3 | 4 |
+| Review labour hours | 60.8 | 38.0 |
+| Median cycle time (hours) | 0.85 | 0.13 |
+| Tool's recommendation accuracy | — | 91 % (21 escalated) |
+
+The assistant helps on every kind of case but one. Stolen cards and account takeovers
+released fall from 16 to 2, and genuine travellers kept blocked from 12 to 2. Card testing
+is the exception: the assistant recommends releasing 26 of the 27 (it escalates one whose
+amount is far above the usual), and the simulated analysts,
+following it, release 4 rather than 3, so card testing is 4 of the 6 wrong releases.
+That rests on the scenario's stated reviewer assumptions, not on measured behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

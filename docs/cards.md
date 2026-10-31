@@ -100,6 +100,24 @@ coverage (WF-1006: 15 cases, WF-1007: 18, WF-1008: 17). The generated tests prov
 new fixture kinds on the fixture account: `blocked_card.card_number` (a card blocked for
 suspected fraud) and `authorization.auth_code` (an approved purchase of 25.00 at a grocer).
 
+## Simulation workload and AI tool (Phase 32)
+
+The `card_fraud_alerts` workload drives WF-1008 v2 (scenario `card-fraud-alerts`).
+- **Cases:** each case is an existing customer whose card history the workload builds
+  through the real authorisation service: two to three months of everyday purchases at
+  home, then the kind's own purchases. The real fraud rules decline the last one and block
+  the card; the case asks for the block to be released.
+- **Ground truth:** released: travellers at a casino in a country they have been in for
+  days (some for a large amount), and a regular crypto buyer buying in a hurry. Kept
+  blocked: a stolen card used in a new country, an account takeover spending fast in a new
+  country, and card testing (tiny purchases, then a high-risk one, at home).
+- **Decisions:** card fraud analysts (`cards:manage`) decide. In AI-assisted runs the AGB
+  Card Fraud Alert Assistant advises them, from the profile `cards.fraud_profile` reads.
+- **Control check:** four-eyes and authority on each review, and no release without an
+  approval.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Cards*). Reading needs `accounts:read`. Issuing, blocking, the
@@ -113,5 +131,5 @@ compliance officers.
 - Single-message authorisation: approval and settlement happen together, with no holds,
   clearing files or partial captures.
 - Purchases are in the card's currency only.
-- There is no cards workload in the simulation and no AI fraud tool yet (the next step,
-  Phase 32).
+- The simulation covers fraud blocks (`card-fraud-alerts`); disputes are not simulated
+  as a workload.

@@ -124,8 +124,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
 - [x] Cards: issuing, authorisation, disputes and chargebacks, fraud blocks
       (Phase 31: synthetic Luhn-checked numbers, a merchant terminal with limits, funds
       and fraud rules that block the card, four-eyes chargebacks through card
-      settlement; WF-1006–1008; see `cards.md`. Phase 32: the cards workload and an AI
-      fraud tool)
+      settlement; WF-1006–1008; see `cards.md`. Phase 32: the `card-fraud-alerts`
+      workload on WF-1008 v2 and the card fraud alert assistant)
 - [ ] Mortgages and secured lending: valuation, collateral, offers
 - [ ] SME and commercial lending: facilities, covenants, annual reviews
 - [ ] Trade finance: letters of credit, guarantees
@@ -217,4 +217,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 29 (D1) | Retail banking: products, arranged overdrafts, standing orders, month-end interest, fees and statements; WF-1003–1005 | complete |
 | Phase 30 (D2) | Retail banking, step 2: the `retail-overdrafts` workload on stored WF-1003 v2 and the AGB Overdraft Affordability Assistant; simulations run stored workflows | complete |
 | Phase 31 (D3) | Cards: issuing, a merchant terminal with fraud rules and blocks, disputes and chargebacks; WF-1006–1008 | complete |
-| Phase 32 (D4, proposed) | Cards, step 2: a cards workload (purchases, fraud and disputes) and an AI fraud tool candidate | next |
+| Phase 32 (D4) | Cards, step 2: the `card-fraud-alerts` workload on stored WF-1008 v2, built through the real authorisation service, and the AGB Card Fraud Alert Assistant | complete |
+| Phase 33 (D5, proposed) | Mortgages and secured lending: property valuation, collateral, offers | next |

@@ -136,6 +136,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "retail:manage",
   "cards:manage",
   "mortgages:manage",
+  "trade:manage",
   "workflows:read",
   "workflows:start",
   "workflows:manage",

@@ -544,7 +544,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             # A valued house the customer is buying, and an issued offer on another (Phase 33).
             known.update(_mortgage_fixtures(db, customer, account, kinds))
         if kinds & {"business.customer_number", "business.account_number",
-                     "facility.facility_number"}:  # fmt: skip
+                     "facility.facility_number", "letter_of_credit.instrument_number",
+                     "guarantee.instrument_number"}:  # fmt: skip
             known.update(_business_fixtures(db, kinds))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
@@ -587,7 +588,8 @@ def _mortgage_fixtures(db: Session, customer, account, kinds: set[str]) -> dict[
 
 def _business_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
     """A verified business with a funded business current account and, if asked, an active
-    revolving facility whose annual review is due in 30 days (Phase 35)."""
+    revolving facility whose annual review is due in 30 days (Phase 35) and issued trade
+    instruments (Phase 37)."""
     from app.modules.accounts.models import AccountType
     from app.modules.accounts.service import approve_request, deposit, submit_request
     from app.modules.commercial import service as commercial
@@ -619,7 +621,8 @@ def _business_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
     request = submit_request(db, customer_id=business.id, account_type=AccountType.BUSINESS_CURRENT,
                              currency=None, requested_by=clerk.id)  # fmt: skip
     account = approve_request(db, request.id, manager)
-    deposit(db, account.id, amount=10_000_000, memo="Generated test funds",
+    # Enough for a large trade instrument's cash margin (Phase 37).
+    deposit(db, account.id, amount=100_000_000, memo="Generated test funds",
             idempotency_key=f"wftest-{account.id}", actor_id=clerk.id)  # fmt: skip
     out = {"business.customer_number": business.customer_number,
            "business.account_number": account.account_number}  # fmt: skip
@@ -632,6 +635,19 @@ def _business_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
         commercial.approve_facility(db, facility, manager.id)
         facility.review_due_on = datetime.now(UTC).date() + timedelta(days=30)
         out["facility.facility_number"] = facility.facility_number
+    for kind in ("letter_of_credit", "guarantee"):
+        if f"{kind}.instrument_number" in kinds:
+            # An issued instrument of 50,000.00, valid for 120 days (Phase 37).
+            from app.modules.trade import service as trade
+
+            instrument = trade.request_instrument(
+                db, customer=business, account=account, kind=kind,
+                beneficiary_name="Generated Test Exporter", beneficiary_country="FR",
+                amount=5_000_000, expires_on=datetime.now(UTC).date() + timedelta(days=120),
+                purpose="Generated test goods", requested_by=clerk.id,
+            )  # fmt: skip
+            trade.approve_instrument(db, instrument, manager.id)
+            out[f"{kind}.instrument_number"] = instrument.instrument_number
     return out
 
 

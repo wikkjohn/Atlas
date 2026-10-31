@@ -1648,6 +1648,282 @@ def _terminate_facility(ctx: StepContext, params: ReviewDecision) -> dict[str, A
     return _decide_review(ctx, params, renew=False)
 
 
+# --- Trade finance (Phase 37) ----------------------------------------------------------------
+
+
+def _trade_call(code: str, call, *args, **kwargs):
+    from app.core.errors import DomainError
+
+    try:
+        return call(*args, **kwargs)
+    except DomainError as exc:
+        raise StepError(code, getattr(exc, "message", str(exc))) from exc
+
+
+def _trade_out(instrument) -> dict[str, Any]:
+    return {"instrument_number": instrument.instrument_number, "status": instrument.status,
+            "awaiting_committee": instrument.status == "requested",
+            "margin": instrument.margin, "currency": instrument.currency}  # fmt: skip
+
+
+class RequestInstrument(_Strict):
+    customer_number_path: str = Field(min_length=1, max_length=200)
+    account_number_path: str = Field(min_length=1, max_length=200)
+    kind_path: str = Field(min_length=1, max_length=200)
+    beneficiary_path: str = Field(min_length=1, max_length=200)
+    country_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+    expires_in_days_path: str = Field(min_length=1, max_length=200)
+    purpose_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "trade.request_instrument",
+    "Request a letter of credit or a guarantee; the beneficiary is screened.",
+    RequestInstrument,
+    "{instrument_id, instrument_number, customer_id, customer_name, currency, margin, "
+    "needs_committee}; a sanctioned beneficiary or a broken rule fails the step.",
+    reads=lambda params: (
+        [
+            params.customer_number_path,
+            params.account_number_path,
+            params.kind_path,
+            params.beneficiary_path,
+            params.country_path,
+            params.amount_path,
+            params.expires_in_days_path,
+        ]
+        + ([params.purpose_path] if params.purpose_path else [])
+    ),  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {
+        params.customer_number_path: "business.customer_number",
+        params.account_number_path: "business.account_number",
+    },  # fmt: skip
+)
+def _request_instrument(ctx: StepContext, params: RequestInstrument) -> dict[str, Any]:
+    from datetime import timedelta
+
+    from app.modules.accounts.service import find_account
+    from app.modules.trade import service as trade
+
+    number = str(_required(ctx, params.customer_number_path))
+    customer = trade.find_customer(ctx.db, number)
+    if customer is None:
+        raise StepError("customer_not_found", f"No customer {number}.")
+    account_number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, account_number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {account_number}.")
+    today = ctx.now.date()
+    instrument = _trade_call(
+        "request_refused", trade.request_instrument, ctx.db, customer=customer, account=account,
+        kind=str(_required(ctx, params.kind_path)),
+        beneficiary_name=str(_required(ctx, params.beneficiary_path)),
+        beneficiary_country=str(_required(ctx, params.country_path)),
+        amount=int(_required(ctx, params.amount_path)),
+        expires_on=today + timedelta(days=int(_required(ctx, params.expires_in_days_path))),
+        purpose=str(ctx.get(params.purpose_path) or "Trade") if params.purpose_path else "Trade",
+        requested_by=ctx.initiator_id, today=today,
+    )  # fmt: skip
+    return {"instrument_id": str(instrument.id), "instrument_number": instrument.instrument_number,
+            "customer_id": str(customer.id), "customer_name": customer.name,
+            "currency": instrument.currency, "margin": instrument.margin,
+            "needs_committee": trade.needs_committee(instrument)}  # fmt: skip
+
+
+class InstrumentDecision(_Strict):
+    instrument_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _decide_instrument(ctx: StepContext, params: InstrumentDecision, call: str) -> dict[str, Any]:
+    from app.modules.trade import service as trade
+
+    instrument = trade.get_instrument(
+        ctx.db, uuid.UUID(str(_required(ctx, params.instrument_id_path))), for_update=True
+    )
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    if call == "decline":
+        result = _trade_call("decline_refused", trade.decline_instrument, ctx.db, instrument,
+                             decider)  # fmt: skip
+    else:
+        fn = trade.approve_instrument if call == "approve" else trade.committee_approve
+        result = _trade_call("issue_refused", fn, ctx.db, instrument, decider, now=ctx.now)
+    return _trade_out(result)
+
+
+@_library_handler(
+    "trade.approve_instrument",
+    "Record the credit approval; the instrument is issued and its margin taken unless the "
+    "committee must approve.",
+    InstrumentDecision,
+    "{instrument_number, status, awaiting_committee, margin, currency}",
+    reads=lambda params: [params.instrument_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _approve_instrument(ctx: StepContext, params: InstrumentDecision) -> dict[str, Any]:
+    return _decide_instrument(ctx, params, "approve")
+
+
+@_library_handler(
+    "trade.committee_approve",
+    "Record the credit committee's approval of an instrument above US$1m.",
+    InstrumentDecision,
+    "{instrument_number, status, awaiting_committee, margin, currency}",
+    reads=lambda params: [params.instrument_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _committee_approve_instrument(ctx: StepContext, params: InstrumentDecision) -> dict[str, Any]:
+    return _decide_instrument(ctx, params, "committee")
+
+
+@_library_handler(
+    "trade.decline_instrument",
+    "Decline the request.",
+    InstrumentDecision,
+    "{instrument_number, status, awaiting_committee, margin, currency}",
+    reads=lambda params: [params.instrument_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _decline_instrument(ctx: StepContext, params: InstrumentDecision) -> dict[str, Any]:
+    return _decide_instrument(ctx, params, "decline")
+
+
+class LookupInstrument(_Strict):
+    instrument_number_path: str = Field(min_length=1, max_length=200)
+    customer_number_path: str | None = Field(default=None, max_length=200)
+    kind: Literal["letter_of_credit", "guarantee"]
+
+
+@_library_handler(
+    "trade.lookup_instrument",
+    "Find an issued letter of credit or guarantee and check whose it is.",
+    LookupInstrument,
+    "{instrument_id, instrument_number, status, amount, drawn, remaining, currency, "
+    "expires_on, customer_id, customer_name}; an unknown instrument, the other kind, or "
+    "another customer's fails the step.",
+    reads=lambda params: (
+        [params.instrument_number_path]
+        + ([params.customer_number_path] if params.customer_number_path else [])
+    ),
+    effect="reads",
+    fixtures=lambda params: {
+        params.instrument_number_path: f"{params.kind}.instrument_number",
+        **(
+            {params.customer_number_path: "business.customer_number"}
+            if params.customer_number_path
+            else {}
+        ),
+    },  # fmt: skip
+)
+def _lookup_instrument(ctx: StepContext, params: LookupInstrument) -> dict[str, Any]:
+    from app.modules.customers.models import Customer
+    from app.modules.trade import service as trade
+
+    number = str(_required(ctx, params.instrument_number_path))
+    instrument = trade.find_instrument(ctx.db, number)
+    if instrument is None or instrument.kind != params.kind:
+        raise StepError("instrument_not_found", f"No {params.kind.replace('_', ' ')} {number}.")
+    customer = ctx.db.get(Customer, instrument.customer_id)
+    if (
+        params.customer_number_path
+        and customer.customer_number
+        != str(_required(ctx, params.customer_number_path)).strip().upper()
+    ):
+        raise StepError("instrument_not_owned", "The instrument belongs to another customer.")
+    return {"instrument_id": str(instrument.id), "instrument_number": instrument.instrument_number,
+            "status": instrument.status, "amount": instrument.amount, "drawn": instrument.drawn,
+            "remaining": instrument.amount - instrument.drawn, "currency": instrument.currency,
+            "expires_on": instrument.expires_on.isoformat(), "customer_id": str(customer.id),
+            "customer_name": customer.name}  # fmt: skip
+
+
+class ReceiveDemand(_Strict):
+    instrument_id_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+    # Letters of credit: the discrepancy the checker found ("none" when compliant).
+    discrepancy_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "trade.receive_demand",
+    "Receive documents under a letter of credit, or a claim under a guarantee.",
+    ReceiveDemand,
+    "{demand_id, demand_number, amount, discrepant, discrepancies}; an expired instrument, "
+    "an amount beyond what is left or a demand already being checked fails the step.",
+    reads=lambda params: (
+        [params.instrument_id_path, params.amount_path]
+        + ([params.discrepancy_path] if params.discrepancy_path else [])
+    ),  # fmt: skip
+    effect="writes",
+)
+def _receive_demand(ctx: StepContext, params: ReceiveDemand) -> dict[str, Any]:
+    from app.modules.trade import service as trade
+
+    instrument = trade.get_instrument(
+        ctx.db, uuid.UUID(str(_required(ctx, params.instrument_id_path))), for_update=True
+    )
+    found = str(ctx.get(params.discrepancy_path) or "none") if params.discrepancy_path else "none"
+    demand = _trade_call(
+        "demand_refused", trade.receive_demand, ctx.db, instrument,
+        amount=int(_required(ctx, params.amount_path)), presented_on=ctx.now.date(),
+        discrepancies=[] if found == "none" else [found], received_by=ctx.initiator_id,
+    )  # fmt: skip
+    return {"demand_id": str(demand.id), "demand_number": demand.demand_number,
+            "amount": demand.amount, "discrepant": bool(demand.discrepancies),
+            "discrepancies": ", ".join(demand.discrepancies) or "none"}  # fmt: skip
+
+
+class DemandDecision(_Strict):
+    demand_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not honoured", min_length=3, max_length=200)
+
+
+@_library_handler(
+    "trade.pay_demand",
+    "Pay the beneficiary: margin released in proportion, the applicant's account debited.",
+    DemandDecision,
+    "{demand_number, status, amount, instrument_status}",
+    reads=lambda params: [params.demand_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _pay_demand(ctx: StepContext, params: DemandDecision) -> dict[str, Any]:
+    from app.modules.trade import service as trade
+
+    demand = trade.get_demand(ctx.db, uuid.UUID(str(_required(ctx, params.demand_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    demand = _trade_call("payment_refused", trade.pay_demand, ctx.db, demand, decider,
+                         now=ctx.now)  # fmt: skip
+    instrument = trade.get_instrument(ctx.db, demand.instrument_id)
+    return {"demand_number": demand.demand_number, "status": demand.status,
+            "amount": demand.amount, "instrument_status": instrument.status}  # fmt: skip
+
+
+@_library_handler(
+    "trade.reject_demand",
+    "Reject the documents or the claim; nothing is paid.",
+    DemandDecision,
+    "{demand_number, status, amount, instrument_status}",
+    reads=lambda params: [params.demand_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _reject_demand(ctx: StepContext, params: DemandDecision) -> dict[str, Any]:
+    from app.modules.trade import service as trade
+
+    demand = trade.get_demand(ctx.db, uuid.UUID(str(_required(ctx, params.demand_id_path))))
+    demand = _trade_call("rejection_refused", trade.reject_demand, ctx.db, demand,
+                         uuid.UUID(str(_required(ctx, params.decided_by_path))), params.note,
+                         now=ctx.now)  # fmt: skip
+    instrument = trade.get_instrument(ctx.db, demand.instrument_id)
+    return {"demand_number": demand.demand_number, "status": demand.status,
+            "amount": demand.amount, "instrument_status": instrument.status}  # fmt: skip
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

@@ -1,7 +1,7 @@
 """Phase 34: the mortgage-applications workload and the mortgage underwriting AI tool."""
 
 import json
-from datetime import UTC, date, datetime
+from datetime import date
 
 import pytest
 from sqlalchemy import Connection, select
@@ -24,7 +24,12 @@ from app.seed import DEMO_AI_TOOLS
 from app.simulation.models import SimulationCaseResult, SimulationRun, SimulationStatus
 from app.simulation.runner import create_run, execute_run
 from app.simulation.scenarios import get_scenario
-from app.simulation.workloads import WORKLOADS
+from app.simulation.workloads import (
+    MORTGAGE_MAX_ESTIMATE_USD,
+    MORTGAGE_SHAPES,
+    MORTGAGE_SHOULD_REJECT,
+    WORKLOADS,
+)
 from tests.factories import funded_account, make_org_tree, make_staff, make_user, unique_surname
 
 SCENARIO = get_scenario("mortgage-applications")
@@ -63,6 +68,21 @@ def test_the_underwriting_rules_and_their_blind_spot() -> None:
     assert _advice(age_at_term_end=95, term_years=35) == ("approve", [])
 
 
+def test_every_kind_of_case_fits_its_product_at_the_extremes(db: Session) -> None:
+    """The largest loan a case can draw stays within its product's maximum, with room for
+    the two-significant-figure rounding of converted limits (Codex review on PR #25: an
+    inflated-income case at a high income estimate exceeded home-75's US$1m)."""
+    for kind, ((_, ltv), (_, share), (_, ratio)) in MORTGAGE_SHAPES.items():
+        product = mortgages.get_product(db, "home-90" if ltv > 0.75 else "home-75")
+        years = 35 if kind == "retirement_term" else 30
+        r = product.annual_rate_bps / 10_000 / 12
+        payment = MORTGAGE_MAX_ESTIMATE_USD * ratio * share
+        loan = payment * (1 - (1 + r) ** -(years * 12)) / r
+        assert loan <= product.max_loan_usd * 0.95, (kind, round(loan))
+    assert set(MORTGAGE_SHAPES) == WORKLOADS["mortgage_applications"].kinds
+    assert MORTGAGE_SHOULD_REJECT < set(MORTGAGE_SHAPES)
+
+
 def test_the_application_profile(db: Session) -> None:
     staff = make_staff(db)
     born = date(1966, 3, 1)
@@ -81,10 +101,11 @@ def test_the_application_profile(db: Session) -> None:
         account=account, loan_amount=8_000_000, term_years=30,
         declared_monthly_income=estimate, requested_by=staff.employee.id,
     )  # fmt: skip
-    offer.created_at = datetime(2026, 6, 2, 9, 0, tzinfo=UTC)
-    profile = mortgages.application_profile(db, offer)
+    profile = mortgages.application_profile(db, offer, date(2026, 6, 2))
     assert profile["ltv_bps"] == 2000 and profile["term_years"] == 30
     assert profile["age_at_term_end"] == 60 + 30  # 60 in June 2026, then 30 years
+    # The caller's date decides, not when the offer row was written (Codex review, PR #25).
+    assert mortgages.application_profile(db, offer, date(2031, 6, 2))["age_at_term_end"] == 95
     assert profile["declared_to_estimate_bps"] == 10_000
     assert profile["payment_to_income_bps"] == offer.monthly_payment * 10_000 // estimate
     assert profile["valuation_method"] == "surveyor"

@@ -1168,7 +1168,7 @@ def _application_profile(ctx: StepContext, params: OfferRef) -> dict[str, Any]:
     from app.modules.mortgages import service as mortgages
 
     offer = mortgages.get_offer(ctx.db, uuid.UUID(str(_required(ctx, params.offer_id_path))))
-    return mortgages.application_profile(ctx.db, offer)
+    return mortgages.application_profile(ctx.db, offer, ctx.now.date())
 
 
 class OfferDecision(_Strict):

@@ -1056,6 +1056,10 @@ class CardFraudAlerts(Workload):
 
 # --- Mortgage applications (WF-1009 v2, Phase 34) ------------------------------------------
 
+# The largest bureau income estimate (US dollars a month) an applicant may have: with the
+# shapes below, every kind's loan then stays within its product's maximum (checked in the
+# tests), whatever the case's draws.
+MORTGAGE_MAX_ESTIMATE_USD = 9_000
 MORTGAGE_SHOULD_REJECT = frozenset({"stretched", "inflated_income", "thin_credit",
                                     "retirement_term"})  # fmt: skip
 # kind: (loan-to-value, payment / declared income, declared / estimated income)
@@ -1107,7 +1111,12 @@ class MortgageApplications(Workload):
             while True:  # a name the synthetic bureau scores in the kind's band
                 name, born = _person(rng, today, *ages)
                 report = lending.bureau_report(name, born)
-                if band[0] <= report["score"] <= band[1] and report["recent_defaults"] == 0:
+                if (
+                    band[0] <= report["score"] <= band[1]
+                    and report["recent_defaults"] == 0
+                    # Incomes small enough that every kind's loan fits its product.
+                    and lending.income_estimate(name, born) <= MORTGAGE_MAX_ESTIMATE_USD
+                ):
                     break
             account = _customer_account(sim, name=name, born=born, country_code=country)
             customer = account.customer

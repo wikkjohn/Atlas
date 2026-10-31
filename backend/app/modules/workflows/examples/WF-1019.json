@@ -1,0 +1,142 @@
+{
+  "workflow_id": "WF-1019",
+  "name": "Money-Market Deal Maturity",
+  "version": 1,
+  "description": "On or after a settled deal's maturity date, back office (treasury:confirm), someone other than the dealer, settles principal and interest: a placement is repaid to the bank (interest income), a borrowing is repaid by it (interest expense) if the cash is there. Stored definition: built only from library handlers (Phase 39).",
+  "business_owner": "Treasury",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "deal_number"
+    ],
+    "properties": {
+      "deal_number": {
+        "type": "string",
+        "pattern": "^MM-[0-9]{7,}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find.counterparty_code"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.deal_number",
+        "prefix": "MAT-"
+      },
+      "next": "find"
+    },
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the deal",
+      "handler": "treasury.lookup_deal",
+      "params": {
+        "deal_number_path": "input.deal_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_due"
+    },
+    {
+      "id": "route_due",
+      "type": "decision",
+      "name": "Due?",
+      "transitions": [
+        {
+          "to": "back_office",
+          "when": {
+            "path": "find.due",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "not_due"
+    },
+    {
+      "id": "back_office",
+      "type": "approval",
+      "name": "Back-office settlement",
+      "description": "Back office, not the dealer, checks the counterparty's payment or our own.",
+      "approval": {
+        "permissions": [
+          "treasury:confirm"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "mature",
+          "when": {
+            "path": "back_office.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "held"
+    },
+    {
+      "id": "mature",
+      "type": "service_task",
+      "name": "Settle principal and interest",
+      "handler": "treasury.mature_deal",
+      "params": {
+        "deal_id_path": "find.deal_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "matured"
+    },
+    {
+      "id": "matured",
+      "type": "completion",
+      "name": "Matured",
+      "outcome": "approved"
+    },
+    {
+      "id": "not_due",
+      "type": "completion",
+      "name": "Not due",
+      "outcome": "rejected"
+    },
+    {
+      "id": "held",
+      "type": "completion",
+      "name": "Held by back office",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Unknown deal",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

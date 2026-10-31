@@ -31,6 +31,7 @@ describe("Application shell", () => {
       "Mortgages",
       "Commercial Lending",
       "Trade Finance",
+      "Treasury",
       "Workflow Explorer",
       "Simulation Center",
       "AI Innovation Lab",

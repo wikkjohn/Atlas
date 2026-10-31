@@ -600,6 +600,10 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
         _build_payment_and_loan_cases(db, SyntheticNameGenerator(seed + 3), report)
     # Tools may name stored workflows as compatible (WF-1003), and stored workflows may call
     # tools (WF-1003 v2): the examples without AI steps first, then the tools, then the rest.
+    # Synthetic counterparty banks for the treasury (Phase 39); idempotent.
+    from app.modules.treasury.service import ensure_counterparties
+
+    ensure_counterparties(db)
     _import_examples(db, report, with_ai_steps=False)
     _register_ai_tools(db, report)
     _import_example_definitions(db, report)

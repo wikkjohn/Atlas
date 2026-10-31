@@ -99,3 +99,5 @@ See [api.md](api.md) (*Foreign exchange*). The Foreign Exchange page has four se
 - Rates are daily; a payment released late in a day uses that day's rate.
 - Positions are valued in US dollars only; there are no per-subsidiary reporting
   currencies yet.
+- Positions are squared by the treasury's FX desk (Phase 39, [treasury.md](treasury.md)),
+  not automatically.

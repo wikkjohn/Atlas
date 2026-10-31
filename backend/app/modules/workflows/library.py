@@ -1945,6 +1945,257 @@ def _presentation_profile(ctx: StepContext, params: DemandRef) -> dict[str, Any]
     return trade.presentation_profile(ctx.db, demand)
 
 
+# --- Treasury (Phase 39) ---------------------------------------------------------------------
+
+
+def _treasury_counterparty(ctx: StepContext, path: str):
+    from app.modules.treasury import service as treasury
+
+    code = str(_required(ctx, path))
+    counterparty = treasury.find_counterparty(ctx.db, code)
+    if counterparty is None:
+        raise StepError("counterparty_not_found", f"No counterparty {code}.")
+    return counterparty
+
+
+def _deal_out(deal) -> dict[str, Any]:
+    return {"deal_id": str(deal.id), "deal_number": deal.deal_number, "kind": deal.kind,
+            "status": deal.status, "currency": deal.currency, "principal": deal.principal,
+            "interest": deal.interest, "maturity_date": deal.maturity_date.isoformat()}  # fmt: skip
+
+
+class BookDeal(_Strict):
+    counterparty_path: str = Field(min_length=1, max_length=200)
+    kind_path: str = Field(min_length=1, max_length=200)
+    currency_path: str = Field(min_length=1, max_length=200)
+    principal_path: str = Field(min_length=1, max_length=200)
+    rate_path: str = Field(min_length=1, max_length=200)
+    tenor_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "treasury.book_deal",
+    "Book an interbank placement or borrowing, value today: a placement only with an "
+    "investment-grade counterparty and within its limit.",
+    BookDeal,
+    "{deal_id, deal_number, kind, status, currency, principal, interest, maturity_date}; a "
+    "refused booking fails the step.",
+    reads=lambda params: [params.counterparty_path, params.kind_path, params.currency_path,
+                          params.principal_path, params.rate_path, params.tenor_path],
+    effect="writes",
+    fixtures=lambda params: {params.counterparty_path: "counterparty.code"},
+)  # fmt: skip
+def _book_deal(ctx: StepContext, params: BookDeal) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    deal = _trade_call(
+        "booking_refused", treasury.book_deal, ctx.db,
+        counterparty=_treasury_counterparty(ctx, params.counterparty_path),
+        kind=str(_required(ctx, params.kind_path)),
+        currency=str(_required(ctx, params.currency_path)),
+        principal=int(_required(ctx, params.principal_path)),
+        rate_bps=int(_required(ctx, params.rate_path)),
+        tenor_days=int(_required(ctx, params.tenor_path)),
+        booked_by=ctx.initiator_id, today=ctx.now.date(),
+    )  # fmt: skip
+    return _deal_out(deal)
+
+
+class DealDecision(_Strict):
+    deal_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _deal(ctx: StepContext, params: DealDecision):
+    from app.modules.treasury import service as treasury
+
+    return treasury.get_deal(ctx.db, uuid.UUID(str(_required(ctx, params.deal_id_path))))
+
+
+@_library_handler(
+    "treasury.confirm_deal",
+    "Back office confirms the deal and settles it: a placement pays the counterparty, a "
+    "borrowing receives the cash.",
+    DealDecision,
+    "{deal_id, deal_number, kind, status, currency, principal, interest, maturity_date}",
+    reads=lambda params: [params.deal_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _confirm_deal(ctx: StepContext, params: DealDecision) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    deal = _trade_call("settlement_refused", treasury.confirm_deal, ctx.db, _deal(ctx, params),
+                       decider, now=ctx.now)  # fmt: skip
+    return _deal_out(deal)
+
+
+@_library_handler(
+    "treasury.cancel_deal",
+    "Cancel a booked deal.",
+    DealDecision,
+    "{deal_id, deal_number, kind, status, currency, principal, interest, maturity_date}",
+    reads=lambda params: [params.deal_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _cancel_deal(ctx: StepContext, params: DealDecision) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    deal = _trade_call("cancel_refused", treasury.cancel_deal, ctx.db, _deal(ctx, params),
+                       decider)  # fmt: skip
+    return _deal_out(deal)
+
+
+class LookupDeal(_Strict):
+    deal_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "treasury.lookup_deal",
+    "Find a settled money-market deal and whether it is due.",
+    LookupDeal,
+    "{deal_id, deal_number, kind, status, currency, principal, interest, maturity_date, "
+    "counterparty_code, due}; an unknown deal fails the step.",
+    reads=lambda params: [params.deal_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.deal_number_path: "treasury_deal.deal_number"},
+)
+def _lookup_deal(ctx: StepContext, params: LookupDeal) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    number = str(_required(ctx, params.deal_number_path))
+    deal = treasury.find_deal(ctx.db, number)
+    if deal is None:
+        raise StepError("deal_not_found", f"No deal {number}.")
+    counterparty = treasury.get_counterparty(ctx.db, deal.counterparty_id)
+    return {**_deal_out(deal), "counterparty_code": counterparty.code,
+            "due": deal.status == "settled" and deal.maturity_date <= ctx.now.date()}  # fmt: skip
+
+
+@_library_handler(
+    "treasury.mature_deal",
+    "Settle principal and interest at maturity: a placement is repaid to the bank, a "
+    "borrowing is repaid by it.",
+    DealDecision,
+    "{deal_id, deal_number, kind, status, currency, principal, interest, maturity_date}",
+    reads=lambda params: [params.deal_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _mature_deal(ctx: StepContext, params: DealDecision) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    deal = _trade_call("maturity_refused", treasury.mature_deal, ctx.db, _deal(ctx, params),
+                       decider, now=ctx.now)  # fmt: skip
+    return _deal_out(deal)
+
+
+class FxPosition(_Strict):
+    currency_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "treasury.fx_position",
+    "Read the FX desk's open position in a currency against its limit.",
+    FxPosition,
+    "{currency, position, value_usd, limit_usd, utilisation_bps, over_limit, excess_usd}",
+    reads=lambda params: [params.currency_path],
+    effect="reads",
+    fixtures=lambda params: {params.currency_path: "fx_long.currency"},
+)
+def _fx_position(ctx: StepContext, params: FxPosition) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    row = treasury.position(ctx.db, str(_required(ctx, params.currency_path)), ctx.now.date())
+    keys = ("currency", "position", "value_usd", "limit_usd", "utilisation_bps", "over_limit",
+            "excess_usd")  # fmt: skip
+    return {k: row.get(k) for k in keys}
+
+
+class BookFxTrade(_Strict):
+    counterparty_path: str = Field(min_length=1, max_length=200)
+    sell_currency_path: str = Field(min_length=1, max_length=200)
+    buy_currency_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+
+
+def _fx_trade_out(trade) -> dict[str, Any]:
+    return {"trade_id": str(trade.id), "trade_number": trade.trade_number,
+            "status": trade.status, "sell": f"{trade.sell_amount} {trade.sell_currency}",
+            "buy": f"{trade.buy_amount} {trade.buy_currency}",
+            "mid_rate": trade.mid_rate}  # fmt: skip
+
+
+@_library_handler(
+    "treasury.book_fx_trade",
+    "Book an interbank spot trade at the day's mid rate that reduces a long position.",
+    BookFxTrade,
+    "{trade_id, trade_number, status, sell, buy, mid_rate}; a trade that would open or "
+    "reverse a position fails the step.",
+    reads=lambda params: [params.counterparty_path, params.sell_currency_path,
+                          params.buy_currency_path, params.amount_path],
+    effect="writes",
+    fixtures=lambda params: {params.counterparty_path: "counterparty.code",
+                             params.sell_currency_path: "fx_long.currency"},
+)  # fmt: skip
+def _book_fx_trade(ctx: StepContext, params: BookFxTrade) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    trade = _trade_call(
+        "booking_refused", treasury.book_fx_trade, ctx.db,
+        counterparty=_treasury_counterparty(ctx, params.counterparty_path),
+        sell_currency=str(_required(ctx, params.sell_currency_path)),
+        buy_currency=str(_required(ctx, params.buy_currency_path)),
+        sell_amount=int(_required(ctx, params.amount_path)),
+        booked_by=ctx.initiator_id, today=ctx.now.date(),
+    )  # fmt: skip
+    return _fx_trade_out(trade)
+
+
+class FxTradeDecision(_Strict):
+    trade_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "treasury.confirm_fx_trade",
+    "Back office confirms the spot trade and settles both legs.",
+    FxTradeDecision,
+    "{trade_id, trade_number, status, sell, buy, mid_rate}",
+    reads=lambda params: [params.trade_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _confirm_fx_trade(ctx: StepContext, params: FxTradeDecision) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    trade = treasury.get_fx_trade(ctx.db, uuid.UUID(str(_required(ctx, params.trade_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    trade = _trade_call("settlement_refused", treasury.confirm_fx_trade, ctx.db, trade,
+                        decider, now=ctx.now)  # fmt: skip
+    return _fx_trade_out(trade)
+
+
+@_library_handler(
+    "treasury.cancel_fx_trade",
+    "Cancel a booked spot trade.",
+    FxTradeDecision,
+    "{trade_id, trade_number, status, sell, buy, mid_rate}",
+    reads=lambda params: [params.trade_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _cancel_fx_trade(ctx: StepContext, params: FxTradeDecision) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    trade = treasury.get_fx_trade(ctx.db, uuid.UUID(str(_required(ctx, params.trade_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    trade = _trade_call("cancel_refused", treasury.cancel_fx_trade, ctx.db, trade, decider)
+    return _fx_trade_out(trade)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

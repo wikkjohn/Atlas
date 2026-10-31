@@ -314,6 +314,15 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `trade.presentation_profile` | reads | `demand_id_path` | what the trade officer weighs before the applicant's waiver: the discrepancy, how much is drawn, days to expiry, the applicant's funds and the credit's earlier presentations (Phase 38) |
 | `trade.pay_demand` | moves money (approval required) | `demand_id_path`, `decided_by_path` | pays: margin released in proportion, the applicant debited (Phase 37) |
 | `trade.reject_demand` | writes | `demand_id_path`, `decided_by_path`, `note` | rejects; nothing is paid (Phase 37) |
+| `treasury.book_deal` | writes | `counterparty_path`, `kind_path`, `currency_path`, `principal_path`, `rate_path`, `tenor_path` | books a placement or borrowing, value today; a placement only investment grade and within the limit (Phase 39) |
+| `treasury.confirm_deal` | moves money (approval required) | `deal_id_path`, `decided_by_path` | back office confirms and settles against the bank's cash (Phase 39) |
+| `treasury.cancel_deal` | writes | `deal_id_path`, `decided_by_path` | cancels a booked deal (Phase 39) |
+| `treasury.lookup_deal` | reads | `deal_number_path` | a deal, its counterparty and whether it is due (Phase 39) |
+| `treasury.mature_deal` | moves money (approval required) | `deal_id_path`, `decided_by_path` | settles principal and interest at maturity (Phase 39) |
+| `treasury.fx_position` | reads | `currency_path` | the desk's position in a currency against its limit (Phase 39) |
+| `treasury.book_fx_trade` | writes | `counterparty_path`, `sell_currency_path`, `buy_currency_path`, `amount_path` | a spot trade at the mid rate that reduces a long position (Phase 39) |
+| `treasury.confirm_fx_trade` | moves money (approval required) | `trade_id_path`, `decided_by_path` | back office settles both legs (Phase 39) |
+| `treasury.cancel_fx_trade` | writes | `trade_id_path`, `decided_by_path` | cancels a booked spot trade (Phase 39) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -415,6 +424,13 @@ WF-1016 **v2** (Phase 38) reads the presentation profile (`trade.presentation_pr
 the documents are discrepant and asks the AGB Document Check Assistant (`ai.review`,
 advisory) before the trade officer decides on the applicant's waiver
 (`discrepant-presentations`).
+
+### WF-1018, WF-1019 and WF-1020: treasury (Phase 39)
+
+The treasury base processes. WF-1018 books an interbank placement or borrowing and has back
+office confirm and settle it, or cancel it. WF-1019 settles a due deal's principal and
+interest. WF-1020 squares an FX position over its limit with an interbank spot trade that
+back office confirms. See [treasury.md](treasury.md).
 
 ### Authoring
 

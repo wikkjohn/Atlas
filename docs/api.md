@@ -271,6 +271,28 @@ currency (its business account's).
 | POST | `/api/v1/trade/demands/{id}/reject` | `trade:manage` | `{note}`; not by the receiver |
 | GET | `/api/v1/trade/summary/counts` | `loans:read` | Requested, issued, demands to check, paid, expired |
 
+### Treasury (Phase 39)
+
+See [treasury.md](treasury.md). Deal and trade amounts are minor units of their currency;
+limits and exposures are whole US dollars.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/treasury/counterparties` | `payments:read` | Rating, limit, exposure (booked and settled placements at today's rates), investment grade |
+| PUT | `/api/v1/treasury/counterparties/{code}/limit` | `treasury:limits` | `{limit_usd}` |
+| GET | `/api/v1/treasury/deals` | `payments:read` | Filter `status` |
+| POST | `/api/v1/treasury/deals` | `treasury:deal` | `{kind, counterparty_code, currency, principal, rate_bps, tenor_days}`; value today; 201 `booked`; 422 with rule `rating`, `counterparty_limit` or `principal_range` |
+| POST | `/api/v1/treasury/deals/{id}/confirm` | `treasury:confirm` | Not by the dealer; settles; a placement re-checks the limit, cash and liquidity coverage (rule `liquidity_coverage`) |
+| POST | `/api/v1/treasury/deals/{id}/cancel` | `treasury:deal` | Booked deals only |
+| POST | `/api/v1/treasury/deals/{id}/mature` | `treasury:confirm` | On or after maturity; not by the dealer; principal and interest |
+| GET | `/api/v1/treasury/liquidity` | `payments:read` | 30-day coverage by currency |
+| GET | `/api/v1/treasury/fx-desk` | `payments:read` | Positions in US cents against limits in dollars, `over_limit`, `excess_usd` |
+| PUT | `/api/v1/treasury/fx-limits/{currency}` | `treasury:limits` | `{limit_usd}` |
+| GET | `/api/v1/treasury/fx-trades` | `payments:read` | Newest first |
+| POST | `/api/v1/treasury/fx-trades` | `treasury:deal` | `{counterparty_code, sell_currency, buy_currency, sell_amount}`; mid rate; only reduces a long position (rule `squares_only`); 201 |
+| POST | `/api/v1/treasury/fx-trades/{id}/confirm` · `/cancel` | `treasury:confirm` · `treasury:deal` | Confirmation settles both legs; not by the dealer |
+| GET | `/api/v1/treasury/summary/counts` | `payments:read` | Deals to confirm, placements, borrowings, FX trades to confirm |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

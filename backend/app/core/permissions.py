@@ -65,6 +65,8 @@ class Permission(StrEnum):
     PAYMENTS_APPROVE = "payments:approve"  # release high-value payments (never one's own)
     # Release flagged payments within the low-risk policy only (the automated policy engine).
     PAYMENTS_RELEASE_LOW_RISK = "payments:release_low_risk"
+    # Payments operations (Phase 41): run external clearing cycles, record recall answers.
+    PAYMENTS_OPERATE = "payments:operate"
     LOANS_READ = "loans:read"
     LOANS_APPROVE = "loans:approve"  # underwriting decisions (never one's own application)
     LOANS_APPROVE_LARGE = "loans:approve_large"  # credit committee: large loans, write-offs
@@ -168,6 +170,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.TRADE_MANAGE,
         Permission.TREASURY_DEAL,
         Permission.TREASURY_CONFIRM,  # back office: confirm and settle others' deals
+        Permission.PAYMENTS_OPERATE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE | {Permission.TREASURY_DEAL},

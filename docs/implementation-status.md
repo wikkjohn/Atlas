@@ -65,7 +65,20 @@ Last updated: Phase 33.
 
 ## Phase 33: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 580 passed (new: 6 — properties and desktop and surveyor valuations; every lending rule passing and failing; the desktop valuation's 75 % limit; an offer from application to completion with four-eyes, a 300-instalment schedule and the property charged; declined, expired and withdrawn offers; the API with its permissions, and the mortgage listed as an ordinary loan) |
+| Migration 0027 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 21 workflows, 439 cases, 0 failed (WF-1009: 21 cases, WF-1010: 19, WF-1011: 16; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 104 passed / clean / built |
+| Playwright on a fresh database | 36 passed on the first run (new: a teller checks eligibility and applies, cannot approve their own application, an underwriter approves, the customer accepts, a manager completes and the loan number appears) |
+
+Found while building it: the first full backend run failed one test (1 failed, 579
+passed). Adding `mortgage` to `LoanPurpose` had also added it to the personal-loan
+workflow WF-0003, whose input schema lists that enum, so the code definition's content
+hash changed and a personal loan could have been applied for as a mortgage.
+`LoanPurpose` is unchanged now, and mortgages use their own purpose constant. One Vitest
+assertion in the new test matched three rows and was narrowed to one.
 
 ## Phase 33: known limitations
 

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 34.
+Last updated: Phase 35.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -39,6 +39,61 @@ Last updated: Phase 34.
 | 32 | Departments, step 4: the cards workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 33 | Departments, step 5: mortgages and secured lending ([mortgages.md](mortgages.md)) | **Complete** |
 | 34 | Departments, step 6: the mortgages workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 35 | Departments, step 7: SME and commercial lending ([commercial-lending.md](commercial-lending.md)) | **Complete** |
+
+## Phase 35: what exists
+
+- **Commercial lending module** (`app/modules/commercial/`, migration 0028).
+  - Term loans and revolving credit for verified businesses, drawn into their business
+    current accounts.
+  - Limits of US$50,000 to 5m converted per currency; fixed rates; default covenants.
+- **Approval:** four-eyes credit approval and, above US$1m, a third person on the credit
+  committee (also database constraints). Activation opens a ledger receivable and sets
+  the review and maturity dates.
+- **Drawdowns and repayments** through the ledger. Revolving credit redraws repaid
+  amounts; a term loan does not. No drawdowns when frozen, terminated, overdue for
+  review or matured.
+- **Covenant tests:** DSCR and leverage on a year's figures, once per period. A breach
+  freezes the facility until the committee (not the submitter) waives it.
+- **Annual reviews:** opened from 60 days before the due date, one at a time, decided
+  four-eyes. Renewal can change the limit; termination means repayments only.
+- **Workflow factory:** ten `commercial.*` handlers and three workflows:
+  - WF-1012 Commercial Facility Application
+  - WF-1013 Covenant Compliance Test
+  - WF-1014 Annual Facility Review
+
+  Fixture kinds `business.customer_number`, `business.account_number` and
+  `facility.facility_number`.
+- **Commercial Lending page:** proposals, approvals, committee approvals, a facility's
+  drawdowns, covenant figures and tests with waivers, and annual reviews.
+
+## Phase 35: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 589 passed (new: 6 — proposal rules and four-eyes approval; committee approval above US$1m by a third person; drawdowns and repayments through the ledger, a term loan not redrawing, an overdue review blocking; a covenant breach freezing until the committee waives; reviews renewing with a new limit and terminating; the API with its permissions) |
+| Migration 0028 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 24 workflows, 497 cases, 0 failed (WF-1012: 23 cases, WF-1013: 17, WF-1014: 16; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 107 passed / clean / built |
+| Playwright on a fresh database | 38 passed (new: a teller proposes, cannot approve their own proposal, a manager approves, the teller draws, breaching figures freeze the facility, the teller cannot waive, an executive waives) |
+
+Found while building it:
+- **New backend tests:** two assertions in `test_commercial.py` were wrong on the first run
+  (a repayment the account could in fact pay, and the expected ratios listed backwards)
+  and were corrected.
+- **First Playwright run:** 1 failed and 6 did not run. In "a run in parallel shards", the
+  *Start run* click sent no request: the trace shows the click and no POST, and no error
+  on the page. That run overlapped the 12-minute backend suite on the same machine; no
+  root cause was found in the form's code.
+- **Rerun:** the simulations spec alone passed (9 tests), and the full suite on a newly
+  rebuilt database, with nothing else running, passed 38 of 38.
+
+## Phase 35: known limitations
+
+- No interest, fees or term-loan repayment schedules on facilities.
+- Two financial covenants on figures the bank is given; facilities are unsecured.
+- Nothing opens a review automatically; an overdue review only blocks drawdowns.
+- No commercial lending workload or AI tool yet (Phase 36).
 
 ## Phase 34: what exists
 

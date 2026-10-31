@@ -154,12 +154,31 @@ const SAMPLE_MORTGAGE = {
     age_at_term_end: 94,
   },
 };
+/** A second near miss a year after a waiver: the covenant assistant's blind spot (Phase 36). */
+const SAMPLE_COVENANT = {
+  profile: {
+    currency: "GBP",
+    facility_type: "revolving",
+    dscr_centi: 117,
+    dscr_threshold_centi: 125,
+    leverage_centi: 280,
+    leverage_threshold_centi: 350,
+    ebitda_change_bps: -150,
+    previous_ebitda_change_bps: -2100,
+    consecutive_declines: 2,
+    utilisation_bps: 4500,
+    periods_tested: 3,
+    previous_breaches: 1,
+    previous_waivers: 1,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
   rule_based_overdraft_affordability: SAMPLE_OVERDRAFT,
   rule_based_card_fraud_review: SAMPLE_CARD_FRAUD,
   rule_based_mortgage_underwriting: SAMPLE_MORTGAGE,
+  rule_based_covenant_review: SAMPLE_COVENANT,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

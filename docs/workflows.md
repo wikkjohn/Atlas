@@ -300,6 +300,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `commercial.decline_facility` | writes | `facility_id_path`, `decided_by_path` | declines a proposal (Phase 35) |
 | `commercial.lookup_facility` | reads | `facility_number_path`, `customer_number_path` (optional) | a facility's status, limit, drawn, available and review date; another customer's fails (Phase 35) |
 | `commercial.test_covenants` | writes | `facility_id_path`, `period_end_path`, `ebitda_path`, `debt_service_path`, `total_debt_path` | tests the covenants on a year's figures; a breach freezes the facility (Phase 35) |
+| `commercial.breach_profile` | reads | `test_id_path` | what the committee reviews: the period's ratios against their thresholds, the EBITDA trend, how much is drawn, earlier breaches and waivers (Phase 36) |
 | `commercial.waive_breach` | writes (approval required) | `test_id_path`, `waived_by_path` | the credit committee waives a breach (Phase 35) |
 | `commercial.open_review` | writes | `facility_id_path` | opens the annual review from 60 days before it is due (Phase 35) |
 | `commercial.renew_facility` | writes (approval required) | `review_id_path`, `decided_by_path` | renews for another year (Phase 35) |
@@ -383,6 +384,10 @@ The commercial lending base processes. WF-1012 proposes a facility and has a cre
 approver, and above US$1m the credit committee, approve it. WF-1013 tests a year's figures
 against the covenants and lets the committee waive a breach. WF-1014 is the annual review,
 renewing or terminating the facility. See [commercial-lending.md](commercial-lending.md).
+
+WF-1013 **v2** (Phase 36) reads the breach profile (`commercial.breach_profile`) when the
+covenants are breached and asks the AGB Covenant Breach Assistant (`ai.review`, advisory)
+before the credit committee decides (`covenant-breaches`).
 
 ### Authoring
 

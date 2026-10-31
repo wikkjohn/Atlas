@@ -49,3 +49,15 @@ test("Commercial lending: proposed, approved, drawn; a covenant breach freezes i
   await expect(executive.getByRole("table", { name: "Facilities" }).getByRole("row").filter({ hasText: number }).getByText("active")).toBeVisible();
   await executiveContext.close();
 });
+
+test("AI Innovation Lab: the covenant breach assistant would waive a second breach after a waiver (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Covenant Breach Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Covenant Breach Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

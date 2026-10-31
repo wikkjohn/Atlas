@@ -305,6 +305,14 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `commercial.open_review` | writes | `facility_id_path` | opens the annual review from 60 days before it is due (Phase 35) |
 | `commercial.renew_facility` | writes (approval required) | `review_id_path`, `decided_by_path` | renews for another year (Phase 35) |
 | `commercial.terminate_facility` | writes | `review_id_path`, `decided_by_path` | terminates: repayments only (Phase 35) |
+| `trade.request_instrument` | writes | `customer_number_path`, `account_number_path`, `kind_path`, `beneficiary_path`, `country_path`, `amount_path`, `expires_in_days_path`, `purpose_path` (optional) | screens the beneficiary and requests a letter of credit or guarantee; reports whether the committee must approve (Phase 37) |
+| `trade.approve_instrument` | writes (approval required) | `instrument_id_path`, `decided_by_path` | the credit approval; issued, margin taken, unless the committee must approve (Phase 37) |
+| `trade.committee_approve` | writes (approval required) | `instrument_id_path`, `decided_by_path` | the credit committee's approval above US$1m (Phase 37) |
+| `trade.decline_instrument` | writes | `instrument_id_path`, `decided_by_path` | declines a request (Phase 37) |
+| `trade.lookup_instrument` | reads | `instrument_number_path`, `customer_number_path` (optional), `kind` | an issued instrument of that kind, what is left of it and its expiry; another customer's fails (Phase 37) |
+| `trade.receive_demand` | writes | `instrument_id_path`, `amount_path`, `discrepancy_path` (optional; `none` when complying) | records a presentation or claim; reports `discrepant` (Phase 37) |
+| `trade.pay_demand` | moves money (approval required) | `demand_id_path`, `decided_by_path` | pays: margin released in proportion, the applicant debited (Phase 37) |
+| `trade.reject_demand` | writes | `demand_id_path`, `decided_by_path`, `note` | rejects; nothing is paid (Phase 37) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -388,6 +396,15 @@ renewing or terminating the facility. See [commercial-lending.md](commercial-len
 WF-1013 **v2** (Phase 36) reads the breach profile (`commercial.breach_profile`) when the
 covenants are breached and asks the AGB Covenant Breach Assistant (`ai.review`, advisory)
 before the credit committee decides (`covenant-breaches`).
+
+### WF-1015, WF-1016 and WF-1017: trade finance (Phase 37)
+
+The trade finance base processes. WF-1015 screens and requests a letter of credit or
+guarantee and has a credit approver, and above US$1m the credit committee, approve it.
+WF-1016 records documents presented under a letter of credit: a complying presentation goes
+to the document checker, a discrepant one to the applicant's waiver, and either approval
+pays. WF-1017 records a claim under a guarantee and pays or rejects it. See
+[trade-finance.md](trade-finance.md).
 
 ### Authoring
 

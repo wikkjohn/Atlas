@@ -252,6 +252,25 @@ currency; covenant thresholds and ratios are hundredths (125 = 1.25×).
 | POST | `/api/v1/commercial/reviews/{id}/decide` | `loans:approve` | `{renew, new_limit?}`; not by the opener |
 | GET | `/api/v1/commercial/summary/counts` | `loans:read` | Proposed, active, frozen, reviews due, open reviews |
 
+### Trade finance (Phase 37)
+
+See [trade-finance.md](trade-finance.md). Amounts are minor units of the instrument's
+currency (its business account's).
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/trade/instruments` | `loans:read` | Filter `status`; margin held, drawn, whether the committee must approve, the list screened against |
+| POST | `/api/v1/trade/instruments` | `accounts:transact` | `{kind, customer_number, account_number, beneficiary_name, beneficiary_country, amount, expires_on, purpose?}`; 422 with rule `sanctions_hit` when the beneficiary is listed; 201 `requested` |
+| POST | `/api/v1/trade/instruments/{id}/approve` | `loans:approve` | Not by the requester; issued (margin taken) unless above US$1m |
+| POST | `/api/v1/trade/instruments/{id}/committee` | `loans:approve_large` | Above US$1m, after the credit approval; a third person |
+| POST | `/api/v1/trade/instruments/{id}/decline` | `loans:approve` | |
+| POST | `/api/v1/trade/instruments/{id}/expire` | `trade:manage` | After the expiry date, no pending demand; releases the margin |
+| GET | `/api/v1/trade/instruments/{id}/demands` | `loans:read` | Newest first |
+| POST | `/api/v1/trade/instruments/{id}/demands` | `accounts:transact` | `{amount, presented_on, discrepancies[]}` (none for a guarantee); one pending at a time; 201 |
+| POST | `/api/v1/trade/demands/{id}/pay` | `trade:manage` | Not by the receiver; margin released in proportion, applicant debited |
+| POST | `/api/v1/trade/demands/{id}/reject` | `trade:manage` | `{note}`; not by the receiver |
+| GET | `/api/v1/trade/summary/counts` | `loans:read` | Requested, issued, demands to check, paid, expired |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

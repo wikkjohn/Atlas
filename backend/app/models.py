@@ -5,6 +5,7 @@ from app.jobs import models as jobs  # noqa: F401
 from app.modules.accounts import models as accounts  # noqa: F401
 from app.modules.ai_tools import models as ai_tools  # noqa: F401
 from app.modules.cards import models as cards  # noqa: F401
+from app.modules.commercial import models as commercial  # noqa: F401
 from app.modules.countries import models as countries  # noqa: F401
 from app.modules.customers import models as customers  # noqa: F401
 from app.modules.employees import models as employees  # noqa: F401

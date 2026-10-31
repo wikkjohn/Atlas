@@ -1,0 +1,293 @@
+{
+  "workflow_id": "WF-1012",
+  "name": "Commercial Facility Application",
+  "version": 1,
+  "description": "A business customer applies for a term loan or revolving credit. The proposal is checked (a verified business, its business current account, limits of US$50,000 to 5m converted, terms) and recorded with standard covenants; a credit approver other than the proposer approves, and above US$1m the credit committee (a third person) as well, before the facility is active and its annual review is set a year out. Stored definition: built only from library handlers (Phase 35).",
+  "business_owner": "Commercial Lending",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "account_number",
+      "facility_type",
+      "credit_limit",
+      "term_months"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "facility_type": {
+        "type": "string",
+        "enum": [
+          "revolving",
+          "term_loan"
+        ]
+      },
+      "credit_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000,
+        "examples": [
+          200000000
+        ],
+        "description": "Minor units of the account's currency"
+      },
+      "term_months": {
+        "type": "integer",
+        "minimum": 12,
+        "maximum": 120,
+        "examples": [
+          36
+        ]
+      },
+      "purpose": {
+        "type": "string",
+        "maxLength": 100,
+        "examples": [
+          "Working capital"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "propose.customer_name"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "FAP-"
+      },
+      "next": "propose"
+    },
+    {
+      "id": "propose",
+      "type": "service_task",
+      "name": "Record the proposal",
+      "handler": "commercial.propose_facility",
+      "params": {
+        "customer_number_path": "input.customer_number",
+        "account_number_path": "input.account_number",
+        "facility_type_path": "input.facility_type",
+        "limit_path": "input.credit_limit",
+        "term_path": "input.term_months",
+        "purpose_path": "input.purpose"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "credit_approval"
+    },
+    {
+      "id": "credit_approval",
+      "type": "approval",
+      "name": "Credit approval",
+      "description": "A credit approver other than the proposer decides (four-eyes).",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "credit_approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "decline"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Record the credit approval",
+      "handler": "commercial.approve_facility",
+      "params": {
+        "facility_id_path": "propose.facility_id",
+        "decided_by_path": "credit_approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_committee"
+    },
+    {
+      "id": "route_committee",
+      "type": "decision",
+      "name": "Committee needed?",
+      "transitions": [
+        {
+          "to": "committee",
+          "when": {
+            "path": "approve.awaiting_committee",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_active"
+    },
+    {
+      "id": "committee",
+      "type": "approval",
+      "name": "Credit committee",
+      "description": "Above US$1m the credit committee approves too: a third person with loans:approve_large.",
+      "approval": {
+        "permissions": [
+          "loans:approve_large"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 604800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "committee_approve",
+          "when": {
+            "path": "committee.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "committee_decline"
+    },
+    {
+      "id": "committee_approve",
+      "type": "service_task",
+      "name": "Record the committee's approval",
+      "handler": "commercial.committee_approve",
+      "params": {
+        "facility_id_path": "propose.facility_id",
+        "decided_by_path": "committee.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_active"
+    },
+    {
+      "id": "committee_decline",
+      "type": "service_task",
+      "name": "Decline the facility",
+      "handler": "commercial.decline_facility",
+      "params": {
+        "facility_id_path": "propose.facility_id",
+        "decided_by_path": "committee.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_declined"
+    },
+    {
+      "id": "decline",
+      "type": "service_task",
+      "name": "Decline the facility",
+      "handler": "commercial.decline_facility",
+      "params": {
+        "facility_id_path": "propose.facility_id",
+        "decided_by_path": "credit_approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_declined"
+    },
+    {
+      "id": "notify_active",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "propose.customer_id",
+        "subject": "Your facility",
+        "body": "Dear {propose.customer_name}, facility {propose.facility_number} is available to draw ({propose.currency})."
+      },
+      "next": "active"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "propose.customer_id",
+        "subject": "Your facility application",
+        "body": "Dear {propose.customer_name}, we cannot offer facility {propose.facility_number}."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "propose.customer_id",
+        "subject": "Your facility application",
+        "body": "Dear {propose.customer_name}, we could not complete your application: {_failure.message}"
+      },
+      "next": "refused_after"
+    },
+    {
+      "id": "active",
+      "type": "completion",
+      "name": "Facility active",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be proposed",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

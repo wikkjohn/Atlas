@@ -1,0 +1,194 @@
+{
+  "workflow_id": "WF-1014",
+  "name": "Annual Facility Review",
+  "version": 1,
+  "description": "A facility's annual review, opened from 60 days before it is due. A credit approver other than the person who opened it renews the facility for another year; otherwise it is terminated: no further drawdowns, repayments only. An overdue review stops drawdowns. Stored definition: built only from library handlers (Phase 35).",
+  "business_owner": "Commercial Lending",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "facility_number"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "facility_number": {
+        "type": "string",
+        "pattern": "^FAC-[0-9]{7,}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_facility.customer_name"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.facility_number",
+        "prefix": "FRV-"
+      },
+      "next": "find_facility"
+    },
+    {
+      "id": "find_facility",
+      "type": "service_task",
+      "name": "Find the facility",
+      "handler": "commercial.lookup_facility",
+      "params": {
+        "facility_number_path": "input.facility_number",
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "open"
+    },
+    {
+      "id": "open",
+      "type": "service_task",
+      "name": "Open the review",
+      "handler": "commercial.open_review",
+      "params": {
+        "facility_id_path": "find_facility.facility_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "credit_review"
+    },
+    {
+      "id": "credit_review",
+      "type": "approval",
+      "name": "Credit review",
+      "description": "A credit approver other than the person who opened the review decides (four-eyes).",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 1209600,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "renew",
+          "when": {
+            "path": "credit_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "terminate"
+    },
+    {
+      "id": "renew",
+      "type": "service_task",
+      "name": "Renew the facility",
+      "handler": "commercial.renew_facility",
+      "params": {
+        "review_id_path": "open.review_id",
+        "decided_by_path": "credit_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_renewed"
+    },
+    {
+      "id": "terminate",
+      "type": "service_task",
+      "name": "Terminate the facility",
+      "handler": "commercial.terminate_facility",
+      "params": {
+        "review_id_path": "open.review_id",
+        "decided_by_path": "credit_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_terminated"
+    },
+    {
+      "id": "notify_renewed",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Your facility review",
+        "body": "Dear {find_facility.customer_name}, facility {find_facility.facility_number} is renewed; the next review is due on {renew.review_due_on}."
+      },
+      "next": "renewed"
+    },
+    {
+      "id": "notify_terminated",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Your facility review",
+        "body": "Dear {find_facility.customer_name}, facility {find_facility.facility_number} will not be renewed: no further drawdowns; please repay what is drawn."
+      },
+      "next": "terminated"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_facility.customer_id",
+        "subject": "Your facility review",
+        "body": "Dear {find_facility.customer_name}, we could not complete the review: {_failure.message}"
+      },
+      "next": "refused_after"
+    },
+    {
+      "id": "renewed",
+      "type": "completion",
+      "name": "Renewed",
+      "outcome": "approved"
+    },
+    {
+      "id": "terminated",
+      "type": "completion",
+      "name": "Terminated",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Unknown facility",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

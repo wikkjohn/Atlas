@@ -1,0 +1,231 @@
+{
+  "workflow_id": "WF-1018",
+  "name": "Interbank Money-Market Deal",
+  "version": 2,
+  "description": "Version 2 (Phase 40): before back office decides, what it checks is read (treasury.deal_profile: the rate against the currency's reference rate, the tenor, the counterparty's rating and limit use, liquidity after a placement and same-day deals with the same terms) and the AGB Back-Office Check Assistant reviews it; its recommendation is advice only. Counterparty codes may contain digits. A dealer books an interbank placement or borrowing with a synthetic counterparty bank, value today; a placement only with an investment-grade counterparty and within its credit limit. Back office (treasury:confirm), someone other than the dealer, confirms it, which settles it through the ledger against the bank's cash — a placement only if it leaves the cash to pay it and the currency's 30-day liquidity coverage at 100 % or more. Otherwise the deal is cancelled. Stored definition: built only from library handlers (Phase 39).",
+  "business_owner": "Treasury",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "counterparty_code",
+      "kind",
+      "currency",
+      "principal",
+      "rate_bps",
+      "tenor_days"
+    ],
+    "properties": {
+      "counterparty_code": {
+        "type": "string",
+        "pattern": "^CP-[A-Z0-9]{2,16}$"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "placement",
+          "borrowing"
+        ]
+      },
+      "currency": {
+        "type": "string",
+        "pattern": "^[A-Z]{3}$",
+        "examples": [
+          "GBP"
+        ]
+      },
+      "principal": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000000,
+        "examples": [
+          100000000
+        ]
+      },
+      "rate_bps": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 5000,
+        "examples": [
+          450
+        ]
+      },
+      "tenor_days": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+        "examples": [
+          30
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "book.deal_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.counterparty_code",
+        "prefix": "MMD-"
+      },
+      "next": "book"
+    },
+    {
+      "id": "book",
+      "type": "service_task",
+      "name": "Book the deal",
+      "handler": "treasury.book_deal",
+      "params": {
+        "counterparty_path": "input.counterparty_code",
+        "kind_path": "input.kind",
+        "currency_path": "input.currency",
+        "principal_path": "input.principal",
+        "rate_path": "input.rate_bps",
+        "tenor_path": "input.tenor_days"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "profile"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the deal profile",
+      "handler": "treasury.deal_profile",
+      "params": {
+        "deal_id_path": "book.deal_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI back-office check (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-back-office-check-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "back_office"
+    },
+    {
+      "id": "back_office",
+      "type": "approval",
+      "name": "Back-office confirmation",
+      "description": "Back office, not the dealer, checks the deal against the counterparty's confirmation.",
+      "approval": {
+        "permissions": [
+          "treasury:confirm"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "settle",
+          "when": {
+            "path": "back_office.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "cancel"
+    },
+    {
+      "id": "settle",
+      "type": "service_task",
+      "name": "Settle the deal",
+      "handler": "treasury.confirm_deal",
+      "params": {
+        "deal_id_path": "book.deal_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "cancel_unsettled",
+      "next": "settled"
+    },
+    {
+      "id": "cancel",
+      "type": "service_task",
+      "name": "Cancel the deal",
+      "handler": "treasury.cancel_deal",
+      "params": {
+        "deal_id_path": "book.deal_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "cancelled"
+    },
+    {
+      "id": "cancel_unsettled",
+      "type": "service_task",
+      "name": "Cancel the deal",
+      "handler": "treasury.cancel_deal",
+      "params": {
+        "deal_id_path": "book.deal_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "not_settled"
+    },
+    {
+      "id": "settled",
+      "type": "completion",
+      "name": "Settled",
+      "outcome": "approved"
+    },
+    {
+      "id": "cancelled",
+      "type": "completion",
+      "name": "Cancelled",
+      "outcome": "rejected"
+    },
+    {
+      "id": "not_settled",
+      "type": "completion",
+      "name": "Could not settle",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused at booking",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

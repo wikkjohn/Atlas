@@ -793,6 +793,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["loans:read"],
         "compatible_workflows": ["WF-1016"],
     },
+    {
+        "tool_id": "agb-back-office-check-assistant",
+        "tool_name": "AGB Back-Office Check Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Checks booked interbank deals before back office confirms them: the rate "
+        "against the market, the tenor, the counterparty's rating and limit use and liquidity "
+        "cover, with an explanation and a confirm, cancel or escalate recommendation. Advisory: "
+        "it never confirms a deal (Phase 40).",
+        "adapter": "rule_based_back_office_check",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["payments:read"],
+        "compatible_workflows": ["WF-1018"],
+    },
 ]
 
 

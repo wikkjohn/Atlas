@@ -41,6 +41,11 @@ RUN_OFF_BPS = 1000  # stressed outflow: 10 % of customer deposits within the win
 MIN_COVERAGE_BPS = 10_000  # a placement may not take a currency below 100 % coverage
 DEFAULT_FX_LIMIT_USD = 1_000_000  # net open position limit where none is set
 
+# Synthetic reference rates (bps a year) the back office compares deals against (Phase 40).
+REFERENCE_RATES_BPS = {"USD": 525, "EUR": 375, "GBP": 500, "JPY": 25, "CHF": 150, "CAD": 450,
+                       "AUD": 435, "SGD": 350, "HKD": 450}  # fmt: skip
+DEFAULT_REFERENCE_BPS = 400
+
 # Synthetic counterparty banks (names invented for the simulation).
 COUNTERPARTIES = (
     ("CP-NORTHGATE", "Northgate Commercial Bank (synthetic)", "GB", "AA-", 250_000_000),
@@ -570,6 +575,47 @@ def cancel_fx_trade(db: Session, trade: TreasuryFxTrade, actor_id: uuid.UUID | N
     _audit(db, actor_id, "treasury.fx_trade_cancelled", "treasury_fx_trade", trade.id,
            trade_number=trade.trade_number)  # fmt: skip
     return trade
+
+
+def reference_rate(currency: str) -> int:
+    return REFERENCE_RATES_BPS.get(currency, DEFAULT_REFERENCE_BPS)
+
+
+def deal_profile(db: Session, deal: TreasuryDeal, today: date) -> dict[str, Any]:
+    """What back office checks before confirming a booked deal (Phase 40): the rate against
+    the currency's reference rate (the deviation counted against the bank), the tenor, the
+    counterparty's rating and how much of its limit the deal uses, liquidity coverage after a
+    placement, and other deals with the same terms booked the same day."""
+    counterparty = get_counterparty(db, deal.counterparty_id)
+    placement = deal.kind == DealKind.PLACEMENT
+    reference = reference_rate(deal.currency)
+    # Lending below the market or borrowing above it costs the bank.
+    against = reference - deal.rate_bps if placement else deal.rate_bps - reference
+    utilisation = 0
+    coverage_after = None
+    if placement:
+        exposure = exposure_usd(db, counterparty, today)  # includes this booked deal
+        utilisation = exposure * 10_000 // counterparty.limit_usd if counterparty.limit_usd else 0
+        row = liquidity(db, today, deal.currency)["currencies"][0]
+        liquid = row["liquid"] - deal.principal
+        if deal.maturity_date <= today + timedelta(days=HORIZON_DAYS):
+            liquid += deal.principal + deal.interest
+        coverage_after = _coverage(liquid, row["stressed_outflow"])
+    duplicates = db.execute(
+        select(func.count()).select_from(TreasuryDeal).where(
+            TreasuryDeal.id != deal.id, TreasuryDeal.counterparty_id == deal.counterparty_id,
+            TreasuryDeal.kind == deal.kind, TreasuryDeal.currency == deal.currency,
+            TreasuryDeal.principal == deal.principal, TreasuryDeal.value_date == deal.value_date,
+            TreasuryDeal.status.in_([DealStatus.BOOKED, DealStatus.SETTLED]),
+        )
+    ).scalar_one()  # fmt: skip
+    return {
+        "kind": deal.kind, "currency": deal.currency, "rate_bps": deal.rate_bps,
+        "reference_rate_bps": reference, "rate_against_bank_bps": against,
+        "tenor_days": (deal.maturity_date - deal.value_date).days,
+        "rating": counterparty.rating, "limit_utilisation_bps": utilisation,
+        "coverage_after_bps": coverage_after, "same_day_duplicates": duplicates,
+    }  # fmt: skip
 
 
 def summary(db: Session) -> dict[str, Any]:

@@ -79,10 +79,10 @@ Last updated: Phase 38.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 603 passed (new: 4 — the document check rules and their history blind spot; the presentation profile with an earlier rejection of the same discrepancy; baseline and AI-assisted presentation runs with every case decided by a trade officer, no control violations, every kind's advice as designed, payments only after approval; an approval after expiry, closing an account behind a live instrument, and the workflows' amount ceilings and committee rule (PR #28 review)) |
 | Generated workflow tests | 27 workflows, 565 cases, 0 failed, on a rebuilt database (WF-1015 v2: 23 cases, WF-1016 v2: 27, WF-1017 v2: 16; each 100 % steps and routes) |
 | Frontend Vitest / typecheck / build | VITEST_RESULT / clean / built |
-| Playwright on a fresh database | PLAYWRIGHT_RESULT |
+| Playwright on a fresh database | 41 passed on the first run (new: the document check assistant in the AI Lab console, recommending payment of a discrepancy the bank rejected before) |
 | Measurement | `discrepant-presentations`, seed 2030, 300 presentations each: baseline 86.0 % accurate (24 wrongly paid, 18 wrongly rejected, 155.9 officer hours); AI assisted 94.3 % (15, 2, 101.0); repeat discrepancies paid 8 against 12 |
 
 Found while building it:

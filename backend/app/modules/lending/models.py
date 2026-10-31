@@ -29,6 +29,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -61,6 +62,11 @@ class LoanPurpose(StrEnum):
     OTHER = "other"
 
 
+# A mortgage loan's purpose (Phase 33): charged on a property, up to 35 years. Not a
+# LoanPurpose, which lists what a personal loan (WF-0003) may be for.
+MORTGAGE_PURPOSE = "mortgage"
+
+
 class Loan(UUIDPrimaryKey, Base):
     __tablename__ = "loans"
     __table_args__ = (
@@ -69,13 +75,24 @@ class Loan(UUIDPrimaryKey, Base):
         CheckConstraint("status IN ('active', 'repaid', 'written_off')", name="status_valid"),
         CheckConstraint("(status = 'active') = (closed_at IS NULL)", name="closed_has_date"),
         CheckConstraint("principal > 0", name="principal_positive"),
-        CheckConstraint("term_months BETWEEN 6 AND 84", name="term_valid"),
+        CheckConstraint(
+            "term_months BETWEEN 6 AND 84 "
+            "OR (purpose = 'mortgage' AND term_months BETWEEN 60 AND 420)",
+            name="term_valid",
+        ),
         CheckConstraint("annual_rate_bps BETWEEN 0 AND 5000", name="rate_valid"),
         CheckConstraint("underwritten_by <> requested_by", name="four_eyes"),
         CheckConstraint(
             "committee_approved_by IS NULL OR (committee_approved_by <> requested_by "
             "AND committee_approved_by <> underwritten_by)",
             name="committee_four_eyes",
+        ),
+        # A property secures at most one live loan (Phase 33).
+        Index(
+            "uq_loans_live_property",
+            "property_id",
+            unique=True,
+            postgresql_where=text("status = 'active' AND property_id IS NOT NULL"),
         ),
     )
 
@@ -125,6 +142,10 @@ class Loan(UUIDPrimaryKey, Base):
     )
     write_off_entry_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("journal_entries.id", ondelete="RESTRICT"), nullable=True, unique=True
+    )
+    # Phase 33: the property a mortgage is charged on.
+    property_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("properties.id", ondelete="RESTRICT"), nullable=True
     )
 
 

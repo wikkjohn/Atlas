@@ -36,6 +36,8 @@ class Permission(StrEnum):
     RETAIL_MANAGE = "retail:manage"
     # Card blocks and their release, dispute decisions (Phase 31)
     CARDS_MANAGE = "cards:manage"
+    # Mortgage product terms and surveyor valuations (Phase 33)
+    MORTGAGES_MANAGE = "mortgages:manage"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -150,6 +152,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.LOANS_SERVICE,
         Permission.RETAIL_MANAGE,
         Permission.CARDS_MANAGE,
+        Permission.MORTGAGES_MANAGE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,

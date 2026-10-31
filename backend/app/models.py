@@ -13,6 +13,7 @@ from app.modules.fx import models as fx  # noqa: F401
 from app.modules.identity import models as identity  # noqa: F401
 from app.modules.ledger import models as ledger  # noqa: F401
 from app.modules.lending import models as lending  # noqa: F401
+from app.modules.mortgages import models as mortgages  # noqa: F401
 from app.modules.organizations import models as organizations  # noqa: F401
 from app.modules.payments import models as payments  # noqa: F401
 from app.modules.retail import models as retail  # noqa: F401

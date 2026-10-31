@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 32.
+Last updated: Phase 33.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -37,6 +37,56 @@ Last updated: Phase 32.
 | 30 | Departments, step 2: the retail workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 31 | Departments, step 3: cards ([cards.md](cards.md)) | **Complete** |
 | 32 | Departments, step 4: the cards workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 33 | Departments, step 5: mortgages and secured lending ([mortgages.md](mortgages.md)) | **Complete** |
+
+## Phase 33: what exists
+
+- **Mortgages module** (`app/modules/mortgages/`, migration 0027): two products with
+  loan sizes in USD converted per currency; properties with synthetic addresses; desktop
+  (synthetic model) and surveyor valuations.
+- **Decision in principle:** twelve rules, each returned passed or failed with its
+  figures: loan-to-value against the lower of valuation and price, valuation age and
+  method (desktop up to 75 %), affordability, income against the bureau's estimate,
+  credit history, and no other offer or loan on the property, among others.
+- **Offers:** applications refused unless every rule passes; four-eyes decisions (also a
+  database constraint); 90-day validity; acceptance; withdrawal; one live offer per
+  property.
+- **Completion:** `lending.book_loan`, now shared with personal-loan origination, books a
+  `mortgage` loan of up to 35 years charged on the property (`loans.property_id`, one
+  live loan per property), with its schedule and servicing.
+- **Workflow factory:** ten `mortgages.*` handlers (issuing an offer and a surveyor's
+  valuation require an approval; completion moves money behind one), WF-1009 Mortgage
+  Application, WF-1010 Mortgage Completion, WF-1011 Property Valuation Request; fixture
+  kinds `property.property_number` and `mortgage_offer.offer_number` with a creditworthy
+  fixture customer.
+- **Mortgages page:** products, properties and valuations, the application form with
+  every rule shown, offers with approve, decline, accept and complete. New permission
+  `mortgages:manage` (department managers).
+
+## Phase 33: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 580 passed (new: 6 — properties and desktop and surveyor valuations; every lending rule passing and failing; the desktop valuation's 75 % limit; an offer from application to completion with four-eyes, a 300-instalment schedule and the property charged; declined, expired and withdrawn offers; the API with its permissions, and the mortgage listed as an ordinary loan) |
+| Migration 0027 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 21 workflows, 439 cases, 0 failed (WF-1009: 21 cases, WF-1010: 19, WF-1011: 16; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 104 passed / clean / built |
+| Playwright on a fresh database | 36 passed on the first run (new: a teller checks eligibility and applies, cannot approve their own application, an underwriter approves, the customer accepts, a manager completes and the loan number appears) |
+
+Found while building it: the first full backend run failed one test (1 failed, 579
+passed). Adding `mortgage` to `LoanPurpose` had also added it to the personal-loan
+workflow WF-0003, whose input schema lists that enum, so the code definition's content
+hash changed and a personal loan could have been applied for as a mortgage.
+`LoanPurpose` is unchanged now, and mortgages use their own purpose constant. One Vitest
+assertion in the new test matched three rows and was narrowed to one.
+
+## Phase 33: known limitations
+
+- Fixed rates only; no rate switches, overpayments, further advances or second charges.
+- Valuations are synthetic, and WF-1011's surveyor can only confirm the price.
+- Completion pays into the customer's account; there is no conveyancing and there are
+  no fees.
+- No mortgages workload or AI tool yet (Phase 34).
 
 ## Phase 32: what exists
 

@@ -513,8 +513,11 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
     kinds = set(needs.values())
     if kinds:
         card_kinds = {"blocked_card.card_number", "authorization.auth_code"}
+        mortgage_kinds = {"property.property_number", "mortgage_offer.offer_number"}
         customer, account = _customer_and_account(
-            db, "account.account_number" in kinds or bool(kinds & card_kinds)
+            db,
+            "account.account_number" in kinds or bool(kinds & (card_kinds | mortgage_kinds)),
+            creditworthy=bool(kinds & mortgage_kinds),
         )
         known = {
             "customer.customer_number": customer.customer_number,
@@ -537,6 +540,9 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
                                        merchant_category="5411", merchant_country="GB",
                                        amount=2_500)  # fmt: skip
                 known["authorization.auth_code"] = auth.auth_code
+        if kinds & mortgage_kinds:
+            # A valued house the customer is buying, and an issued offer on another (Phase 33).
+            known.update(_mortgage_fixtures(db, customer, account, kinds))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -550,7 +556,50 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
     )
 
 
-def _customer_and_account(db: Session, with_account: bool):
+MORTGAGE_PRICE = 40_000_000  # 400,000.00 in the fixture customer's currency
+MORTGAGE_LOAN = 10_000_000  # a quarter of it: the loan the fixture offer is for
+
+
+def _mortgage_fixtures(db: Session, customer, account, kinds: set[str]) -> dict[str, str]:
+    from app.modules.mortgages import service as mortgages
+
+    surveyor = _person(db, RoleCode.DEPARTMENT_MANAGER)
+    out: dict[str, str] = {}
+    for kind in sorted(kinds & {"property.property_number", "mortgage_offer.offer_number"}):
+        prop = mortgages.register_property(db, customer, "house", MORTGAGE_PRICE, None)
+        mortgages.value_property(db, prop, "surveyor", value=MORTGAGE_PRICE, actor_id=surveyor.id)
+        out[kind] = prop.property_number
+        if kind == "mortgage_offer.offer_number":
+            clerk = _person(db, RoleCode.BANKING_EMPLOYEE)
+            offer = mortgages.request_offer(
+                db, customer=customer, prop=prop, product=mortgages.get_product(db, "home-75"),
+                account=account, loan_amount=MORTGAGE_LOAN, term_years=25,
+                declared_monthly_income=mortgages.monthly_income_estimate(customer, prop.currency),
+                requested_by=clerk.id,
+            )  # fmt: skip
+            mortgages.decide_offer(db, offer, True, surveyor.id)
+            out[kind] = offer.offer_number
+    return out
+
+
+def _creditworthy_name() -> str:
+    """A synthetic name the synthetic bureau scores well, with a high income estimate, so
+    mortgage rules pass for the default inputs (Phase 33)."""
+    from app.modules.lending import service as lending
+
+    born = date(1985, 6, 15)
+    while True:
+        name = f"Generated Test {uuid.uuid4().hex[:6].upper()}"
+        report = lending.bureau_report(name, born)
+        if (
+            report["score"] >= 700
+            and report["recent_defaults"] == 0
+            and (lending.income_estimate(name, born) >= 7_000)
+        ):
+            return name
+
+
+def _customer_and_account(db: Session, with_account: bool, *, creditworthy: bool = False):
     from app.modules.accounts.models import AccountType
     from app.modules.accounts.service import approve_request, deposit, submit_request
     from app.modules.countries.models import Country
@@ -563,7 +612,9 @@ def _customer_and_account(db: Session, with_account: bool):
         db,
         CustomerCreate(
             customer_type=CustomerType.INDIVIDUAL,
-            name=f"Generated Test {uuid.uuid4().hex[:6].upper()}",
+            name=_creditworthy_name()
+            if creditworthy
+            else f"Generated Test {uuid.uuid4().hex[:6].upper()}",
             date_of_birth_or_incorporation=date(1985, 6, 15),
             country_id=country.id,
         ),

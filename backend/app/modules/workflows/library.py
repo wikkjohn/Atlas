@@ -942,6 +942,336 @@ def _fraud_profile(ctx: StepContext, params: UnblockCard) -> dict[str, Any]:
     return cards.fraud_profile(ctx.db, card)
 
 
+# --- Mortgages (Phase 33) --------------------------------------------------------------------
+
+
+def _mortgage_call(code: str, call, *args, **kwargs):
+    from app.core.errors import DomainError
+
+    try:
+        return call(*args, **kwargs)
+    except DomainError as exc:
+        raise StepError(code, getattr(exc, "message", str(exc))) from exc
+
+
+def _property(ctx: StepContext, path: str):
+    from app.modules.mortgages import service as mortgages
+
+    number = str(_required(ctx, path))
+    prop = mortgages.find_property(ctx.db, number)
+    if prop is None:
+        raise StepError("property_not_found", f"No property {number}.")
+    return prop
+
+
+def _offer(ctx: StepContext, path: str):
+    from app.modules.mortgages import service as mortgages
+
+    return mortgages.get_offer(ctx.db, uuid.UUID(str(_required(ctx, path))), for_update=True)
+
+
+class RegisterProperty(_Strict):
+    customer_number_path: str = Field(min_length=1, max_length=200)
+    property_type_path: str = Field(min_length=1, max_length=200)
+    purchase_price_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.register_property",
+    "Register the property a customer is buying.",
+    RegisterProperty,
+    "{property_id, property_number, currency, purchase_price}",
+    reads=lambda params: [
+        params.customer_number_path,
+        params.property_type_path,
+        params.purchase_price_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {params.customer_number_path: "customer.customer_number"},
+)
+def _register_property(ctx: StepContext, params: RegisterProperty) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    number = str(_required(ctx, params.customer_number_path))
+    customer = mortgages.find_customer(ctx.db, number)
+    if customer is None:
+        raise StepError("customer_not_found", f"No customer {number}.")
+    prop = _mortgage_call(
+        "property_refused", mortgages.register_property, ctx.db, customer,
+        str(_required(ctx, params.property_type_path)),
+        int(_required(ctx, params.purchase_price_path)), ctx.initiator_id,
+    )  # fmt: skip
+    return {"property_id": str(prop.id), "property_number": prop.property_number,
+            "currency": prop.currency, "purchase_price": prop.purchase_price}  # fmt: skip
+
+
+class PropertyRef(_Strict):
+    property_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.desktop_valuation",
+    "Value a property with the synthetic automated valuation model.",
+    PropertyRef,
+    "{valuation_number, value, currency, value_to_price_bps}",
+    reads=lambda params: [params.property_number_path],
+    effect="writes",
+    fixtures=lambda params: {params.property_number_path: "property.property_number"},
+)
+def _desktop_valuation(ctx: StepContext, params: PropertyRef) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    prop = _property(ctx, params.property_number_path)
+    valuation = mortgages.value_property(ctx.db, prop, "desktop", today=ctx.now.date())
+    return {"valuation_number": valuation.valuation_number, "value": valuation.value,
+            "currency": valuation.currency,
+            "value_to_price_bps": valuation.value * 10_000 // prop.purchase_price}  # fmt: skip
+
+
+class ConfirmValue(_Strict):
+    property_number_path: str = Field(min_length=1, max_length=200)
+    surveyor_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.confirm_value",
+    "Record the surveyor's valuation: the inspection confirmed the purchase price.",
+    ConfirmValue,
+    "{valuation_number, value, currency}",
+    reads=lambda params: [params.property_number_path, params.surveyor_path],
+    effect="writes",
+    requires_approval=True,  # a surveyor's valuation is a person's judgement
+    fixtures=lambda params: {params.property_number_path: "property.property_number"},
+)
+def _confirm_value(ctx: StepContext, params: ConfirmValue) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    prop = _property(ctx, params.property_number_path)
+    valuation = mortgages.value_property(
+        ctx.db, prop, "surveyor", value=prop.purchase_price, today=ctx.now.date(),
+        actor_id=uuid.UUID(str(_required(ctx, params.surveyor_path))),
+        notes="Inspection confirmed the purchase price.",
+    )  # fmt: skip
+    return {"valuation_number": valuation.valuation_number, "value": valuation.value,
+            "currency": valuation.currency}  # fmt: skip
+
+
+class MortgageApplication(_Strict):
+    customer_number_path: str = Field(min_length=1, max_length=200)
+    property_number_path: str = Field(min_length=1, max_length=200)
+    account_number_path: str = Field(min_length=1, max_length=200)
+    product_path: str = Field(min_length=1, max_length=200)
+    loan_amount_path: str = Field(min_length=1, max_length=200)
+    term_years_path: str = Field(min_length=1, max_length=200)
+    income_path: str = Field(min_length=1, max_length=200)
+
+
+def _application(ctx: StepContext, params: MortgageApplication) -> dict[str, Any]:
+    from app.modules.accounts.service import find_account
+    from app.modules.mortgages import service as mortgages
+
+    number = str(_required(ctx, params.customer_number_path))
+    customer = mortgages.find_customer(ctx.db, number)
+    if customer is None:
+        raise StepError("customer_not_found", f"No customer {number}.")
+    account_number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, account_number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {account_number}.")
+    product = _mortgage_call("product_not_found", mortgages.get_product, ctx.db,
+                             str(_required(ctx, params.product_path)))  # fmt: skip
+    return {
+        "customer": customer,
+        "prop": _property(ctx, params.property_number_path),
+        "product": product,
+        "account": account,
+        "loan_amount": int(_required(ctx, params.loan_amount_path)),
+        "term_years": int(_required(ctx, params.term_years_path)),
+        "declared_monthly_income": int(_required(ctx, params.income_path)),
+        "today": ctx.now.date(),
+    }
+
+
+def _application_reads(params: MortgageApplication) -> list[str]:
+    return [params.customer_number_path, params.property_number_path, params.account_number_path,
+            params.product_path, params.loan_amount_path, params.term_years_path,
+            params.income_path]  # fmt: skip
+
+
+def _application_fixtures(params: MortgageApplication) -> dict[str, str]:
+    return {params.customer_number_path: "customer.customer_number",
+            params.property_number_path: "property.property_number",
+            params.account_number_path: "account.account_number"}  # fmt: skip
+
+
+@_library_handler(
+    "mortgages.quote",
+    "A decision in principle: every lending rule, passed or failed, with the figures.",
+    MortgageApplication,
+    "{eligible, failed_rules, failed_detail, ltv_bps, monthly_payment, annual_rate_bps, "
+    "currency, credit_score}",
+    reads=_application_reads,
+    effect="reads",
+    fixtures=_application_fixtures,
+)
+def _quote(ctx: StepContext, params: MortgageApplication) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    result = mortgages.quote(ctx.db, **_application(ctx, params))
+    failed = [c for c in result["checks"] if not c["passed"]]
+    return {
+        "eligible": result["eligible"],
+        "failed_rules": ", ".join(c["rule"] for c in failed),
+        "failed_detail": "; ".join(c["detail"] for c in failed),
+        "ltv_bps": result["ltv_bps"],
+        "monthly_payment": result["monthly_payment"],
+        "annual_rate_bps": result["annual_rate_bps"],
+        "currency": result["currency"],
+        "credit_score": result["credit_score"],
+    }
+
+
+@_library_handler(
+    "mortgages.request_offer",
+    "Apply for the mortgage: refused unless every rule passes; then pending a decision.",
+    MortgageApplication,
+    "{offer_id, offer_number, monthly_payment, ltv_bps}; a failed rule fails the step.",
+    reads=_application_reads,
+    effect="writes",
+    fixtures=_application_fixtures,
+)
+def _request_offer(ctx: StepContext, params: MortgageApplication) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    offer = _mortgage_call("application_refused", mortgages.request_offer, ctx.db,
+                           requested_by=ctx.initiator_id, **_application(ctx, params))  # fmt: skip
+    return {"offer_id": str(offer.id), "offer_number": offer.offer_number,
+            "monthly_payment": offer.monthly_payment, "ltv_bps": offer.ltv_bps}  # fmt: skip
+
+
+class OfferDecision(_Strict):
+    offer_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.issue_offer",
+    "Issue the mortgage offer (valid for 90 days).",
+    OfferDecision,
+    "{offer_number, status, expires_on}",
+    reads=lambda params: [params.offer_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,  # an underwriter other than the requester decides
+)
+def _issue_offer(ctx: StepContext, params: OfferDecision) -> dict[str, Any]:
+    return _decide_offer(ctx, params, approve=True)
+
+
+@_library_handler(
+    "mortgages.decline_offer",
+    "Decline the mortgage application.",
+    OfferDecision,
+    "{offer_number, status, expires_on}",
+    reads=lambda params: [params.offer_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _decline_offer(ctx: StepContext, params: OfferDecision) -> dict[str, Any]:
+    return _decide_offer(ctx, params, approve=False)
+
+
+def _decide_offer(ctx: StepContext, params: OfferDecision, *, approve: bool) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    offer = _mortgage_call(
+        "offer_not_decided", mortgages.decide_offer, ctx.db,
+        _offer(ctx, params.offer_id_path), approve,
+        uuid.UUID(str(_required(ctx, params.decided_by_path))), now=ctx.now,
+    )  # fmt: skip
+    return {"offer_number": offer.offer_number, "status": offer.status,
+            "expires_on": offer.expires_on.isoformat() if offer.expires_on else None}  # fmt: skip
+
+
+class LookupOffer(_Strict):
+    offer_number_path: str = Field(min_length=1, max_length=200)
+    customer_id_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "mortgages.lookup_offer",
+    "Find a mortgage offer and, if asked, check whose it is.",
+    LookupOffer,
+    "{offer_id, offer_number, status, expired, loan_amount, currency, monthly_payment}; an "
+    "unknown offer or another customer's fails the step.",
+    reads=lambda params: (
+        [params.offer_number_path] + ([params.customer_id_path] if params.customer_id_path else [])
+    ),
+    effect="reads",
+    fixtures=lambda params: {params.offer_number_path: "mortgage_offer.offer_number"},
+)
+def _lookup_offer(ctx: StepContext, params: LookupOffer) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    number = str(_required(ctx, params.offer_number_path))
+    offer = mortgages.find_offer(ctx.db, number)
+    if offer is None:
+        raise StepError("offer_not_found", f"No mortgage offer {number}.")
+    if params.customer_id_path and str(offer.customer_id) != str(
+        _required(ctx, params.customer_id_path)
+    ):
+        raise StepError("offer_not_owned", "The offer belongs to another customer.")
+    return {"offer_id": str(offer.id), "offer_number": offer.offer_number, "status": offer.status,
+            "expired": mortgages.expired(offer, ctx.now.date()), "loan_amount": offer.loan_amount,
+            "currency": offer.currency, "monthly_payment": offer.monthly_payment}  # fmt: skip
+
+
+class OfferRef(_Strict):
+    offer_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.accept_offer",
+    "Record the customer's acceptance of the offer.",
+    OfferRef,
+    "{offer_number, status}; an expired or undecided offer fails the step.",
+    reads=lambda params: [params.offer_id_path],
+    effect="writes",
+)
+def _accept_offer(ctx: StepContext, params: OfferRef) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    offer = _mortgage_call("offer_not_accepted", mortgages.accept_offer, ctx.db,
+                           _offer(ctx, params.offer_id_path), ctx.initiator_id,
+                           now=ctx.now)  # fmt: skip
+    return {"offer_number": offer.offer_number, "status": offer.status}
+
+
+class CompleteMortgage(_Strict):
+    offer_id_path: str = Field(min_length=1, max_length=200)
+    completed_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.complete",
+    "Complete: draw the loan down into the applicant's account, charged on the property.",
+    CompleteMortgage,
+    "{loan_number, principal, currency, monthly_payment}",
+    reads=lambda params: [params.offer_id_path, params.completed_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _complete_mortgage(ctx: StepContext, params: CompleteMortgage) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    loan = _mortgage_call(
+        "completion_refused", mortgages.complete_offer, ctx.db,
+        _offer(ctx, params.offer_id_path),
+        uuid.UUID(str(_required(ctx, params.completed_by_path))),
+        workflow_execution_id=ctx.execution.id, now=ctx.now,
+    )  # fmt: skip
+    return {"loan_number": loan.loan_number, "principal": loan.principal,
+            "currency": loan.currency, "monthly_payment": loan.monthly_payment}  # fmt: skip
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

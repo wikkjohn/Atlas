@@ -63,3 +63,60 @@ export async function cardAccount(request: APIRequestContext, minimum: number): 
   }
   throw new Error(`No seeded current account holds ${minimum} minor units with room for a card.`);
 }
+
+/** A seeded customer the synthetic bureau scores well, with an open current account in GBP,
+ * EUR or USD and a newly registered, surveyor-valued house: what a mortgage needs. Found by
+ * asking the quote API, so the rules decide (Phase 33). */
+export async function mortgageApplicant(request: APIRequestContext): Promise<{
+  customerNumber: string;
+  propertyNumber: string;
+  accountNumber: string;
+  loan: string;
+  income: string;
+}> {
+  const login = await request.post(`${API_URL}/api/v1/auth/login`, {
+    data: { username: "manager", password: DEMO_PASSWORD },
+  });
+  const { access_token: token } = (await login.json()) as { access_token: string };
+  const headers = { Authorization: `Bearer ${token}` };
+  const response = await request.get(`${API_URL}/api/v1/accounts?status=open&account_type=current&limit=100`, { headers });
+  const { items } = (await response.json()) as { items: { account_number: string; customer_number: string; currency: string }[] };
+  const price = 30_000_000; // 300,000.00
+  for (const account of items.filter((a) => ["GBP", "EUR", "USD"].includes(a.currency))) {
+    const body = {
+      customer_number: account.customer_number,
+      product_code: "home-75",
+      account_number: account.account_number,
+      loan_amount: price / 5,
+      term_years: 25,
+    };
+    const created = await request.post(`${API_URL}/api/v1/mortgages/properties`, {
+      headers,
+      data: { customer_number: account.customer_number, property_type: "house", purchase_price: price },
+    });
+    if (!created.ok()) continue;
+    const property = (await created.json()) as { id: string; property_number: string; currency: string };
+    if (property.currency !== account.currency) continue;
+    await request.post(`${API_URL}/api/v1/mortgages/properties/${property.id}/valuations`, {
+      headers,
+      data: { method: "surveyor", value: price },
+    });
+    const quoted = await request.post(`${API_URL}/api/v1/mortgages/quote`, {
+      headers,
+      data: { ...body, property_number: property.property_number, declared_monthly_income: 0 },
+    });
+    const quote = (await quoted.json()) as { income_estimate: number; checks: { rule: string; passed: boolean }[] };
+    const failed = quote.checks.filter((c) => !c.passed).map((c) => c.rule);
+    // Declared income 0 fails affordability only; declaring the bureau's estimate passes it.
+    if (failed.length === 1 && failed[0] === "affordability") {
+      return {
+        customerNumber: account.customer_number,
+        propertyNumber: property.property_number,
+        accountNumber: account.account_number,
+        loan: String(price / 5 / 100),
+        income: String(quote.income_estimate / 100),
+      };
+    }
+  }
+  throw new Error("No seeded customer qualifies for a mortgage.");
+}

@@ -156,6 +156,7 @@ const ALL_PERMISSIONS: Permission[] = [
   "payments:read",
   "payments:review",
   "payments:approve",
+  "payments:operate",
   "loans:read",
   "loans:approve",
   "loans:approve_large",

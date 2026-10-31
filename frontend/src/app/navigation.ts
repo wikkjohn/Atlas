@@ -16,6 +16,7 @@ import {
   PiggyBank,
   Ship,
   Vault,
+  Send,
   PlayCircle,
   ScrollText,
   Settings,
@@ -37,7 +38,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 39;
+export const IMPLEMENTED_PHASE = 41;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -55,6 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Retail Banking", path: "/retail", icon: PiggyBank, phase: 29, permission: "accounts:read" },
   { label: "Cards", path: "/cards", icon: CreditCard, phase: 31, permission: "accounts:read" },
   { label: "Payments", path: "/payments", icon: ArrowLeftRight, phase: 9, permission: "payments:read" },
+  { label: "Payments Operations", path: "/payment-ops", icon: Send, phase: 41, permission: "payments:read" },
   { label: "Foreign Exchange", path: "/fx", icon: CandlestickChart, phase: 24, permission: "payments:read" },
   { label: "Lending", path: "/lending", icon: HandCoins, phase: 9, permission: "loans:read" },
   { label: "Mortgages", path: "/mortgages", icon: House, phase: 33, permission: "loans:read" },

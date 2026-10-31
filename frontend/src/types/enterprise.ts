@@ -47,6 +47,7 @@ export type Permission =
   | "payments:review"
   | "payments:approve"
   | "payments:release_low_risk"
+  | "payments:operate"
   | "loans:read"
   | "loans:approve"
   | "loans:approve_large"

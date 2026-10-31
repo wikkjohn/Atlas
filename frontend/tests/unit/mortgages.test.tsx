@@ -151,6 +151,21 @@ describe("Mortgages page", () => {
     expect(bodies["POST /api/v1/mortgages/offers/mof-1/decide"]).toEqual({ approve: true });
   });
 
+  it("finds the customer's currency whatever the case of the number typed (PR #27 review)", async () => {
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/customers": () => jsonResponse(page([{ customer_number: "CUS-0000042", currency: "GBP" }])),
+      "POST /api/v1/mortgages/properties": () => jsonResponse({ ...property, id: "prop-2" }, 201),
+    });
+    renderApp("/mortgages");
+    const register = await screen.findByRole("form", { name: "Register a property" });
+    await userEvent.type(within(register).getByLabelText("Customer"), "cus-0000042");
+    await userEvent.type(within(register).getByLabelText("Purchase price"), "250000");
+    await userEvent.click(within(register).getByRole("button", { name: "Register" }));
+    await waitFor(() => expect(api.requests.filter((r) => r.method === "POST")).toHaveLength(1));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({ purchase_price: 25_000_000 });
+  });
+
   it("is read-only without the permissions", async () => {
     mockApi({ ...routes, ...authRoutes({ ...employeeUser, permissions: ["loans:read"] }) });
     renderApp("/mortgages");

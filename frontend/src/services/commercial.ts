@@ -48,8 +48,9 @@ export interface Proposal {
 
 /** The currency of an account, looked up by its number. */
 export async function accountCurrency(number: string): Promise<string> {
-  const found = await apiGet<Page<{ account_number: string; currency: string }>>(`/api/v1/accounts${query({ q: number, limit: 5 })}`);
-  const account = found.items.find((a) => a.account_number === number);
+  const wanted = number.trim().toUpperCase();
+  const found = await apiGet<Page<{ account_number: string; currency: string }>>(`/api/v1/accounts${query({ q: wanted, limit: 5 })}`);
+  const account = found.items.find((a) => a.account_number.toUpperCase() === wanted);
   if (!account) throw new Error(`No account ${number}.`);
   return account.currency;
 }

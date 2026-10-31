@@ -62,6 +62,9 @@ Last updated: Phase 37.
   proportion, debits the applicant and credits trade settlement. Expiry releases what is
   left of the margin.
 - **Permission** `trade:manage` for department managers and compliance officers.
+- **Fix from the Codex review of PR #27:** the property form's currency lookup compared
+  customer numbers case-sensitively, so a lowercase number the server accepts was refused.
+  The customer and account currency lookups now compare in upper case.
 - **Workflow factory:** eight `trade.*` handlers and three workflows:
   - WF-1015 Trade Instrument Issuance
   - WF-1016 Documentary Presentation
@@ -78,11 +81,11 @@ Last updated: Phase 37.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 599 passed (new: 5 — request rules and sanctions screening; issue with the margin, four-eyes and the committee, and a margin the account cannot provide; documents with a discrepancy paid as waived, proportional margin release and full drawing; a guarantee claim rejected, a late claim refused and expiry releasing the margin; the API with its permissions and a sanctioned beneficiary refused) |
 | Migration 0029 | upgrade, `alembic check` clean, downgrade and upgrade again |
 | Generated workflow tests | 27 workflows, 563 cases, 0 failed (WF-1015: 23 cases, WF-1016: 25, WF-1017: 16; each 100 % steps and routes) |
-| Frontend Vitest / typecheck / build | 111 passed (new: 3 — the instruments list and summary; a JPY request in yen, approval, committee approval, a discrepant presentation and *Pay (waived)*; read-only without the permissions) / clean / built |
-| Playwright on a fresh database | PLAYWRIGHT_RESULT |
+| Frontend Vitest / typecheck / build | 112 passed (new: 4 — a lowercase customer number still finds the customer's currency (PR #27 review); the instruments list and summary; a JPY request in yen, approval, committee approval, a discrepant presentation and *Pay (waived)*; read-only without the permissions) / clean / built |
+| Playwright on a fresh database | 40 passed on the first run (new: a sanctioned beneficiary is refused; a teller requests a letter of credit and cannot approve it, a manager approves, the teller presents documents with a late shipment and cannot pay, the manager pays it as waived) |
 
 Found while building it:
 - **New backend tests:** two expectations in `test_trade.py` were wrong on the first run

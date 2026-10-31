@@ -23,3 +23,15 @@ test("Retail Banking: a teller cannot change terms or run month end", async ({ p
   await expect(page.getByRole("button", { name: "Run month end" })).toHaveCount(0);
   await expect(page.getByRole("form", { name: "New standing order" })).toBeVisible();
 });
+
+test("AI Innovation Lab: the overdraft assistant approves a customer overdrawn most days (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Overdraft Affordability Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Overdraft Affordability Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

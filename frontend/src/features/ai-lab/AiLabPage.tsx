@@ -187,6 +187,21 @@ const SAMPLE_DOCUMENT_CHECK = {
     earlier_same_discrepancy: 1,
   },
 };
+/** A dealer's double-keyed placement: the back-office check assistant's blind spot (Phase 40). */
+const SAMPLE_BACK_OFFICE = {
+  profile: {
+    kind: "placement",
+    currency: "USD",
+    rate_bps: 530,
+    reference_rate_bps: 525,
+    rate_against_bank_bps: -5,
+    tenor_days: 30,
+    rating: "AA",
+    limit_utilisation_bps: 4200,
+    coverage_after_bps: 48000,
+    same_day_duplicates: 1,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -195,6 +210,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_mortgage_underwriting: SAMPLE_MORTGAGE,
   rule_based_covenant_review: SAMPLE_COVENANT,
   rule_based_document_check: SAMPLE_DOCUMENT_CHECK,
+  rule_based_back_office_check: SAMPLE_BACK_OFFICE,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

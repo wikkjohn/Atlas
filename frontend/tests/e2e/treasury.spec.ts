@@ -28,3 +28,15 @@ test("Treasury: a placement with a sub-investment-grade bank is refused; a deale
   await expect(row).toContainText("£250,000.00");
   await backOfficeContext.close();
 });
+
+test("AI Innovation Lab: the back-office check assistant would confirm a same-day duplicate (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Back-Office Check Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Back-Office Check Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

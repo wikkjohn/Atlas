@@ -117,6 +117,30 @@ new fixture kinds:
 - `treasury_deal.deal_number`: a settled GBP placement maturing today;
 - `fx_long.currency`: EUR, with a long position of EUR 3m (above the US$1m default limit).
 
+## Simulation workload and AI tool (Phase 40)
+
+The `deal_confirmations` workload drives WF-1018 v2 (scenario `deal-confirmations`).
+- **Cases:** each case books a placement or borrowing in USD, EUR or GBP of US$1–20m.
+  - Each case has its own synthetic counterparty, with the rating and limit the case needs.
+  - Each placement is funded by a business deposit in its currency.
+  - Back office (simulated department managers with `treasury:confirm`) decides every
+    deal.
+- **Ground truth, confirm:**
+  - a placement or borrowing within 0.40 points of the reference rate, 7–90 days, with a
+    counterparty rated A or better; a placement uses 20–60 % of the limit.
+- **Ground truth, cancel:**
+  - lending 1.60–3.00 points below the reference rate;
+  - a placement of 181–365 days with a counterparty rated BBB or BBB-;
+  - a duplicate of a deal confirmed earlier the same day;
+  - a placement of 91–150 days that takes a counterparty to 90–97 % of its limit.
+- **Decisions:** in AI-assisted runs the AGB Back-Office Check Assistant advises back
+  office, from the profile `treasury.deal_profile` reads. The synthetic reference rates are
+  USD 5.25 %, EUR 3.75 %, GBP 5.00 % and so on; the default is 4.00 %.
+- **Control check:** four-eyes and authority on each decision, and no settlement without a
+  confirmation.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Treasury*). Reading needs `payments:read`.
@@ -139,4 +163,5 @@ See [api.md](api.md) (*Treasury*). Reading needs `payments:read`.
   counterparty limits. Positions are valued in US dollars, so the US-dollar position itself
   has no limit.
 - **Automation:** nothing matures deals automatically.
-- **Simulation:** no treasury workload or AI tool yet (Phase 40).
+- **Simulation:** the workload covers deal confirmations (`deal-confirmations`); maturities
+  and the FX desk are not simulated.

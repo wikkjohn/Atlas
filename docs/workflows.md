@@ -317,6 +317,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `treasury.book_deal` | writes | `counterparty_path`, `kind_path`, `currency_path`, `principal_path`, `rate_path`, `tenor_path` | books a placement or borrowing, value today; a placement only investment grade and within the limit (Phase 39) |
 | `treasury.confirm_deal` | moves money (approval required) | `deal_id_path`, `decided_by_path` | back office confirms and settles against the bank's cash (Phase 39) |
 | `treasury.cancel_deal` | writes | `deal_id_path`, `decided_by_path` | cancels a booked deal (Phase 39) |
+| `treasury.deal_profile` | reads | `deal_id_path` | what back office checks before confirming: the rate against the reference, tenor, rating and limit use, liquidity after a placement, same-day duplicates (Phase 40) |
 | `treasury.lookup_deal` | reads | `deal_number_path` | a deal, its counterparty and whether it is due (Phase 39) |
 | `treasury.mature_deal` | moves money (approval required) | `deal_id_path`, `decided_by_path` | settles principal and interest at maturity (Phase 39) |
 | `treasury.fx_position` | reads | `currency_path` | the desk's position in a currency against its limit (Phase 39) |
@@ -431,6 +432,10 @@ The treasury base processes. WF-1018 books an interbank placement or borrowing a
 office confirm and settle it, or cancel it. WF-1019 settles a due deal's principal and
 interest. WF-1020 squares an FX position over its limit with an interbank spot trade that
 back office confirms. See [treasury.md](treasury.md).
+
+WF-1018 **v2** (Phase 40) reads the deal profile (`treasury.deal_profile`) after booking and
+asks the AGB Back-Office Check Assistant (`ai.review`, advisory) before back office decides
+(`deal-confirmations`). It accepts counterparty codes with digits.
 
 ### Authoring
 

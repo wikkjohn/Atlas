@@ -146,7 +146,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 39: placements and borrowings with synthetic counterparty banks under credit
       limits, dealer and back-office four-eyes, settlement and maturity through the ledger,
       30-day liquidity coverage, FX position limits and square-off spot trades;
-      WF-1018–1020; see `treasury.md`)
+      WF-1018–1020; see `treasury.md`. Phase 40: the `deal-confirmations` workload and
+      the back-office check assistant)
 - [ ] Payments operations: bulk payments, external clearing simulation, recalls
 - [ ] Wealth and investments: synthetic securities, custody, suitability
 - [ ] Compliance: AML monitoring, case management, SAR filing, periodic KYC refresh
@@ -242,4 +243,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 37 (D9) | Trade finance: letters of credit and guarantees, sanctions screening, cash margin, documentary presentations and guarantee claims; WF-1015–1017 | complete |
 | Phase 38 (D10) | Trade finance, step 2: the `discrepant-presentations` workload on stored WF-1016 v2, decided by trade officers, and the AGB Document Check Assistant | complete |
 | Phase 39 (D11) | Treasury and markets: interbank placements and borrowings under counterparty limits, 30-day liquidity coverage, FX position limits and square-off trades; WF-1018–1020 | complete |
-| Phase 40 (D12, proposed) | Treasury, step 2: a deal-confirmation workload on stored WF-1018 v2 and an AI back-office check assistant | next |
+| Phase 40 (D12) | Treasury, step 2: the `deal-confirmations` workload on stored WF-1018 v2, decided by back office, and the AGB Back-Office Check Assistant | complete |
+| Phase 41 (D13, proposed) | Payments operations: bulk payments, external clearing simulation, recalls | next |

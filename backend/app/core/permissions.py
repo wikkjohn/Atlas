@@ -38,6 +38,8 @@ class Permission(StrEnum):
     CARDS_MANAGE = "cards:manage"
     # Mortgage product terms and surveyor valuations (Phase 33)
     MORTGAGES_MANAGE = "mortgages:manage"
+    # Trade finance: pay or reject documents and claims, close expired instruments (Phase 37)
+    TRADE_MANAGE = "trade:manage"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -153,6 +155,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.RETAIL_MANAGE,
         Permission.CARDS_MANAGE,
         Permission.MORTGAGES_MANAGE,
+        Permission.TRADE_MANAGE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
@@ -165,6 +168,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.LEDGER_READ,
         Permission.PAYMENTS_REVIEW,
         Permission.CARDS_MANAGE,
+        Permission.TRADE_MANAGE,
     },
     RoleCode.AI_RESEARCHER: _BASE
     | {

@@ -1,0 +1,295 @@
+{
+  "workflow_id": "WF-1016",
+  "name": "Documentary Presentation",
+  "version": 1,
+  "description": "An exporter presents documents under a letter of credit. A trade checker records them with any discrepancy found; a trade officer (trade:manage) other than the checker then confirms a complying presentation, or records that the applicant waived the discrepancy, before the beneficiary is paid — margin released in proportion, the applicant's account debited. Otherwise the documents are rejected. Stored definition: built only from library handlers (Phase 37).",
+  "business_owner": "Trade Finance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "instrument_number",
+      "amount",
+      "discrepancy"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "instrument_number": {
+        "type": "string",
+        "pattern": "^(LC|BG)-[0-9]{7,}$"
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000,
+        "examples": [
+          1000000
+        ]
+      },
+      "discrepancy": {
+        "type": "string",
+        "enum": [
+          "none",
+          "late_shipment",
+          "late_presentation",
+          "inconsistent_documents",
+          "missing_document",
+          "description_mismatch"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_instrument.customer_name"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.instrument_number",
+        "prefix": "DPR-"
+      },
+      "next": "find_instrument"
+    },
+    {
+      "id": "find_instrument",
+      "type": "service_task",
+      "name": "Find the instrument",
+      "handler": "trade.lookup_instrument",
+      "params": {
+        "instrument_number_path": "input.instrument_number",
+        "customer_number_path": "input.customer_number",
+        "kind": "letter_of_credit"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "receive"
+    },
+    {
+      "id": "receive",
+      "type": "service_task",
+      "name": "Record the presentation",
+      "handler": "trade.receive_demand",
+      "params": {
+        "instrument_id_path": "find_instrument.instrument_id",
+        "amount_path": "input.amount",
+        "discrepancy_path": "input.discrepancy"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_discrepant"
+    },
+    {
+      "id": "route_discrepant",
+      "type": "decision",
+      "name": "Discrepant?",
+      "transitions": [
+        {
+          "to": "applicant_waiver",
+          "when": {
+            "path": "receive.discrepant",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "document_check"
+    },
+    {
+      "id": "document_check",
+      "type": "approval",
+      "name": "Confirm complying documents",
+      "description": "A trade officer other than the checker confirms the documents comply.",
+      "approval": {
+        "permissions": [
+          "trade:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "pay",
+          "when": {
+            "path": "document_check.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "applicant_waiver",
+      "type": "approval",
+      "name": "Applicant's waiver",
+      "description": "A trade officer other than the checker records whether the applicant waives the discrepancy.",
+      "approval": {
+        "permissions": [
+          "trade:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 432000,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "pay_waived",
+          "when": {
+            "path": "applicant_waiver.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject_waiver"
+    },
+    {
+      "id": "pay",
+      "type": "service_task",
+      "name": "Pay the beneficiary",
+      "handler": "trade.pay_demand",
+      "params": {
+        "demand_id_path": "receive.demand_id",
+        "decided_by_path": "document_check.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_paid"
+    },
+    {
+      "id": "pay_waived",
+      "type": "service_task",
+      "name": "Pay the beneficiary (waived)",
+      "handler": "trade.pay_demand",
+      "params": {
+        "demand_id_path": "receive.demand_id",
+        "decided_by_path": "applicant_waiver.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_paid"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the documents",
+      "handler": "trade.reject_demand",
+      "params": {
+        "demand_id_path": "receive.demand_id",
+        "decided_by_path": "document_check.actor_id",
+        "note": "Documents not honoured"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_rejected"
+    },
+    {
+      "id": "reject_waiver",
+      "type": "service_task",
+      "name": "Reject the documents",
+      "handler": "trade.reject_demand",
+      "params": {
+        "demand_id_path": "receive.demand_id",
+        "decided_by_path": "applicant_waiver.actor_id",
+        "note": "Discrepancy not waived"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_rejected"
+    },
+    {
+      "id": "notify_paid",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_instrument.customer_id",
+        "subject": "Documents paid",
+        "body": "Dear {find_instrument.customer_name}, {receive.demand_number} under {find_instrument.instrument_number} is paid to the beneficiary."
+      },
+      "next": "paid"
+    },
+    {
+      "id": "notify_rejected",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_instrument.customer_id",
+        "subject": "Documents rejected",
+        "body": "Dear {find_instrument.customer_name}, {receive.demand_number} under {find_instrument.instrument_number} was not honoured ({receive.discrepancies})."
+      },
+      "next": "rejected_docs"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_instrument.customer_id",
+        "subject": "Documents",
+        "body": "Dear {find_instrument.customer_name}, we could not process the presentation: {_failure.message}"
+      },
+      "next": "refused_after"
+    },
+    {
+      "id": "paid",
+      "type": "completion",
+      "name": "Paid",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected_docs",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Unknown instrument",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -24,6 +24,7 @@ export type Permission =
   | "retail:manage"
   | "cards:manage"
   | "mortgages:manage"
+  | "trade:manage"
   | "ledger:post"
   | "workflows:read"
   | "workflows:start"

@@ -1,0 +1,206 @@
+{
+  "workflow_id": "WF-1017",
+  "name": "Guarantee Claim",
+  "version": 1,
+  "description": "A beneficiary claims under a bank guarantee. The claim is recorded if it is made before expiry and within what is left; a trade officer (trade:manage) other than the person who received it reviews it before the beneficiary is paid — margin released in proportion, the applicant's account debited — or rejects it. Stored definition: built only from library handlers (Phase 37).",
+  "business_owner": "Trade Finance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "instrument_number",
+      "amount"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "instrument_number": {
+        "type": "string",
+        "pattern": "^(LC|BG)-[0-9]{7,}$"
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000,
+        "examples": [
+          1000000
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_instrument.customer_name"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.instrument_number",
+        "prefix": "GCL-"
+      },
+      "next": "find_instrument"
+    },
+    {
+      "id": "find_instrument",
+      "type": "service_task",
+      "name": "Find the instrument",
+      "handler": "trade.lookup_instrument",
+      "params": {
+        "instrument_number_path": "input.instrument_number",
+        "customer_number_path": "input.customer_number",
+        "kind": "guarantee"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "receive"
+    },
+    {
+      "id": "receive",
+      "type": "service_task",
+      "name": "Record the claim",
+      "handler": "trade.receive_demand",
+      "params": {
+        "instrument_id_path": "find_instrument.instrument_id",
+        "amount_path": "input.amount"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "claim_review"
+    },
+    {
+      "id": "claim_review",
+      "type": "approval",
+      "name": "Review the claim",
+      "description": "A trade officer other than the person who received the claim decides.",
+      "approval": {
+        "permissions": [
+          "trade:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "pay",
+          "when": {
+            "path": "claim_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "pay",
+      "type": "service_task",
+      "name": "Pay the beneficiary",
+      "handler": "trade.pay_demand",
+      "params": {
+        "demand_id_path": "receive.demand_id",
+        "decided_by_path": "claim_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_paid"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the claim",
+      "handler": "trade.reject_demand",
+      "params": {
+        "demand_id_path": "receive.demand_id",
+        "decided_by_path": "claim_review.actor_id",
+        "note": "Claim not complying"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_rejected"
+    },
+    {
+      "id": "notify_paid",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_instrument.customer_id",
+        "subject": "Guarantee claim",
+        "body": "Dear {find_instrument.customer_name}, a claim of {receive.amount} under {find_instrument.instrument_number} has been paid to the beneficiary."
+      },
+      "next": "paid"
+    },
+    {
+      "id": "notify_rejected",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_instrument.customer_id",
+        "subject": "Guarantee claim",
+        "body": "Dear {find_instrument.customer_name}, the claim {receive.demand_number} under {find_instrument.instrument_number} was rejected."
+      },
+      "next": "rejected_claim"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_instrument.customer_id",
+        "subject": "Guarantee claim",
+        "body": "Dear {find_instrument.customer_name}, we could not process the claim: {_failure.message}"
+      },
+      "next": "refused_after"
+    },
+    {
+      "id": "paid",
+      "type": "completion",
+      "name": "Paid",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected_claim",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Unknown instrument",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

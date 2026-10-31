@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   PiggyBank,
+  Ship,
   PlayCircle,
   ScrollText,
   Settings,
@@ -35,7 +36,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 35;
+export const IMPLEMENTED_PHASE = 37;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -57,6 +58,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Lending", path: "/lending", icon: HandCoins, phase: 9, permission: "loans:read" },
   { label: "Mortgages", path: "/mortgages", icon: House, phase: 33, permission: "loans:read" },
   { label: "Commercial Lending", path: "/commercial", icon: BriefcaseBusiness, phase: 35, permission: "loans:read" },
+  { label: "Trade Finance", path: "/trade", icon: Ship, phase: 37, permission: "loans:read" },
   {
     label: "Workflow Explorer",
     path: "/workflows",

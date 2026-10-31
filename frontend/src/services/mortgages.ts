@@ -46,8 +46,10 @@ export function useOffers() {
 
 /** The currency of a customer (their country's), looked up by customer number. */
 export async function customerCurrency(number: string): Promise<string> {
-  const found = await apiGet<Page<{ customer_number: string; currency: string }>>(`/api/v1/customers${query({ q: number, limit: 5 })}`);
-  const customer = found.items.find((c) => c.customer_number === number);
+  // The server matches customer numbers case-insensitively; so does this lookup.
+  const wanted = number.trim().toUpperCase();
+  const found = await apiGet<Page<{ customer_number: string; currency: string }>>(`/api/v1/customers${query({ q: wanted, limit: 5 })}`);
+  const customer = found.items.find((c) => c.customer_number.toUpperCase() === wanted);
   if (!customer) throw new Error(`No customer ${number}.`);
   return customer.currency;
 }

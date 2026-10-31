@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 36.
+Last updated: Phase 37.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -41,6 +41,70 @@ Last updated: Phase 36.
 | 34 | Departments, step 6: the mortgages workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 35 | Departments, step 7: SME and commercial lending ([commercial-lending.md](commercial-lending.md)) | **Complete** |
 | 36 | Departments, step 8: the commercial lending workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 37 | Departments, step 9: trade finance ([trade-finance.md](trade-finance.md)) | **Complete** |
+
+## Phase 37: what exists
+
+- **Trade finance module** (`app/modules/trade/`, migration 0029).
+  - Letters of credit and bank guarantees for verified businesses, in the currency of
+    their business current account.
+  - Amounts of US$10,000 to 5m converted per currency; expiry 30 to 730 days ahead.
+  - Beneficiaries screened against every synthetic sanctions list; a match refuses the
+    request, and the result is kept on the instrument.
+- **Approval:** four-eyes credit approval and, above US$1m, a third person on the credit
+  committee (also database constraints). Issuing takes a cash margin, 20 % for a letter of
+  credit and 10 % for a guarantee, into a margin liability account.
+- **Demands:** documents under a letter of credit, with any of five discrepancies
+  recorded, or a claim under a guarantee (no documents). One pending at a time, before
+  expiry and within what is left.
+- **Payment and rejection** by `trade:manage`, not by the receiver. A discrepant
+  presentation is paid only as waived by the applicant. Payment releases the margin in
+  proportion, debits the applicant and credits trade settlement. Expiry releases what is
+  left of the margin.
+- **Permission** `trade:manage` for department managers and compliance officers.
+- **Fix from the Codex review of PR #27:** the property form's currency lookup compared
+  customer numbers case-sensitively, so a lowercase number the server accepts was refused.
+  The customer and account currency lookups now compare in upper case.
+- **Workflow factory:** eight `trade.*` handlers and three workflows:
+  - WF-1015 Trade Instrument Issuance
+  - WF-1016 Documentary Presentation
+  - WF-1017 Guarantee Claim
+
+  Fixture kinds `letter_of_credit.instrument_number` and `guarantee.instrument_number`.
+  The test business's account now holds 100,000,000, enough for a US$2m instrument's
+  margin.
+- **Trade Finance page:** requests, approvals, committee approvals, an instrument's
+  margin and screening, presentations and claims, payment (*Pay (waived)* when
+  discrepant), rejection and closing after expiry.
+
+## Phase 37: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 599 passed (new: 5 — request rules and sanctions screening; issue with the margin, four-eyes and the committee, and a margin the account cannot provide; documents with a discrepancy paid as waived, proportional margin release and full drawing; a guarantee claim rejected, a late claim refused and expiry releasing the margin; the API with its permissions and a sanctioned beneficiary refused) |
+| Migration 0029 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 27 workflows, 563 cases, 0 failed (WF-1015: 23 cases, WF-1016: 25, WF-1017: 16; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 112 passed (new: 4 — a lowercase customer number still finds the customer's currency (PR #27 review); the instruments list and summary; a JPY request in yen, approval, committee approval, a discrepant presentation and *Pay (waived)*; read-only without the permissions) / clean / built |
+| Playwright on a fresh database | 40 passed on the first run (new: a sanctioned beneficiary is refused; a teller requests a letter of credit and cannot approve it, a manager approves, the teller presents documents with a late shipment and cannot pay, the manager pays it as waived) |
+
+Found while building it:
+- **New backend tests:** two expectations in `test_trade.py` were wrong on the first run
+  and were corrected; the service was not changed.
+  - The account balance after a 40 % draw was miscalculated (6,400,000 instead of
+    7,400,000).
+  - The committee case expected the margin to be refused, but the test had funded the
+    account well enough to cover it. The test now expects the issue and checks the
+    refusal on a second US$2m request the remaining balance cannot cover.
+- **Lint:** two over-long lines in the new test.
+
+## Phase 37: known limitations
+
+- Payments stop at a settlement account; nothing goes to the beneficiary's bank.
+- Discrepancies are recorded by the checker, not found from documents; no amendments,
+  transfers, confirmations or deferred-payment credits.
+- No commissions or customer trade limits; nothing closes expired instruments
+  automatically.
+- No trade finance workload or AI tool yet (Phase 38).
 
 ## Phase 36: what exists
 

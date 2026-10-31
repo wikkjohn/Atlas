@@ -94,7 +94,9 @@ a long position, never open or reverse one. The bought side may likewise only cl
 buying US dollars, the base the positions are valued in, is always allowed, but buying
 another currency is refused unless the desk is short it by at least the amount. Back office (not the dealer) confirms it, which
 settles one balanced entry per currency. Confirmation locks both position accounts and both
-cash accounts before re-checking, so two trades cannot both pass against the same position:
+cash accounts before re-checking, so two trades cannot both pass against the same position.
+The locks are FOR NO KEY UPDATE: they serialise treasury settlements without conflicting
+with the key-share locks that other postings take on the same ledger accounts:
 
 | Leg | Debit | Credit |
 | --- | --- | --- |

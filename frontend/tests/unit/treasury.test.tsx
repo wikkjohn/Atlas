@@ -127,6 +127,30 @@ describe("Treasury page", () => {
     expect(bodies["POST /api/v1/treasury/fx-trades"]).toEqual({ counterparty_code: "CP-NORTHGATE", sell_currency: "EUR", buy_currency: "USD", sell_amount: 200_000_000 });
   });
 
+  it("pages back to older deals and FX trades beyond the newest 25 (PR #30 review)", async () => {
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/treasury/deals": (request) =>
+        request.search.get("offset") === "25"
+          ? jsonResponse(page([deal({ id: "mm-old", deal_number: "MM-0000099" })], 26, 25, 25))
+          : jsonResponse(page([deal({}), booked], 26, 25, 0)),
+      "GET /api/v1/treasury/fx-trades": (request) =>
+        request.search.get("offset") === "25"
+          ? jsonResponse(page([{ ...trade, id: "fxt-old", trade_number: "FXT-0000099" }], 27, 25, 25))
+          : jsonResponse(page([trade], 27, 25, 0)),
+    });
+    renderApp("/treasury");
+    const dealPages = await screen.findByRole("navigation", { name: "Deal pages" });
+    expect(dealPages).toHaveTextContent("1–25 of 26");
+    await userEvent.click(within(dealPages).getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("MM-0000099")).toBeInTheDocument();
+    const tradePages = screen.getByRole("navigation", { name: "FX trade pages" });
+    await userEvent.click(within(tradePages).getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("FXT-0000099")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "FX trade pages" })).toHaveTextContent("26–27 of 27");
+    expect(api.requests.filter((r) => r.search.get("offset") === "25")).toHaveLength(2);
+  });
+
   it("is read-only without the treasury permissions", async () => {
     mockApi({ ...routes, ...authRoutes({ ...employeeUser, permissions: ["payments:read"] }) });
     renderApp("/treasury");

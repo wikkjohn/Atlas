@@ -67,6 +67,14 @@ Last updated: Phase 40.
   - Six kinds with ground truth, decided by simulated back office (`treasury:confirm`).
   - A control check covers four-eyes, `treasury:confirm`, and no settlement without
     confirmation.
+- **Fixes from the Codex review of PR #30 (Phase 39):**
+  - Treasury settlements lock the cash and FX position accounts they check, in id order,
+    so concurrent confirmations cannot both pass against the same balance.
+  - An FX desk trade's bought side may only close a short (US dollars excepted), so a
+    square-off cannot open or grow a position in another currency.
+  - The Treasury page pages through deals and FX trades beyond the newest 25.
+  - Maturity posts principal and interest on separate cash lines, so a US$100m LBP deal at
+    50 % no longer exceeds the ledger's 10^15 line limit.
 - **Measured** (300 deals): AI assisted 91.3 % accurate against 83.3 %, back-office hours
   64 against 99. Duplicates confirmed rose to 18 from 14, the one kind it made worse.
 
@@ -76,12 +84,15 @@ Last updated: Phase 40.
 | --- | --- |
 | Backend pytest (real PostgreSQL) | PYTEST_RESULT |
 | Generated workflow tests | 30 workflows, 607 cases, 0 failed (WF-1018 v2: 15 cases, 100 % steps and routes) |
-| Frontend Vitest / typecheck / build | 116 passed / clean / built |
+| Frontend Vitest / typecheck / build | 117 passed (new: paging back through deals and FX trades (PR #30 review)) / clean / built |
 | Playwright on a fresh database | PLAYWRIGHT_RESULT |
 | Measurement | `deal-confirmations`, seed 2030, 300 deals each: baseline 83.3 % accurate (33 wrongly confirmed, 17 wrongly cancelled, 98.7 back-office hours); AI assisted 91.3 % (25, 1, 63.6); duplicates confirmed 14 against 18 |
 
 Found while building it:
 - **New tests:** they passed on their first run.
+- **Review-fix test:** the new test (bought side, maturity line split) fails on the code
+  before the fixes and passes after. There is no concurrency test for the locks.
+- **Measurements:** both runs were repeated after the review fixes and were identical.
 - **Lint:** the formatter wrapped over-long lines in the new tests and the adapter. The
   format check now runs in the foreground before the suite, after PR #30's CI failure.
 

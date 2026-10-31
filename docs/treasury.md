@@ -66,7 +66,9 @@ and interest:
 | Placement | `1000-<CCY>` (principal and interest) | `TREASURY-PLACEMENTS-<CCY>`, `TREASURY-INTEREST-INCOME-<CCY>` |
 | Borrowing | `TREASURY-BORROWINGS-<CCY>`, `TREASURY-INTEREST-EXPENSE-<CCY>` | `1000-<CCY>` |
 
-A borrowing is repaid only if the cash is there. A booked deal can be cancelled. Bookings,
+A borrowing is repaid only if the cash is there. Principal and interest go on separate
+cash lines, so the largest deal any currency allows stays within the ledger's per-line
+limit. Confirmation and maturity lock the cash account before checking it. A booked deal can be cancelled. Bookings,
 confirmations, maturities and cancellations are audited.
 
 ## Liquidity
@@ -88,8 +90,11 @@ whose absolute value is above its limit is flagged with the excess.
 
 **Squaring a position.** A dealer books an interbank spot trade with a counterparty at the
 day's mid rate (no margin), selling a currency the desk is long in. A trade may only reduce
-a long position, never open or reverse one. Back office (not the dealer) confirms it, which
-settles one balanced entry per currency:
+a long position, never open or reverse one. The bought side may likewise only close a short:
+buying US dollars, the base the positions are valued in, is always allowed, but buying
+another currency is refused unless the desk is short it by at least the amount. Back office (not the dealer) confirms it, which
+settles one balanced entry per currency. Confirmation locks both position accounts and both
+cash accounts before re-checking, so two trades cannot both pass against the same position:
 
 | Leg | Debit | Credit |
 | --- | --- | --- |

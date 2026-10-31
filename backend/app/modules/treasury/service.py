@@ -159,6 +159,14 @@ def _post(db: Session, *, key: str, currency: str, memo: str, lines: list[tuple]
     )  # fmt: skip
 
 
+def _lock(db: Session, *accounts: LedgerAccount) -> None:
+    """Lock the ledger account rows a check reads before posting to them, in id order, so
+    two treasury settlements cannot both pass against the same balance (PR #30 review)."""
+    ids = sorted({a.id for a in accounts})
+    db.execute(select(LedgerAccount.id).where(LedgerAccount.id.in_(ids))
+               .order_by(LedgerAccount.id).with_for_update()).all()  # fmt: skip
+
+
 def _cash(db: Session, currency: str) -> int:
     return ledger.balance(db, ledger.cash_account(db, currency))
 
@@ -331,6 +339,7 @@ def confirm_deal(
                                     "it.", {"rule": "past_maturity"})  # fmt: skip
     counterparty = get_counterparty(db, deal.counterparty_id, for_update=True)
     cash = ledger.cash_account(db, deal.currency)
+    _lock(db, cash)
     if deal.kind == DealKind.PLACEMENT:
         _check_placement(db, counterparty, deal.currency, deal.principal, today,
                          counted=_usd(deal.principal, deal.currency, today, db))  # fmt: skip
@@ -394,9 +403,13 @@ def mature_deal(
     if today < deal.maturity_date:
         raise BusinessRuleViolation(f"{deal.deal_number} matures on {deal.maturity_date}.")
     cash = ledger.cash_account(db, deal.currency)
+    _lock(db, cash)
     total = deal.principal + deal.interest
+    # Principal and interest on separate cash lines: each stays within the ledger's line
+    # limit for every supported currency (PR #30 review).
     if deal.kind == DealKind.PLACEMENT:
-        lines = [(cash, Direction.DEBIT, total),
+        lines = [(cash, Direction.DEBIT, deal.principal),
+                 (cash, Direction.DEBIT, deal.interest),
                  (treasury_account(db, "PLACEMENTS", deal.currency), Direction.CREDIT,
                   deal.principal),
                  (treasury_account(db, "INTEREST-INCOME", deal.currency), Direction.CREDIT,
@@ -409,7 +422,8 @@ def mature_deal(
                   deal.principal),
                  (treasury_account(db, "INTEREST-EXPENSE", deal.currency), Direction.DEBIT,
                   deal.interest),
-                 (cash, Direction.CREDIT, total)]  # fmt: skip
+                 (cash, Direction.CREDIT, deal.principal),
+                 (cash, Direction.CREDIT, deal.interest)]  # fmt: skip
     _post(
         db,
         key=f"treasury-mature:{deal.deal_number}",
@@ -500,6 +514,7 @@ def book_fx_trade(
             {"rule": "squares_only", "position": long},
         )  # fmt: skip
     quote = fx.quote(db, sell_currency, buy_currency, sell_amount, today, margin_bps=0)
+    _check_bought(db, buy_currency, quote["buy_amount"])
     number = f"FXT-{db.execute(FX_TRADE_SEQUENCE.next_value()).scalar_one():07d}"
     trade = TreasuryFxTrade(
         trade_number=number, counterparty_id=counterparty.id, sell_currency=sell_currency,
@@ -513,6 +528,20 @@ def book_fx_trade(
            trade_number=number, sell=f"{sell_amount} {sell_currency}",
            buy=f"{trade.buy_amount} {buy_currency}")  # fmt: skip
     return trade
+
+
+def _check_bought(db: Session, currency: str, amount: int) -> None:
+    """The bought side may only close a short, never open or grow a position, except in US
+    dollars, the base the positions are valued in (PR #30 review)."""
+    if currency == rates.BASE:
+        return
+    short = -ledger.balance(db, fx.position_account(db, currency))
+    if amount > short:
+        raise BusinessRuleViolation(
+            f"The desk is short {max(short, 0)} {currency}: buying {amount} would open or "
+            "grow a position. Buy US dollars, or no more than the short.",
+            {"rule": "squares_only", "position": -short},
+        )  # fmt: skip
 
 
 def get_fx_trade(db: Session, trade_id: uuid.UUID, *, for_update: bool = False):
@@ -537,12 +566,17 @@ def confirm_fx_trade(
     if actor_id == trade.booked_by:
         raise BusinessRuleViolation("Four-eyes rule: the dealer cannot confirm their own trade.",
                                     {"rule": "four_eyes"})  # fmt: skip
+    _lock(db, fx.position_account(db, trade.sell_currency),
+          fx.position_account(db, trade.buy_currency),
+          ledger.cash_account(db, trade.sell_currency),
+          ledger.cash_account(db, trade.buy_currency))  # fmt: skip
     long = ledger.balance(db, fx.position_account(db, trade.sell_currency))
     if trade.sell_amount > long:
         raise BusinessRuleViolation(
             f"The desk is now long only {long} {trade.sell_currency}; cancel the trade.",
             {"rule": "squares_only", "position": long},
         )  # fmt: skip
+    _check_bought(db, trade.buy_currency, trade.buy_amount)
     if trade.sell_amount > _cash(db, trade.sell_currency):
         raise BusinessRuleViolation(f"Not enough {trade.sell_currency} cash to deliver.",
                                     {"rule": "cash"})  # fmt: skip

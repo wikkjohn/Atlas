@@ -199,3 +199,38 @@ def test_the_treasury_api(client: TestClient, db: Session) -> None:
     assert any(r["currency"] == currency for r in liquidity["currencies"])
     assert client.get("/api/v1/treasury/fx-desk", headers=dealer).status_code == 200
     assert client.get("/api/v1/treasury/summary/counts", headers=dealer).json()["placements"] == 1
+
+
+def test_pr30_review_fixes(db: Session) -> None:
+    """The bought side only closes a short (USD excepted); maturity cash lines stay within the
+    ledger's line limit for the largest deal any currency allows."""
+    staff = make_staff(db)
+    treasury.ensure_counterparties(db)
+    northgate = treasury.find_counterparty(db, "CP-NORTHGATE")
+    _long_eur(db, 300_000_000)
+    with pytest.raises(BusinessRuleViolation, match="buying .* would open or grow"):
+        treasury.book_fx_trade(db, counterparty=northgate, sell_currency="EUR",
+                               buy_currency="GBP", sell_amount=100_000_000,
+                               booked_by=staff.employee.id, today=TODAY)  # fmt: skip
+    usd = treasury.book_fx_trade(db, counterparty=northgate, sell_currency="EUR",
+                                 buy_currency="USD", sell_amount=100_000_000,
+                                 booked_by=staff.employee.id, today=TODAY)  # fmt: skip
+    assert usd.status == "booked"
+    # US$100m in Lebanese pounds at 50 % for 360 days: principal plus interest is above the
+    # ledger's 10^15 line limit, so they settle on separate cash lines.
+    principal = treasury._from_usd(treasury.MAX_PRINCIPAL_USD, "LBP")
+    deal = _book(db, staff, "LBP", kind="borrowing", principal=principal, tenor=360, rate=5000)
+    assert deal.principal + deal.interest > 10**15
+    treasury.confirm_deal(db, deal, staff.manager.id, now=NOW)
+    equity = ledger.ensure_ledger_account(
+        db, code="TEST-EQUITY-LBP", name="Test equity", account_type=LedgerAccountType.EQUITY,
+        currency="LBP",
+    )  # fmt: skip
+    ledger.post_entry(db, idempotency_key=f"test-lbp-{deal.id}", currency="LBP",
+                      description="Test funds", source="test",
+                      lines=[ledger.LineSpec(ledger.cash_account(db, "LBP").id, Direction.DEBIT,
+                                             deal.interest, "x"),
+                             ledger.LineSpec(equity.id, Direction.CREDIT, deal.interest, "x")],
+                      actor_id=None)  # fmt: skip
+    treasury.mature_deal(db, deal, staff.manager.id, now=NOW + timedelta(days=360))
+    assert deal.status == "matured" and _cash(db, "LBP") == 0

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, apiPut, query } from "@/services/api";
 import { toMinorUnits } from "@/services/format";
@@ -18,8 +18,15 @@ export function useCounterparties() {
   return useQuery({ queryKey: ["treasury", "counterparties"], queryFn: () => apiGet<Counterparty[]>("/api/v1/treasury/counterparties") });
 }
 
-export function useDeals() {
-  return useQuery({ queryKey: ["treasury", "deals"], queryFn: () => apiGet<Page<Deal>>(`/api/v1/treasury/deals${query({ limit: 25 })}`) });
+export const TREASURY_PAGE = 25;
+
+/** A page of deals, newest first; `offset` pages back through older ones. */
+export function useDeals(offset = 0) {
+  return useQuery({
+    queryKey: ["treasury", "deals", offset],
+    queryFn: () => apiGet<Page<Deal>>(`/api/v1/treasury/deals${query({ limit: TREASURY_PAGE, offset })}`),
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useLiquidity() {
@@ -30,8 +37,12 @@ export function useFxDesk() {
   return useQuery({ queryKey: ["treasury", "fx-desk"], queryFn: () => apiGet<FxDesk>("/api/v1/treasury/fx-desk") });
 }
 
-export function useFxTrades() {
-  return useQuery({ queryKey: ["treasury", "fx-trades"], queryFn: () => apiGet<Page<FxTrade>>(`/api/v1/treasury/fx-trades${query({ limit: 25 })}`) });
+export function useFxTrades(offset = 0) {
+  return useQuery({
+    queryKey: ["treasury", "fx-trades", offset],
+    queryFn: () => apiGet<Page<FxTrade>>(`/api/v1/treasury/fx-trades${query({ limit: TREASURY_PAGE, offset })}`),
+    placeholderData: keepPreviousData,
+  });
 }
 
 export interface DealRequest {

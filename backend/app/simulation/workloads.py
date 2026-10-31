@@ -1517,6 +1517,146 @@ class DiscrepantPresentations(Workload):
         return check
 
 
+# --- Deal confirmations (WF-1018 v2, Phase 40) -----------------------------------------------
+
+DEAL_SHOULD_CANCEL = frozenset({"off_market_rate", "weak_counterparty", "duplicate_booking",
+                                "stretched_counterparty"})  # fmt: skip
+DEAL_COUNTRY = {"USD": "US", "EUR": "DE", "GBP": "GB"}  # where the funding deposit is held
+
+
+class DealConfirmations(Workload):
+    """Interbank deals through WF-1018 v2: a dealer books a placement or a borrowing, and
+    back office decides whether to confirm it, with the AGB Back-Office Check Assistant's
+    advice in AI-assisted runs. Each case has its own synthetic counterparty, so cases do not
+    share limits, and each placement is funded by a deposit, so cases do not share cash.
+
+    Ground truth: deals on market terms are confirmed; an off-market rate against the bank, a
+    long placement with a counterparty at the bottom of investment grade, a duplicate of a
+    deal confirmed earlier the same day, and a long placement that uses almost all of a
+    counterparty's limit are cancelled."""
+
+    key = "deal_confirmations"
+    workflow_id = "WF-1018"
+    kinds = frozenset({"standard_placement", "standard_borrowing"} | DEAL_SHOULD_CANCEL)
+    reviewer_roles = {"back_office": "manager"}
+    job_titles = {"teller": "Treasury Dealer", "manager": "Back-Office Officer"}
+    ai_step = "ai_review"
+    automated_path = None  # back office always decides
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.treasury import service as treasury
+        from app.modules.treasury.models import TreasuryCounterparty
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        start = sim.clock.start
+        today = start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "deal")
+            kind = _pick(rng, mix)
+            currency = rng.choice(sorted(DEAL_COUNTRY))
+            principal = treasury._from_usd(rng.randint(1, 20) * 1_000_000, currency)
+            reference = treasury.reference_rate(currency)
+            deal_kind = "borrowing" if kind == "standard_borrowing" else "placement"
+            if kind == "off_market_rate":
+                rate = reference - rng.randint(160, 300)  # lending far below the market
+            else:
+                rate = reference + rng.randint(-40, 40)
+            if kind == "weak_counterparty":
+                tenor, rating = rng.randint(181, 365), rng.choice(("BBB", "BBB-"))
+            elif kind == "stretched_counterparty":
+                tenor, rating = rng.randint(91, 150), rng.choice(("AA", "AA-", "A+", "A"))
+            else:
+                tenor, rating = rng.randint(7, 90), rng.choice(("AA", "AA-", "A+", "A"))
+            # How much of the counterparty's limit this case's placements use.
+            deals = 2 if kind == "duplicate_booking" else 1
+            use = rng.uniform(0.90, 0.97) if kind == "stretched_counterparty" else rng.uniform(
+                0.2, 0.6)  # fmt: skip
+            value = treasury._usd(principal, currency, today, db)
+            code = f"CP-S{sim.run_id.hex[:6].upper()}{index:05d}"
+            counterparty = TreasuryCounterparty(
+                code=code, name=f"Simulated {rng.choice(LAST_NAMES)} Bank",
+                country_code=DEAL_COUNTRY[currency], rating=rating,
+                limit_usd=int(value * deals / use) + 1,
+            )  # fmt: skip
+            db.add(counterparty)
+            db.flush()
+            if deal_kind == "placement":
+                # Cash for the placement(s), held as a business deposit in the currency.
+                account = _verified_business(sim, f"{rng.choice(LAST_NAMES)} Treasury Funding "
+                                             "Ltd", DEAL_COUNTRY[currency])  # fmt: skip
+                deposit(db, account.id, amount=principal * (deals + 1),
+                        memo="Treasury funding (simulation)", actor_id=teller.id,
+                        idempotency_key=f"sim-deal-{sim.run_id}-{index}")  # fmt: skip
+            if kind == "duplicate_booking":
+                # The same deal, booked and confirmed earlier the same day.
+                first = treasury.book_deal(
+                    db, counterparty=counterparty, kind=deal_kind, currency=currency,
+                    principal=principal, rate_bps=rate, tenor_days=tenor,
+                    booked_by=teller.id, today=today,
+                )  # fmt: skip
+                treasury.confirm_deal(db, first, manager.id, now=start - timedelta(hours=1))
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="rejected" if kind in DEAL_SHOULD_CANCEL else "approved",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "counterparty_code": code,
+                        "kind": deal_kind,
+                        "currency": currency,
+                        "principal": principal,
+                        "rate_bps": rate,
+                        "tenor_days": tenor,
+                    },
+                )  # fmt: skip
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every back-office decision against four-eyes and authority, and every settlement
+        only after a confirmation."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["back_office", "settle"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "back_office":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.TREASURY_CONFIRM not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "settle" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "settlement_without_confirmation", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -1529,6 +1669,7 @@ WORKLOADS: dict[str, Workload] = {
         MortgageApplications(),
         CovenantBreaches(),
         DiscrepantPresentations(),
+        DealConfirmations(),
     )
 }
 STAFF_ROLES = {

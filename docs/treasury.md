@@ -66,7 +66,9 @@ and interest:
 | Placement | `1000-<CCY>` (principal and interest) | `TREASURY-PLACEMENTS-<CCY>`, `TREASURY-INTEREST-INCOME-<CCY>` |
 | Borrowing | `TREASURY-BORROWINGS-<CCY>`, `TREASURY-INTEREST-EXPENSE-<CCY>` | `1000-<CCY>` |
 
-A borrowing is repaid only if the cash is there. A booked deal can be cancelled. Bookings,
+A borrowing is repaid only if the cash is there. Principal and interest go on separate
+cash lines, so the largest deal any currency allows stays within the ledger's per-line
+limit. Confirmation and maturity lock the cash account before checking it. A booked deal can be cancelled. Bookings,
 confirmations, maturities and cancellations are audited.
 
 ## Liquidity
@@ -88,8 +90,11 @@ whose absolute value is above its limit is flagged with the excess.
 
 **Squaring a position.** A dealer books an interbank spot trade with a counterparty at the
 day's mid rate (no margin), selling a currency the desk is long in. A trade may only reduce
-a long position, never open or reverse one. Back office (not the dealer) confirms it, which
-settles one balanced entry per currency:
+a long position, never open or reverse one. The bought side may likewise only close a short:
+buying US dollars, the base the positions are valued in, is always allowed, but buying
+another currency is refused unless the desk is short it by at least the amount. Back office (not the dealer) confirms it, which
+settles one balanced entry per currency. Confirmation locks both position accounts and both
+cash accounts before re-checking, so two trades cannot both pass against the same position:
 
 | Leg | Debit | Credit |
 | --- | --- | --- |
@@ -117,6 +122,30 @@ new fixture kinds:
 - `treasury_deal.deal_number`: a settled GBP placement maturing today;
 - `fx_long.currency`: EUR, with a long position of EUR 3m (above the US$1m default limit).
 
+## Simulation workload and AI tool (Phase 40)
+
+The `deal_confirmations` workload drives WF-1018 v2 (scenario `deal-confirmations`).
+- **Cases:** each case books a placement or borrowing in USD, EUR or GBP of US$1–20m.
+  - Each case has its own synthetic counterparty, with the rating and limit the case needs.
+  - Each placement is funded by a business deposit in its currency.
+  - Back office (simulated department managers with `treasury:confirm`) decides every
+    deal.
+- **Ground truth, confirm:**
+  - a placement or borrowing within 0.40 points of the reference rate, 7–90 days, with a
+    counterparty rated A or better; a placement uses 20–60 % of the limit.
+- **Ground truth, cancel:**
+  - lending 1.60–3.00 points below the reference rate;
+  - a placement of 181–365 days with a counterparty rated BBB or BBB-;
+  - a duplicate of a deal confirmed earlier the same day;
+  - a placement of 91–150 days that takes a counterparty to 90–97 % of its limit.
+- **Decisions:** in AI-assisted runs the AGB Back-Office Check Assistant advises back
+  office, from the profile `treasury.deal_profile` reads. The synthetic reference rates are
+  USD 5.25 %, EUR 3.75 %, GBP 5.00 % and so on; the default is 4.00 %.
+- **Control check:** four-eyes and authority on each decision, and no settlement without a
+  confirmation.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Treasury*). Reading needs `payments:read`.
@@ -139,4 +168,5 @@ See [api.md](api.md) (*Treasury*). Reading needs `payments:read`.
   counterparty limits. Positions are valued in US dollars, so the US-dollar position itself
   has no limit.
 - **Automation:** nothing matures deals automatically.
-- **Simulation:** no treasury workload or AI tool yet (Phase 40).
+- **Simulation:** the workload covers deal confirmations (`deal-confirmations`); maturities
+  and the FX desk are not simulated.

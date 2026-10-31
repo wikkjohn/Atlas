@@ -2093,6 +2093,28 @@ def _mature_deal(ctx: StepContext, params: DealDecision) -> dict[str, Any]:
     return _deal_out(deal)
 
 
+class DealRef(_Strict):
+    deal_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "treasury.deal_profile",
+    "Read what back office checks before confirming: the rate against the reference rate, "
+    "the tenor, the counterparty's rating and limit use, liquidity after a placement and "
+    "same-day deals with the same terms.",
+    DealRef,
+    "{kind, currency, rate_bps, reference_rate_bps, rate_against_bank_bps, tenor_days, rating, "
+    "limit_utilisation_bps, coverage_after_bps, same_day_duplicates} (Phase 40).",
+    reads=lambda params: [params.deal_id_path],
+    effect="reads",
+)
+def _deal_profile(ctx: StepContext, params: DealRef) -> dict[str, Any]:
+    from app.modules.treasury import service as treasury
+
+    deal = treasury.get_deal(ctx.db, uuid.UUID(str(_required(ctx, params.deal_id_path))))
+    return treasury.deal_profile(ctx.db, deal, ctx.now.date())
+
+
 class FxPosition(_Strict):
     currency_path: str = Field(min_length=1, max_length=200)
 

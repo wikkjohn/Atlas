@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 39.
+Last updated: Phase 40.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -44,6 +44,67 @@ Last updated: Phase 39.
 | 37 | Departments, step 9: trade finance ([trade-finance.md](trade-finance.md)) | **Complete** |
 | 38 | Departments, step 10: the trade finance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 39 | Departments, step 11: treasury and markets ([treasury.md](treasury.md)) | **Complete** |
+| 40 | Departments, step 12: the treasury workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 40: what exists
+
+- **`treasury.deal_profile`:** what back office checks before confirming a booked deal.
+  - The rate against the currency's synthetic reference rate, with the deviation counted
+    against the bank.
+  - The tenor, and the counterparty's rating and limit use.
+  - Liquidity coverage after a placement.
+  - Same-day deals with the same terms.
+
+  It is also a library handler.
+- **AGB Back-Office Check Assistant** (`rule_based_back_office_check`,
+  `recommend_decision` only, compatible with WF-1018), with a deliberate blind spot for
+  same-day duplicates. The seed registers it, and the AI Lab console has a sample.
+- **WF-1018 v2:** deal profile and AI review before back office decides; counterparty codes
+  may contain digits.
+- **Workload `deal_confirmations` and scenario `deal-confirmations` v1:**
+  - Placements and borrowings booked through the real service, each case with its own
+    synthetic counterparty, and each placement funded by a deposit.
+  - Six kinds with ground truth, decided by simulated back office (`treasury:confirm`).
+  - A control check covers four-eyes, `treasury:confirm`, and no settlement without
+    confirmation.
+- **Fixes from the Codex review of PR #30 (Phase 39):**
+  - Treasury settlements lock the cash and FX position accounts they check, in id order,
+    so concurrent confirmations cannot both pass against the same balance.
+  - An FX desk trade's bought side may only close a short (US dollars excepted), so a
+    square-off cannot open or grow a position in another currency.
+  - The Treasury page pages through deals and FX trades beyond the newest 25.
+  - Maturity posts principal and interest on separate cash lines, so a US$100m LBP deal at
+    50 % no longer exceeds the ledger's 10^15 line limit.
+- **Measured** (300 deals): AI assisted 91.3 % accurate against 83.3 %, back-office hours
+  64 against 99. Duplicates confirmed rose to 18 from 14, the one kind it made worse.
+
+## Phase 40: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 613 passed (new: 4 — the back-office rules and their duplicate blind spot; the deal profile with an off-market same-day duplicate; baseline and AI-assisted deal runs with every case decided by back office, no control violations, every kind's advice as designed, settlement only after confirmation; the bought side squaring only and a US$100m LBP deal maturing within the ledger line limit (PR #30 review)) |
+| Generated workflow tests | 30 workflows, 607 cases, 0 failed (WF-1018 v2: 15 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 117 passed (new: paging back through deals and FX trades (PR #30 review)) / clean / built |
+| Playwright on a fresh database | 43 passed on the first run (new: the back-office check assistant in the AI Lab console, recommending confirmation of a same-day duplicate) |
+| Measurement | `deal-confirmations`, seed 2030, 300 deals each: baseline 83.3 % accurate (33 wrongly confirmed, 17 wrongly cancelled, 98.7 back-office hours); AI assisted 91.3 % (25, 1, 63.6); duplicates confirmed 14 against 18 |
+
+Found while building it:
+- **New tests:** they passed on their first run.
+- **Review-fix test:** the new test (bought side, maturity line split) fails on the code
+  before the fixes and passes after. There is no concurrency test for the locks.
+- **Measurements:** both runs were repeated after the review fixes and were identical.
+- **Lint:** the formatter wrapped over-long lines in the new tests and the adapter. The
+  format check now runs in the foreground before the suite, after PR #30's CI failure.
+
+## Phase 40: known limitations
+
+- **Workload scope:** it covers deal confirmations only. Maturities and the FX desk are not
+  simulated.
+- **AI modes:** WF-1018 v2 has no automated decision, so AI assisted is the only AI mode.
+- **Unexercised rule:** the assistant's thin-coverage rule never fires, because the
+  workload funds each placement.
+- **Reference rates:** synthetic constants, not a curve.
+- **Assumptions:** back office's response to the assistant rests on stated assumptions.
 
 ## Phase 39: what exists
 

@@ -8,6 +8,7 @@ import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatExactMoney, humanize } from "@/services/format";
 import {
+  TREASURY_PAGE,
   useBookDeal,
   useBookFxTrade,
   useCounterparties,
@@ -33,6 +34,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {label}
       {children}
     </label>
+  );
+}
+
+/** Newer/Older paging once a list has more than one page (PR #30 review). */
+function Pager({ label, offset, total, onChange }: { label: string; offset: number; total: number; onChange: (offset: number) => void }) {
+  if (total <= TREASURY_PAGE) return null;
+  return (
+    <nav aria-label={label} className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-600">
+      <span>
+        {offset + 1}–{Math.min(offset + TREASURY_PAGE, total)} of {total}
+      </span>
+      <Button size="sm" variant="secondary" disabled={offset === 0} onClick={() => onChange(Math.max(offset - TREASURY_PAGE, 0))}>
+        Newer
+      </Button>
+      <Button size="sm" variant="secondary" disabled={offset + TREASURY_PAGE >= total} onClick={() => onChange(offset + TREASURY_PAGE)}>
+        Older
+      </Button>
+    </nav>
   );
 }
 
@@ -102,7 +121,8 @@ function BookDealForm({ parties }: { parties: Counterparty[] }) {
 
 function DealsPanel({ parties }: { parties: Counterparty[] }) {
   const { can } = useAuth();
-  const deals = useDeals();
+  const [offset, setOffset] = useState(0);
+  const deals = useDeals(offset);
   const action = useDealAction();
   const today = new Date().toISOString().slice(0, 10);
   const items = deals.data?.items ?? [];
@@ -151,6 +171,7 @@ function DealsPanel({ parties }: { parties: Counterparty[] }) {
           )}
         </tbody>
       </table>
+      <Pager label="Deal pages" offset={offset} total={deals.data?.total ?? 0} onChange={setOffset} />
     </Panel>
   );
 }
@@ -238,7 +259,8 @@ function LiquidityPanel() {
 function FxDeskPanel({ parties }: { parties: Counterparty[] }) {
   const { can } = useAuth();
   const desk = useFxDesk();
-  const trades = useFxTrades();
+  const [tradeOffset, setTradeOffset] = useState(0);
+  const trades = useFxTrades(tradeOffset);
   const book = useBookFxTrade();
   const action = useFxTradeAction();
   const [form, setForm] = useState({ counterparty: "", sell: "", buy: "USD", amount: "" });
@@ -324,6 +346,7 @@ function FxDeskPanel({ parties }: { parties: Counterparty[] }) {
           ))}
         </tbody>
       </table>
+      <Pager label="FX trade pages" offset={tradeOffset} total={trades.data?.total ?? 0} onChange={setTradeOffset} />
     </Panel>
   );
 }

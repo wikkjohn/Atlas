@@ -370,6 +370,58 @@ The headline figures are close to the covenant scenario's (Phase 36). Both scena
 same reviewer and AI-assistance assumptions and a similar mix of kinds. These results rest
 on those stated assumptions, not on measured behaviour.
 
+## WF-1018 v2 and the back-office check assistant (Phase 40)
+
+WF-1018 v2 is a stored workflow. After a dealer books an interbank deal, it reads the deal
+profile (`treasury.deal_profile`) and asks the assistant through `ai.review` before back
+office (`treasury:confirm`) decides whether to confirm the deal or cancel it. Back office
+always decides, so the scenario runs baseline and AI assisted only. Each case gets its own
+synthetic counterparty, and each placement is funded by a deposit, so cases share neither
+limits nor cash.
+
+What the assistant (`rule_based_back_office_check`) weighs:
+- **Cancel:**
+  - a rate more than 1.50 points from the currency's reference rate, against the bank;
+  - a placement of more than 180 days with a counterparty rated BBB or BBB-.
+- **Concerns:**
+  - a placement using 90 % or more of the counterparty's limit;
+  - a tenor beyond 90 days;
+  - liquidity coverage after a placement below 110 %.
+- **Minor:** a rate 0.50–1.50 points off the reference against the bank.
+
+Its **blind spot** is duplicates. The profile counts deals with the same counterparty,
+terms and value date booked the same day, and the assistant never reads that count. So a
+dealer's double-keyed booking looks like an ordinary deal and is recommended for
+confirmation.
+
+What `deal-confirmations` v1 measured (seed 2030, 300 deals, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 83.3 % | 91.3 % |
+| Wrongly confirmed | 33 | 25 |
+| Wrongly cancelled | 17 | 1 |
+| Duplicates confirmed (of 56) | 14 | 18 |
+| Review labour hours | 98.7 | 63.6 |
+| Median cycle time (hours) | 4.6 | 1.5 |
+| Tool's recommendation accuracy | — | 79 % (34 escalated) |
+
+**Where the assistant helps:**
+- Deals on market terms that were wrongly cancelled fall from 17 to 1.
+- Off-market rates and long placements with weak names are never confirmed (12 in the
+  baseline).
+- Back-office time falls by about a third.
+
+**Where it does not:**
+- The assistant recommends confirming all 56 duplicates. The simulated back office,
+  following it, confirms 18 rather than 14.
+- Long placements that use almost all of a counterparty's limit are escalated, which leaves
+  back office where the baseline was: 7 confirmed either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

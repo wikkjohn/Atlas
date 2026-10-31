@@ -41,6 +41,11 @@ RUN_OFF_BPS = 1000  # stressed outflow: 10 % of customer deposits within the win
 MIN_COVERAGE_BPS = 10_000  # a placement may not take a currency below 100 % coverage
 DEFAULT_FX_LIMIT_USD = 1_000_000  # net open position limit where none is set
 
+# Synthetic reference rates (bps a year) the back office compares deals against (Phase 40).
+REFERENCE_RATES_BPS = {"USD": 525, "EUR": 375, "GBP": 500, "JPY": 25, "CHF": 150, "CAD": 450,
+                       "AUD": 435, "SGD": 350, "HKD": 450}  # fmt: skip
+DEFAULT_REFERENCE_BPS = 400
+
 # Synthetic counterparty banks (names invented for the simulation).
 COUNTERPARTIES = (
     ("CP-NORTHGATE", "Northgate Commercial Bank (synthetic)", "GB", "AA-", 250_000_000),
@@ -152,6 +157,14 @@ def _post(db: Session, *, key: str, currency: str, memo: str, lines: list[tuple]
                for account, direction, amount in lines if amount],
         actor_id=actor_id, effective_date=today,
     )  # fmt: skip
+
+
+def _lock(db: Session, *accounts: LedgerAccount) -> None:
+    """Lock the ledger account rows a check reads before posting to them, in id order, so
+    two treasury settlements cannot both pass against the same balance (PR #30 review)."""
+    ids = sorted({a.id for a in accounts})
+    db.execute(select(LedgerAccount.id).where(LedgerAccount.id.in_(ids))
+               .order_by(LedgerAccount.id).with_for_update()).all()  # fmt: skip
 
 
 def _cash(db: Session, currency: str) -> int:
@@ -326,6 +339,7 @@ def confirm_deal(
                                     "it.", {"rule": "past_maturity"})  # fmt: skip
     counterparty = get_counterparty(db, deal.counterparty_id, for_update=True)
     cash = ledger.cash_account(db, deal.currency)
+    _lock(db, cash)
     if deal.kind == DealKind.PLACEMENT:
         _check_placement(db, counterparty, deal.currency, deal.principal, today,
                          counted=_usd(deal.principal, deal.currency, today, db))  # fmt: skip
@@ -389,9 +403,13 @@ def mature_deal(
     if today < deal.maturity_date:
         raise BusinessRuleViolation(f"{deal.deal_number} matures on {deal.maturity_date}.")
     cash = ledger.cash_account(db, deal.currency)
+    _lock(db, cash)
     total = deal.principal + deal.interest
+    # Principal and interest on separate cash lines: each stays within the ledger's line
+    # limit for every supported currency (PR #30 review).
     if deal.kind == DealKind.PLACEMENT:
-        lines = [(cash, Direction.DEBIT, total),
+        lines = [(cash, Direction.DEBIT, deal.principal),
+                 (cash, Direction.DEBIT, deal.interest),
                  (treasury_account(db, "PLACEMENTS", deal.currency), Direction.CREDIT,
                   deal.principal),
                  (treasury_account(db, "INTEREST-INCOME", deal.currency), Direction.CREDIT,
@@ -404,7 +422,8 @@ def mature_deal(
                   deal.principal),
                  (treasury_account(db, "INTEREST-EXPENSE", deal.currency), Direction.DEBIT,
                   deal.interest),
-                 (cash, Direction.CREDIT, total)]  # fmt: skip
+                 (cash, Direction.CREDIT, deal.principal),
+                 (cash, Direction.CREDIT, deal.interest)]  # fmt: skip
     _post(
         db,
         key=f"treasury-mature:{deal.deal_number}",
@@ -495,6 +514,7 @@ def book_fx_trade(
             {"rule": "squares_only", "position": long},
         )  # fmt: skip
     quote = fx.quote(db, sell_currency, buy_currency, sell_amount, today, margin_bps=0)
+    _check_bought(db, buy_currency, quote["buy_amount"])
     number = f"FXT-{db.execute(FX_TRADE_SEQUENCE.next_value()).scalar_one():07d}"
     trade = TreasuryFxTrade(
         trade_number=number, counterparty_id=counterparty.id, sell_currency=sell_currency,
@@ -508,6 +528,20 @@ def book_fx_trade(
            trade_number=number, sell=f"{sell_amount} {sell_currency}",
            buy=f"{trade.buy_amount} {buy_currency}")  # fmt: skip
     return trade
+
+
+def _check_bought(db: Session, currency: str, amount: int) -> None:
+    """The bought side may only close a short, never open or grow a position, except in US
+    dollars, the base the positions are valued in (PR #30 review)."""
+    if currency == rates.BASE:
+        return
+    short = -ledger.balance(db, fx.position_account(db, currency))
+    if amount > short:
+        raise BusinessRuleViolation(
+            f"The desk is short {max(short, 0)} {currency}: buying {amount} would open or "
+            "grow a position. Buy US dollars, or no more than the short.",
+            {"rule": "squares_only", "position": -short},
+        )  # fmt: skip
 
 
 def get_fx_trade(db: Session, trade_id: uuid.UUID, *, for_update: bool = False):
@@ -532,12 +566,17 @@ def confirm_fx_trade(
     if actor_id == trade.booked_by:
         raise BusinessRuleViolation("Four-eyes rule: the dealer cannot confirm their own trade.",
                                     {"rule": "four_eyes"})  # fmt: skip
+    _lock(db, fx.position_account(db, trade.sell_currency),
+          fx.position_account(db, trade.buy_currency),
+          ledger.cash_account(db, trade.sell_currency),
+          ledger.cash_account(db, trade.buy_currency))  # fmt: skip
     long = ledger.balance(db, fx.position_account(db, trade.sell_currency))
     if trade.sell_amount > long:
         raise BusinessRuleViolation(
             f"The desk is now long only {long} {trade.sell_currency}; cancel the trade.",
             {"rule": "squares_only", "position": long},
         )  # fmt: skip
+    _check_bought(db, trade.buy_currency, trade.buy_amount)
     if trade.sell_amount > _cash(db, trade.sell_currency):
         raise BusinessRuleViolation(f"Not enough {trade.sell_currency} cash to deliver.",
                                     {"rule": "cash"})  # fmt: skip
@@ -570,6 +609,47 @@ def cancel_fx_trade(db: Session, trade: TreasuryFxTrade, actor_id: uuid.UUID | N
     _audit(db, actor_id, "treasury.fx_trade_cancelled", "treasury_fx_trade", trade.id,
            trade_number=trade.trade_number)  # fmt: skip
     return trade
+
+
+def reference_rate(currency: str) -> int:
+    return REFERENCE_RATES_BPS.get(currency, DEFAULT_REFERENCE_BPS)
+
+
+def deal_profile(db: Session, deal: TreasuryDeal, today: date) -> dict[str, Any]:
+    """What back office checks before confirming a booked deal (Phase 40): the rate against
+    the currency's reference rate (the deviation counted against the bank), the tenor, the
+    counterparty's rating and how much of its limit the deal uses, liquidity coverage after a
+    placement, and other deals with the same terms booked the same day."""
+    counterparty = get_counterparty(db, deal.counterparty_id)
+    placement = deal.kind == DealKind.PLACEMENT
+    reference = reference_rate(deal.currency)
+    # Lending below the market or borrowing above it costs the bank.
+    against = reference - deal.rate_bps if placement else deal.rate_bps - reference
+    utilisation = 0
+    coverage_after = None
+    if placement:
+        exposure = exposure_usd(db, counterparty, today)  # includes this booked deal
+        utilisation = exposure * 10_000 // counterparty.limit_usd if counterparty.limit_usd else 0
+        row = liquidity(db, today, deal.currency)["currencies"][0]
+        liquid = row["liquid"] - deal.principal
+        if deal.maturity_date <= today + timedelta(days=HORIZON_DAYS):
+            liquid += deal.principal + deal.interest
+        coverage_after = _coverage(liquid, row["stressed_outflow"])
+    duplicates = db.execute(
+        select(func.count()).select_from(TreasuryDeal).where(
+            TreasuryDeal.id != deal.id, TreasuryDeal.counterparty_id == deal.counterparty_id,
+            TreasuryDeal.kind == deal.kind, TreasuryDeal.currency == deal.currency,
+            TreasuryDeal.principal == deal.principal, TreasuryDeal.value_date == deal.value_date,
+            TreasuryDeal.status.in_([DealStatus.BOOKED, DealStatus.SETTLED]),
+        )
+    ).scalar_one()  # fmt: skip
+    return {
+        "kind": deal.kind, "currency": deal.currency, "rate_bps": deal.rate_bps,
+        "reference_rate_bps": reference, "rate_against_bank_bps": against,
+        "tenor_days": (deal.maturity_date - deal.value_date).days,
+        "rating": counterparty.rating, "limit_utilisation_bps": utilisation,
+        "coverage_after_bps": coverage_after, "same_day_duplicates": duplicates,
+    }  # fmt: skip
 
 
 def summary(db: Session) -> dict[str, Any]:

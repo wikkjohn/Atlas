@@ -583,3 +583,38 @@ register_scenario(
         ),
     )
 )
+
+
+register_scenario(
+    Scenario(
+        scenario_id="deal-confirmations",
+        version=1,
+        name="Deal confirmations (treasury back office)",
+        description="A working day of interbank deals through WF-1018 v2: dealers book "
+        "placements and borrowings, and back office decides whether to confirm each one. "
+        "Deals on market terms are confirmed; an off-market rate against the bank, a long "
+        "placement with a counterparty at the bottom of investment grade, a dealer's "
+        "double-keyed duplicate and a long placement that uses almost all of a counterparty's "
+        "limit are cancelled. In AI-assisted runs the AGB Back-Office Check Assistant advises "
+        "back office (Phase 40).",
+        workload="deal_confirmations",
+        workflow_id="WF-1018",
+        workflow_version=2,
+        simulated_start=datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "standard_placement": 0.25,
+                "standard_borrowing": 0.20,
+                "off_market_rate": 0.15,
+                "weak_counterparty": 0.13,
+                "duplicate_booking": 0.17,
+                "stretched_counterparty": 0.10,
+            },
+            reviewers={"back_office": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

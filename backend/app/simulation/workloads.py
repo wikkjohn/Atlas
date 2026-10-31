@@ -1054,6 +1054,141 @@ class CardFraudAlerts(Workload):
         return check
 
 
+# --- Mortgage applications (WF-1009 v2, Phase 34) ------------------------------------------
+
+MORTGAGE_SHOULD_REJECT = frozenset({"stretched", "inflated_income", "thin_credit",
+                                    "retirement_term"})  # fmt: skip
+# kind: (loan-to-value, payment / declared income, declared / estimated income)
+MORTGAGE_SHAPES = {
+    "prime": ((0.50, 0.70), (0.12, 0.22), (0.85, 1.05)),
+    "high_ltv_strong": ((0.86, 0.89), (0.15, 0.22), (0.85, 1.05)),
+    "stretched": ((0.86, 0.89), (0.31, 0.34), (0.85, 1.05)),
+    "inflated_income": ((0.60, 0.74), (0.28, 0.30), (1.35, 1.45)),
+    "thin_credit": ((0.81, 0.88), (0.18, 0.24), (0.85, 1.05)),
+    "retirement_term": ((0.50, 0.70), (0.12, 0.22), (0.85, 1.05)),
+}
+
+
+class MortgageApplications(Workload):
+    """Mortgage applications through WF-1009 v2 that pass every lending rule, so an
+    underwriter decides each one, with the AGB Mortgage Underwriting Assistant's advice in
+    AI-assisted runs. Each case is a creditworthy customer buying a house a surveyor has
+    valued at its price.
+
+    Ground truth: prime borrowers and strong borrowers at a high loan-to-value are approved;
+    a stretched borrower (a large payment on a high loan-to-value), income declared well
+    above the bureau's estimate, a thin credit file at a high loan-to-value, and a term
+    running far past retirement are declined."""
+
+    key = "mortgage_applications"
+    workflow_id = "WF-1009"
+    kinds = frozenset(MORTGAGE_SHAPES)
+    reviewer_roles = {"underwriting": "manager"}
+    job_titles = {"teller": "Mortgage Adviser", "manager": "Mortgage Underwriter"}
+    ai_step = "ai_review"
+    automated_path = None  # an underwriter always decides
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.lending import service as lending
+        from app.modules.mortgages import service as mortgages
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = sim.clock.start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        surveyor = sim.population_staff()[1].id
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "mortgage")
+            kind = _pick(rng, mix)
+            country = rng.choice(sim.countries)
+            ages = (56, 64) if kind == "retirement_term" else (25, 45)
+            band = (620, 659) if kind == "thin_credit" else (700, 850)
+            while True:  # a name the synthetic bureau scores in the kind's band
+                name, born = _person(rng, today, *ages)
+                report = lending.bureau_report(name, born)
+                if band[0] <= report["score"] <= band[1] and report["recent_defaults"] == 0:
+                    break
+            account = _customer_account(sim, name=name, born=born, country_code=country)
+            customer = account.customer
+            ltv, share, ratio = (rng.uniform(*r) for r in MORTGAGE_SHAPES[kind])
+            product = mortgages.get_product(db, "home-90" if ltv > 0.75 else "home-75")
+            years = rng.randint(30, 35) if kind == "retirement_term" else rng.randint(20, 30)
+            currency = account.currency
+            declared = int(mortgages.monthly_income_estimate(customer, currency) * ratio)
+            r = product.annual_rate_bps / 10_000 / 12
+            loan = int(declared * share * (1 - (1 + r) ** -(years * 12)) / r)
+            price = int(loan / ltv)
+            prop = mortgages.register_property(db, customer, "house", price, None)
+            mortgages.value_property(db, prop, "surveyor", value=price, actor_id=surveyor,
+                                     today=today - timedelta(days=rng.randint(3, 40)))  # fmt: skip
+            quote = mortgages.quote(
+                db, customer=customer, prop=prop, product=product, account=account,
+                loan_amount=loan, term_years=years, declared_monthly_income=declared,
+                today=today,
+            )  # fmt: skip
+            if not quote["eligible"]:
+                failed = [c["rule"] for c in quote["checks"] if not c["passed"]]
+                raise RuntimeError(f"{kind} case {index} fails the lending rules: {failed}")
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="rejected" if kind in MORTGAGE_SHOULD_REJECT else "approved",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "customer_number": customer.customer_number,
+                        "property_number": prop.property_number,
+                        "account_number": account.account_number,
+                        "product_code": product.product_code,
+                        "loan_amount": loan,
+                        "term_years": years,
+                        "declared_monthly_income": declared,
+                    },
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every underwriting decision against four-eyes and authority, and every offer
+        issued only after an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["underwriting", "issue"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "underwriting":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.LOANS_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "issue" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "offer_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -1063,6 +1198,7 @@ WORKLOADS: dict[str, Workload] = {
         PersonalLoansWithIncomeCheck(),
         RetailOverdrafts(),
         CardFraudAlerts(),
+        MortgageApplications(),
     )
 }
 STAFF_ROLES = {

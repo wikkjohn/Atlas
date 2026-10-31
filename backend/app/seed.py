@@ -747,6 +747,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["accounts:read"],
         "compatible_workflows": ["WF-1008"],
     },
+    {
+        "tool_id": "agb-mortgage-underwriting-assistant",
+        "tool_name": "AGB Mortgage Underwriting Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews mortgage applications that passed the lending rules: stretched "
+        "payments, affordability on the bureau's income estimate, income gaps, loan-to-value "
+        "and credit, with an explanation and an approve, decline or escalate recommendation. "
+        "Advisory: it never issues an offer (Phase 34).",
+        "adapter": "rule_based_mortgage_underwriting",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["loans:read"],
+        "compatible_workflows": ["WF-1009"],
+    },
 ]
 
 

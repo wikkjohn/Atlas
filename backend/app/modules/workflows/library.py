@@ -1149,6 +1149,28 @@ def _request_offer(ctx: StepContext, params: MortgageApplication) -> dict[str, A
             "monthly_payment": offer.monthly_payment, "ltv_bps": offer.ltv_bps}  # fmt: skip
 
 
+class OfferRef(_Strict):
+    offer_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "mortgages.application_profile",
+    "Read what an underwriter reviews: affordability on declared and estimated income, "
+    "credit, the valuation against the model, and age at the end of the term.",
+    OfferRef,
+    "{loan_amount, term_years, ltv_bps, monthly_payment, payment_to_income_bps, "
+    "payment_to_estimate_bps, declared_to_estimate_bps, credit_score, valuation_method, "
+    "model_to_price_bps, age_at_term_end, ...} (Phase 34).",
+    reads=lambda params: [params.offer_id_path],
+    effect="reads",
+)
+def _application_profile(ctx: StepContext, params: OfferRef) -> dict[str, Any]:
+    from app.modules.mortgages import service as mortgages
+
+    offer = mortgages.get_offer(ctx.db, uuid.UUID(str(_required(ctx, params.offer_id_path))))
+    return mortgages.application_profile(ctx.db, offer)
+
+
 class OfferDecision(_Strict):
     offer_id_path: str = Field(min_length=1, max_length=200)
     decided_by_path: str = Field(min_length=1, max_length=200)
@@ -1222,10 +1244,6 @@ def _lookup_offer(ctx: StepContext, params: LookupOffer) -> dict[str, Any]:
     return {"offer_id": str(offer.id), "offer_number": offer.offer_number, "status": offer.status,
             "expired": mortgages.expired(offer, ctx.now.date()), "loan_amount": offer.loan_amount,
             "currency": offer.currency, "monthly_payment": offer.monthly_payment}  # fmt: skip
-
-
-class OfferRef(_Strict):
-    offer_id_path: str = Field(min_length=1, max_length=200)
 
 
 @_library_handler(

@@ -480,3 +480,37 @@ register_scenario(
         ),
     )
 )
+
+
+register_scenario(
+    Scenario(
+        scenario_id="mortgage-applications",
+        version=1,
+        name="Mortgage applications (mortgages)",
+        description="A working day of mortgage applications through WF-1009 v2 that pass every "
+        "lending rule, so an underwriter decides each: prime borrowers, strong borrowers at a "
+        "high loan-to-value, stretched borrowers, income declared well above the bureau's "
+        "estimate, thin credit files and terms running far past retirement. Underwriters "
+        "decide; in AI-assisted runs the AGB Mortgage Underwriting Assistant advises them "
+        "(Phase 34).",
+        workload="mortgage_applications",
+        workflow_id="WF-1009",
+        workflow_version=2,
+        simulated_start=datetime(2026, 6, 2, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "prime": 0.35,
+                "high_ltv_strong": 0.15,
+                "stretched": 0.12,
+                "inflated_income": 0.12,
+                "thin_credit": 0.12,
+                "retirement_term": 0.14,
+            },
+            reviewers={"underwriting": ReviewerModel(mean_minutes=25, accuracy=0.88)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

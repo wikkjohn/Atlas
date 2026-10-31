@@ -212,18 +212,21 @@ def settlement_account(db: Session, currency: str):
     )
 
 
+def home_country(db: Session, card: Card) -> str:
+    return db.execute(
+        select(Country.iso_country_code)
+        .join(Customer, Customer.country_id == Country.id)
+        .where(Customer.id == card.customer_id)
+    ).scalar_one()
+
+
 def fraud_signals(
     db: Session, card: Card, merchant_category: str, merchant_country: str, amount: int,
     now: datetime,
 ) -> tuple[int, list[str]]:  # fmt: skip
     """The fraud rules: points per signal; from BLOCK_SCORE the card is blocked."""
     signals: list[tuple[str, int]] = []
-    home_country = db.execute(
-        select(Country.iso_country_code)
-        .join(Customer, Customer.country_id == Country.id)
-        .where(Customer.id == card.customer_id)
-    ).scalar_one()
-    if merchant_country != home_country:
+    if merchant_country != home_country(db, card):
         signals.append(("foreign_merchant", 30))
     if merchant_category in HIGH_RISK_CATEGORIES:
         signals.append(("high_risk_category", 40))
@@ -233,6 +236,7 @@ def fraud_signals(
         select(func.count()).where(
             CardAuthorization.card_id == card.id,
             CardAuthorization.created_at >= now - VELOCITY_WINDOW,
+            CardAuthorization.created_at <= now,  # bounded: simulations backdate purchases
         )
     ).scalar_one()
     if recent >= VELOCITY_COUNT:
@@ -274,6 +278,7 @@ def authorize(
                 CardAuthorization.card_id == card.id,
                 CardAuthorization.status == AuthorizationStatus.APPROVED,
                 CardAuthorization.created_at >= start,
+                CardAuthorization.created_at <= now,
             )
         ).scalar_one()
         if spent + amount > card.daily_limit:
@@ -442,6 +447,76 @@ def decide_dispute(
         metadata={"dispute_number": dispute.dispute_number, "decision": dispute.status},
     )  # fmt: skip
     return dispute
+
+
+PROFILE_WINDOW = timedelta(days=90)
+
+
+def fraud_profile(db: Session, card: Card) -> dict[str, Any]:
+    """What a fraud analyst looks at when a block is reviewed (Phase 32): the purchase the
+    fraud rules declined most recently and the card's history before it — approved
+    purchases over 90 days, their median, earlier high-risk purchases, when the card was
+    first used in the declined purchase's country, and every attempt in the hour before.
+    `blocked` is None when no purchase was declined for suspected fraud (a manual block)."""
+    home = home_country(db, card)
+    base = {"currency": card.currency, "home_country": home, "daily_limit": card.daily_limit}
+    declined = db.execute(
+        select(CardAuthorization)
+        .where(
+            CardAuthorization.card_id == card.id,
+            CardAuthorization.decline_reason == "fraud_suspected",
+        )
+        .order_by(CardAuthorization.created_at.desc(), CardAuthorization.auth_code.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if declined is None:
+        return {**base, "blocked": None, "purchases_90d": 0, "median_amount": 0,
+                "high_risk_purchases_90d": 0, "country_first_seen_hours": None,
+                "attempts_last_hour": []}  # fmt: skip
+    at = declined.created_at
+    earlier = db.execute(
+        select(CardAuthorization)
+        .where(
+            CardAuthorization.card_id == card.id,
+            CardAuthorization.created_at >= at - PROFILE_WINDOW,
+            CardAuthorization.created_at < at,
+        )
+        .order_by(CardAuthorization.created_at)
+    ).scalars().all()  # fmt: skip
+    approved = [a for a in earlier if a.status == AuthorizationStatus.APPROVED]
+    amounts = sorted(a.amount for a in approved)
+    median = amounts[len(amounts) // 2] if amounts else 0
+    first_seen = next(
+        (a.created_at for a in approved if a.merchant_country == declined.merchant_country),
+        None,
+    )
+    abroad = declined.merchant_country != home
+    return {
+        **base,
+        "blocked": {
+            "auth_code": declined.auth_code,
+            "merchant_name": declined.merchant_name,
+            "merchant_category": declined.merchant_category,
+            "merchant_country": declined.merchant_country,
+            "abroad": abroad,
+            "amount": declined.amount,
+            "fraud_score": declined.fraud_score,
+            "fraud_signals": [s for s in declined.fraud_signals.split(",") if s],
+        },
+        "purchases_90d": len(approved),
+        "median_amount": median,
+        "high_risk_purchases_90d": sum(
+            a.merchant_category in HIGH_RISK_CATEGORIES for a in approved
+        ),
+        # Hours since the card was first used (approved) in that country; None at home or
+        # when never used there before.
+        "country_first_seen_hours": (
+            round((at - first_seen).total_seconds() / 3600, 1)
+            if abroad and first_seen is not None
+            else None
+        ),
+        "attempts_last_hour": [a.amount for a in earlier if a.created_at >= at - VELOCITY_WINDOW],
+    }
 
 
 def summary(db: Session) -> dict[str, Any]:

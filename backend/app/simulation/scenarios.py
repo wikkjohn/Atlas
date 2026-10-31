@@ -445,3 +445,38 @@ MAX_CUSTOM_EMPLOYEES = 500
 # balance rows every ledger account has (`ledger.models.BALANCE_SHARDS`), so shards never
 # contend for a busy account's balance.
 MAX_SHARDS = 8
+
+
+register_scenario(
+    Scenario(
+        scenario_id="card-fraud-alerts",
+        version=1,
+        name="Card fraud alerts (cards)",
+        description="A working day of cards blocked by the fraud rules, reviewed through WF-1008 "
+        "v2. Each card's history is built through the real authorisation service, so the real "
+        "fraud rules decline the last purchase: travellers at a casino (some for a large "
+        "amount), a regular crypto buyer buying in a hurry, stolen cards used abroad, account "
+        "takeovers spending fast in a new country, and card testing at home. Card fraud "
+        "analysts decide; in AI-assisted runs the AGB Card Fraud Alert Assistant advises them "
+        "(Phase 32).",
+        workload="card_fraud_alerts",
+        workflow_id="WF-1008",
+        workflow_version=2,
+        simulated_start=datetime(2026, 5, 12, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "traveller": 0.30,
+                "big_spender_abroad": 0.08,
+                "crypto_investor": 0.15,
+                "stolen_abroad": 0.22,
+                "account_takeover": 0.13,
+                "card_testing": 0.12,
+            },
+            reviewers={"fraud_review": ReviewerModel(mean_minutes=12, accuracy=0.88)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

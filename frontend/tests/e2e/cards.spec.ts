@@ -38,3 +38,15 @@ test("Cards: a teller issues a card and pays; a fraud decline blocks it; a manag
   await expect(manager.getByRole("table", { name: "Cards" }).getByRole("row").filter({ hasText: last4 }).getByText("active")).toBeVisible();
   await managerContext.close();
 });
+
+test("AI Innovation Lab: the card fraud assistant would release a card-testing block (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Card Fraud Alert Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Card Fraud Alert Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

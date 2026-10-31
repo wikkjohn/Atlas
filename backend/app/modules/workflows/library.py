@@ -925,6 +925,23 @@ def _unblock_card(ctx: StepContext, params: UnblockCard) -> dict[str, Any]:
     return {"card_last4": card.card_number[-4:], "status": card.status}
 
 
+@_library_handler(
+    "cards.fraud_profile",
+    "Read what a fraud analyst reviews: the declined purchase and the card's history.",
+    UnblockCard,
+    "{currency, home_country, daily_limit, blocked, purchases_90d, median_amount, "
+    "high_risk_purchases_90d, country_first_seen_hours, attempts_last_hour}; blocked is "
+    "null for a manual block (Phase 32).",
+    reads=lambda params: [params.card_id_path],
+    effect="reads",
+)
+def _fraud_profile(ctx: StepContext, params: UnblockCard) -> dict[str, Any]:
+    from app.modules.cards import service as cards
+
+    card = cards.get_card(ctx.db, uuid.UUID(str(_required(ctx, params.card_id_path))))
+    return cards.fraud_profile(ctx.db, card)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

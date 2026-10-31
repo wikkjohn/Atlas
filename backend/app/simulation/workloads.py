@@ -833,6 +833,227 @@ class RetailOverdrafts(Workload):
         return check
 
 
+# --- Card fraud alerts (WF-1008 v2, Phase 32) ------------------------------------------------
+
+FRAUD_KINDS = frozenset({"stolen_abroad", "account_takeover", "card_testing"})
+# Countries purchases abroad happen in (any but the customer's own).
+TRAVEL_COUNTRIES = ("FR", "ES", "IT", "PT", "GR", "TR", "TH", "MX", "JP", "AE", "US", "GB")
+FRAUD_COUNTRIES = ("KY", "PA", "MT", "CY", "BZ", "SC")
+HOME_MERCHANTS = (("5411", "Corner Grocer"), ("5812", "High Street Cafe"), ("5541", "City Fuel"),
+                  ("5942", "Book Nook"), ("5912", "Pharmacy Plus"))  # fmt: skip
+TRIP_MERCHANTS = (("5812", "Harbour Restaurant"), ("7011", "Seaview Hotel"),
+                  ("4111", "Metro Transit"), ("5411", "Local Market"))  # fmt: skip
+
+
+class CardFraudAlerts(Workload):
+    """Cards blocked by the fraud rules, reviewed through WF-1008 v2: existing customers
+    whose card history the workload builds through the real authorisation service, so the
+    real fraud rules decline the last purchase and block the card. A fraud analyst decides
+    whether to release the block, with the AGB Card Fraud Alert Assistant's advice in
+    AI-assisted runs.
+
+    Ground truth: travellers (a casino on a trip, or a large one) and a regular crypto buyer
+    buying in a hurry are genuine, and the block is released; a stolen card used abroad, an
+    account takeover spending fast in a new country, and card testing (tiny purchases, then
+    a high-risk one, at home) are fraud, and the card stays blocked."""
+
+    key = "card_fraud_alerts"
+    workflow_id = "WF-1008"
+    kinds = frozenset({"traveller", "big_spender_abroad", "crypto_investor"} | FRAUD_KINDS)
+    reviewer_roles = {"fraud_review": "manager"}
+    job_titles = {"teller": "Card Services Officer", "manager": "Card Fraud Analyst"}
+    ai_step = "ai_review"
+    automated_path = None  # a person always decides
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.cards import service as cards
+        from app.modules.ledger.models import Direction
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        currencies = _currencies(db)
+        start = sim.clock.start
+        window = int(sim.config.arrival_window_hours * 3600)
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "card-fraud")
+            kind = _pick(rng, mix)
+            home = rng.choice(sim.countries)
+            currency = currencies[home]
+            name, born = _person(rng, start.date())
+            account = _customer_account(sim, name=name, born=born, country_code=home)
+            account.opened_at = start - timedelta(days=400)
+            cash = ledger.cash_account(db, currency)
+            funds = _usd(8_000, currency)
+            ledger.post_entry(
+                db,
+                idempotency_key=f"sim-{sim.run_id}-{account.id}-salary",
+                currency=currency,
+                description="Salary",
+                source="simulation",
+                lines=[
+                    ledger.LineSpec(cash.id, Direction.DEBIT, funds),
+                    ledger.LineSpec(account.ledger_account_id, Direction.CREDIT, funds),
+                ],
+                actor_id=None,
+                effective_date=(start - timedelta(days=100)).date(),
+            )
+            card = cards.issue_card(
+                db, account, "debit-standard", None, now=start - timedelta(days=365)
+            )
+            # The declined purchase happens before the case arrives; history before that.
+            at = start - timedelta(minutes=rng.randint(5, 90))
+
+            def buy(category: str, merchant: str, country: str, usd: float, when: datetime,
+                    *, _card=card, _ccy=currency) -> Any:  # fmt: skip
+                amount = max(_usd(round(usd, 2), _ccy), 1)
+                return cards.authorize(db, _card, merchant_name=merchant,
+                                       merchant_category=category, merchant_country=country,
+                                       amount=amount, now=when)  # fmt: skip
+
+            usual = []
+            for n in range(rng.randint(10, 14)):
+                category, merchant = rng.choice(HOME_MERCHANTS)
+                usd = rng.uniform(15, 90)
+                usual.append(usd)
+                buy(
+                    category,
+                    merchant,
+                    home,
+                    usd,
+                    at - timedelta(days=6 + n * 6, hours=rng.randint(0, 9)),
+                )
+            median = sorted(usual)[len(usual) // 2]
+            abroad = [c for c in TRAVEL_COUNTRIES if c != home]
+            elsewhere = [c for c in FRAUD_COUNTRIES if c != home]
+            if kind in ("traveller", "big_spender_abroad"):
+                country = rng.choice(abroad)
+                for n in range(rng.randint(3, 5)):
+                    category, merchant = rng.choice(TRIP_MERCHANTS)
+                    hours = 50 + n * rng.randint(8, 20)
+                    buy(
+                        category,
+                        merchant,
+                        country,
+                        rng.uniform(20, 150),
+                        at - timedelta(hours=hours),
+                    )
+                usd = median * (
+                    rng.uniform(1.5, 3.5) if kind == "traveller" else rng.uniform(6.5, 9)
+                )
+                final = buy("7995", "Grand Casino", country, min(usd, 700), at)
+            elif kind == "crypto_investor":
+                for n in range(3):
+                    buy(
+                        "6051",
+                        "Coin Exchange",
+                        home,
+                        rng.uniform(80, 200),
+                        at - timedelta(days=20 + 25 * n),
+                    )
+                for n in range(5):
+                    buy(
+                        "6051",
+                        "Coin Exchange",
+                        home,
+                        rng.uniform(60, 110),
+                        at - timedelta(minutes=50 - 10 * n),
+                    )
+                final = buy("6051", "Coin Exchange", home, rng.uniform(60, 110), at)
+            elif kind == "stolen_abroad":
+                category = rng.choice(("6051", "7995"))
+                final = buy(
+                    category,
+                    "Online Vault",
+                    rng.choice(elsewhere),
+                    median * rng.uniform(2, 4),
+                    at,
+                )
+            elif kind == "account_takeover":
+                country = rng.choice(elsewhere)
+                for n in range(5):
+                    buy(
+                        "5732",
+                        "Gadget Outlet",
+                        country,
+                        rng.uniform(20, 55),
+                        at - timedelta(minutes=50 - 10 * n),
+                    )
+                # At least half the daily limit: a large amount on top of the burst abroad.
+                final = cards.authorize(
+                    db, card, merchant_name="Gadget Outlet", merchant_category="5732",
+                    merchant_country=country, now=at,
+                    amount=int(card.daily_limit * rng.uniform(0.55, 0.65)),
+                )  # fmt: skip
+            else:  # card_testing: tiny test purchases, then a high-risk one at home
+                for n in range(5):
+                    buy(
+                        "5815",
+                        "Digital Store",
+                        home,
+                        rng.uniform(0.5, 2.0),
+                        at - timedelta(minutes=30 - 5 * n),
+                    )
+                final = buy("6051", "Coin Exchange", home, median * rng.uniform(1.5, 3), at)
+            if final.decline_reason != "fraud_suspected":
+                raise RuntimeError(
+                    f"{kind} case {index}: expected a fraud block, got {final.status} "
+                    f"({final.decline_reason}, score {final.fraud_score})"
+                )
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="rejected" if kind in FRAUD_KINDS else "approved",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "customer_number": account.customer.customer_number,
+                        "card_number": card.card_number,
+                    },
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every fraud review against four-eyes and authority, and every release only after
+        an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["fraud_review", "release"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "fraud_review":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.CARDS_MANAGE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "release" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "release_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -841,6 +1062,7 @@ WORKLOADS: dict[str, Workload] = {
         PersonalLoans(),
         PersonalLoansWithIncomeCheck(),
         RetailOverdrafts(),
+        CardFraudAlerts(),
     )
 }
 STAFF_ROLES = {

@@ -110,6 +110,25 @@ new fixture kinds:
 
 Both belong to a fixture customer chosen so that the synthetic bureau scores them well.
 
+## Simulation workload and AI tool (Phase 34)
+
+The `mortgage_applications` workload drives WF-1009 v2 (scenario `mortgage-applications`).
+- **Cases:** each case is a creditworthy customer buying a house a surveyor valued at its
+  price. The application passes every lending rule, so an underwriter decides each one; a
+  case that would fail a rule stops the run.
+- **Ground truth:** approved: prime borrowers, and strong borrowers at 86–89 %
+  loan-to-value. Declined: stretched borrowers (a payment of 31–34 % of income at 86–89 %
+  loan-to-value), income declared 35–45 % above the bureau's estimate, thin credit files
+  (score 620–659) at a high loan-to-value, and terms that end when the applicant is 86 or
+  older.
+- **Decisions:** underwriters decide (`loans:approve`). In AI-assisted runs the AGB
+  Mortgage Underwriting Assistant advises them, from the profile that
+  `mortgages.application_profile` reads.
+- **Control check:** four-eyes and authority on each decision, and no offer issued
+  without an approval.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Mortgages*). Reading needs `loans:read`.
@@ -126,4 +145,5 @@ See [api.md](api.md) (*Mortgages*). Reading needs `loans:read`.
   surveyor in WF-1011 can only confirm the price.
 - Completion pays the loan into the customer's account; there is no conveyancing.
 - No fees.
-- There is no mortgages workload or AI tool yet (the next step, Phase 34).
+- The simulation covers applications (`mortgage-applications`); completions and valuations
+  are not simulated as workloads.

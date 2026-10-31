@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 33.
+Last updated: Phase 34.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -38,6 +38,45 @@ Last updated: Phase 33.
 | 31 | Departments, step 3: cards ([cards.md](cards.md)) | **Complete** |
 | 32 | Departments, step 4: the cards workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 33 | Departments, step 5: mortgages and secured lending ([mortgages.md](mortgages.md)) | **Complete** |
+| 34 | Departments, step 6: the mortgages workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 34: what exists
+
+- **`mortgages.application_profile`:** what an underwriter reviews about a recorded
+  application. It covers loan-to-value, the payment against declared income and against
+  the bureau's estimate, how far declared income exceeds the estimate, the credit score,
+  the valuation against the automated model, and age at the end of the term. It is also a
+  library handler.
+- **AGB Mortgage Underwriting Assistant** (`rule_based_mortgage_underwriting`,
+  `recommend_decision` only, compatible with WF-1009), with a deliberate blind spot for
+  age. The seed registers it, and the AI Lab console has a sample.
+- **WF-1009 v2:** application profile and AI review before the underwriter.
+- **Workload `mortgage_applications` and scenario `mortgage-applications` v1:** creditworthy
+  applicants whose applications pass every lending rule (checked per case), in six kinds
+  with ground truth. A control check covers four-eyes, `loans:approve`, and no offer
+  issued without approval.
+- **Measured** (300 applications): AI assisted 94.7 % accurate against 89.7 %, review
+  hours 81 against 127. Terms past retirement approved rose to 7 from 2, the one kind it
+  made worse.
+
+## Phase 34: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 583 passed (new: 3 — the assistant's rules and its age blind spot; the application profile, including age at the end of the term; baseline and AI-assisted mortgage runs with every case decided by an underwriter, no control violations, every kind's advice as designed, offers issued only after approval) |
+| Generated workflow tests | 21 workflows, 441 cases, 0 failed (WF-1009 v2: 23 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 104 passed / clean / built |
+| Playwright on a fresh database | 37 passed on the first run (new: the mortgage underwriting assistant in the AI Lab console, approving a term that ends at 94) |
+| Measurement | `mortgage-applications`, seed 2030, 300 applications each: baseline 89.7 % accurate (17 wrong approvals, 14 wrong declines, 127.0 review hours); AI assisted 94.7 % (15, 1, 81.5); terms past retirement approved 2 against 7 |
+
+Nothing failed while building this phase: every check above passed on its first run.
+
+## Phase 34: known limitations
+
+- The mortgages workload covers applications only; completions and valuations are not
+  simulated.
+- WF-1009 v2 has no automated decision: AI assisted is the only AI mode.
+- The assistant's advice and the underwriters' response to it rest on stated assumptions.
 
 ## Phase 33: what exists
 

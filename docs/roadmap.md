@@ -129,7 +129,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
 - [x] Mortgages and secured lending: valuation, collateral, offers
       (Phase 33: properties with desktop and surveyor valuations, a decision in principle
       over every lending rule, four-eyes offers valid 90 days, completion into a loan
-      charged on the property; WF-1009–1011; see `mortgages.md`)
+      charged on the property; WF-1009–1011; see `mortgages.md`. Phase 34: the
+      `mortgage-applications` workload and the mortgage underwriting assistant)
 - [ ] SME and commercial lending: facilities, covenants, annual reviews
 - [ ] Trade finance: letters of credit, guarantees
 - [ ] Treasury and markets: FX desk, liquidity, interbank placements
@@ -222,4 +223,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 31 (D3) | Cards: issuing, a merchant terminal with fraud rules and blocks, disputes and chargebacks; WF-1006–1008 | complete |
 | Phase 32 (D4) | Cards, step 2: the `card-fraud-alerts` workload on stored WF-1008 v2, built through the real authorisation service, and the AGB Card Fraud Alert Assistant | complete |
 | Phase 33 (D5) | Mortgages and secured lending: properties and valuations, a decision in principle, four-eyes offers, completion into a loan charged on the property; WF-1009–1011 | complete |
-| Phase 34 (D6, proposed) | Mortgages, step 2: a mortgage applications workload and an AI underwriting tool candidate | next |
+| Phase 34 (D6) | Mortgages, step 2: the `mortgage-applications` workload on stored WF-1009 v2 and the AGB Mortgage Underwriting Assistant | complete |
+| Phase 35 (D7, proposed) | SME and commercial lending: facilities, covenants, annual reviews | next |

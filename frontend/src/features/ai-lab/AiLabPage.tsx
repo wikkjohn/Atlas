@@ -133,11 +133,33 @@ const SAMPLE_CARD_FRAUD = {
     attempts_last_hour: [110, 95, 180, 60, 150],
   },
 };
+/** Prime figures, but the term ends when the applicant is 94: the underwriting assistant's blind spot (Phase 34). */
+const SAMPLE_MORTGAGE = {
+  profile: {
+    currency: "GBP",
+    product_code: "home-75",
+    loan_amount: 18000000,
+    term_years: 35,
+    ltv_bps: 6000,
+    monthly_payment: 87000,
+    declared_monthly_income: 520000,
+    income_estimate: 540000,
+    payment_to_income_bps: 1673,
+    payment_to_estimate_bps: 1611,
+    declared_to_estimate_bps: 9629,
+    credit_score: 781,
+    recent_defaults: 0,
+    valuation_method: "surveyor",
+    model_to_price_bps: 10200,
+    age_at_term_end: 94,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
   rule_based_overdraft_affordability: SAMPLE_OVERDRAFT,
   rule_based_card_fraud_review: SAMPLE_CARD_FRAUD,
+  rule_based_mortgage_underwriting: SAMPLE_MORTGAGE,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

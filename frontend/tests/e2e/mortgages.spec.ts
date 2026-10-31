@@ -38,3 +38,15 @@ test("Mortgages: a teller applies, an underwriter approves, the customer accepts
   await expect(managerRow).toContainText(/LN-\d+/);
   await managerContext.close();
 });
+
+test("AI Innovation Lab: the mortgage underwriting assistant approves a term ending at 94 (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Mortgage Underwriting Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Mortgage Underwriting Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

@@ -293,6 +293,28 @@ limits and exposures are whole US dollars.
 | POST | `/api/v1/treasury/fx-trades/{id}/confirm` · `/cancel` | `treasury:confirm` · `treasury:deal` | Confirmation settles both legs; not by the dealer |
 | GET | `/api/v1/treasury/summary/counts` | `payments:read` | Deals to confirm, placements, borrowings, FX trades to confirm |
 
+### Payments operations (Phase 41)
+
+See [payments-operations.md](payments-operations.md). Amounts are minor units of the payer's
+account currency.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/payment-ops/banks` | `payments:read` | The six synthetic banks clearing reaches |
+| GET | `/api/v1/payment-ops/payments` | `payments:read` | Filter `status`; newest first |
+| POST | `/api/v1/payment-ops/payments` | `accounts:transact` | `{account_number, beneficiary_name, beneficiary_bank, beneficiary_account, amount, reference?}`; 201 `pending`, or `awaiting_approval` when high value; 422 with rule `beneficiary_or_amount` |
+| POST | `/api/v1/payment-ops/payments/{id}/approve` · `/reject` | `payments:approve` | Not by the person who entered it; reject takes `{note}` |
+| GET | `/api/v1/payment-ops/batches` | `payments:read` | Clearing batches |
+| POST | `/api/v1/payment-ops/cycles` | `payments:operate` | `{currency}`: submit and settle; `{batch: null}` when nothing is pending |
+| GET | `/api/v1/payment-ops/bulk` | `payments:read` | Bulk files with their validated lines |
+| POST | `/api/v1/payment-ops/bulk` | `accounts:transact` | `{account_number, file_name?, lines: [{name, bank, account, amount, reference?}]}` (1–500); 201 `received` |
+| POST | `/api/v1/payment-ops/bulk/{id}/release` · `/reject` | `payments:approve` | Not by the receiver; release creates the payments |
+| GET | `/api/v1/payment-ops/recalls` | `payments:read` | |
+| POST | `/api/v1/payment-ops/recalls` | `accounts:transact` | `{payment_number, reason_code}` (DUPL, FRAD, TECH, CUST); 201 `requested` |
+| POST | `/api/v1/payment-ops/recalls/{id}/approve` · `/withdraw` | `payments:approve` | Approve: cancels before clearing (`accepted`) or sends (`sent`); not by the requester |
+| POST | `/api/v1/payment-ops/recalls/{id}/resolve` | `payments:operate` | The beneficiary bank's answer: `accepted` (money back) or `refused` |
+| GET | `/api/v1/payment-ops/summary/counts` | `payments:read` | Awaiting approval, pending, returned, files to release, open recalls |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

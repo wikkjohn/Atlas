@@ -631,6 +631,31 @@ def _create_standing_order(ctx: StepContext, params: CreateStandingOrder) -> dic
     }
 
 
+class AccountProfile(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "retail.account_profile",
+    "Read an account's recent history from the ledger: money in, overdrawn days, limits.",
+    AccountProfile,
+    "{currency, balance, overdraft_limit, max_overdraft, monthly_credits, "
+    "months_with_credits, days_overdrawn} over the 90 days before the step (Phase 30).",
+    reads=lambda params: [params.account_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
+)
+def _account_profile(ctx: StepContext, params: AccountProfile) -> dict[str, Any]:
+    from app.modules.accounts.service import find_account
+    from app.modules.retail import service as retail
+
+    number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {number}.")
+    return retail.account_profile(ctx.db, account, ctx.now.date())
+
+
 class IssueStatement(_Strict):
     account_number_path: str = Field(min_length=1, max_length=200)
     # "YYYY-MM"; without it, or with no value there, the last complete month.
@@ -734,6 +759,9 @@ def _ai_review(ctx: StepContext, params: AiReview) -> dict[str, Any]:
         return {"available": False, "recommendation": "escalate",
                 "error": {"code": code, "message": message}, **extra}  # fmt: skip
 
+    if (ctx.get("_settings") or {}).get("ai_mode") == "off":
+        # An experiment's baseline (Phase 30): the case runs without the tool.
+        return {"available": False, "skipped": True, "recommendation": "escalate"}
     try:
         tool = find_tool(ctx.db, params.tool_id)
     except NotFoundError as exc:

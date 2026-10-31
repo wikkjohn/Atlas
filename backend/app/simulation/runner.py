@@ -47,7 +47,7 @@ from app.modules.ledger.models import BALANCE_SHARDS
 from app.modules.organizations.models import Organization, OrganizationStatus, OrganizationType
 from app.modules.organizations.schemas import OrganizationCreate
 from app.modules.organizations.service import create_organization
-from app.modules.workflows import engine, registry
+from app.modules.workflows import engine, registry, store
 from app.modules.workflows.definition import StepType, resolve
 from app.modules.workflows.models import (
     ACTIVE_STATUSES,
@@ -111,7 +111,8 @@ def resolve_config(
     """The complete configuration of a run; stored with it and hashed to compare runs.
     `countries` limits the dataset to some active countries (Phase 28); staff are then hired
     in the first of them."""
-    definition = registry.get_definition(scenario.workflow_id, scenario.workflow_version)
+    # Code workflows, or stored ones such as WF-1003 v2 (Phase 30).
+    definition = store.resolve(db, scenario.workflow_id, scenario.workflow_version)
     if definition is None:
         raise SimulationSetupError(
             f"Workflow {scenario.workflow_id} v{scenario.workflow_version} is not registered."
@@ -130,6 +131,11 @@ def resolve_config(
         )
     if mode != "baseline" and tool is None:
         raise SimulationSetupError(f"The {mode} mode needs an AI tool.")
+    if mode == "ai_automated" and workload.automated_path is None:
+        raise SimulationSetupError(
+            f"Scenario {scenario.scenario_id} has no automated decision path; use baseline "
+            "or AI assisted."
+        )
     active = sorted(
         db.execute(
             select(Country.iso_country_code).where(
@@ -1016,7 +1022,7 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
             raise SimulationSetupError(
                 f"Scenario {run.scenario_id} v{run.scenario_version} is not registered."
             )
-        if registry.get_definition(scenario.workflow_id, run.workflow_version) is None:
+        if store.resolve(db, scenario.workflow_id, run.workflow_version) is None:
             raise SimulationSetupError(
                 f"{scenario.workflow_id} v{run.workflow_version} is no longer registered."
             )

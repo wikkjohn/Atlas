@@ -598,9 +598,30 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
         report.skipped_payments_and_loans = True
     else:
         _build_payment_and_loan_cases(db, SyntheticNameGenerator(seed + 3), report)
+    # Tools may name stored workflows as compatible (WF-1003), and stored workflows may call
+    # tools (WF-1003 v2): the examples without AI steps first, then the tools, then the rest.
+    _import_examples(db, report, with_ai_steps=False)
     _register_ai_tools(db, report)
     _import_example_definitions(db, report)
     return report
+
+
+def _uses_ai(document: dict) -> bool:
+    return any(step.get("handler") == "ai.review" for step in document.get("steps", []))
+
+
+def _import_examples(db: Session, report: SeedReport, *, with_ai_steps: bool) -> None:
+    from app.modules.workflows import authoring, examples
+
+    admin = db.execute(select(User.id).where(User.username == "admin")).scalar_one_or_none()
+    if admin is None:
+        return
+    for document in examples.documents():
+        if _uses_ai(document) != with_ai_steps:
+            continue
+        record, created, _ = authoring.import_definition(db, document, admin)
+        if created:
+            report.stored_definitions.append(f"{record.workflow_id} v{record.version}")
 
 
 def _import_example_definitions(db: Session, report: SeedReport) -> None:
@@ -610,10 +631,7 @@ def _import_example_definitions(db: Session, report: SeedReport) -> None:
     admin = db.execute(select(User.id).where(User.username == "admin")).scalar_one_or_none()
     if admin is None:
         return
-    for document in examples.documents():
-        record, created, _ = authoring.import_definition(db, document, admin)
-        if created:
-            report.stored_definitions.append(f"{record.workflow_id} v{record.version}")
+    _import_examples(db, report, with_ai_steps=True)
     from app.modules.workflows import templates
     from app.modules.workflows.definition import Catalogue
     from app.modules.workflows.models import WorkflowCatalogueEntry
@@ -700,6 +718,20 @@ DEMO_AI_TOOLS = [
         ],
         "permissions": ["loans:read"],
         "compatible_workflows": ["WF-0003"],
+    },
+    {
+        "tool_id": "agb-overdraft-affordability-assistant",
+        "tool_name": "AGB Overdraft Affordability Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews arranged-overdraft requests against the account's recent "
+        "history: the limit against a month's money in, how regular that income is and "
+        "how often the account is overdrawn, with an explanation and an approve, reject or "
+        "escalate recommendation. Advisory: it never sets a limit (Phase 30).",
+        "adapter": "rule_based_overdraft_affordability",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["accounts:read"],
+        "compatible_workflows": ["WF-1003"],
     },
 ]
 

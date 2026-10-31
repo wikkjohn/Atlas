@@ -1,0 +1,222 @@
+{
+  "workflow_id": "WF-1007",
+  "name": "Card Dispute and Chargeback",
+  "version": 1,
+  "description": "A customer disputes a card purchase. The purchase must be on their card, approved and recent; a dispute is opened and someone other than the person who took it decides. Upheld, the amount is charged back to the account through card settlement; otherwise the dispute is closed. Stored definition: built only from library handlers (Phase 31).",
+  "business_owner": "Cards",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "auth_code",
+      "reason"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "auth_code": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 20
+      },
+      "reason": {
+        "type": "string",
+        "enum": [
+          "not_recognised",
+          "not_received",
+          "duplicate",
+          "wrong_amount"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.auth_code",
+        "prefix": "DSP-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "find_purchase"
+    },
+    {
+      "id": "find_purchase",
+      "type": "service_task",
+      "name": "Find the purchase",
+      "handler": "cards.lookup_authorization",
+      "params": {
+        "auth_code_path": "input.auth_code",
+        "customer_id_path": "find_customer.customer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "open_dispute"
+    },
+    {
+      "id": "open_dispute",
+      "type": "service_task",
+      "name": "Open the dispute",
+      "handler": "cards.open_dispute",
+      "params": {
+        "authorization_id_path": "find_purchase.authorization_id",
+        "reason_path": "input.reason"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "dispute_review"
+    },
+    {
+      "id": "dispute_review",
+      "type": "approval",
+      "name": "Decide the dispute",
+      "description": "A card disputes officer other than the person who took it decides (four-eyes).",
+      "approval": {
+        "permissions": [
+          "cards:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 432000,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "chargeback",
+          "when": {
+            "path": "dispute_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "close_dispute"
+    },
+    {
+      "id": "chargeback",
+      "type": "service_task",
+      "name": "Charge back the purchase",
+      "handler": "cards.chargeback",
+      "params": {
+        "dispute_id_path": "open_dispute.dispute_id",
+        "decided_by_path": "dispute_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_refunded"
+    },
+    {
+      "id": "close_dispute",
+      "type": "service_task",
+      "name": "Close the dispute",
+      "handler": "cards.reject_dispute",
+      "params": {
+        "dispute_id_path": "open_dispute.dispute_id",
+        "decided_by_path": "dispute_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_rejected"
+    },
+    {
+      "id": "notify_refunded",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your card dispute {open_dispute.dispute_number}",
+        "body": "Dear {find_customer.name}, we have refunded {chargeback.amount} (minor units of {find_purchase.currency}) for the purchase at {find_purchase.merchant_name}."
+      },
+      "next": "refunded"
+    },
+    {
+      "id": "notify_rejected",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your card dispute {open_dispute.dispute_number}",
+        "body": "Dear {find_customer.name}, after review we cannot refund the purchase at {find_purchase.merchant_name}."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Explain why it could not be done",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "refunded",
+      "type": "completion",
+      "name": "Charged back",
+      "outcome": "refunded"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Dispute rejected",
+      "outcome": "declined"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "refused"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

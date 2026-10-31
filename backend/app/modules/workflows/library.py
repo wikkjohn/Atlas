@@ -46,7 +46,8 @@ class LibraryHandler:
     check: Callable[[Any, Any], list[str]] | None = None
     # Context paths that must name real records, and which (Phase 20's generated tests
     # create them): {path: "customer.customer_number" | "customer.name" | "customer.id" |
-    # "account.account_number" | "payee.account_number" (a second customer's account)}.
+    # "account.account_number" | "payee.account_number" (a second customer's account) |
+    # "blocked_card.card_number" | "authorization.auth_code" (Phase 31)}.
     fixtures: Callable[[Any], dict[str, str]] | None = None
 
     def params_schema(self) -> dict[str, Any]:
@@ -707,6 +708,221 @@ def _issue_statement(ctx: StepContext, params: IssueStatement) -> dict[str, Any]
         "currency": statement.currency,
         "created": created,
     }
+
+
+# --- Cards (Phase 31) -----------------------------------------------------------------------------
+
+
+def _card_error(exc: Any, code: str) -> StepError:
+    return StepError(code, getattr(exc, "message", str(exc)))
+
+
+class IssueCard(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+    product_code: str = Field(default="debit-standard", max_length=40)
+
+
+@_library_handler(
+    "cards.issue",
+    "Issue a debit card on a current account.",
+    IssueCard,
+    "{card_id, card_last4, product_code, expires_on}; a closed or non-current account, or a "
+    "third live card, fails the step.",
+    reads=lambda params: [params.account_number_path],
+    effect="writes",
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
+)
+def _issue_card(ctx: StepContext, params: IssueCard) -> dict[str, Any]:
+    from app.core.errors import DomainError
+    from app.modules.accounts.service import find_account
+    from app.modules.cards import service as cards
+
+    number = str(_required(ctx, params.account_number_path))
+    account = find_account(ctx.db, number)
+    if account is None:
+        raise StepError("account_not_found", f"No account {number}.")
+    try:
+        card = cards.issue_card(ctx.db, account, params.product_code, ctx.initiator_id, now=ctx.now)
+    except DomainError as exc:
+        raise _card_error(exc, "card_refused") from exc
+    return {
+        "card_id": str(card.id),
+        "card_last4": card.card_number[-4:],
+        "product_code": card.product_code,
+        "expires_on": card.expires_on.date().isoformat(),
+    }
+
+
+class LookupCard(_Strict):
+    card_number_path: str = Field(min_length=1, max_length=200)
+    customer_id_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "cards.lookup",
+    "Find a card and, if asked, check whose it is.",
+    LookupCard,
+    "{card_id, card_last4, status, blocked_reason, account_id}; an unknown card or another "
+    "customer's fails the step.",
+    reads=lambda params: (
+        [params.card_number_path] + ([params.customer_id_path] if params.customer_id_path else [])
+    ),
+    effect="reads",
+    fixtures=lambda params: {params.card_number_path: "blocked_card.card_number"},
+)
+def _lookup_card(ctx: StepContext, params: LookupCard) -> dict[str, Any]:
+    from app.modules.cards import service as cards
+
+    number = str(_required(ctx, params.card_number_path))
+    card = cards.find_card(ctx.db, number)
+    if card is None:
+        raise StepError("card_not_found", "No such card.")
+    if params.customer_id_path and str(card.customer_id) != str(
+        _required(ctx, params.customer_id_path)
+    ):
+        raise StepError("card_not_owned", "The card belongs to another customer.")
+    return {"card_id": str(card.id), "card_last4": card.card_number[-4:], "status": card.status,
+            "blocked_reason": card.blocked_reason, "account_id": str(card.account_id)}  # fmt: skip
+
+
+class LookupAuthorization(_Strict):
+    auth_code_path: str = Field(min_length=1, max_length=200)
+    customer_id_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "cards.lookup_authorization",
+    "Find a card purchase and, if asked, check it was on the customer's card.",
+    LookupAuthorization,
+    "{authorization_id, auth_code, status, amount, currency, merchant_name}; an unknown "
+    "code or another customer's purchase fails the step.",
+    reads=lambda params: (
+        [params.auth_code_path] + ([params.customer_id_path] if params.customer_id_path else [])
+    ),
+    effect="reads",
+    fixtures=lambda params: {params.auth_code_path: "authorization.auth_code"},
+)
+def _lookup_authorization(ctx: StepContext, params: LookupAuthorization) -> dict[str, Any]:
+    from app.modules.cards import service as cards
+
+    code = str(_required(ctx, params.auth_code_path))
+    auth = cards.find_authorization(ctx.db, code)
+    if auth is None:
+        raise StepError("authorization_not_found", f"No purchase {code}.")
+    card = cards.get_card(ctx.db, auth.card_id)
+    if params.customer_id_path and str(card.customer_id) != str(
+        _required(ctx, params.customer_id_path)
+    ):
+        raise StepError("authorization_not_owned", "The purchase was on another customer's card.")
+    return {"authorization_id": str(auth.id), "auth_code": auth.auth_code, "status": auth.status,
+            "amount": auth.amount, "currency": auth.currency,
+            "merchant_name": auth.merchant_name}  # fmt: skip
+
+
+class OpenDispute(_Strict):
+    authorization_id_path: str = Field(min_length=1, max_length=200)
+    reason_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "cards.open_dispute",
+    "Open a dispute on an approved card purchase.",
+    OpenDispute,
+    "{dispute_id, dispute_number, amount}; a declined, old or already disputed purchase "
+    "fails the step.",
+    reads=lambda params: [params.authorization_id_path, params.reason_path],
+    effect="writes",
+)
+def _open_dispute(ctx: StepContext, params: OpenDispute) -> dict[str, Any]:
+    from app.core.errors import DomainError
+    from app.modules.cards import service as cards
+    from app.modules.cards.models import CardAuthorization
+
+    auth = ctx.db.get(
+        CardAuthorization, uuid.UUID(str(_required(ctx, params.authorization_id_path)))
+    )
+    reason = str(_required(ctx, params.reason_path))
+    try:
+        dispute = cards.open_dispute(ctx.db, auth, reason, None, ctx.initiator_id, now=ctx.now)
+    except DomainError as exc:
+        raise _card_error(exc, "dispute_refused") from exc
+    return {"dispute_id": str(dispute.id), "dispute_number": dispute.dispute_number,
+            "amount": dispute.amount}  # fmt: skip
+
+
+class DecideDispute(_Strict):
+    dispute_id_path: str = Field(min_length=1, max_length=200)
+    # Who decided: the approval step's actor (the dispute's opener may not decide).
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "cards.chargeback",
+    "Charge a disputed purchase back: refund the amount to the card's account.",
+    DecideDispute,
+    "{dispute_number, status, amount}; posted from card settlement to the account.",
+    reads=lambda params: [params.dispute_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _chargeback(ctx: StepContext, params: DecideDispute) -> dict[str, Any]:
+    return _decide(ctx, params, refund=True)
+
+
+@_library_handler(
+    "cards.reject_dispute",
+    "Close a dispute without a refund.",
+    DecideDispute,
+    "{dispute_number, status, amount}",
+    reads=lambda params: [params.dispute_id_path, params.decided_by_path],
+    effect="writes",
+)
+def _reject_dispute(ctx: StepContext, params: DecideDispute) -> dict[str, Any]:
+    return _decide(ctx, params, refund=False)
+
+
+def _decide(ctx: StepContext, params: DecideDispute, *, refund: bool) -> dict[str, Any]:
+    from app.core.errors import DomainError
+    from app.modules.cards import service as cards
+
+    dispute = cards.get_dispute(ctx.db, uuid.UUID(str(_required(ctx, params.dispute_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    try:
+        dispute = cards.decide_dispute(
+            ctx.db, dispute, refund, decider, now=ctx.now,
+            idempotency_key=f"workflow:{ctx.run.id}" if refund else None,
+        )  # fmt: skip
+    except DomainError as exc:
+        raise _card_error(exc, "dispute_not_decided") from exc
+    return {"dispute_number": dispute.dispute_number, "status": dispute.status,
+            "amount": dispute.amount}  # fmt: skip
+
+
+class UnblockCard(_Strict):
+    card_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "cards.unblock",
+    "Release a card's block.",
+    UnblockCard,
+    "{card_last4, status}; a card that is not blocked fails the step.",
+    reads=lambda params: [params.card_id_path],
+    effect="writes",
+    requires_approval=True,  # a fraud block is released only after a review
+)
+def _unblock_card(ctx: StepContext, params: UnblockCard) -> dict[str, Any]:
+    from app.core.errors import DomainError
+    from app.modules.cards import service as cards
+
+    card = cards.get_card(
+        ctx.db, uuid.UUID(str(_required(ctx, params.card_id_path))), for_update=True
+    )
+    try:
+        card = cards.unblock_card(ctx.db, card, ctx.initiator_id)
+    except DomainError as exc:
+        raise _card_error(exc, "card_not_unblocked") from exc
+    return {"card_last4": card.card_number[-4:], "status": card.status}
 
 
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",

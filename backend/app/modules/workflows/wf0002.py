@@ -334,12 +334,14 @@ def funds_check(ctx: StepContext) -> dict:
     # An early check only: the payments service checks again, under a lock, on release.
     debtor = find_account(ctx.db, ctx.input["debtor_account_number"])
     assert debtor is not None
-    available = ledger.balance(ctx.db, ledger.get_ledger_account(ctx.db, debtor.ledger_account_id))
+    balance = ledger.balance(ctx.db, ledger.get_ledger_account(ctx.db, debtor.ledger_account_id))
+    # An arranged overdraft counts as available (Phase 29); the share is of the balance.
+    available = balance + debtor.overdraft_limit
     amount = ctx.input["amount"]
     return {
         "sufficient": amount <= available,
         "available": available,
-        "share_of_balance": round(amount / available, 4) if available > 0 else None,
+        "share_of_balance": round(amount / balance, 4) if balance > 0 else None,
     }
 
 

@@ -54,6 +54,8 @@ class AccountOut(BaseModel):
     ledger_account_id: uuid.UUID
     ledger_account_code: str
     balance: int = Field(description="Minor units, derived from posted ledger entries")
+    overdraft_limit: int = Field(default=0, description="Arranged overdraft, minor units")
+    available: int = Field(default=0, description="Balance plus arranged overdraft")
     opened_at: datetime
     closed_at: datetime | None
 

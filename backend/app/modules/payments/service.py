@@ -26,6 +26,7 @@ from app.core.errors import (
 from app.core.money import to_minor_units
 from app.core.pagination import PageParams, paginate
 from app.core.permissions import Permission
+from app.modules.accounts import service as accounts_service
 from app.modules.accounts.models import Account, AccountStatus
 from app.modules.countries.models import Country
 from app.modules.customers.models import Customer
@@ -209,7 +210,7 @@ def release(
             raise BusinessRuleViolation(
                 f"The {role} account is not in {expected}.", {"rule": "currency"}
             )
-    available = ledger.balance(db, ledger.get_ledger_account(db, debtor.ledger_account_id))
+    available = accounts_service.available(db, debtor)  # balance plus arranged overdraft
     if payment.amount > available:
         raise BusinessRuleViolation(
             "Insufficient funds.",

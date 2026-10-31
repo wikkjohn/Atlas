@@ -41,6 +41,8 @@ export const account: Account = {
   ledger_account_id: "la-1",
   ledger_account_code: "2100-US000000004257",
   balance: 1_234_56,
+  overdraft_limit: 0,
+  available: 1_234_56,
   opened_at: "2026-10-27T10:00:00Z",
   closed_at: null,
 };

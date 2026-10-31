@@ -1,0 +1,242 @@
+{
+  "workflow_id": "WF-1004",
+  "name": "Standing Order Setup",
+  "version": 1,
+  "description": "A customer sets up a monthly standing order to another account in the same currency. The payee is screened against the sanctions lists first; a match is held for compliance. Payments then run on their dates through the payments service (Phase 29). Stored definition: built only from library handlers.",
+  "business_owner": "Retail Banking",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "account_number",
+      "payee_account_number",
+      "payee_name",
+      "amount",
+      "reference"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "payee_account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "payee_name": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 100,
+        "examples": [
+          "Avery Landlord"
+        ]
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000,
+        "examples": [
+          75000
+        ],
+        "description": "Minor units of the payer's currency"
+      },
+      "reference": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "examples": [
+          "Rent"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.account_number",
+        "prefix": "SOR-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "find_account"
+    },
+    {
+      "id": "find_account",
+      "type": "service_task",
+      "name": "Check the account is the customer's",
+      "handler": "accounts.lookup",
+      "params": {
+        "account_number_path": "input.account_number",
+        "customer_id_path": "find_customer.customer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "screen_payee"
+    },
+    {
+      "id": "screen_payee",
+      "type": "service_task",
+      "name": "Screen the payee",
+      "handler": "compliance.screen_name",
+      "params": {
+        "name_path": "input.payee_name"
+      },
+      "next": "route_screening"
+    },
+    {
+      "id": "route_screening",
+      "type": "decision",
+      "name": "Payee on a list?",
+      "transitions": [
+        {
+          "to": "compliance_review",
+          "when": {
+            "path": "screen_payee.hit",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "create_order"
+    },
+    {
+      "id": "compliance_review",
+      "type": "approval",
+      "name": "Compliance review of the payee",
+      "approval": {
+        "permissions": [
+          "customers:review"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "create_order",
+          "when": {
+            "path": "compliance_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_declined"
+    },
+    {
+      "id": "create_order",
+      "type": "service_task",
+      "name": "Set up the standing order",
+      "handler": "retail.create_standing_order",
+      "params": {
+        "debtor_account_path": "input.account_number",
+        "creditor_account_path": "input.payee_account_number",
+        "amount_path": "input.amount",
+        "frequency": "monthly",
+        "start_in_days": 1,
+        "reference_path": "input.reference"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_created"
+    },
+    {
+      "id": "notify_created",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your standing order",
+        "body": "Dear {find_customer.name}, standing order {create_order.order_number} pays {input.payee_name} every month from {create_order.next_date}."
+      },
+      "next": "created"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer it was declined",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your standing order",
+        "body": "Dear {find_customer.name}, we cannot set up a standing order to {input.payee_name}."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Explain why it could not be done",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "created",
+      "type": "completion",
+      "name": "Standing order set up",
+      "outcome": "created"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "declined"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "refused"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

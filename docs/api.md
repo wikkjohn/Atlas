@@ -124,11 +124,11 @@ There is no endpoint that creates an account directly.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/accounts` | `accounts:read` | Filters: `q`, `customer_id`, `status`, `currency`. `balance` is derived from the ledger. |
+| GET | `/api/v1/accounts` | `accounts:read` | Filters: `q`, `customer_id`, `status`, `currency`. `balance` is derived from the ledger; `overdraft_limit` and `available` (balance + overdraft) since Phase 29. |
 | GET | `/api/v1/accounts/{id}` | `accounts:read` | |
 | GET | `/api/v1/accounts/{id}/transactions` | `accounts:read` | Posted ledger lines, newest first |
 | POST | `/api/v1/accounts/{id}/deposits` | `accounts:transact` | `{amount, memo?}` in minor units; **Idempotency-Key required**; account must be open |
-| POST | `/api/v1/accounts/{id}/withdrawals` | `accounts:transact` | Same; no overdrafts (the account row is locked while the balance is checked) |
+| POST | `/api/v1/accounts/{id}/withdrawals` | `accounts:transact` | Same; within the balance and any arranged overdraft (the account row is locked while it is checked) |
 | POST | `/api/v1/accounts/{id}/freeze` · `/unfreeze` · `/close` | `accounts:manage` | `{reason}`; closing requires a zero balance |
 
 Account numbers: two-letter country code, ten digits and two ISO 7064 MOD 97-10 check
@@ -174,6 +174,23 @@ accounts it touched; the trial balance always covers the whole ledger, from the 
 Write-offs have no endpoint: only the WF-0004 credit-committee approval writes a loan off.
 Payments and loans are created only by their workflows (`POST /api/v1/workflows/WF-0002/executions`,
 `…/WF-0003/executions`); there is no endpoint that moves money or books a loan directly.
+
+### Retail banking (Phase 29)
+
+See [retail-banking.md](retail-banking.md). Amounts are minor units unless named in USD.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/retail/products` | `accounts:read` | The terms of each account type |
+| PATCH | `/api/v1/retail/products/{account_type}` | `retail:manage` | `{name?, credit_rate_bps?, overdraft_rate_bps?, monthly_fee_usd_cents?, max_overdraft_usd?}`; audited |
+| PUT | `/api/v1/retail/accounts/{id}/overdraft` | `retail:manage` | `{limit}`; within the product's maximum and not below what is owed; audited |
+| GET | `/api/v1/retail/standing-orders` | `accounts:read` | Filters `account_id`, `status` |
+| POST | `/api/v1/retail/standing-orders` | `accounts:transact` | `{debtor_account_number, creditor_account_number, amount, frequency, first_date, end_date?, reference}`; same currency, below the high-value threshold; 201 |
+| POST | `/api/v1/retail/standing-orders/{id}/cancel` | `accounts:transact` | |
+| GET | `/api/v1/retail/statements` · `/{id}` | `accounts:read` | Filter `account_id`; the detail lists the month's entries with running balances |
+| GET | `/api/v1/retail/month-ends` | `accounts:read` | The last 24 runs with totals per currency |
+| POST | `/api/v1/retail/month-ends` | `retail:manage` | `{period?}` (any day of a month that has ended; default the last one); 202 with a `retail.month_end` job |
+| GET | `/api/v1/retail/summary` | `accounts:read` | Counts of arranged overdrafts, active standing orders and statements |
 
 ### Country rules (Phase 25)
 

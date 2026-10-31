@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 28.
+Last updated: Phase 29.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -33,6 +33,43 @@ Last updated: Phase 28.
 | 26 | Global footprint, step 4: business calendars ([business-calendars.md](business-calendars.md)) | **Complete** |
 | 27 | Global footprint, step 5: generated country subsidiaries ([subsidiaries.md](subsidiaries.md)) | **Complete** |
 | 28 | Global footprint, step 6: the 120-country sweep ([country-sweep.md](country-sweep.md)) — roadmap Milestone C complete | **Complete** |
+| 29 | Departments, step 1: retail banking ([retail-banking.md](retail-banking.md)) | **Complete** |
+
+## Phase 29: what exists
+
+- **Products** (`retail_products`, migration 0025): credit and overdraft interest, a
+  monthly fee and an overdraft maximum per account type. Dollar terms are converted to
+  each currency at the FX anchor rates. Managers change them (`retail:manage`, audited).
+- **Arranged overdrafts:** `accounts.overdraft_limit`. Every funds check (withdrawals,
+  fees, WF-0002, payment release) uses the balance plus the limit.
+- **Standing orders:** weekly or monthly, same currency, below the high-value threshold.
+  The daily job pays them through the payments service on the payer's country's business
+  days; three misses in a row stop an order.
+- **Month end:** daily interest on credit and overdrawn balances, the monthly fee and each
+  account's statement, posted on the last day of the month, once per month. The job runs
+  from the page, the API or the `retail-month-end` schedule.
+- **Base processes:** WF-1003 (overdraft, approval first), WF-1004 (standing order, payee
+  screened) and WF-1005 (statement copy), on three new library handlers; all generated
+  tests pass at 100 % coverage.
+- **UI:** the Retail Banking page (products, standing orders, month end, statements);
+  account detail shows the overdraft and what is available.
+
+## Phase 29: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 562 passed (new: 6 — product terms converted per currency; overdrafts extending withdrawals and payments, refused above the maximum or below what is owed; standing orders waiting for a business day, keeping the 31st, and stopping after three misses; month end with exact daily interest, overdraft interest, fee, statement and lines, refused for an open month and run once only; the retail API and its permissions; the scheduler's and managers' permission) |
+| Generated workflow tests | WF-1003 14, WF-1004 17, WF-1005 10 cases passed, 100 % steps and routes. The first WF-1005 run failed two cases: its handler required the optional `period` input. Fixed so a missing period means the last complete month |
+| Frontend Vitest / typecheck / build | 98 passed (new: 3 — the page, a manager's changes, read-only access) / clean / built |
+| Playwright on a fresh database | 32 passed on the first run (new: a manager sees the products and runs month end; a teller cannot) |
+| Migration 0025 | Upgrade, downgrade and upgrade again; `alembic check` clean |
+
+## Phase 29: known limitations
+
+- No retail simulation workload or AI tool candidate yet (the next step).
+- Simple daily interest on a 365-day year; no tiers, compounding or unarranged-overdraft
+  fees.
+- Standing orders are same-currency only and below the high-value threshold.
 
 ## Phase 28: what exists
 

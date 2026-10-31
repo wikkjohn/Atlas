@@ -25,6 +25,7 @@ from app.modules.ledger.router import router as ledger_router
 from app.modules.lending.router import router as loans_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.payments.router import router as payments_router
+from app.modules.retail.router import router as retail_router
 from app.modules.rules.router import router as rules_router
 from app.modules.workflows import catalog  # noqa: F401  (registers every workflow)
 from app.modules.workflows.router import (
@@ -59,6 +60,7 @@ for module_router in (
     ledger_router,
     fx_router,
     payments_router,
+    retail_router,
     loans_router,
     definitions_router,
     authoring_router,

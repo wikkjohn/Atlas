@@ -341,6 +341,8 @@ def accounts_out(db: Session, accounts: list[Account]) -> list[AccountOut]:
             ledger_account_id=a.ledger_account_id,
             ledger_account_code=ledger_accounts[a.ledger_account_id].code,
             balance=amounts[a.ledger_account_id],
+            overdraft_limit=a.overdraft_limit,
+            available=amounts[a.ledger_account_id] + a.overdraft_limit,
             opened_at=a.opened_at,
             closed_at=a.closed_at,
         )
@@ -404,6 +406,11 @@ def _ledger_account(db: Session, account: Account) -> LedgerAccount:
     return ledger.get_ledger_account(db, account.ledger_account_id)
 
 
+def available(db: Session, account: Account) -> int:
+    """What the account can pay out: its balance plus its arranged overdraft (Phase 29)."""
+    return ledger.balance(db, _ledger_account(db, account)) + account.overdraft_limit
+
+
 def deposit(
     db: Session,
     account_id: uuid.UUID,
@@ -445,7 +452,7 @@ def withdraw(
     idempotency_key: str,
     actor_id: uuid.UUID,
 ) -> tuple[Account, str, uuid.UUID, bool]:
-    """Synthetic cash withdrawal. Overdrafts are not allowed."""
+    """Synthetic cash withdrawal, within the balance and any arranged overdraft."""
     account = get_account(db, account_id, for_update=True)
     key = f"withdrawal:{actor_id}:{idempotency_key}"
     lines = [
@@ -459,10 +466,10 @@ def withdraw(
             raise BusinessRuleViolation(
                 f"The account is {account.status}; withdrawals are not allowed."
             )
-        available = ledger.balance(db, _ledger_account(db, account))
-        if amount > available:
+        funds = available(db, account)
+        if amount > funds:
             raise BusinessRuleViolation(
-                "Insufficient funds.", {"available": available, "requested": amount}
+                "Insufficient funds.", {"available": funds, "requested": amount}
             )
     entry, replayed = ledger.post_entry(
         db,
@@ -498,7 +505,7 @@ def charge_fee(
     actor_id: uuid.UUID | None,
 ) -> tuple[Account, str, bool]:
     """Charge a service fee: debit the customer's deposit account, credit fee income.
-    Overdrafts are not allowed. Returns (account, entry number, replayed)."""
+    Within the balance and any arranged overdraft. Returns (account, entry number, replayed)."""
     if amount <= 0:
         raise BusinessRuleViolation("A fee must be a positive amount.")
     account = get_account(db, account_id, for_update=True)
@@ -512,10 +519,10 @@ def charge_fee(
     if not ledger.find_entry_by_key(db, key):
         if account.status != AccountStatus.OPEN:
             raise BusinessRuleViolation(f"The account is {account.status}; fees cannot be charged.")
-        available = ledger.balance(db, _ledger_account(db, account))
-        if amount > available:
+        funds = available(db, account)
+        if amount > funds:
             raise BusinessRuleViolation(
-                "Insufficient funds for the fee.", {"available": available, "requested": amount}
+                "Insufficient funds for the fee.", {"available": funds, "requested": amount}
             )
     entry, replayed = ledger.post_entry(
         db,

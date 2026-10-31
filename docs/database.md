@@ -35,6 +35,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0017_workflow_templates` | 19 | `workflow_templates`, `workflow_variants` |
 | `0016_stored_definitions` | 17 | `workflow_definitions` gains `source`, `status`, `imported_by`, `status_changed_at`, `status_changed_by` |
 | `0019_catalogue_lifecycle` | 22 | `workflow_catalogue`; definition lifecycle `draft`, `in_review`, `active`, `retired` with submitter and reviewer |
+| `0025_retail_banking` | 29 | `retail_products` (three products), `standing_orders` (`standing_order_number_seq`), `retail_month_ends`, `account_statements` (`statement_number_seq`); `accounts.overdraft_limit`; schedules `retail-standing-orders` and `retail-month-end` (off) |
 | `0024_generated_subsidiaries` | 27 | `organizations.generated_from`: the blueprint a generated organization came from |
 | `0023_business_calendars` | 26 | Reference data 2026.2 (dated lunar holidays) from `0023_reference_data.json`; `job_schedules.business_calendar` |
 | `0022_country_rules` | 25 | `country_rules` (versioned per country; version 1 loaded from `0022_country_rules.json`); payments gain `high_value_threshold` and `value_date` |

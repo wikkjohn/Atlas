@@ -116,7 +116,11 @@ millions of customers and an AI testing laboratory at that scale.
 Each department: a domain module (services, ledger postings, permissions), base processes
 for the factory, a simulation workload and at least one AI tool candidate.
 
-- [ ] Retail banking: deposits, statements, interest and fees, overdrafts, standing orders
+- [x] Retail banking: deposits, statements, interest and fees, overdrafts, standing orders
+      (Phase 29: products with dollar terms converted per currency, arranged overdrafts
+      in every funds check, standing orders on business days, month end with daily
+      interest, fees and statements; WF-1003–1005; see `retail-banking.md`. The retail
+      workload and AI tool follow in step 2)
 - [ ] Cards: issuing, authorisation, disputes and chargebacks, fraud blocks
 - [ ] Mortgages and secured lending: valuation, collateral, offers
 - [ ] SME and commercial lending: facilities, covenants, annual reviews
@@ -206,4 +210,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 26 (C4) | Business calendars: lunar holidays as dated tables; schedules and simulation arrivals on a country's business days | complete |
 | Phase 27 (C5) | Generated country subsidiaries: a versioned blueprint; launching a country activates it and builds its subsidiary and staff | complete |
 | Phase 28 (C6) | Milestone C exit: cases that follow each country's rules; onboarding and payments swept through all 120 countries — Milestone C done | complete |
-| Phase 29 (D1, proposed) | Milestone D, step 1: retail banking — deposits, statements, interest and fees, overdrafts, standing orders | next |
+| Phase 29 (D1) | Retail banking: products, arranged overdrafts, standing orders, month-end interest, fees and statements; WF-1003–1005 | complete |
+| Phase 30 (D2, proposed) | Retail banking, step 2: a month-in-the-life simulation workload and an AI tool candidate; then cards | next |

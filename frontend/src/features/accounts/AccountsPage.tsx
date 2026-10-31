@@ -170,6 +170,11 @@ function AccountDetail({ id, onClose }: { id: string; onClose: () => void }) {
                 {exactMoney(a.balance, a.currency)}
               </p>
               <p className="text-[11px] text-slate-500">Derived from posted ledger entries</p>
+              {a.overdraft_limit > 0 && (
+                <p aria-label="Overdraft" className="text-xs text-slate-600">
+                  Arranged overdraft {exactMoney(a.overdraft_limit, a.currency)} · available {exactMoney(a.available, a.currency)}
+                </p>
+              )}
             </div>
           </div>
           {can("accounts:transact") && a.status === "open" && (

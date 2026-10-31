@@ -32,6 +32,8 @@ class Permission(StrEnum):
     LEDGER_READ = "ledger:read"
     LEDGER_POST = "ledger:post"  # manual journal entries and reversals
     FX_MANAGE = "fx:manage"  # revalue currency positions (Phase 24)
+    # Retail products, overdraft limits and month-end interest, fees and statements (Phase 29)
+    RETAIL_MANAGE = "retail:manage"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -144,6 +146,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.PAYMENTS_APPROVE,
         Permission.LOANS_APPROVE,
         Permission.LOANS_SERVICE,
+        Permission.RETAIL_MANAGE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE,
@@ -190,6 +193,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.FX_MANAGE,
             Permission.LOANS_READ,
             Permission.LOANS_SERVICE,
+            Permission.RETAIL_MANAGE,
             Permission.WORKFLOWS_READ,
             Permission.SIMULATIONS_READ,
             Permission.SIMULATIONS_MANAGE,

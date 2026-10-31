@@ -166,3 +166,38 @@ def test_the_trade_api(client: TestClient, db: Session) -> None:
     instruments = client.get("/api/v1/trade/instruments", headers=teller).json()["items"]
     assert instruments[0]["status"] == "paid" and instruments[0]["margin"] == 0
     assert client.get("/api/v1/trade/summary/counts", headers=teller).json()["paid"] == 1
+
+
+def test_pr28_review_fixes(db: Session) -> None:
+    """An approval after expiry issues nothing; a live instrument's account cannot be closed;
+    the workflows accept every supported currency's amounts."""
+    import json
+
+    from app.modules.accounts.models import AccountStatus
+    from app.modules.accounts.service import change_status
+    from app.modules.workflows.examples import HERE
+
+    staff = make_staff(db)
+    customer, account = _business(db, staff)
+    lc = _request(db, staff, customer, account)
+    late = datetime.combine(EXPIRY + timedelta(days=1), NOW.timetz())
+    with pytest.raises(BusinessRuleViolation, match="expired on .* before it was approved"):
+        trade.approve_instrument(db, lc, staff.manager.id, now=late)
+    assert lc.status == "requested" and lc.approved_by is None
+    assert _balance(db, account.ledger_account_id) == 10_000_000  # no margin taken
+    # A requested (then issued) instrument keeps its account open until it is closed.
+    with pytest.raises(
+        BusinessRuleViolation, match=f"backs trade instrument {lc.instrument_number}"
+    ):
+        change_status(db, account.id, AccountStatus.CLOSED, staff.manager.id, "Closing")
+    trade.decline_instrument(db, lc, staff.manager.id)
+    with pytest.raises(BusinessRuleViolation, match="zero balance"):  # the next rule applies
+        change_status(db, account.id, AccountStatus.CLOSED, staff.manager.id, "Closing")
+    # US$5m in Lebanese pounds is the largest amount any supported currency reaches.
+    assert trade.amount_range("LBP")[1] == 45_000_000_000_000
+    for name in ("WF-1015-v2.json", "WF-1016-v2.json", "WF-1017-v2.json"):
+        schema = json.loads((HERE / name).read_text())["input_schema"]["properties"]["amount"]
+        assert schema["maximum"] >= trade.amount_range("LBP")[1], name
+    committee = next(s for s in json.loads((HERE / "WF-1015-v2.json").read_text())["steps"]
+                     if s["id"] == "committee")  # fmt: skip
+    assert committee["approval"]["distinct_from"] == ["initiator", "credit_approval"]

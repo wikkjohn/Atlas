@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 37.
+Last updated: Phase 38.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -42,6 +42,71 @@ Last updated: Phase 37.
 | 35 | Departments, step 7: SME and commercial lending ([commercial-lending.md](commercial-lending.md)) | **Complete** |
 | 36 | Departments, step 8: the commercial lending workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 37 | Departments, step 9: trade finance ([trade-finance.md](trade-finance.md)) | **Complete** |
+| 38 | Departments, step 10: the trade finance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 38: what exists
+
+- **`trade.presentation_profile`:** what a trade officer weighs before the applicant's
+  waiver. It covers the discrepancy, the share of the credit drawn, days to expiry, how
+  many times the applicant's funds (with the margin released) cover the payment, and the
+  credit's earlier presentations, rejections and repeats of the same discrepancy. It is
+  also a library handler.
+- **AGB Document Check Assistant** (`rule_based_document_check`, `recommend_decision`
+  only, compatible with WF-1016), with a deliberate blind spot for earlier rejections. The
+  seed registers it, and the AI Lab console has a sample.
+- **WF-1016 v2:** presentation profile and AI review before the applicant's waiver.
+- **Workload `discrepant_presentations` and scenario `discrepant-presentations` v1:**
+  - Businesses whose letters of credit are requested and issued through the real service;
+    each presentation has one discrepancy.
+  - Six kinds with ground truth, decided by simulated trade officers (`trade:manage`).
+  - A control check covers four-eyes, `trade:manage`, and no payment without approval.
+- **Fixes from the Codex review of PR #28 (Phase 37):**
+  - An approval after the expiry date is refused, so no margin is taken for an instrument
+    that can no longer be used.
+  - A business account cannot be closed while it backs a requested or issued instrument,
+    so a released margin cannot land in a closed account.
+  - The Trade Finance page pages through instruments beyond the newest 25.
+  - WF-1015 v2 and WF-1017 v2 (and WF-1016 v2) accept amounts up to 10^14 minor units,
+    enough for US$5m in every supported currency. The committee's task in WF-1015 v2
+    cannot be taken by the credit approver.
+- **Refactor:** the verified-business helper the covenant workload used is now shared by
+  both workloads.
+- **Measured** (300 presentations): AI assisted 94.3 % accurate against 86.0 %, officer
+  hours 101 against 156. Repeat discrepancies paid rose to 12 from 8, the one kind it made
+  worse.
+
+## Phase 38: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 603 passed (new: 4 — the document check rules and their history blind spot; the presentation profile with an earlier rejection of the same discrepancy; baseline and AI-assisted presentation runs with every case decided by a trade officer, no control violations, every kind's advice as designed, payments only after approval; an approval after expiry, closing an account behind a live instrument, and the workflows' amount ceilings and committee rule (PR #28 review)) |
+| Generated workflow tests | 27 workflows, 565 cases, 0 failed, on a rebuilt database (WF-1015 v2: 23 cases, WF-1016 v2: 27, WF-1017 v2: 16; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 113 passed (new: paging back to instruments beyond the newest 25 (PR #28 review)) / clean / built |
+| Playwright on a fresh database | 41 passed on the first run (new: the document check assistant in the AI Lab console, recommending payment of a discrepancy the bank rejected before) |
+| Measurement | `discrepant-presentations`, seed 2030, 300 presentations each: baseline 86.0 % accurate (24 wrongly paid, 18 wrongly rejected, 155.9 officer hours); AI assisted 94.3 % (15, 2, 101.0); repeat discrepancies paid 8 against 12 |
+
+Found while building it:
+- The new workload tests passed on their first run. Ruff flagged over-long lines.
+- **The paging test failed on its first run.** The paging bar unmounted while the next page
+  loaded, so the test held a stale element. The page now keeps the previous page visible
+  while loading.
+- **Review-fix test:** the new expiry and account-closure test fails on the code before the
+  fixes and passes after.
+- The measurements were repeated on the rebuilt database after WF-1016 v2's schema change;
+  both runs were identical.
+- The measured accuracy (94.3 %) and wrong decisions (15 and 2) are the same as the
+  covenant scenario's. Both use the same reviewer and AI-assistance assumptions and a
+  similar mix. The per-kind figures differ.
+
+## Phase 38: known limitations
+
+- The workload covers discrepant presentations only. Requests, complying documents and
+  guarantee claims are not simulated.
+- WF-1016 v2 has no automated decision: AI assisted is the only AI mode.
+- The assistant's rule for inconsistent documents is not exercised by the workload.
+- The officers' response to the assistant rests on stated assumptions.
+- WF-1012 (commercial lending) has the same committee pattern as WF-1015 v1. It was not
+  flagged and is not changed here.
 
 ## Phase 37: what exists
 

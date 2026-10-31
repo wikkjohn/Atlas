@@ -311,6 +311,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `trade.decline_instrument` | writes | `instrument_id_path`, `decided_by_path` | declines a request (Phase 37) |
 | `trade.lookup_instrument` | reads | `instrument_number_path`, `customer_number_path` (optional), `kind` | an issued instrument of that kind, what is left of it and its expiry; another customer's fails (Phase 37) |
 | `trade.receive_demand` | writes | `instrument_id_path`, `amount_path`, `discrepancy_path` (optional; `none` when complying) | records a presentation or claim; reports `discrepant` (Phase 37) |
+| `trade.presentation_profile` | reads | `demand_id_path` | what the trade officer weighs before the applicant's waiver: the discrepancy, how much is drawn, days to expiry, the applicant's funds and the credit's earlier presentations (Phase 38) |
 | `trade.pay_demand` | moves money (approval required) | `demand_id_path`, `decided_by_path` | pays: margin released in proportion, the applicant debited (Phase 37) |
 | `trade.reject_demand` | writes | `demand_id_path`, `decided_by_path`, `note` | rejects; nothing is paid (Phase 37) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
@@ -405,6 +406,15 @@ WF-1016 records documents presented under a letter of credit: a complying presen
 to the document checker, a discrepant one to the applicant's waiver, and either approval
 pays. WF-1017 records a claim under a guarantee and pays or rejects it. See
 [trade-finance.md](trade-finance.md).
+
+WF-1015 **v2** and WF-1017 **v2** (Phase 38, from the review of PR #28) accept amounts in
+every supported currency, and the committee's task in WF-1015 v2 excludes the credit
+approver (`distinct_from: [initiator, credit_approval]`).
+
+WF-1016 **v2** (Phase 38) reads the presentation profile (`trade.presentation_profile`) when
+the documents are discrepant and asks the AGB Document Check Assistant (`ai.review`,
+advisory) before the trade officer decides on the applicant's waiver
+(`discrepant-presentations`).
 
 ### Authoring
 

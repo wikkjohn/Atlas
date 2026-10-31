@@ -1,0 +1,313 @@
+{
+  "workflow_id": "WF-1015",
+  "name": "Trade Instrument Issuance",
+  "version": 2,
+  "description": "Version 2 (PR #28 review): the credit committee's task cannot be taken by the credit approver, and amounts are accepted across every supported currency (up to 10^14 minor units; the service applies the US$10,000-5m limits). A business asks for a letter of credit or a bank guarantee. The beneficiary is screened against the synthetic sanctions lists (a match refuses the request), the request is checked (US$10,000 to 5m converted, expiry 30 to 730 days ahead) and a credit approver other than the requester approves, and above US$1m the credit committee as well, before the instrument is issued and its cash margin taken. Stored definition: built only from library handlers (Phase 37).",
+  "business_owner": "Trade Finance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "account_number",
+      "kind",
+      "beneficiary_name",
+      "beneficiary_country",
+      "amount",
+      "expires_in_days"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "letter_of_credit",
+          "guarantee"
+        ]
+      },
+      "beneficiary_name": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 140,
+        "examples": [
+          "Saigon Coffee Exporters"
+        ]
+      },
+      "beneficiary_country": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "examples": [
+          "VN"
+        ]
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000000,
+        "examples": [
+          200000000
+        ],
+        "description": "Minor units of the account's currency"
+      },
+      "expires_in_days": {
+        "type": "integer",
+        "minimum": 30,
+        "maximum": 730,
+        "examples": [
+          120
+        ]
+      },
+      "purpose": {
+        "type": "string",
+        "maxLength": 140,
+        "examples": [
+          "Green coffee, 18 tonnes"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "request.customer_name"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "TRI-"
+      },
+      "next": "request"
+    },
+    {
+      "id": "request",
+      "type": "service_task",
+      "name": "Screen and record the request",
+      "handler": "trade.request_instrument",
+      "params": {
+        "customer_number_path": "input.customer_number",
+        "account_number_path": "input.account_number",
+        "kind_path": "input.kind",
+        "beneficiary_path": "input.beneficiary_name",
+        "country_path": "input.beneficiary_country",
+        "amount_path": "input.amount",
+        "expires_in_days_path": "input.expires_in_days",
+        "purpose_path": "input.purpose"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "credit_approval"
+    },
+    {
+      "id": "credit_approval",
+      "type": "approval",
+      "name": "Credit approval",
+      "description": "A credit approver other than the requester decides (four-eyes).",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "credit_approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "decline"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Record the credit approval",
+      "handler": "trade.approve_instrument",
+      "params": {
+        "instrument_id_path": "request.instrument_id",
+        "decided_by_path": "credit_approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_committee"
+    },
+    {
+      "id": "route_committee",
+      "type": "decision",
+      "name": "Committee needed?",
+      "transitions": [
+        {
+          "to": "committee",
+          "when": {
+            "path": "approve.awaiting_committee",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_issued"
+    },
+    {
+      "id": "committee",
+      "type": "approval",
+      "name": "Credit committee",
+      "description": "Above US$1m the credit committee approves too: a third person with loans:approve_large.",
+      "approval": {
+        "permissions": [
+          "loans:approve_large"
+        ],
+        "distinct_from": [
+          "initiator",
+          "credit_approval"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 604800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "committee_approve",
+          "when": {
+            "path": "committee.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "committee_decline"
+    },
+    {
+      "id": "committee_approve",
+      "type": "service_task",
+      "name": "Record the committee's approval",
+      "handler": "trade.committee_approve",
+      "params": {
+        "instrument_id_path": "request.instrument_id",
+        "decided_by_path": "committee.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_issued"
+    },
+    {
+      "id": "committee_decline",
+      "type": "service_task",
+      "name": "Decline the request",
+      "handler": "trade.decline_instrument",
+      "params": {
+        "instrument_id_path": "request.instrument_id",
+        "decided_by_path": "committee.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_declined"
+    },
+    {
+      "id": "decline",
+      "type": "service_task",
+      "name": "Decline the request",
+      "handler": "trade.decline_instrument",
+      "params": {
+        "instrument_id_path": "request.instrument_id",
+        "decided_by_path": "credit_approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_declined"
+    },
+    {
+      "id": "notify_issued",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "request.customer_id",
+        "subject": "Your trade instrument",
+        "body": "Dear {request.customer_name}, {request.instrument_number} is issued; a cash margin of {request.margin} ({request.currency} minor units) is held while it is live."
+      },
+      "next": "issued"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "request.customer_id",
+        "subject": "Your trade instrument",
+        "body": "Dear {request.customer_name}, we cannot issue {request.instrument_number}."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "request.customer_id",
+        "subject": "Your trade instrument",
+        "body": "Dear {request.customer_name}, we could not issue {request.instrument_number}: {_failure.message}"
+      },
+      "next": "refused_after"
+    },
+    {
+      "id": "issued",
+      "type": "completion",
+      "name": "Issued",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be requested",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -548,3 +548,38 @@ register_scenario(
         ),
     )
 )
+
+
+register_scenario(
+    Scenario(
+        scenario_id="discrepant-presentations",
+        version=1,
+        name="Discrepant presentations (trade finance)",
+        description="A working day of discrepant documents under letters of credit through "
+        "WF-1016 v2: each presentation goes to a trade officer, who decides whether to pay on "
+        "the applicant's waiver. A late presentation or a wording slip is worth paying; a "
+        "missing document, a late shipment presented in the last days of the credit, the same "
+        "faulty documents presented again after a rejection, and a late shipment the applicant "
+        "can barely pay for are not. In AI-assisted runs the AGB Document Check Assistant "
+        "advises the officer (Phase 38).",
+        workload="discrepant_presentations",
+        workflow_id="WF-1016",
+        workflow_version=2,
+        simulated_start=datetime(2026, 5, 12, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "late_presentation": 0.25,
+                "wording_slip": 0.20,
+                "missing_document": 0.15,
+                "last_minute_shipment": 0.13,
+                "repeat_discrepancy": 0.17,
+                "stretched_applicant": 0.10,
+            },
+            reviewers={"applicant_waiver": ReviewerModel(mean_minutes=30, accuracy=0.85)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

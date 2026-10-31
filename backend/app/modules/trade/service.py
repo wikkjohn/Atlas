@@ -197,6 +197,8 @@ def approve_instrument(
     """The credit approval, not by the requester. Above US$1m the committee approves too
     before the instrument is issued and its margin taken."""
     _require(instrument, InstrumentStatus.REQUESTED)
+    now = now or datetime.now(UTC)
+    _require_unexpired(instrument, now)
     if instrument.approved_by is not None:
         raise ConflictError(f"{instrument.instrument_number} is already approved.")
     if actor_id == instrument.requested_by:
@@ -207,13 +209,15 @@ def approve_instrument(
     instrument.approved_by = actor_id
     db.flush()
     _audit(db, actor_id, "trade.approved", instrument)
-    return _issue_if_ready(db, instrument, actor_id, now or datetime.now(UTC))
+    return _issue_if_ready(db, instrument, actor_id, now)
 
 
 def committee_approve(
     db: Session, instrument: TradeInstrument, actor_id: uuid.UUID, *, now: datetime | None = None
 ) -> TradeInstrument:
     _require(instrument, InstrumentStatus.REQUESTED)
+    now = now or datetime.now(UTC)
+    _require_unexpired(instrument, now)
     if not needs_committee(instrument):
         raise BusinessRuleViolation("This instrument is within the credit approver's authority.")
     if instrument.approved_by is None:
@@ -226,7 +230,18 @@ def committee_approve(
     instrument.committee_approved_by = actor_id
     db.flush()
     _audit(db, actor_id, "trade.committee_approved", instrument)
-    return _issue_if_ready(db, instrument, actor_id, now or datetime.now(UTC))
+    return _issue_if_ready(db, instrument, actor_id, now)
+
+
+def _require_unexpired(instrument: TradeInstrument, now: datetime) -> None:
+    """An approval that comes after the expiry date cannot issue the instrument (PR #28
+    review): it would take a margin for an instrument that can no longer be used."""
+    if now.date() > instrument.expires_on:
+        raise BusinessRuleViolation(
+            f"{instrument.instrument_number} expired on {instrument.expires_on} before it was "
+            "approved; decline it and request a new one.",
+            {"rule": "expired_before_issue"},
+        )
 
 
 def _issue_if_ready(db, instrument: TradeInstrument, actor_id, now: datetime) -> TradeInstrument:
@@ -422,6 +437,42 @@ def expire_instrument(
     db.flush()
     _audit(db, actor_id, "trade.expired", instrument, margin_released=released)
     return instrument
+
+
+def presentation_profile(db: Session, demand: TradeDemand) -> dict[str, Any]:
+    """What a trade officer weighs when the applicant is asked to waive a discrepancy
+    (Phase 38): the discrepancy, how much of the credit is drawn and how close it is to
+    expiry, whether the applicant can fund the payment, and the credit's earlier
+    presentations."""
+    instrument = get_instrument(db, demand.instrument_id)
+    account = accounts.get_account(db, instrument.account_id)
+    earlier = list(
+        db.execute(
+            select(TradeDemand).where(TradeDemand.instrument_id == instrument.id,
+                                      TradeDemand.id != demand.id,
+                                      TradeDemand.status != DemandStatus.PENDING)
+        ).scalars()
+    )  # fmt: skip
+    remaining = instrument.amount - instrument.drawn
+    release = (
+        instrument.margin
+        if demand.amount >= remaining
+        else instrument.margin * demand.amount // max(remaining, 1)
+    )
+    funds = accounts.available(db, account) + release
+    found = set(demand.discrepancies)
+    return {
+        "currency": instrument.currency,
+        "kind": instrument.kind,
+        "discrepancy": demand.discrepancies[0] if demand.discrepancies else "none",
+        "discrepancy_count": len(demand.discrepancies),
+        "draw_share_bps": demand.amount * 10_000 // instrument.amount,
+        "days_to_expiry": (instrument.expires_on - demand.presented_on).days,
+        "funding_cover_bps": min(funds * 10_000 // demand.amount, 99_999),
+        "earlier_presentations": len(earlier),
+        "earlier_rejected": sum(d.status == DemandStatus.REJECTED for d in earlier),
+        "earlier_same_discrepancy": sum(bool(found & set(d.discrepancies)) for d in earlier),
+    }
 
 
 def summary(db: Session) -> dict[str, Any]:

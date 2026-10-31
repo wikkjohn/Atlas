@@ -322,6 +322,54 @@ assumptions; one run each):
 These results rest on the scenario's stated reviewer assumptions, not on measured
 behaviour.
 
+## WF-1016 v2 and the document check assistant (Phase 38)
+
+WF-1016 v2 is a stored workflow. When documents presented under a letter of credit are
+discrepant, it reads the presentation profile (`trade.presentation_profile`) and asks the
+assistant through `ai.review` before a trade officer (`trade:manage`) decides whether to pay
+on the applicant's waiver. The officer always decides, so the scenario runs baseline and AI
+assisted only.
+
+What the assistant (`rule_based_document_check`) weighs:
+- **Reject:** a missing document; a late shipment presented in the last 7 days of the
+  credit; inconsistent documents on a draw of 90 % of the credit or more.
+- **Concerns:** a late shipment; inconsistent documents on a smaller draw; an applicant
+  whose funds cover the payment less than 1.10 times.
+- **Minor:** a late presentation or a description that does not match.
+
+Its **blind spot** is the credit's history. The profile counts earlier presentations
+rejected for the same discrepancy, and the assistant never reads them, so a beneficiary who
+presents the same faulty documents again looks like a first, minor slip and is recommended
+for payment.
+
+What `discrepant-presentations` v1 measured (seed 2030, 300 presentations, 12 staff,
+default assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 86.0 % | 94.3 % |
+| Wrongly paid | 24 | 15 |
+| Wrongly rejected | 18 | 2 |
+| Repeat discrepancies paid (of 61) | 8 | 12 |
+| Review labour hours | 155.9 | 101.0 |
+| Median cycle time (hours) | 9.5 | 4.7 |
+| Tool's recommendation accuracy | — | 77 % (33 escalated) |
+
+**Where the assistant helps:**
+- Minor discrepancies wrongly rejected fall from 18 to 2.
+- Missing documents and last-minute late shipments are never paid (13 in the baseline).
+- Officer time falls by about a third.
+
+**Where it does not:**
+- The assistant recommends paying all 61 repeat discrepancies, and the simulated officers,
+  following it, pay 12 rather than 8.
+- Late shipments the applicant can barely fund are escalated, which leaves the officers
+  where the baseline was (3 paid either way).
+
+The headline figures are close to the covenant scenario's (Phase 36). Both scenarios use the
+same reviewer and AI-assistance assumptions and a similar mix of kinds. These results rest
+on those stated assumptions, not on measured behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

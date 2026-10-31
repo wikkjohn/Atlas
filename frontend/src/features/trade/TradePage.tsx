@@ -8,6 +8,7 @@ import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { formatExactMoney, humanize, toMinorUnits } from "@/services/format";
 import {
+  INSTRUMENTS_PAGE,
   useDecideDemand,
   useDemands,
   useInstrumentAction,
@@ -190,10 +191,12 @@ function InstrumentDetail({ instrument }: { instrument: TradeInstrument }) {
 export function TradePage() {
   const { can } = useAuth();
   const summary = useTradeSummary();
-  const instruments = useInstruments();
+  const [offset, setOffset] = useState(0);
+  const instruments = useInstruments(offset);
   const action = useInstrumentAction();
   const [selected, setSelected] = useState<string | null>(null);
   const items = instruments.data?.items ?? [];
+  const total = instruments.data?.total ?? 0;
   const chosen = items.find((i) => i.id === selected);
   return (
     <>
@@ -266,6 +269,19 @@ export function TradePage() {
             )}
           </tbody>
         </table>
+        {total > INSTRUMENTS_PAGE && (
+          <nav aria-label="Instrument pages" className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-600">
+            <span>
+              {offset + 1}–{Math.min(offset + INSTRUMENTS_PAGE, total)} of {total}
+            </span>
+            <Button size="sm" variant="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - INSTRUMENTS_PAGE, 0))}>
+              Newer
+            </Button>
+            <Button size="sm" variant="secondary" disabled={offset + INSTRUMENTS_PAGE >= total} onClick={() => setOffset(offset + INSTRUMENTS_PAGE)}>
+              Older
+            </Button>
+          </nav>
+        )}
         {chosen && <InstrumentDetail instrument={chosen} />}
       </Panel>
     </>

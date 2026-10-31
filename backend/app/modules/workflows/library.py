@@ -1924,6 +1924,27 @@ def _reject_demand(ctx: StepContext, params: DemandDecision) -> dict[str, Any]:
             "amount": demand.amount, "instrument_status": instrument.status}  # fmt: skip
 
 
+class DemandRef(_Strict):
+    demand_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "trade.presentation_profile",
+    "Read what a trade officer weighs before the applicant's waiver: the discrepancy, how much "
+    "is drawn, days to expiry, the applicant's funds and the credit's earlier presentations.",
+    DemandRef,
+    "{discrepancy, discrepancy_count, draw_share_bps, days_to_expiry, funding_cover_bps, "
+    "earlier_presentations, earlier_rejected, earlier_same_discrepancy} (Phase 38).",
+    reads=lambda params: [params.demand_id_path],
+    effect="reads",
+)
+def _presentation_profile(ctx: StepContext, params: DemandRef) -> dict[str, Any]:
+    from app.modules.trade import service as trade
+
+    demand = trade.get_demand(ctx.db, uuid.UUID(str(_required(ctx, params.demand_id_path))))
+    return trade.presentation_profile(ctx.db, demand)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

@@ -277,6 +277,51 @@ assumptions; one run each):
 These results rest on the scenario's stated reviewer assumptions, not on measured
 behaviour.
 
+## WF-1013 v2 and the covenant breach assistant (Phase 36)
+
+WF-1013 v2 is a stored workflow. When a year's figures breach the facility's covenants, it
+reads the breach profile (`commercial.breach_profile`) and asks the assistant through
+`ai.review` before the credit committee decides whether to waive the breach. The committee
+always decides, so the scenario runs baseline and AI assisted only. Its reviewers are
+simulated executives, the first workload decided by the credit committee alone.
+
+What the assistant (`rule_based_covenant_review`) weighs:
+- **Keep frozen:** debt service cover below 1.00×, leverage more than 1.25 times its
+  limit, or EBITDA falling 15 % or more two periods running.
+- **Concerns:** cover below 1.10×, and a facility 90 % drawn or more.
+- **A mild breach:** cover within 10 % of its threshold.
+
+Its **blind spot** is history. The profile counts the facility's earlier breaches and
+waivers, and the assistant never reads them, so a business that breaches again a year
+after a waiver looks like a first near miss and is recommended for another waiver.
+
+What `covenant-breaches` v1 measured (seed 2030, 300 breaches, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 84.3 % | 94.3 % |
+| Wrong waivers | 20 | 15 |
+| Wrongly kept frozen | 27 | 2 |
+| Repeat breaches waived (of 54) | 8 | 11 |
+| Review labour hours | 192.8 | 123.7 |
+| Median cycle time (hours) | 15.6 | 8.9 |
+| Tool's recommendation accuracy | — | 80 % (32 escalated) |
+
+**Where the assistant helps:**
+- Breaches worth waiving that were kept frozen fall from 27 to 2.
+- Falling businesses and over-leveraged ones are never waived (8 in the baseline).
+- Committee time falls by more than a third.
+
+**Where it does not:**
+- The assistant recommends waiving all 54 repeat breaches, and the simulated committee,
+  following it, waives 11 rather than 8.
+- Thin cover on fully drawn facilities is escalated, which leaves the committee where the
+  baseline was (4 waived either way).
+
+These results rest on the scenario's stated reviewer assumptions, not on measured
+behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

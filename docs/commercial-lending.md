@@ -85,6 +85,27 @@ new fixture kinds:
 - `business.account_number`: its funded business current account;
 - `facility.facility_number`: an active revolving facility whose review is due in 30 days.
 
+## Simulation workload and AI tool (Phase 36)
+
+The `covenant_breaches` workload drives WF-1013 v2 (scenario `covenant-breaches`).
+- **Cases:** each case is a business with a revolving facility, part drawn, and two years
+  of covenant tests behind it, run through the real service. This year's figures breach,
+  so the credit committee (simulated executives with `loans:approve_large`) decides every
+  case. A case that would not breach stops the run.
+- **Ground truth, waive:** a one-off dip after strong years, and a near miss (DSCR
+  1.15–1.24×).
+- **Ground truth, keep frozen:**
+  - EBITDA falling by 20 % or more two years running;
+  - leverage of 4.6–6.0× against 3.5×;
+  - a second breach a year after the committee waived the first;
+  - thin cover (DSCR 1.00–1.08×) on a facility more than 92 % drawn.
+- **Decisions:** in AI-assisted runs the AGB Covenant Breach Assistant advises the
+  committee, from the profile `commercial.breach_profile` reads.
+- **Control check:** four-eyes and authority on each decision, and no waiver without an
+  approval.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Commercial lending*). Reading needs `loans:read`.
@@ -101,5 +122,5 @@ See [api.md](api.md) (*Commercial lending*). Reading needs `loans:read`.
   financial statements are analysed.
 - **No security:** facilities are unsecured; there is no collateral or guarantee.
 - **Reviews:** a review that is never opened only blocks drawdowns; no job raises it.
-- **No simulation yet:** there is no commercial lending workload or AI tool (the next
-  step, Phase 36).
+- **Simulation:** the workload covers covenant breaches (`covenant-breaches`); proposals
+  and reviews are not simulated.

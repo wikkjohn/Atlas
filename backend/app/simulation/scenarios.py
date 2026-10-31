@@ -514,3 +514,37 @@ register_scenario(
         ),
     )
 )
+
+
+register_scenario(
+    Scenario(
+        scenario_id="covenant-breaches",
+        version=1,
+        name="Covenant breaches (commercial lending)",
+        description="A working day of covenant breaches through WF-1013 v2: businesses with a "
+        "revolving facility and two years of covenant tests submit this year's figures, which "
+        "breach. One-off dips and near misses are worth waiving; EBITDA falling year after "
+        "year, leverage far over its limit, a second breach after a waiver and thin cover on a "
+        "fully drawn facility are not. The credit committee decides; in AI-assisted runs the "
+        "AGB Covenant Breach Assistant advises it (Phase 36).",
+        workload="covenant_breaches",
+        workflow_id="WF-1013",
+        workflow_version=2,
+        simulated_start=datetime(2026, 4, 14, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "one_off_dip": 0.25,
+                "seasonal_borderline": 0.20,
+                "structural_decline": 0.15,
+                "over_leveraged": 0.13,
+                "repeat_breach": 0.17,
+                "stretched_facility": 0.10,
+            },
+            reviewers={"committee_review": ReviewerModel(mean_minutes=40, accuracy=0.85)},
+            staff_mix={"teller": 0.4, "manager": 0.2, "executive": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

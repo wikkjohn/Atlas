@@ -503,6 +503,51 @@ def decide_review(
     return review
 
 
+def breach_profile(db: Session, test: CovenantTest) -> dict[str, Any]:
+    """What the credit committee looks at when a breach is reviewed (Phase 36): the
+    period's ratios against the thresholds, how EBITDA moved over the last periods, how
+    much of the facility is drawn, and the facility's earlier breaches and waivers."""
+    facility = get_facility(db, test.facility_id)
+    history = list(
+        db.execute(
+            select(CovenantTest)
+            .where(CovenantTest.facility_id == facility.id,
+                   CovenantTest.period_end <= test.period_end)
+            .order_by(CovenantTest.period_end)
+        ).scalars()
+    )  # fmt: skip
+    earlier = [t for t in history if t.period_end < test.period_end]
+    ebitdas = [t.ebitda for t in history]
+
+    def change(new: int, old: int) -> int:
+        return int((new - old) * 10_000 / old) if old > 0 else 0  # toward zero
+
+    changes = [change(b, a) for a, b in zip(ebitdas, ebitdas[1:], strict=False)]
+    declines = 0
+    for c in reversed(changes):
+        if c >= 0:
+            break
+        declines += 1
+    by_kind = {r["kind"]: r for r in test.results}
+    dscr = by_kind.get(CovenantKind.MIN_DSCR, {})
+    leverage = by_kind.get(CovenantKind.MAX_LEVERAGE, {})
+    return {
+        "currency": facility.currency,
+        "facility_type": facility.facility_type,
+        "dscr_centi": dscr.get("actual_centi", 0),
+        "dscr_threshold_centi": dscr.get("threshold_centi", 0),
+        "leverage_centi": leverage.get("actual_centi", 0),
+        "leverage_threshold_centi": leverage.get("threshold_centi", 0),
+        "ebitda_change_bps": changes[-1] if changes else 0,
+        "previous_ebitda_change_bps": changes[-2] if len(changes) > 1 else 0,
+        "consecutive_declines": declines,
+        "utilisation_bps": facility.drawn * 10_000 // facility.credit_limit,
+        "periods_tested": len(history),
+        "previous_breaches": sum(t.breached for t in earlier),
+        "previous_waivers": sum(t.waived_by is not None for t in earlier),
+    }
+
+
 def summary(db: Session) -> dict[str, Any]:
     def count(*where) -> int:
         return db.execute(select(func.count()).where(*where)).scalar_one()

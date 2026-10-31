@@ -547,6 +547,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
                      "facility.facility_number", "letter_of_credit.instrument_number",
                      "guarantee.instrument_number"}:  # fmt: skip
             known.update(_business_fixtures(db, kinds))
+        if kinds & {"counterparty.code", "treasury_deal.deal_number", "fx_long.currency"}:
+            known.update(_treasury_fixtures(db, kinds))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -558,6 +560,50 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         outsider=_person(db, RoleCode.AUDITOR),
         values=values,
     )
+
+
+def _treasury_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
+    """The synthetic counterparties, GBP cash for a placement, and if asked a settled GBP
+    placement maturing today and a long EUR position above its limit (Phase 39)."""
+    from app.modules.accounts.service import deposit
+    from app.modules.fx import service as fx
+    from app.modules.ledger import service as ledger
+    from app.modules.ledger.models import Direction
+    from app.modules.treasury import service as treasury
+
+    treasury.ensure_counterparties(db)
+    out = {"counterparty.code": "CP-NORTHGATE"}
+    clerk, manager = (
+        _person(db, RoleCode.BANKING_EMPLOYEE),
+        _person(db, RoleCode.DEPARTMENT_MANAGER),
+    )
+    # A GBP deposit of 20,000,000.00: cash for a placement, with coverage to spare.
+    _, account = _customer_and_account(db, True)
+    deposit(db, account.id, amount=2_000_000_000, memo="Generated test funds",
+            idempotency_key=f"wftest-treasury-{account.id}", actor_id=clerk.id)  # fmt: skip
+    if "treasury_deal.deal_number" in kinds:
+        start = datetime.now(UTC) - timedelta(days=30)
+        deal = treasury.book_deal(
+            db, counterparty=treasury.find_counterparty(db, "CP-NORTHGATE"), kind="placement",
+            currency=account.currency, principal=50_000_000, rate_bps=450, tenor_days=30,
+            booked_by=clerk.id, today=start.date(),
+        )  # fmt: skip
+        treasury.confirm_deal(db, deal, manager.id, now=start)
+        out["treasury_deal.deal_number"] = deal.deal_number
+    if "fx_long.currency" in kinds:
+        # The bank bought EUR 3,000,000.00: long, above the US$1m default limit.
+        memo = "Generated test position"
+        ledger.post_entry(
+            db, idempotency_key=f"wftest-fx-long-{uuid.uuid4()}", currency="EUR",
+            description=memo, source="test",
+            lines=[ledger.LineSpec(ledger.cash_account(db, "EUR").id, Direction.DEBIT,
+                                   300_000_000, memo),
+                   ledger.LineSpec(fx.position_account(db, "EUR").id, Direction.CREDIT,
+                                   300_000_000, memo)],
+            actor_id=None,
+        )  # fmt: skip
+        out["fx_long.currency"] = "EUR"
+    return out
 
 
 MORTGAGE_PRICE = 40_000_000  # 400,000.00 in the fixture customer's currency

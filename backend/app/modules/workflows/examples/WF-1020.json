@@ -1,0 +1,218 @@
+{
+  "workflow_id": "WF-1020",
+  "name": "FX Position Square-off",
+  "version": 1,
+  "description": "The FX desk reads its open position in a currency against the position limit. Over the limit, a dealer books an interbank spot trade at the day's mid rate that sells part of the long position; back office (treasury:confirm), someone other than the dealer, confirms it and both legs settle through the cash and position accounts. Otherwise the trade is cancelled. Stored definition: built only from library handlers (Phase 39).",
+  "business_owner": "Treasury",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "counterparty_code",
+      "sell_currency",
+      "buy_currency",
+      "sell_amount"
+    ],
+    "properties": {
+      "counterparty_code": {
+        "type": "string",
+        "pattern": "^CP-[A-Z]{2,16}$"
+      },
+      "sell_currency": {
+        "type": "string",
+        "pattern": "^[A-Z]{3}$",
+        "examples": [
+          "EUR"
+        ]
+      },
+      "buy_currency": {
+        "type": "string",
+        "pattern": "^[A-Z]{3}$",
+        "examples": [
+          "USD"
+        ]
+      },
+      "sell_amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000000,
+        "examples": [
+          50000000
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "book.trade_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.sell_currency",
+        "prefix": "SQR-"
+      },
+      "next": "check"
+    },
+    {
+      "id": "check",
+      "type": "service_task",
+      "name": "Read the position",
+      "handler": "treasury.fx_position",
+      "params": {
+        "currency_path": "input.sell_currency"
+      },
+      "next": "route_over"
+    },
+    {
+      "id": "route_over",
+      "type": "decision",
+      "name": "Over the limit?",
+      "transitions": [
+        {
+          "to": "book",
+          "when": {
+            "path": "check.over_limit",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "within_limit"
+    },
+    {
+      "id": "book",
+      "type": "service_task",
+      "name": "Book the spot trade",
+      "handler": "treasury.book_fx_trade",
+      "params": {
+        "counterparty_path": "input.counterparty_code",
+        "sell_currency_path": "input.sell_currency",
+        "buy_currency_path": "input.buy_currency",
+        "amount_path": "input.sell_amount"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "back_office"
+    },
+    {
+      "id": "back_office",
+      "type": "approval",
+      "name": "Back-office confirmation",
+      "description": "Back office, not the dealer, checks the trade against the counterparty's confirmation.",
+      "approval": {
+        "permissions": [
+          "treasury:confirm"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "settle",
+          "when": {
+            "path": "back_office.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "cancel"
+    },
+    {
+      "id": "settle",
+      "type": "service_task",
+      "name": "Settle both legs",
+      "handler": "treasury.confirm_fx_trade",
+      "params": {
+        "trade_id_path": "book.trade_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "cancel_unsettled",
+      "next": "squared"
+    },
+    {
+      "id": "cancel",
+      "type": "service_task",
+      "name": "Cancel the trade",
+      "handler": "treasury.cancel_fx_trade",
+      "params": {
+        "trade_id_path": "book.trade_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "cancelled"
+    },
+    {
+      "id": "cancel_unsettled",
+      "type": "service_task",
+      "name": "Cancel the trade",
+      "handler": "treasury.cancel_fx_trade",
+      "params": {
+        "trade_id_path": "book.trade_id",
+        "decided_by_path": "back_office.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "not_settled"
+    },
+    {
+      "id": "squared",
+      "type": "completion",
+      "name": "Position reduced",
+      "outcome": "approved"
+    },
+    {
+      "id": "within_limit",
+      "type": "completion",
+      "name": "Within the limit",
+      "outcome": "rejected"
+    },
+    {
+      "id": "cancelled",
+      "type": "completion",
+      "name": "Cancelled",
+      "outcome": "rejected"
+    },
+    {
+      "id": "not_settled",
+      "type": "completion",
+      "name": "Could not settle",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused at booking",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

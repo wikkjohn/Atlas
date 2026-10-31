@@ -1,0 +1,297 @@
+{
+  "workflow_id": "WF-1009",
+  "name": "Mortgage Application",
+  "version": 1,
+  "description": "A customer applies for a mortgage on a property the bank has valued. A decision in principle checks every lending rule (loan-to-value against the valuation, the valuation's age and method, affordability on declared income, income against the bureau's estimate, credit history, the property free of other offers and loans); an eligible application is recorded and an underwriter other than the person who took it decides. Approved, a 90-day offer is issued. Stored definition: built only from library handlers (Phase 33).",
+  "business_owner": "Mortgages",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "property_number",
+      "account_number",
+      "product_code",
+      "loan_amount",
+      "term_years",
+      "declared_monthly_income"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "property_number": {
+        "type": "string",
+        "pattern": "^PRP-[0-9]{7,}$"
+      },
+      "account_number": {
+        "type": "string",
+        "minLength": 6,
+        "maxLength": 34
+      },
+      "product_code": {
+        "type": "string",
+        "enum": [
+          "home-75",
+          "home-90"
+        ]
+      },
+      "loan_amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000,
+        "examples": [
+          10000000
+        ],
+        "description": "Minor units of the property's currency"
+      },
+      "term_years": {
+        "type": "integer",
+        "minimum": 5,
+        "maximum": 35,
+        "examples": [
+          25
+        ]
+      },
+      "declared_monthly_income": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000000000,
+        "examples": [
+          400000
+        ],
+        "description": "Gross monthly income the applicant declares, minor units"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "MAP-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "quote"
+    },
+    {
+      "id": "quote",
+      "type": "service_task",
+      "name": "Decision in principle",
+      "handler": "mortgages.quote",
+      "params": {
+        "customer_number_path": "input.customer_number",
+        "property_number_path": "input.property_number",
+        "account_number_path": "input.account_number",
+        "product_path": "input.product_code",
+        "loan_amount_path": "input.loan_amount",
+        "term_years_path": "input.term_years",
+        "income_path": "input.declared_monthly_income"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_eligible"
+    },
+    {
+      "id": "route_eligible",
+      "type": "decision",
+      "name": "Every rule passed?",
+      "transitions": [
+        {
+          "to": "apply",
+          "when": {
+            "path": "quote.eligible",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_ineligible"
+    },
+    {
+      "id": "apply",
+      "type": "service_task",
+      "name": "Record the application",
+      "handler": "mortgages.request_offer",
+      "params": {
+        "customer_number_path": "input.customer_number",
+        "property_number_path": "input.property_number",
+        "account_number_path": "input.account_number",
+        "product_path": "input.product_code",
+        "loan_amount_path": "input.loan_amount",
+        "term_years_path": "input.term_years",
+        "income_path": "input.declared_monthly_income"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "underwriting"
+    },
+    {
+      "id": "underwriting",
+      "type": "approval",
+      "name": "Underwrite the mortgage",
+      "description": "An underwriter other than the person who took the application decides (four-eyes).",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "issue",
+          "when": {
+            "path": "underwriting.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "decline"
+    },
+    {
+      "id": "issue",
+      "type": "service_task",
+      "name": "Issue the offer",
+      "handler": "mortgages.issue_offer",
+      "params": {
+        "offer_id_path": "apply.offer_id",
+        "decided_by_path": "underwriting.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_offered"
+    },
+    {
+      "id": "decline",
+      "type": "service_task",
+      "name": "Decline the application",
+      "handler": "mortgages.decline_offer",
+      "params": {
+        "offer_id_path": "apply.offer_id",
+        "decided_by_path": "underwriting.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_declined"
+    },
+    {
+      "id": "notify_offered",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your mortgage offer",
+        "body": "Dear {find_customer.name}, mortgage offer {apply.offer_number} is valid until {issue.expires_on}: monthly payment {apply.monthly_payment} (minor units of {quote.currency})."
+      },
+      "next": "offered"
+    },
+    {
+      "id": "notify_declined",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your mortgage application",
+        "body": "Dear {find_customer.name}, we cannot offer a mortgage on this application ({apply.offer_number})."
+      },
+      "next": "declined"
+    },
+    {
+      "id": "notify_ineligible",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your mortgage application",
+        "body": "Dear {find_customer.name}, we cannot offer this mortgage: {quote.failed_detail}"
+      },
+      "next": "ineligible"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "offered",
+      "type": "completion",
+      "name": "Offer issued",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "rejected"
+    },
+    {
+      "id": "ineligible",
+      "type": "completion",
+      "name": "Not eligible",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

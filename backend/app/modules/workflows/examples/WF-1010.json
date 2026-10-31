@@ -1,0 +1,228 @@
+{
+  "workflow_id": "WF-1010",
+  "name": "Mortgage Completion",
+  "version": 1,
+  "description": "A customer accepts a mortgage offer and asks to complete. Their acceptance is recorded; a colleague with underwriting authority other than the person who took the request reviews the completion before the loan is drawn down into the customer's account and charged on the property. Stored definition: built only from library handlers (Phase 33).",
+  "business_owner": "Mortgages",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "offer_number"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "offer_number": {
+        "type": "string",
+        "pattern": "^MOF-[0-9]{7,}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "MCP-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "find_offer"
+    },
+    {
+      "id": "find_offer",
+      "type": "service_task",
+      "name": "Find the offer",
+      "handler": "mortgages.lookup_offer",
+      "params": {
+        "offer_number_path": "input.offer_number",
+        "customer_id_path": "find_customer.customer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "route_status"
+    },
+    {
+      "id": "route_status",
+      "type": "decision",
+      "name": "Offer open?",
+      "transitions": [
+        {
+          "to": "accept",
+          "when": {
+            "path": "find_offer.status",
+            "op": "eq",
+            "value": "offered"
+          }
+        }
+      ],
+      "next": "notify_not_open"
+    },
+    {
+      "id": "accept",
+      "type": "service_task",
+      "name": "Record the acceptance",
+      "handler": "mortgages.accept_offer",
+      "params": {
+        "offer_id_path": "find_offer.offer_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "completion_review"
+    },
+    {
+      "id": "completion_review",
+      "type": "approval",
+      "name": "Review the completion",
+      "description": "A colleague with underwriting authority other than the person who took the request releases the funds (four-eyes).",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 172800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "complete",
+          "when": {
+            "path": "completion_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_held"
+    },
+    {
+      "id": "complete",
+      "type": "service_task",
+      "name": "Draw the loan down",
+      "handler": "mortgages.complete",
+      "params": {
+        "offer_id_path": "find_offer.offer_id",
+        "completed_by_path": "completion_review.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "notify_completed"
+    },
+    {
+      "id": "notify_completed",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your mortgage",
+        "body": "Dear {find_customer.name}, your mortgage {complete.loan_number} is complete: {complete.principal} (minor units of {complete.currency}) has been paid into your account."
+      },
+      "next": "completed"
+    },
+    {
+      "id": "notify_held",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your mortgage",
+        "body": "Dear {find_customer.name}, completion of offer {find_offer.offer_number} is on hold; we will contact you."
+      },
+      "next": "held"
+    },
+    {
+      "id": "notify_not_open",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your mortgage offer",
+        "body": "Dear {find_customer.name}, offer {find_offer.offer_number} is {find_offer.status} and cannot be completed."
+      },
+      "next": "not_open"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "completed",
+      "type": "completion",
+      "name": "Completed",
+      "outcome": "approved"
+    },
+    {
+      "id": "held",
+      "type": "completion",
+      "name": "On hold",
+      "outcome": "rejected"
+    },
+    {
+      "id": "not_open",
+      "type": "completion",
+      "name": "Offer not open",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

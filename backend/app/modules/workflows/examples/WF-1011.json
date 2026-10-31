@@ -1,0 +1,214 @@
+{
+  "workflow_id": "WF-1011",
+  "name": "Property Valuation Request",
+  "version": 1,
+  "description": "A customer registers the property they are buying and the bank values it with its automated model. When the model values it below 90 % of the price, a surveyor (mortgages:manage, not the person who took the request) inspects; confirmed, the surveyor's valuation at the price is recorded, otherwise the model's value stands. Stored definition: built only from library handlers (Phase 33).",
+  "business_owner": "Mortgages",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "property_type",
+      "purchase_price"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "property_type": {
+        "type": "string",
+        "enum": [
+          "house",
+          "flat"
+        ]
+      },
+      "purchase_price": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000000000000,
+        "examples": [
+          40000000
+        ],
+        "description": "Minor units of the customer's currency"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find_customer.name",
+    "risk_path": "find_customer.risk_rating"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "PVR-"
+      },
+      "next": "find_customer"
+    },
+    {
+      "id": "find_customer",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "rejected",
+      "next": "register"
+    },
+    {
+      "id": "register",
+      "type": "service_task",
+      "name": "Register the property",
+      "handler": "mortgages.register_property",
+      "params": {
+        "customer_number_path": "input.customer_number",
+        "property_type_path": "input.property_type",
+        "purchase_price_path": "input.purchase_price"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "notify_refused",
+      "next": "desktop"
+    },
+    {
+      "id": "desktop",
+      "type": "service_task",
+      "name": "Value with the automated model",
+      "handler": "mortgages.desktop_valuation",
+      "params": {
+        "property_number_path": "register.property_number"
+      },
+      "next": "route_value"
+    },
+    {
+      "id": "route_value",
+      "type": "decision",
+      "name": "Model value below 90 % of the price?",
+      "transitions": [
+        {
+          "to": "surveyor_review",
+          "when": {
+            "path": "desktop.value_to_price_bps",
+            "op": "lt",
+            "value": 9000
+          }
+        }
+      ],
+      "next": "notify_valued"
+    },
+    {
+      "id": "surveyor_review",
+      "type": "approval",
+      "name": "Surveyor inspection",
+      "description": "A surveyor other than the person who took the request inspects the property.",
+      "approval": {
+        "permissions": [
+          "mortgages:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 604800,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "confirm",
+          "when": {
+            "path": "surveyor_review.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "notify_valued"
+    },
+    {
+      "id": "confirm",
+      "type": "service_task",
+      "name": "Record the surveyor's valuation",
+      "handler": "mortgages.confirm_value",
+      "params": {
+        "property_number_path": "register.property_number",
+        "surveyor_path": "surveyor_review.actor_id"
+      },
+      "next": "notify_surveyed"
+    },
+    {
+      "id": "notify_valued",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your property valuation",
+        "body": "Dear {find_customer.name}, property {register.property_number} is valued at {desktop.value} (minor units of {desktop.currency})."
+      },
+      "next": "valued"
+    },
+    {
+      "id": "notify_surveyed",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your property valuation",
+        "body": "Dear {find_customer.name}, our surveyor valued property {register.property_number} at {confirm.value} (minor units of {confirm.currency})."
+      },
+      "next": "surveyed"
+    },
+    {
+      "id": "notify_refused",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "find_customer.customer_id",
+        "subject": "Your request",
+        "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+      },
+      "next": "refused"
+    },
+    {
+      "id": "valued",
+      "type": "completion",
+      "name": "Valued",
+      "outcome": "valued"
+    },
+    {
+      "id": "surveyed",
+      "type": "completion",
+      "name": "Surveyed",
+      "outcome": "surveyed"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "refused"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Unknown customer",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 30.
+Last updated: Phase 31.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -35,6 +35,38 @@ Last updated: Phase 30.
 | 28 | Global footprint, step 6: the 120-country sweep ([country-sweep.md](country-sweep.md)) — roadmap Milestone C complete | **Complete** |
 | 29 | Departments, step 1: retail banking ([retail-banking.md](retail-banking.md)) | **Complete** |
 | 30 | Departments, step 2: the retail workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 31 | Departments, step 3: cards ([cards.md](cards.md)) | **Complete** |
+
+## Phase 31: what exists
+
+- **Cards module** (`app/modules/cards/`, migration 0026): two debit products with daily
+  limits in USD converted per currency; synthetic card numbers (prefix 9999, Luhn check
+  digit), shown masked; at most two live cards per current account.
+- **Merchant terminal:** authorisation checks card status and expiry, account status,
+  the daily limit, funds (with any arranged overdraft) and four fraud rules. A score of
+  70 or more declines the purchase and blocks the card. Approved purchases post at once
+  to `CARD-SETTLEMENT-<ccy>`.
+- **Blocks:** tellers block; only `cards:manage` (new permission: department managers,
+  compliance officers) releases or cancels.
+- **Disputes:** 120 days, one live dispute per purchase, decided four-eyes (also a
+  database constraint); a chargeback refunds through card settlement.
+- **Workflow factory:** seven `cards.*` handlers (the chargeback moves money and the
+  release requires an approval), WF-1006 Debit Card Issue, WF-1007 Card Dispute and
+  Chargeback, WF-1008 Card Fraud Block Release; fixture kinds `blocked_card.card_number`
+  and `authorization.auth_code`.
+- **Cards page:** summary, cards with block and release, the terminal, recent purchases
+  with fraud scores, disputes with chargeback and rejection.
+
+## Phase 31: verified results
+
+RESULTS_PLACEHOLDER
+
+## Phase 31: known limitations
+
+- Debit cards only.
+- Single-message authorisation: approval and settlement happen together.
+- Purchases in the card's currency only.
+- No cards workload in the simulation and no AI fraud tool yet (Phase 32).
 
 ## Phase 30: what exists
 

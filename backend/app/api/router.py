@@ -30,6 +30,7 @@ from app.modules.organizations.router import router as organizations_router
 from app.modules.payments.router import router as payments_router
 from app.modules.retail.router import router as retail_router
 from app.modules.rules.router import router as rules_router
+from app.modules.trade.router import router as trade_router
 from app.modules.workflows import catalog  # noqa: F401  (registers every workflow)
 from app.modules.workflows.router import (
     authoring_router,
@@ -67,6 +68,7 @@ for module_router in (
     cards_router,
     mortgages_router,
     commercial_router,
+    trade_router,
     loans_router,
     definitions_router,
     authoring_router,

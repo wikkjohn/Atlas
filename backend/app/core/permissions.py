@@ -50,6 +50,11 @@ class Permission(StrEnum):
     WEALTH_ADVISE = "wealth:advise"
     WEALTH_APPROVE = "wealth:approve"
     WEALTH_CUSTODY = "wealth:custody"
+    # Compliance (Phase 45): read alerts, cases and reports; run monitoring, investigate and
+    # review KYC; file suspicious activity reports (never one's own).
+    COMPLIANCE_READ = "compliance:read"
+    COMPLIANCE_MONITOR = "compliance:monitor"
+    COMPLIANCE_FILE = "compliance:file"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -194,6 +199,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.PAYMENTS_REVIEW,
         Permission.CARDS_MANAGE,
         Permission.TRADE_MANAGE,
+        Permission.COMPLIANCE_READ,
+        Permission.COMPLIANCE_MONITOR,
+        Permission.COMPLIANCE_FILE,
     },
     RoleCode.AI_RESEARCHER: _BASE
     | {
@@ -211,6 +219,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.LEDGER_READ,
         Permission.JOBS_READ,
         Permission.OBSERVABILITY_READ,
+        Permission.COMPLIANCE_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {

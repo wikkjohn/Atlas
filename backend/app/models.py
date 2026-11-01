@@ -7,6 +7,7 @@ from app.modules.ai_tools import models as ai_tools  # noqa: F401
 from app.modules.cards import models as cards  # noqa: F401
 from app.modules.clearing import models as clearing  # noqa: F401
 from app.modules.commercial import models as commercial  # noqa: F401
+from app.modules.compliance import models as compliance  # noqa: F401
 from app.modules.countries import models as countries  # noqa: F401
 from app.modules.customers import models as customers  # noqa: F401
 from app.modules.employees import models as employees  # noqa: F401

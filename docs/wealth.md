@@ -103,6 +103,9 @@ unsuitable for each of these reasons:
   position. If it is no longer suitable, release is refused (rule `now_unsuitable`) and the
   order stays placed for a manager to approve or reject. WF-1025 v2 then sends it to the
   manager.
+- **Decisions record today's suitability.** When a manager approves or rejects a buy, its
+  suitability is checked again; an order that has become unsuitable is recorded as decided
+  against advice, so it counts in the customer's 90-day record.
 
 **Settlement:**
 

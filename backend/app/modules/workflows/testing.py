@@ -519,6 +519,7 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             "account.account_number" in kinds
             or "outgoing_payment.payment_number" in kinds
             or "portfolio.portfolio_number" in kinds
+            or bool(kinds & {"aml_alert.alert_number", "compliance_case.case_number"})
             or bool(kinds & (card_kinds | mortgage_kinds)),
             creditworthy=bool(kinds & mortgage_kinds),
         )
@@ -563,6 +564,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             )  # fmt: skip
             clearing.run_cycle(db, account.currency, None, only=[payment.id])
             known["outgoing_payment.payment_number"] = payment.payment_number
+        if kinds & {"aml_alert.alert_number", "compliance_case.case_number"}:
+            known.update(_compliance_fixtures(db, account, kinds))
         if kinds & {"portfolio.portfolio_number", "security.code"}:
             known.update(_wealth_fixtures(db, customer, account, kinds))
         if kinds & {"counterparty.code", "treasury_deal.deal_number", "fx_long.currency"}:
@@ -578,6 +581,32 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         outsider=_person(db, RoleCode.AUDITOR),
         values=values,
     )
+
+
+def _compliance_fixtures(db: Session, account, kinds: set[str]) -> dict[str, str]:
+    """An open structuring alert on the fixture account (three cash deposits of 90 % of the
+    reporting threshold), and if asked a case with a drafted report on another (Phase 45)."""
+    from app.modules.accounts.service import deposit
+    from app.modules.compliance import service as compliance
+
+    clerk = _person(db, RoleCode.BANKING_EMPLOYEE)
+    officer = _person(db, RoleCode.COMPLIANCE_OFFICER)
+
+    def structuring(target) -> Any:
+        near = compliance.threshold(target.currency) * 9 // 10
+        for n in range(3):
+            deposit(db, target.id, amount=near, memo="Generated test cash",
+                    idempotency_key=f"wftest-aml-{target.id}-{n}", actor_id=clerk.id)  # fmt: skip
+        compliance.run_monitoring(db, account_ids=[target.id])
+        return compliance.find_open_alert(db, target.id, "structuring")
+
+    out = {"aml_alert.alert_number": structuring(account).alert_number}
+    if "compliance_case.case_number" in kinds:
+        _, other = _customer_and_account(db, True)
+        case_row = compliance.open_case(db, structuring(other), officer.id)
+        compliance.draft_sar(db, case_row, officer.id)
+        out["compliance_case.case_number"] = case_row.case_number
+    return out
 
 
 def _wealth_fixtures(db: Session, customer, account, kinds: set[str]) -> dict[str, str]:

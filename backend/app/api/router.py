@@ -17,6 +17,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.cards.router import router as cards_router
 from app.modules.clearing.router import router as clearing_router
 from app.modules.commercial.router import router as commercial_router
+from app.modules.compliance.router import router as compliance_router
 from app.modules.countries.router import currencies_router
 from app.modules.countries.router import router as countries_router
 from app.modules.customers.router import router as customers_router
@@ -75,6 +76,7 @@ for module_router in (
     clearing_router,
     treasury_router,
     wealth_router,
+    compliance_router,
     loans_router,
     definitions_router,
     authoring_router,

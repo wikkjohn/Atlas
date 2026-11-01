@@ -1,0 +1,146 @@
+{
+  "workflow_id": "WF-1028",
+  "name": "Suspicious Activity Report Filing",
+  "version": 1,
+  "description": "A case's drafted suspicious activity report is filed with the (synthetic) financial intelligence unit after a second compliance officer (compliance:file), not the one who prepared it, approves it. Filing records the FIU reference, marks the case's alerts escalated and rates the customer high risk. Stored definition: built only from library handlers (Phase 45).",
+  "business_owner": "Financial Crime Compliance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "case_number"
+    ],
+    "properties": {
+      "case_number": {
+        "type": "string",
+        "pattern": "^CASE-[0-9]{7,}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find.case_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.case_number",
+        "prefix": "SAR-"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "next": "find"
+    },
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the case",
+      "handler": "compliance.lookup_case",
+      "params": {
+        "case_number_path": "input.case_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_draft"
+    },
+    {
+      "id": "route_draft",
+      "type": "decision",
+      "name": "A report to file?",
+      "transitions": [
+        {
+          "to": "approval",
+          "when": {
+            "path": "find.has_draft_sar",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "nothing_to_file"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the filing",
+      "description": "A second compliance officer, not the preparer, approves filing the report.",
+      "approval": {
+        "permissions": [
+          "compliance:file"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "file",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "not_filed"
+    },
+    {
+      "id": "file",
+      "type": "service_task",
+      "name": "File with the FIU",
+      "handler": "compliance.file_sar",
+      "params": {
+        "sar_id_path": "find.sar_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "filed"
+    },
+    {
+      "id": "filed",
+      "type": "completion",
+      "name": "Filed",
+      "outcome": "approved"
+    },
+    {
+      "id": "not_filed",
+      "type": "completion",
+      "name": "Not approved",
+      "outcome": "rejected"
+    },
+    {
+      "id": "nothing_to_file",
+      "type": "completion",
+      "name": "No report to file",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -481,6 +481,16 @@ and a suspicious activity report drafted. WF-1028 files a drafted report after a
 officer approves. WF-1029 opens a customer's periodic KYC review and records its outcome
 after a second officer approves. See [compliance.md](compliance.md).
 
+WF-1027 **v2** (Phase 46) reads the alert profile (`compliance.alert_profile`) after the case
+is opened and asks the AGB Alert Review Assistant (`ai.review`, advisory) before the second
+officer decides (`alert-triage`). Its outcome reads as the sign-off: `approved` when the case
+is closed with no action, `rejected` when it is escalated.
+
+**Restricted workflows** (Phase 46). A library handler can declare the permission needed to
+start a workflow using it, and to read that workflow's executions, through the API. The
+compliance handlers do (`compliance:monitor` to start, `compliance:read` to read); the
+execution list leaves out what the caller may not read.
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

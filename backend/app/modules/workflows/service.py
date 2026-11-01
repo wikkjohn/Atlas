@@ -1,12 +1,13 @@
 """Read models for the workflow API: definitions, executions, history, tasks, metrics."""
 
 import uuid
+from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import DomainError, NotFoundError
+from app.core.errors import DomainError, NotFoundError, PermissionDeniedError
 from app.core.pagination import PageParams, paginate
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
@@ -329,6 +330,7 @@ def list_executions(
     outcome: str | None = None,
     business_key: str | None = None,
     simulation_run_id: uuid.UUID | None = None,
+    hidden_workflows: set[str] | None = None,
 ) -> tuple[list[ExecutionSummary], int]:
     query = select(WorkflowExecution).order_by(
         WorkflowExecution.started_at.desc(), WorkflowExecution.id
@@ -350,9 +352,54 @@ def list_executions(
         query = query.where(WorkflowExecution.outcome == outcome)
     if business_key:
         query = query.where(WorkflowExecution.business_key == business_key)
+    if hidden_workflows:
+        query = query.where(WorkflowExecution.workflow_id.not_in(sorted(hidden_workflows)))
     items, total = paginate(db, query, params)
     names = _usernames(db, {e.initiated_by for e in items})
     return [_summary(db, e, names) for e in items], total
+
+
+def check_start_access(db: Session, workflow_id: str, version: int | None,
+                       permissions: Any) -> None:  # fmt: skip
+    """Refuse to start a workflow whose handlers need permissions the caller lacks (PR #36
+    review: e.g. compliance workflows)."""
+    from app.modules.workflows import library
+
+    definition = store.resolve(db, workflow_id, version)
+    if definition is None:
+        return  # the engine reports an unknown workflow
+    start, _ = library.access(definition)
+    missing = sorted(start - {str(p) for p in permissions})
+    if missing:
+        raise PermissionDeniedError(f"Starting {workflow_id} needs {', '.join(missing)}.")
+
+
+def check_read_access(db: Session, execution: WorkflowExecution, permissions: Any) -> None:
+    """Hide an execution whose workflow's handlers need permissions the caller lacks."""
+    from app.modules.workflows import library
+
+    definition = store.resolve(db, execution.workflow_id, execution.workflow_version)
+    if definition is None:
+        return
+    _, read = library.access(definition)
+    if read - {str(p) for p in permissions}:
+        raise NotFoundError("Workflow execution not found.")
+
+
+def unreadable_workflows(db: Session, permissions: Any) -> set[str]:
+    """Stored workflows whose executions a holder of `permissions` may not read."""
+    from sqlalchemy import Text, cast, or_
+
+    from app.modules.workflows import library
+
+    names = library.restricted_handlers({str(p) for p in permissions})
+    if not names:
+        return set()
+    text_ = cast(WorkflowDefinitionRecord.definition, Text)
+    return set(db.execute(
+        select(WorkflowDefinitionRecord.workflow_id).distinct()
+        .where(or_(*(text_.contains(f'"{name}"') for name in names)))
+    ).scalars())  # fmt: skip
 
 
 def get_execution(db: Session, execution_id: uuid.UUID) -> WorkflowExecution:

@@ -164,7 +164,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 45: four monitoring rules over customer accounts' ledger activity, alerts
       investigated in cases closed with four-eyes or escalated to suspicious activity
       reports filed by a second officer, periodic KYC reviews by risk rating; WF-1027–1029;
-      see `compliance.md`)
+      see `compliance.md`. Phase 46: the `alert-triage` workload and the alert review
+      assistant)
 - [ ] Risk: credit ratings, limits, provisioning (ECL)
 - [ ] Finance: GL close, regulatory reporting extracts, cost allocation
 - [ ] Customer service: contact-centre cases, complaints, SLA timers
@@ -263,4 +264,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 43 (D15) | Wealth and investments: synthetic securities, suitability profiles, portfolios in custody, orders with suitability checks, income; WF-1024–1026 | complete |
 | Phase 44 (D16) | Wealth, step 2: the `order-review` workload on stored WF-1025 v2, decided by wealth managers, and the AGB Suitability Review Assistant | complete |
 | Phase 45 (D17) | Compliance: AML transaction monitoring, alerts and cases, suspicious activity reports, periodic KYC reviews; WF-1027–1029 | complete |
-| Phase 46 (D18, proposed) | Compliance, step 2: an alert-triage workload on stored WF-1027 v2, decided by compliance officers, and an AI alert review assistant | next |
+| Phase 46 (D18) | Compliance, step 2: the `alert-triage` workload on stored WF-1027 v2, decided by compliance officers, and the AGB Alert Review Assistant | complete |
+| Phase 47 (D19, proposed) | Risk: credit ratings, limits, provisioning (ECL) | next |

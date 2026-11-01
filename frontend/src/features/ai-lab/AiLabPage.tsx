@@ -240,6 +240,23 @@ const SAMPLE_SUITABILITY = {
     refused_90d: 1,
   },
 };
+const SAMPLE_ALERT = {
+  profile: {
+    rule: "large_cash",
+    score: 80,
+    currency: "GBP",
+    amount: 2400000,
+    amount_x_threshold_pct: 302,
+    deposits: 4,
+    customer_type: "business",
+    customer_risk: "low",
+    credits: 2400000,
+    baseline_monthly_credits: 2300000,
+    activity_vs_baseline_pct: 104,
+    prior_alerts_365d: 3,
+    prior_reports_filed: 0,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -251,6 +268,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_back_office_check: SAMPLE_BACK_OFFICE,
   rule_based_recall_review: SAMPLE_RECALL,
   rule_based_suitability_review: SAMPLE_SUITABILITY,
+  rule_based_alert_review: SAMPLE_ALERT,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

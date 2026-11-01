@@ -135,6 +135,7 @@ def start_execution(
     idempotency_key: IdempotencyKey = None,
     version: Annotated[int | None, Query(ge=1)] = None,
 ):
+    service.check_start_access(db, workflow_id, version, actor.permissions)
     execution, replayed = engine.start(
         db,
         workflow_id=workflow_id,
@@ -479,7 +480,7 @@ def reactivate_template(
 def list_executions(
     db: DbSession,
     page: PageParamsDep,
-    _: Authorized(Permission.WORKFLOWS_READ),
+    actor: Authorized(Permission.WORKFLOWS_READ),
     workflow_id: Annotated[str | None, Query(max_length=20)] = None,
     status: ExecutionStatus | None = None,
     outcome: Annotated[str | None, Query(max_length=50)] = None,
@@ -497,6 +498,7 @@ def list_executions(
         outcome=outcome,
         business_key=business_key,
         simulation_run_id=simulation_run_id,
+        hidden_workflows=service.unreadable_workflows(db, actor.permissions),
     )
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
@@ -505,9 +507,11 @@ def list_executions(
     "/{execution_id}", response_model=ExecutionDetail, summary="Execution with every step run"
 )
 def get_execution(
-    execution_id: uuid.UUID, db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+    execution_id: uuid.UUID, db: DbSession, actor: Authorized(Permission.WORKFLOWS_READ)
 ) -> ExecutionDetail:
-    return service.execution_detail(db, service.get_execution(db, execution_id))
+    execution = service.get_execution(db, execution_id)
+    service.check_read_access(db, execution, actor.permissions)
+    return service.execution_detail(db, execution)
 
 
 @executions_router.get(
@@ -516,9 +520,9 @@ def get_execution(
     summary="Append-only event history",
 )
 def get_history(
-    execution_id: uuid.UUID, db: DbSession, _: Authorized(Permission.WORKFLOWS_READ)
+    execution_id: uuid.UUID, db: DbSession, actor: Authorized(Permission.WORKFLOWS_READ)
 ) -> list[WorkflowEventOut]:
-    service.get_execution(db, execution_id)
+    service.check_read_access(db, service.get_execution(db, execution_id), actor.permissions)
     return service.history(db, execution_id)
 
 
@@ -533,6 +537,7 @@ def send_signal(
     db: DbSession,
     actor: Authorized(Permission.WORKFLOWS_START),
 ) -> ExecutionDetail:
+    service.check_read_access(db, service.get_execution(db, execution_id), actor.permissions)
     execution = engine.signal(db, execution_id, body.signal, body.payload, actor.id)
     return service.execution_detail(db, execution)
 

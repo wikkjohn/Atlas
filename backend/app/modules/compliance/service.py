@@ -141,9 +141,12 @@ def run_monitoring(db: Session, *, window_end: date | None = None, days: int = 3
         select(Customer.id, Customer.risk_rating)
         .where(Customer.id.in_({c for c, _ in owners.values()}))
     ).tuples().all()) if owners else {}  # fmt: skip
+    # Skipped: an open or investigated alert for the rule, or any alert for the same window
+    # (a resolved one is not raised again on a rerun: PR #36 review).
     open_rules = set(db.execute(
         select(AmlAlert.account_id, AmlAlert.rule)
-        .where(AmlAlert.account_id.in_(list(owners)), AmlAlert.status.in_(OPEN_ALERTS))
+        .where(AmlAlert.account_id.in_(list(owners)),
+               AmlAlert.status.in_(OPEN_ALERTS) | (AmlAlert.window_end == window_end))
     ).tuples().all()) if owners else set()  # fmt: skip
     for account_id in sorted(activity, key=str):
         customer_id, currency = owners[account_id]
@@ -198,6 +201,49 @@ def dismiss_alert(db: Session, alert: AmlAlert, actor_id: uuid.UUID, note: str) 
     return alert
 
 
+def alert_profile(db: Session, alert: AmlAlert, today: date | None = None) -> dict[str, Any]:
+    """What an investigating officer weighs before closing an alert's case with no action
+    (Phase 46): the rule and its score, the amount against the threshold, the customer's type
+    and risk rating, the window's money in against the account's own baseline (the average
+    month of the 90 days before the window), and the customer's earlier alerts and filed
+    reports in the last 365 days."""
+    today = _today(today)
+    customer = db.get(Customer, alert.customer_id)
+    account = db.get(Account, alert.account_id)
+    limit = threshold(alert.currency)
+    base_end = alert.window_start - timedelta(days=1)
+    base_start = base_end - timedelta(days=89)
+    baseline = db.execute(
+        select(func.coalesce(func.sum(JournalLine.amount), 0))
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(JournalLine.ledger_account_id == account.ledger_account_id,
+               JournalLine.direction == Direction.CREDIT,
+               JournalEntry.effective_date.between(base_start, base_end))
+    ).scalar_one()  # fmt: skip
+    monthly = int(baseline) * 30 // 90
+    credits = int(alert.details.get("credits", 0))
+    since = today - timedelta(days=365)
+    earlier = db.execute(
+        select(func.count()).select_from(AmlAlert)
+        .where(AmlAlert.customer_id == alert.customer_id, AmlAlert.id != alert.id,
+               AmlAlert.window_end >= since, AmlAlert.window_end < alert.window_end)
+    ).scalar_one()  # fmt: skip
+    filed = db.execute(
+        select(func.count()).select_from(SuspiciousActivityReport)
+        .where(SuspiciousActivityReport.customer_id == alert.customer_id,
+               SuspiciousActivityReport.status == SarStatus.FILED)
+    ).scalar_one()  # fmt: skip
+    return {
+        "rule": alert.rule, "score": alert.score, "currency": alert.currency,
+        "amount": alert.amount, "amount_x_threshold_pct": alert.amount * 100 // max(limit, 1),
+        "deposits": len(alert.details.get("deposits", [])),
+        "customer_type": customer.customer_type, "customer_risk": customer.risk_rating,
+        "credits": credits, "baseline_monthly_credits": monthly,
+        "activity_vs_baseline_pct": min(credits * 100 // max(monthly, 1), 99_999),
+        "prior_alerts_365d": earlier, "prior_reports_filed": filed,
+    }  # fmt: skip
+
+
 # --- Cases ------------------------------------------------------------------------------------
 
 
@@ -225,7 +271,11 @@ def case_alerts(db: Session, case_row: ComplianceCase) -> list[AmlAlert]:
 
 def open_case(db: Session, alert: AmlAlert, opened_by: uuid.UUID) -> ComplianceCase:
     """Investigate an alert: a case for its customer, taking in every open alert of theirs.
-    If a case is already under way for the customer, the alerts join it."""
+    If a case is being investigated for the customer, the alerts join it; while one has a
+    drafted report, new alerts wait until it is filed."""
+    # The customer is locked first, so two officers investigating the same customer's alerts
+    # take their locks in one order and cannot deadlock (PR #36 review).
+    db.execute(select(Customer.id).where(Customer.id == alert.customer_id).with_for_update())
     alert = get_alert(db, alert.id, for_update=True)
     if alert.status != AlertStatus.OPEN:
         raise ConflictError(f"{alert.alert_number} is {alert.status}.")
@@ -235,6 +285,12 @@ def open_case(db: Session, alert: AmlAlert, opened_by: uuid.UUID) -> ComplianceC
             ComplianceCase.status.in_([CaseStatus.INVESTIGATING, CaseStatus.SAR_DRAFTED]))
         .with_for_update()
     ).scalar_one_or_none()  # fmt: skip
+    if existing is not None and existing.status == CaseStatus.SAR_DRAFTED:
+        # Its report is drafted and would not cover the new alert (PR #36 review).
+        raise BusinessRuleViolation(
+            f"{existing.case_number}'s report is drafted; investigate this alert once it is filed.",
+            {"rule": "report_pending", "case_number": existing.case_number},
+        )
     if existing is None:
         number = f"CASE-{db.execute(CASE_SEQUENCE.next_value()).scalar_one():07d}"
         existing = ComplianceCase(case_number=number, customer_id=alert.customer_id,

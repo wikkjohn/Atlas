@@ -37,12 +37,20 @@ export function useBatches() {
   return useQuery({ queryKey: ["payment-ops", "batches"], queryFn: () => apiGet<Page<ClearingBatch>>(`/api/v1/payment-ops/batches${query({ limit: 10 })}`) });
 }
 
-export function useBulkFiles() {
-  return useQuery({ queryKey: ["payment-ops", "bulk"], queryFn: () => apiGet<Page<BulkFile>>(`/api/v1/payment-ops/bulk${query({ limit: 10 })}`) });
+export function useBulkFiles(offset = 0) {
+  return useQuery({
+    queryKey: ["payment-ops", "bulk", offset],
+    queryFn: () => apiGet<Page<BulkFile>>(`/api/v1/payment-ops/bulk${query({ limit: OPS_PAGE, offset })}`),
+    placeholderData: keepPreviousData,
+  });
 }
 
-export function useRecalls() {
-  return useQuery({ queryKey: ["payment-ops", "recalls"], queryFn: () => apiGet<Page<Recall>>(`/api/v1/payment-ops/recalls${query({ limit: 25 })}`) });
+export function useRecalls(offset = 0) {
+  return useQuery({
+    queryKey: ["payment-ops", "recalls", offset],
+    queryFn: () => apiGet<Page<Recall>>(`/api/v1/payment-ops/recalls${query({ limit: OPS_PAGE, offset })}`),
+    placeholderData: keepPreviousData,
+  });
 }
 
 export interface OutgoingRequest {

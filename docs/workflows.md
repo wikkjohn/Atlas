@@ -331,6 +331,7 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `clearing.release_bulk` | writes (approval required) | `bulk_id_path`, `decided_by_path` | releases a file: each valid line becomes a payment (Phase 41) |
 | `clearing.reject_bulk` | writes | `bulk_id_path`, `decided_by_path`, `note` | rejects a file (Phase 41) |
 | `clearing.lookup_outgoing` | reads | `payment_number_path` | an outgoing payment and its status (Phase 41) |
+| `clearing.recall_profile` | reads | `recall_id_path` | what back office weighs before sending a recall: the window left, size, duplicates, payee history, the payer's recalls (Phase 42) |
 | `clearing.request_recall` | writes | `payment_id_path`, `reason_path` | records a recall (Phase 41) |
 | `clearing.approve_recall` | writes (approval required) | `recall_id_path`, `decided_by_path` | cancels a payment not yet cleared, or sends the recall; reports `sent` (Phase 41) |
 | `clearing.withdraw_recall` | writes | `recall_id_path`, `decided_by_path` | withdraws a recall (Phase 41) |
@@ -455,6 +456,10 @@ second person's approval when high value. WF-1022 receives a bulk payment file a
 second person release or reject it. WF-1023 records a recall, has a second person approve
 it, and records the beneficiary bank's answer. See
 [payments-operations.md](payments-operations.md).
+
+WF-1023 **v2** (Phase 42) reads the recall profile (`clearing.recall_profile`) after the recall
+is recorded and asks the AGB Recall Assistant (`ai.review`, advisory) before back office
+decides (`recall-triage`).
 
 ### Authoring
 

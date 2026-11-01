@@ -152,7 +152,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 41: payments to synthetic banks with check-digit accounts and four-eyes for
       high value, clearing cycles that pay out or return, bulk files released with
       four-eyes, recalls answered by reason and time since settlement; WF-1021–1023; see
-      `payments-operations.md`)
+      `payments-operations.md`. Phase 42: the `recall-triage` workload and the recall
+      assistant)
 - [ ] Wealth and investments: synthetic securities, custody, suitability
 - [ ] Compliance: AML monitoring, case management, SAR filing, periodic KYC refresh
 - [ ] Risk: credit ratings, limits, provisioning (ECL)
@@ -249,4 +250,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 39 (D11) | Treasury and markets: interbank placements and borrowings under counterparty limits, 30-day liquidity coverage, FX position limits and square-off trades; WF-1018–1020 | complete |
 | Phase 40 (D12) | Treasury, step 2: the `deal-confirmations` workload on stored WF-1018 v2, decided by back office, and the AGB Back-Office Check Assistant | complete |
 | Phase 41 (D13) | Payments operations: outgoing payments to synthetic banks, clearing cycles with returns, bulk payment files, recalls; WF-1021–1023 | complete |
-| Phase 42 (D14, proposed) | Payments operations, step 2: a recall-triage workload on stored WF-1023 v2 and an AI recall assistant | next |
+| Phase 42 (D14) | Payments operations, step 2: the `recall-triage` workload on stored WF-1023 v2, decided by back office, and the AGB Recall Assistant | complete |
+| Phase 43 (D15, proposed) | Wealth and investments: synthetic securities, custody, suitability | next |

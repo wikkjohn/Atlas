@@ -43,3 +43,15 @@ test("Payments operations: a payment to another bank clears, is recalled and com
   await expect(paymentRow.getByText("Recalled")).toBeVisible();
   await opsContext.close();
 });
+
+test("AI Innovation Lab: the recall assistant would send a serial recaller's request (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Recall Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Recall Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

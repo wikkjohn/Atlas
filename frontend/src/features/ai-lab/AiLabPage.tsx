@@ -202,6 +202,22 @@ const SAMPLE_BACK_OFFICE = {
     same_day_duplicates: 1,
   },
 };
+/** A customer request from a payer with four recent recalls, three refused: the recall assistant's blind spot (Phase 42). */
+const SAMPLE_RECALL = {
+  profile: {
+    reason_code: "CUST",
+    currency: "GBP",
+    amount: 250000,
+    high_value: false,
+    days_since_settlement: 2,
+    window_days: 5,
+    days_left: 3,
+    duplicate_matches: 0,
+    payee_history: 0,
+    payer_recalls_90d: 4,
+    payer_refused_90d: 3,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -211,6 +227,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_covenant_review: SAMPLE_COVENANT,
   rule_based_document_check: SAMPLE_DOCUMENT_CHECK,
   rule_based_back_office_check: SAMPLE_BACK_OFFICE,
+  rule_based_recall_review: SAMPLE_RECALL,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

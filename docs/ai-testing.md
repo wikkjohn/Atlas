@@ -422,6 +422,56 @@ assumptions; one run each):
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
 
+## WF-1023 v2 and the recall assistant (Phase 42)
+
+WF-1023 v2 is a stored workflow. After a recall of an outgoing payment is recorded, it reads
+the recall profile (`clearing.recall_profile`) and asks the assistant through `ai.review`
+before back office (`payments:approve`) decides whether to send the recall or withdraw it.
+Back office always decides, so the scenario runs baseline and AI assisted only. Each case's
+payment, the payer's earlier payments and earlier recalls run through the real clearing
+service before the run.
+
+What the assistant (`rule_based_recall_review`) weighs:
+- **Withdraw:**
+  - a recall outside its reason's window;
+  - a "duplicate" with no matching payment (same payer, account and amount within three
+    days);
+  - a fraud claim against a beneficiary the payer has paid three or more times before.
+- **Concerns:** two days or fewer of the window left; a high-value payment.
+
+Its **blind spot** is the payer. The profile counts the payer's recalls in the last 90 days
+and how many were refused, and the assistant never reads either count. So a customer who
+recalls payment after payment looks like a first, reasonable request and is recommended for
+sending.
+
+What `recall-triage` v1 measured (seed 2030, 300 recalls, 12 staff, default assumptions;
+one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 82.0 % | 94.0 % |
+| Wrongly sent | 31 | 16 |
+| Wrongly withdrawn | 23 | 2 |
+| Serial recallers' requests sent (of 52) | 9 | 10 |
+| Review labour hours | 73.6 | 48.2 |
+| Median cycle time (hours) | 2.8 | 0.5 |
+| Tool's recommendation accuracy | — | 80 % (37 escalated) |
+
+**Where the assistant helps:**
+- Genuine duplicates and fast fraud reports wrongly withdrawn fall from 23 to 2.
+- Claimed duplicates with no match and fraud claims against established payees are never
+  sent (16 in the baseline).
+- Back-office time falls by about a third.
+
+**Where it does not:**
+- The assistant recommends sending all 52 serial recallers' requests. The simulated back
+  office, following it, sends 10 rather than 9.
+- Late technical recalls of high-value payments are escalated, which leaves back office
+  where the baseline was: 6 sent either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

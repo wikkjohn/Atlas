@@ -1,0 +1,144 @@
+{
+  "workflow_id": "WF-1034",
+  "name": "Regulatory Report Submission",
+  "version": 1,
+  "description": "Finance extracts a regulatory report for a closed month: the balance sheet, the income statement, large exposures (obligors of US$10,000 or more) or credit quality (the latest posted ECL run by stage). Someone other than the preparer (finance:approve) submits it to the synthetic regulator, which records a reference, or rejects it; one report of a type is submitted per month. Stored definition: built only from library handlers (Phase 49).",
+  "business_owner": "Finance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "report_type",
+      "period"
+    ],
+    "properties": {
+      "report_type": {
+        "type": "string",
+        "enum": [
+          "balance_sheet",
+          "income_statement",
+          "large_exposures",
+          "credit_quality"
+        ],
+        "examples": [
+          "balance_sheet"
+        ]
+      },
+      "period": {
+        "type": "string",
+        "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+        "examples": [
+          "2026-09"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "prepare.report_number"
+  },
+  "start": "prepare",
+  "steps": [
+    {
+      "id": "prepare",
+      "type": "service_task",
+      "name": "Extract the report",
+      "handler": "finance.prepare_report",
+      "params": {
+        "report_type_path": "input.report_type",
+        "period_path": "input.period"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the submission",
+      "description": "Someone other than the preparer reviews the report and submits it.",
+      "approval": {
+        "permissions": [
+          "finance:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "submit",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "submit",
+      "type": "service_task",
+      "name": "Submit to the regulator",
+      "handler": "finance.submit_report",
+      "params": {
+        "report_id_path": "prepare.report_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the report",
+      "handler": "finance.reject_report",
+      "params": {
+        "report_id_path": "prepare.report_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Report not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Submitted",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

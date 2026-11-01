@@ -60,6 +60,9 @@ class Permission(StrEnum):
     RISK_READ = "risk:read"
     RISK_RATE = "risk:rate"
     RISK_APPROVE = "risk:approve"
+    FINANCE_READ = "finance:read"
+    FINANCE_CLOSE = "finance:close"  # prepare closes and reports, record and allocate costs
+    FINANCE_APPROVE = "finance:approve"  # approve closes and allocations, submit reports
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -161,6 +164,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     | {
         Permission.RISK_READ,
         Permission.RISK_APPROVE,
+        Permission.FINANCE_READ,
+        Permission.FINANCE_APPROVE,
         Permission.EMPLOYEES_READ_COMPENSATION,
         Permission.USERS_READ,
         Permission.LEDGER_READ,
@@ -171,6 +176,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     | {
         Permission.RISK_READ,
         Permission.RISK_APPROVE,
+        Permission.FINANCE_READ,
+        Permission.FINANCE_APPROVE,
         Permission.EMPLOYEES_READ_COMPENSATION,
         Permission.LOANS_APPROVE_LARGE,
         Permission.TREASURY_LIMITS,
@@ -195,6 +202,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.WEALTH_CUSTODY,
         Permission.RISK_READ,
         Permission.RISK_RATE,
+        Permission.FINANCE_READ,
+        Permission.FINANCE_CLOSE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE
@@ -233,6 +242,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.OBSERVABILITY_READ,
         Permission.COMPLIANCE_READ,
         Permission.RISK_READ,
+        Permission.FINANCE_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 48.
+Last updated: Phase 49.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -53,6 +53,78 @@ Last updated: Phase 48.
 | 46 | Departments, step 18: the compliance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 47 | Departments, step 19: risk ([risk.md](risk.md)) | **Complete** |
 | 48 | Departments, step 20: the risk workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 49 | Departments, step 21: finance ([finance.md](finance.md)) | **Complete** |
+
+## Phase 49: what exists
+
+- **Finance module** (`app/modules/finance/`, migration 0035).
+- **Month-end close:**
+  - Preparing a close checks the ledger as of the month's end: the month is over, debits
+    equal credits in every currency, and a reconciliation has passed since (the close runs an
+    incremental one if none has). ECL provisions posted is an advisory check.
+  - It also measures each currency's income, expense and net result not yet closed.
+  - A second person closes the month (also a database constraint). Closing brings every
+    income and expense account to zero against retained earnings, dated the month's end.
+  - Months are prepared and closed in order. An entry backdated into a closed month is taken
+    up by the next close.
+- **Regulatory reports** for a closed month, downloadable as CSV:
+  - balance sheet (checked to balance) and income statement, by currency;
+  - large exposures (obligors of US$10,000 or more) and credit quality (the latest posted ECL
+    run);
+  - submitted by a second person to a synthetic regulator with a reference, one of a type per
+    month.
+- **Shared costs and allocation:**
+  - Shared operating costs are paid from cash into a pool per currency.
+  - An allocation splits a month's pool across departments by active headcount, by largest
+    remainder.
+  - A second person posts it to the departments' cost centres while the month is open, if the
+    pool has not changed since the split.
+- **Permissions:**
+  - `finance:read`: executives, department managers and auditors;
+  - `finance:close`: department managers;
+  - `finance:approve`: global and regional executives.
+- **Workflow factory:** nine `finance.*` handlers and three workflows:
+  - WF-1033 Month-End Close
+  - WF-1034 Regulatory Report Submission
+  - WF-1035 Cost Allocation
+
+  The handlers need `finance:close` to start a workflow and `finance:read` to read its
+  executions. The generated tests get their data from new fixture kinds: the next month that
+  can close, that month closed, and this month with a shared cost.
+- **Finance page:** summary, closes with their checks and results, reports with their rows
+  and CSV, shared costs and allocations.
+- **PR #39 (Phase 48)** had no review comments.
+
+## Phase 49: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 659 passed (new: 6 — periods and the largest-remainder split; a close refused before the month ends, prepared with its own reconciliation, four-eyes, the closing entry to retained earnings, months in order and a late entry taken up by the next close; reports for a closed month only, a balanced balance sheet, income statement, large exposures, credit quality and CSV, four-eyes and one submission per type and month; an allocation three to one by headcount, four-eyes, refused when the pool changed, and posted to cost centres; months approved in order; the API with its permissions) |
+| Migration 0035 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 45 workflows, 804 cases, 0 failed (WF-1033, WF-1034, WF-1035: 10 cases each, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 136 passed (new: 3 — closes with checks and results, report rows and allocations; preparing and approving a close, extracting and submitting a report, recording a cost and posting an allocation; read-only with `finance:read`) / clean / built |
+| Playwright on a fresh database | 52 passed (new: a manager prepares last month's close, a balance sheet and a cost split; a regional executive closes, submits and posts) |
+
+Found while building it:
+- **Self-review:** approving a later month before an earlier prepared one would have left
+  the earlier month's result to be closed twice. Approval now enforces the order too. The
+  new test fails without the check and passes with it.
+- **Headcount query:** the first version grouped by the department entity, which pulls in an
+  eagerly joined country, and PostgreSQL refused it. It now groups by department id.
+- **Test errors:** a missing Idempotency-Key gives 422 in this API, not 400 as the first test
+  expected. The test tree has two departments both called "Onboarding", so allocation lines
+  are matched by id.
+- **Reconciliation at close:** the close first required a reconciliation to have run since
+  the month's end. It now runs one itself when none has, so a close works in the demo and in
+  the generated tests.
+
+## Phase 49: known limitations
+
+- **No hard lock:** a closed month accepts backdated entries; the next close takes them up.
+- **Large exposures from today's balances,** not as of the month's end.
+- **One allocation driver** (headcount), and shared costs recorded by hand.
+- **A synthetic regulator:** submitting records a reference; nothing is sent.
+- **No simulation yet:** there is no finance workload or AI tool yet (Phase 50).
 
 ## Phase 48: what exists
 

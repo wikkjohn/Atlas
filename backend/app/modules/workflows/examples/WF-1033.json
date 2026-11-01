@@ -1,0 +1,130 @@
+{
+  "workflow_id": "WF-1033",
+  "name": "Month-End Close",
+  "version": 1,
+  "description": "Finance prepares a month's close: the ledger is checked as of the month's end (the month is over, debits equal credits in every currency, a reconciliation has passed since \u2014 the close runs one if none has \u2014 and, advisory, an ECL provision run was posted) and each currency's result measured. Someone other than the preparer (finance:approve) closes the month, which brings every income and expense account to zero against retained earnings dated its end, or rejects the close. Months close in order. Stored definition: built only from library handlers (Phase 49).",
+  "business_owner": "Finance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "period"
+    ],
+    "properties": {
+      "period": {
+        "type": "string",
+        "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+        "examples": [
+          "2026-09"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "prepare.close_number"
+  },
+  "start": "prepare",
+  "steps": [
+    {
+      "id": "prepare",
+      "type": "service_task",
+      "name": "Prepare the close",
+      "handler": "finance.prepare_close",
+      "params": {
+        "period_path": "input.period"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the close",
+      "description": "Someone other than the preparer reviews the checks and result and closes the month.",
+      "approval": {
+        "permissions": [
+          "finance:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Close the month",
+      "handler": "finance.approve_close",
+      "params": {
+        "close_id_path": "prepare.close_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the close",
+      "handler": "finance.reject_close",
+      "params": {
+        "close_id_path": "prepare.close_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Close not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Closed",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

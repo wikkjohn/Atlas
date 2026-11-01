@@ -20,6 +20,7 @@ import {
   Gem,
   ShieldAlert,
   Scale,
+  Landmark,
   PlayCircle,
   ScrollText,
   Settings,
@@ -41,7 +42,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 47;
+export const IMPLEMENTED_PHASE = 49;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -63,6 +64,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Wealth", path: "/wealth", icon: Gem, phase: 43, permission: "accounts:read" },
   { label: "Compliance", path: "/compliance", icon: ShieldAlert, phase: 45, permission: "compliance:read" },
   { label: "Risk", path: "/risk", icon: Scale, phase: 47, permission: "risk:read" },
+  { label: "Finance", path: "/finance", icon: Landmark, phase: 49, permission: "finance:read" },
   { label: "Foreign Exchange", path: "/fx", icon: CandlestickChart, phase: 24, permission: "payments:read" },
   { label: "Lending", path: "/lending", icon: HandCoins, phase: 9, permission: "loans:read" },
   { label: "Mortgages", path: "/mortgages", icon: House, phase: 33, permission: "loans:read" },

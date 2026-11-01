@@ -166,7 +166,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       reports filed by a second officer, periodic KYC reviews by risk rating; WF-1027–1029;
       see `compliance.md`. Phase 46: the `alert-triage` workload and the alert review
       assistant)
-- [ ] Risk: credit ratings, limits, provisioning (ECL)
+- [x] Risk: credit ratings, limits, provisioning (ECL)
+      (Phase 47: a ten-grade internal scale with a model grade from KYC rating and
+      arrears, overrides approved by a second person, obligor limits against exposure in
+      US dollars, IFRS 9 staged ECL posted to the ledger by a second person; WF-1030–1032;
+      see `risk.md`)
 - [ ] Finance: GL close, regulatory reporting extracts, cost allocation
 - [ ] Customer service: contact-centre cases, complaints, SLA timers
 - [ ] Collections and recoveries: payment plans, recoveries (extends WF-0004)
@@ -265,4 +269,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 44 (D16) | Wealth, step 2: the `order-review` workload on stored WF-1025 v2, decided by wealth managers, and the AGB Suitability Review Assistant | complete |
 | Phase 45 (D17) | Compliance: AML transaction monitoring, alerts and cases, suspicious activity reports, periodic KYC reviews; WF-1027–1029 | complete |
 | Phase 46 (D18) | Compliance, step 2: the `alert-triage` workload on stored WF-1027 v2, decided by compliance officers, and the AGB Alert Review Assistant | complete |
-| Phase 47 (D19, proposed) | Risk: credit ratings, limits, provisioning (ECL) | next |
+| Phase 47 (D19) | Risk: internal credit ratings with four-eyes overrides, obligor limits against exposure, IFRS 9 ECL provisioning posted to the ledger; WF-1030–1032 | complete |
+| Phase 48 (D20, proposed) | Risk, step 2: a `rating-overrides` workload on stored WF-1030 v2, decided by risk approvers, and an AGB Rating Review Assistant | next |

@@ -1,0 +1,125 @@
+{
+  "workflow_id": "WF-1032",
+  "name": "ECL Provisioning Run",
+  "version": 1,
+  "description": "Credit risk measures the loan book's expected credit loss as of today by IFRS 9 stage (loans, mortgages, commercial facilities and overdrafts), and someone other than the calculator (risk:approve) posts it, bringing each currency's loss allowance to the run's ECL through impairment, or rejects it. Stored definition: built only from library handlers (Phase 47).",
+  "business_owner": "Credit Risk",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "note": {
+        "type": "string",
+        "maxLength": 200,
+        "examples": [
+          "Month-end provisioning"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "calculate.run_number"
+  },
+  "start": "calculate",
+  "steps": [
+    {
+      "id": "calculate",
+      "type": "service_task",
+      "name": "Calculate the ECL",
+      "handler": "risk.calculate_provisions",
+      "params": {},
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the posting",
+      "description": "Someone other than the calculator approves posting the run.",
+      "approval": {
+        "permissions": [
+          "risk:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "post",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "post",
+      "type": "service_task",
+      "name": "Post to the ledger",
+      "handler": "risk.post_provisions",
+      "params": {
+        "run_id_path": "calculate.run_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "posted"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the run",
+      "handler": "risk.reject_provisions",
+      "params": {
+        "run_id_path": "calculate.run_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Provisioning run not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "posted",
+      "type": "completion",
+      "name": "Posted",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

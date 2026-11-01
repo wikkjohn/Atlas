@@ -491,6 +491,15 @@ start a workflow using it, and to read that workflow's executions, through the A
 compliance handlers do (`compliance:monitor` to start, `compliance:read` to read); the
 execution list leaves out what the caller may not read.
 
+### WF-1030, WF-1031 and WF-1032: risk (Phase 47)
+
+The risk base processes. WF-1030 rates an obligor; a grade other than the model's is
+approved or rejected by a second person (`risk:approve`). WF-1031 reads the obligor's
+grade, limit and exposure (`risk.obligor_profile`) and sets a new limit after approval.
+WF-1032 calculates an ECL provisioning run; the approver posts it to the ledger (money
+moves only behind the approval) or rejects it. The risk handlers need `risk:rate` to start
+and `risk:read` to read executions. See [risk.md](risk.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

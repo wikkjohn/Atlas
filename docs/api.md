@@ -358,6 +358,26 @@ See [compliance.md](compliance.md). Amounts are minor units of the account's cur
 | POST | `/api/v1/compliance/reviews/{id}/complete` | `compliance:monitor` | `{risk_rating, note?}`: confirmed, raised or lowered |
 | GET | `/api/v1/compliance/summary/counts` | `compliance:read` | Open alerts and cases, reports to file and filed, reviews due and overdue |
 
+### Risk (Phase 47)
+
+See [risk.md](risk.md). Exposure amounts are minor units of their currency; `_usd` fields are whole US dollars.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/risk/obligors/{customer_number}` | `risk:read` | Grade and PD, limit (set or by grade), exposures, exposure and excess in US dollars |
+| GET | `/api/v1/risk/breaches` | `risk:read` | Obligors above their limit, largest excess first |
+| GET | `/api/v1/risk/ratings` | `risk:read` | Newest first |
+| POST | `/api/v1/risk/ratings` | `risk:rate` | `{customer_number, grade?, rationale?}`: the model's grade (approved), or another with a rationale (pending; 422 rule `rationale_required`); 201 |
+| POST | `/api/v1/risk/ratings/{id}/approve` | `risk:approve` | Not by the rater (422 rule `four_eyes`) |
+| POST | `/api/v1/risk/ratings/{id}/reject` | `risk:approve` | Not by the rater |
+| PUT | `/api/v1/risk/limits` | `risk:approve` | `{customer_number, limit_usd, note?}`: returns the obligor |
+| GET | `/api/v1/risk/provisions` | `risk:read` | Runs, newest first, with totals per currency |
+| POST | `/api/v1/risk/provisions` | `risk:rate` | Calculates the ECL as of today; 201 |
+| GET | `/api/v1/risk/provisions/{id}/lines` | `risk:read` | Largest ECL first |
+| POST | `/api/v1/risk/provisions/{id}/post` | `risk:approve` | Not by the calculator (422 rule `four_eyes`); refused when a later run is posted (rule `superseded`) |
+| POST | `/api/v1/risk/provisions/{id}/reject` | `risk:approve` | `{note?}` |
+| GET | `/api/v1/risk/summary/counts` | `risk:read` | Approved and pending ratings, runs to post, the last posted run |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

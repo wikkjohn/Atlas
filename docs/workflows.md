@@ -473,6 +473,14 @@ WF-1025 **v2** (Phase 44) reads the order profile (`wealth.order_profile`) when 
 unsuitable and asks the AGB Suitability Review Assistant (`ai.review`, advisory) before the
 manager decides (`order-review`).
 
+### WF-1027, WF-1028 and WF-1029: compliance (Phase 45)
+
+The compliance base processes. WF-1027 investigates an AML alert in a case; closing it with
+no action needs a second compliance officer's sign-off, and without it the case is escalated
+and a suspicious activity report drafted. WF-1028 files a drafted report after a second
+officer approves. WF-1029 opens a customer's periodic KYC review and records its outcome
+after a second officer approves. See [compliance.md](compliance.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

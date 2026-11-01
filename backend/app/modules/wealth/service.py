@@ -486,15 +486,33 @@ def _decide(db: Session, order: InvestmentOrder, actor_id: uuid.UUID,
     return order
 
 
+def _reassess(db: Session, order: InvestmentOrder, today: date) -> None:
+    """Record a buy's suitability as it stands today, so a placed order that became
+    unsuitable counts as decided against advice in the customer's record (PR #35 review)."""
+    if order.side != "buy":
+        return
+    portfolio = get_portfolio(db, order.portfolio_id)
+    security = get_security(db, order.security_id)
+    _price(db, order, portfolio, security, today)
+    try:
+        reasons = suitability(db, portfolio, security, order.amount, today)
+    except BusinessRuleViolation:  # no current profile
+        reasons = [{"code": "no_profile", "message": "No current investment profile."}]
+    if reasons:
+        order.reasons, order.suitable = reasons, False
+
+
 def approve_order(db: Session, order: InvestmentOrder, actor_id: uuid.UUID, note: str,
                   today: date | None = None,
                   now: datetime | None = None) -> InvestmentOrder:  # fmt: skip
     """Approve an unsuitable order at the client's insistence, or a placed one: executed at
     the day's price."""
     order = _decide(db, order, actor_id, OrderStatus.AWAITING_APPROVAL, OrderStatus.PLACED)
+    today = _today(today)
+    _reassess(db, order, today)
     order.approved_by, order.note = actor_id, (note.strip() or "Insistent client")[:200]
     order.decided_at = now or datetime.now(UTC)
-    _execute(db, order, actor_id, _today(today))
+    _execute(db, order, actor_id, today)
     _audit(db, actor_id, "wealth.order_approved", "investment_order", order.id,
            order_number=order.order_number, note=order.note)  # fmt: skip
     return order
@@ -532,6 +550,7 @@ def reject_order(db: Session, order: InvestmentOrder, actor_id: uuid.UUID, note:
                  now: datetime | None = None) -> InvestmentOrder:  # fmt: skip
     """Reject an unsuitable order, or cancel a placed one."""
     order = _decide(db, order, actor_id, OrderStatus.AWAITING_APPROVAL, OrderStatus.PLACED)
+    _reassess(db, order, (now or datetime.now(UTC)).date())
     order.status, order.note = OrderStatus.REJECTED.value, (note.strip() or "Unsuitable")[:200]
     order.decided_at = now or datetime.now(UTC)
     db.flush()
@@ -636,11 +655,16 @@ def order_profile(db: Session, order: InvestmentOrder, today: date) -> dict[str,
     ).scalars().all()  # fmt: skip
     risk_profile = profile.risk_profile if profile else 0
     pct = (lambda part: part * 100 // investable) if investable > 0 else (lambda part: 0)
+    # Priced today, as it would execute, not as it was placed (PR #35 review); nothing is
+    # stored.
+    amount = convert(db, order.units * price_on(security, today), security.currency,
+                     portfolio.currency, today)  # fmt: skip
+    fee = fee_for(amount, portfolio.currency)
     if profile is None:
         reasons = ["no_profile"]
     elif order.side == "buy":
         # Today's reasons: a placed order may have become unsuitable since (PR #34 review).
-        reasons = [r["code"] for r in suitability(db, portfolio, security, order.amount, today)]
+        reasons = [r["code"] for r in suitability(db, portfolio, security, amount, today)]
     else:
         reasons = []
     return {
@@ -652,9 +676,9 @@ def order_profile(db: Session, order: InvestmentOrder, today: date) -> dict[str,
         profile.knowledge if profile else "none",
         "horizon_years": profile.horizon_years if profile else 0,
         "loss_capacity": profile.loss_capacity if profile else "low",
-        "amount": order.amount, "currency": portfolio.currency,
-        "share_after_pct": pct(held + order.amount),
-        "cash_after_pct": pct(max(value["cash"], 0) - order.amount - order.fee),
+        "amount": amount, "currency": portfolio.currency,
+        "share_after_pct": pct(held + amount),
+        "cash_after_pct": pct(max(value["cash"], 0) - amount - fee),
         "experienced": experienced > 0,
         "insisted_90d": sum(s == OrderStatus.EXECUTED for s in against_advice),
         "refused_90d": sum(s == OrderStatus.REJECTED for s in against_advice),

@@ -337,6 +337,27 @@ currency; prices are minor units of the security's.
 | POST | `/api/v1/wealth/distributions` | `wealth:custody` | `{security_code}`: pay today's income; 409 if already paid today |
 | GET | `/api/v1/wealth/summary/counts` | `accounts:read` | Open portfolios, orders awaiting approval, placed, executed, profiles |
 
+### Compliance (Phase 45)
+
+See [compliance.md](compliance.md). Amounts are minor units of the account's currency.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/compliance/runs` | `compliance:read` | Monitoring runs, newest first |
+| POST | `/api/v1/compliance/runs` | `compliance:monitor` | `{days?}` (1–366, default 30): run monitoring up to today; 201 with accounts scanned and alerts raised |
+| GET | `/api/v1/compliance/alerts` | `compliance:read` | Filters `status`, `account_number`; newest first |
+| POST | `/api/v1/compliance/alerts/{id}/dismiss` | `compliance:monitor` | `{note?}`: a false positive |
+| POST | `/api/v1/compliance/alerts/{id}/investigate` | `compliance:monitor` | Opens (or joins) the customer's case with their open alerts |
+| GET | `/api/v1/compliance/cases` | `compliance:read` | With their alerts and report |
+| POST | `/api/v1/compliance/cases/{id}/close` | `compliance:monitor` | `{note?}`; not by the investigator (422 rule `four_eyes`) |
+| POST | `/api/v1/compliance/cases/{id}/sar` | `compliance:monitor` | `{narrative?}`: drafts the report; 201 |
+| GET | `/api/v1/compliance/sars` | `compliance:read` | |
+| POST | `/api/v1/compliance/sars/{id}/file` | `compliance:file` | Not by the preparer (422 rule `four_eyes`); records the FIU reference |
+| GET | `/api/v1/compliance/reviews` | `compliance:read` | Filter `status`; due first, soonest first |
+| POST | `/api/v1/compliance/reviews/schedule` | `compliance:monitor` | `{horizon_days?}` (default 30): `{opened}` |
+| POST | `/api/v1/compliance/reviews/{id}/complete` | `compliance:monitor` | `{risk_rating, note?}`: confirmed, raised or lowered |
+| GET | `/api/v1/compliance/summary/counts` | `compliance:read` | Open alerts and cases, reports to file and filed, reviews due and overdue |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

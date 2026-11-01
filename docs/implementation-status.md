@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 44.
+Last updated: Phase 45.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -49,6 +49,72 @@ Last updated: Phase 44.
 | 42 | Departments, step 14: the payments operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 43 | Departments, step 15: wealth and investments ([wealth.md](wealth.md)) | **Complete** |
 | 44 | Departments, step 16: the wealth workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 45 | Departments, step 17: compliance ([compliance.md](compliance.md)) | **Complete** |
+
+## Phase 45: what exists
+
+- **Compliance module** (`app/modules/compliance/`, migration 0033).
+- **Transaction monitoring** over customer accounts' ledger activity in a window, with four
+  rules against a US$10,000 reporting threshold converted per currency: a large cash
+  deposit, structuring (three or more deposits of 80–100 % of it within ten days), rapid
+  movement of funds, and high turnover by a high-risk customer. An account gets no second
+  open alert for a rule.
+- **Alerts and cases:** alerts are dismissed or investigated in a case taking in all the
+  customer's open alerts (one case under way per customer). A case is closed with no action
+  by someone other than the investigator (also a database constraint), or escalated.
+- **Suspicious activity reports:** drafted from the case's alerts and filed with a
+  synthetic FIU by a second officer (also a database constraint). Filing records the
+  reference, marks the alerts escalated and rates the customer high risk.
+- **Periodic KYC reviews:** due every 1, 2 or 3 years for high, medium and low risk, from the
+  last review or joining; scheduled within a horizon or opened on demand (one due per
+  customer); completing one confirms, raises or lowers the rating.
+- **Permissions** `compliance:read` (compliance officers and auditors), `compliance:monitor`
+  and `compliance:file` (compliance officers).
+- **Workflow factory:** eight `compliance.*` handlers and three workflows:
+  - WF-1027 AML Alert Investigation
+  - WF-1028 Suspicious Activity Report Filing
+  - WF-1029 Periodic KYC Review
+
+  Fixture kinds `aml_alert.alert_number` and `compliance_case.case_number`.
+- **Compliance page:** monitoring runs, alerts with an account filter and paging, cases and
+  reports, and KYC reviews.
+- **Fixes from the Codex review of PR #35 (Phase 44):**
+  - The order profile prices the order on the day it is read, not at placement.
+  - Approving or rejecting a buy checks its suitability again; an order that has become
+    unsuitable is recorded as decided against advice, so it counts in the customer's 90-day
+    record.
+  - The `order-review` measurement was re-run after the fixes and is unchanged.
+
+## Phase 45: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 640 passed (new: 6 — the four monitoring rules; a run raising structuring and rapid-movement alerts once, and none for an ordinary account; a case taking in a customer's alerts, four-eyes on closing and filing, a filed report rating the customer high risk, an alert dismissed and a case closed with no action; KYC reviews falling due by rating and completed with a lowered rating; the API with its permissions and account filter; the order profile priced on the day and a newly unsuitable decision counted (PR #35 review)) |
+| Migration 0033 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 39 workflows, 734 cases, 0 failed (WF-1027: 15 cases, WF-1028: 11, WF-1029: 11; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 130 passed (new: 5 — runs, alerts, cases, reports and reviews; running monitoring, investigating, escalating, filing and completing a review; paging back through alerts; filtering alerts by account; read-only without the permissions) / clean / built |
+| Playwright on a fresh database | 48 passed (new: structuring deposits detected by a monitoring run, investigated, escalated, refused filing by the preparer and filed by a second officer), after the fix below |
+
+Found while building it:
+- **Workflow validation:** the first WF-1027 sent the second officer's approval to
+  escalation and the refusal to closing; validation refused it, because closing a case
+  (approval required) must be reached only through an approval's approve route. The
+  approval now signs off closing with no action, and refusing it escalates.
+- **Playwright, first run:** the new compliance test failed: a monitoring run on the seeded
+  data raised 103 alerts (the population's opening balances are cash deposits), and the
+  test's alert was beyond the first page. The alerts list gained an account filter (API and
+  page), which the test now uses; the second run passed (48 of 48).
+- **New backend tests and the compliance unit tests** passed on their first run.
+- **Review-fix test:** the new test fails on the code before the fixes (the decided order
+  stayed suitable) and passes after.
+
+## Phase 45: known limitations
+
+- **Simple rules,** one account at a time: no network analysis, peer groups or tuning.
+- **On request only:** nothing runs monitoring or schedules reviews automatically, and a
+  filed report restricts nothing.
+- **A synthetic FIU:** filing records a reference; nothing is sent.
+- **No simulation yet:** there is no compliance workload or AI tool yet (Phase 46).
 
 ## Phase 44: what exists
 

@@ -226,3 +226,30 @@ def test_pr34_review_fixes(db: Session) -> None:
         wealth.distribute_income(db, fund, staff.manager.id, today=TODAY)
     change_status(db, account.id, AccountStatus.OPEN, staff.manager.id, "Cleared")
     assert wealth.distribute_income(db, fund, staff.manager.id, today=TODAY).holders >= 1
+
+
+def test_pr35_review_fixes(db: Session) -> None:
+    """The order profile prices the order on the day it is read; a placed order a manager
+    decides after it became unsuitable counts in the customer's record."""
+    staff = make_staff(db)
+    _, account, portfolio = _investor(db, staff)
+    fund = wealth.find_security(db, "AGB-BAL-FUND")
+    price = wealth.convert(db, wealth.price_on(fund, TODAY), "GBP", "USD", TODAY)
+    units = _balance(db, account) * 30 // 100 // price
+    first = _order(db, staff, portfolio, "AGB-BAL-FUND", units, execute=False)
+    second = _order(db, staff, portfolio, "AGB-BAL-FUND", units, execute=False)
+    wealth.release_order(db, first, staff.manager.id, today=TODAY)
+    assert second.suitable  # suitable when placed ...
+    wealth.approve_order(db, second, staff.manager.id, "Insistent client", today=TODAY)
+    assert not second.suitable  # ... decided after it became unsuitable
+    assert [r["code"] for r in second.reasons] == ["concentration"]
+    # A later unsuitable order: its profile counts that decision, and is priced on the day.
+    later = TODAY + timedelta(days=30)
+    helios = wealth.find_security(db, "EQ-HELIOS")
+    risky = wealth.place_order(db, portfolio=portfolio, security=helios, side="buy", units=5,
+                               placed_by=staff.employee.id, today=TODAY)  # fmt: skip
+    profile = wealth.order_profile(db, risky, later)
+    assert profile["insisted_90d"] == 1
+    assert profile["amount"] == wealth.convert(db, 5 * wealth.price_on(helios, later), "EUR",
+                                               "USD", later)  # fmt: skip
+    assert profile["amount"] != risky.amount  # placed at another day's price

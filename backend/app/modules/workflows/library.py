@@ -2847,6 +2847,228 @@ def _distribute_income(ctx: StepContext, params: Distribute) -> dict[str, Any]:
             "currency": security.currency}  # fmt: skip
 
 
+# --- Compliance (Phase 45) -------------------------------------------------------------------
+
+
+class LookupAlert(_Strict):
+    alert_number_path: str = Field(min_length=1, max_length=200)
+
+
+def _alert_out(alert) -> dict[str, Any]:
+    return {"alert_id": str(alert.id), "alert_number": alert.alert_number, "rule": alert.rule,
+            "score": alert.score, "status": alert.status, "open": alert.status == "open",
+            "customer_id": str(alert.customer_id), "amount": alert.amount,
+            "currency": alert.currency}  # fmt: skip
+
+
+@_library_handler(
+    "compliance.lookup_alert",
+    "Find an AML alert raised by transaction monitoring.",
+    LookupAlert,
+    "{alert_id, alert_number, rule, score, status, open, customer_id, amount, currency}; an "
+    "unknown alert fails the step.",
+    reads=lambda params: [params.alert_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.alert_number_path: "aml_alert.alert_number"},
+)
+def _lookup_alert(ctx: StepContext, params: LookupAlert) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    number = str(_required(ctx, params.alert_number_path))
+    alert = compliance.find_alert(ctx.db, number)
+    if alert is None:
+        raise StepError("alert_not_found", f"No alert {number}.")
+    return _alert_out(alert)
+
+
+class AlertRef(_Strict):
+    alert_id_path: str = Field(min_length=1, max_length=200)
+
+
+def _case_out(db, case_row) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    sar = compliance.case_sar(db, case_row)
+    return {"case_id": str(case_row.id), "case_number": case_row.case_number,
+            "status": case_row.status,
+            "alerts": [a.alert_number for a in compliance.case_alerts(db, case_row)],
+            "sar_id": str(sar.id) if sar else None, "sar_number": sar.sar_number if sar else None,
+            "has_draft_sar": bool(sar and sar.status == "draft")}  # fmt: skip
+
+
+@_library_handler(
+    "compliance.open_case",
+    "Investigate the alert: a case for its customer with every open alert of theirs.",
+    AlertRef,
+    "{case_id, case_number, status, alerts, sar_id, sar_number, has_draft_sar}; an alert "
+    "that is not open fails the step.",
+    reads=lambda params: [params.alert_id_path],
+    effect="writes",
+)
+def _open_case(ctx: StepContext, params: AlertRef) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    alert = compliance.get_alert(ctx.db, uuid.UUID(str(_required(ctx, params.alert_id_path))))
+    case_row = _trade_call("case_refused", compliance.open_case, ctx.db, alert, ctx.initiator_id)
+    return _case_out(ctx.db, case_row)
+
+
+class CaseDecision(_Strict):
+    case_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="No suspicion after investigation", min_length=3, max_length=200)
+
+
+def _compliance_case(ctx: StepContext, path: str):
+    from app.modules.compliance import service as compliance
+
+    return compliance.get_case(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "compliance.close_case",
+    "Close the case with no action; not by the investigator.",
+    CaseDecision,
+    "{case_id, case_number, status, alerts, sar_id, sar_number, has_draft_sar}",
+    reads=lambda params: [params.case_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _close_case(ctx: StepContext, params: CaseDecision) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    case_row = _compliance_case(ctx, params.case_id_path)
+    case_row = _trade_call("closure_refused", compliance.close_case, ctx.db, case_row, decider,
+                           params.note)  # fmt: skip
+    return _case_out(ctx.db, case_row)
+
+
+class CaseRef(_Strict):
+    case_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "compliance.draft_sar",
+    "Escalate the case: a suspicious activity report drafted from its alerts.",
+    CaseRef,
+    "{case_id, case_number, status, alerts, sar_id, sar_number, has_draft_sar}",
+    reads=lambda params: [params.case_id_path],
+    effect="writes",
+)
+def _draft_sar(ctx: StepContext, params: CaseRef) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    case_row = _compliance_case(ctx, params.case_id_path)
+    _trade_call("report_refused", compliance.draft_sar, ctx.db, case_row, ctx.initiator_id)
+    return _case_out(ctx.db, case_row)
+
+
+class LookupCase(_Strict):
+    case_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "compliance.lookup_case",
+    "Find a compliance case and its suspicious activity report, if any.",
+    LookupCase,
+    "{case_id, case_number, status, alerts, sar_id, sar_number, has_draft_sar}; an unknown "
+    "case fails the step.",
+    reads=lambda params: [params.case_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.case_number_path: "compliance_case.case_number"},
+)
+def _lookup_case(ctx: StepContext, params: LookupCase) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    number = str(_required(ctx, params.case_number_path))
+    case_row = compliance.find_case(ctx.db, number)
+    if case_row is None:
+        raise StepError("case_not_found", f"No case {number}.")
+    return _case_out(ctx.db, case_row)
+
+
+class SarDecision(_Strict):
+    sar_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "compliance.file_sar",
+    "File the suspicious activity report with the (synthetic) FIU; not by its preparer.",
+    SarDecision,
+    "{sar_number, status, filing_reference}",
+    reads=lambda params: [params.sar_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+)
+def _file_sar(ctx: StepContext, params: SarDecision) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    sar = compliance.get_sar(ctx.db, uuid.UUID(str(_required(ctx, params.sar_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    sar = _trade_call("filing_refused", compliance.file_sar, ctx.db, sar, decider,
+                      today=ctx.now.date())  # fmt: skip
+    return {"sar_number": sar.sar_number, "status": sar.status,
+            "filing_reference": sar.filing_reference}  # fmt: skip
+
+
+class OpenReview(_Strict):
+    customer_id_path: str = Field(min_length=1, max_length=200)
+
+
+def _review_out(review) -> dict[str, Any]:
+    return {"review_id": str(review.id), "review_number": review.review_number,
+            "due_on": review.due_on.isoformat(), "status": review.status,
+            "risk_before": review.risk_before, "risk_after": review.risk_after,
+            "outcome": review.outcome}  # fmt: skip
+
+
+@_library_handler(
+    "compliance.open_kyc_review",
+    "The customer's periodic KYC review: the one due, or a new one due today.",
+    OpenReview,
+    "{review_id, review_number, due_on, status, risk_before, risk_after, outcome}; an "
+    "unverified or unrated customer fails the step.",
+    reads=lambda params: [params.customer_id_path],
+    effect="writes",
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
+)
+def _open_kyc_review(ctx: StepContext, params: OpenReview) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    review = _trade_call("review_refused", compliance.open_review, ctx.db,
+                         _customer(ctx, params.customer_id_path), ctx.now.date())  # fmt: skip
+    return _review_out(review)
+
+
+class CompleteReview(_Strict):
+    review_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    risk_rating_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "compliance.complete_kyc_review",
+    "Record the review: the customer's risk rating confirmed, raised or lowered.",
+    CompleteReview,
+    "{review_id, review_number, due_on, status, risk_before, risk_after, outcome}",
+    reads=lambda params: [params.review_id_path, params.decided_by_path,
+                          params.risk_rating_path],
+    effect="writes",
+    requires_approval=True,
+)  # fmt: skip
+def _complete_kyc_review(ctx: StepContext, params: CompleteReview) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    review = compliance.get_review(ctx.db, uuid.UUID(str(_required(ctx, params.review_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    review = _trade_call("review_refused", compliance.complete_review, ctx.db, review, decider,
+                         str(_required(ctx, params.risk_rating_path)),
+                         today=ctx.now.date())  # fmt: skip
+    return _review_out(review)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

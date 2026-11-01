@@ -188,3 +188,26 @@ def test_pr32_review_fixes(db: Session) -> None:
     assert batch.settled_count == 2 and batch.total == 2 * big
     with pytest.raises(BusinessRuleViolation, match="could still come back"):
         change_status(db, account.id, AccountStatus.CLOSED, staff.manager.id, "Closing")
+
+
+def test_pr33_review_fixes(db: Session) -> None:
+    """The recall profile identifies a beneficiary by bank and account, dates an unsettled
+    candidate by when it was entered, and a cycle can be limited to some payments."""
+    staff = make_staff(db)
+    account = _payer(db, staff, balance=50_000_000)
+    # The same account number at two banks: not a duplicate, not payee history.
+    elsewhere = _pay(db, staff, account, bank="RIVRUS33")
+    clearing.run_cycle(db, account.currency, None, today=TODAY, only=[elsewhere.id])
+    recalled = _pay(db, staff, account)
+    clearing.run_cycle(db, account.currency, None, today=TODAY, only=[recalled.id])
+    recall = clearing.request_recall(db, recalled, "DUPL", staff.employee.id)
+    profile = clearing.recall_profile(db, recall, TODAY + timedelta(days=1))
+    assert profile["duplicate_matches"] == 0 and profile["payee_history"] == 0
+    # A pending payment to the same beneficiary, entered months after the recalled one
+    # settled: not a duplicate either. A cycle limited to another payment leaves it pending.
+    later = _pay(db, staff, account)
+    assert later.created_at.date() - TODAY > timedelta(days=3)
+    other = _pay(db, staff, account, beneficiary=clearing.account_number("223456789012"))
+    batch = clearing.run_cycle(db, account.currency, None, today=TODAY, only=[other.id])
+    assert batch.payments == 1 and later.status == "pending"
+    assert clearing.recall_profile(db, recall, TODAY)["duplicate_matches"] == 0

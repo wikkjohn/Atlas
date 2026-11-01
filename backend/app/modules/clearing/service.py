@@ -2,6 +2,7 @@
 files and recalls."""
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -214,21 +215,24 @@ def reject_outgoing(db: Session, payment: OutgoingPayment, actor_id: uuid.UUID |
 
 
 def submit_batch(db: Session, currency: str, actor_id: uuid.UUID | None,
-                 *, today: date | None = None) -> ClearingBatch | None:  # fmt: skip
-    """A clearing cycle for one currency: every pending payment goes into a batch and its
-    payer is debited into clearing suspense. A payer who cannot pay any more has that
-    payment rejected (code AM04) instead. Returns None when nothing is pending."""
+                 *, today: date | None = None,
+                 only: Collection[uuid.UUID] | None = None) -> ClearingBatch | None:  # fmt: skip
+    """A clearing cycle for one currency: every pending payment (or only those in `only`)
+    goes into a batch and its payer is debited into clearing suspense. A payer who cannot
+    pay any more has that payment rejected (code AM04) instead. Returns None when nothing is
+    pending."""
     today = today or datetime.now(UTC).date()
     currency = currency.strip().upper()
-    pending = list(
-        db.execute(
-            select(OutgoingPayment)
-            .where(OutgoingPayment.currency == currency,
-                   OutgoingPayment.status == OutgoingStatus.PENDING)
-            .order_by(OutgoingPayment.created_at, OutgoingPayment.payment_number)
-            .with_for_update()
-        ).scalars()
+    query = (
+        select(OutgoingPayment)
+        .where(OutgoingPayment.currency == currency,
+               OutgoingPayment.status == OutgoingStatus.PENDING)
+        .order_by(OutgoingPayment.created_at, OutgoingPayment.payment_number)
+        .with_for_update()
     )  # fmt: skip
+    if only is not None:
+        query = query.where(OutgoingPayment.id.in_(list(only)))
+    pending = list(db.execute(query).scalars())
     if not pending:
         return None
     number = f"CLB-{db.execute(BATCH_SEQUENCE.next_value()).scalar_one():07d}"
@@ -320,9 +324,11 @@ def settle_batch(db: Session, batch: ClearingBatch, actor_id: uuid.UUID | None,
 
 
 def run_cycle(db: Session, currency: str, actor_id: uuid.UUID | None,
-              *, today: date | None = None) -> ClearingBatch | None:  # fmt: skip
-    """Submit and settle one currency's clearing cycle."""
-    batch = submit_batch(db, currency, actor_id, today=today)
+              *, today: date | None = None,
+              only: Collection[uuid.UUID] | None = None) -> ClearingBatch | None:  # fmt: skip
+    """Submit and settle one currency's clearing cycle, or one limited to some payments
+    (simulations and generated tests clear only the payments they made: PR #33 review)."""
+    batch = submit_batch(db, currency, actor_id, today=today, only=only)
     return settle_batch(db, batch, actor_id, today=today) if batch else None
 
 
@@ -574,7 +580,8 @@ def refundable_payment(db: Session, account_id: uuid.UUID, today: date) -> str |
 def recall_profile(db: Session, recall: PaymentRecall, today: date) -> dict[str, Any]:
     """What a back-office officer weighs before sending a recall (Phase 42): the reason and
     how much of its window is left, the payment's size, whether a matching duplicate exists
-    (same payer, beneficiary account and amount within three days), how often the payer has
+    (same payer, beneficiary bank and account, and amount within three days), how often the
+    payer has
     paid this beneficiary before, and the payer's other recalls in the last 90 days."""
     from datetime import timedelta
 
@@ -592,10 +599,15 @@ def recall_profile(db: Session, recall: PaymentRecall, today: date) -> dict[str,
     created = payment.settled_on or today
 
     def near(p: OutgoingPayment) -> bool:
-        when = p.settled_on or created
+        # An unsettled candidate is dated by when it was entered, not by the recalled
+        # payment (PR #33 review).
+        when = p.settled_on or p.created_at.date()
         return abs((when - created).days) <= 3
 
-    same_payee = [p for p in others if p.beneficiary_account == payment.beneficiary_account]
+    # The beneficiary is the bank and the account: the same number at two banks is two
+    # beneficiaries (PR #33 review).
+    same_payee = [p for p in others if p.beneficiary_account == payment.beneficiary_account
+                  and p.beneficiary_bank == payment.beneficiary_bank]  # fmt: skip
     duplicates = [p for p in same_payee if p.amount == payment.amount and near(p)
                   and p.status in (OutgoingStatus.SETTLED, OutgoingStatus.PENDING,
                                    OutgoingStatus.IN_CLEARING)]  # fmt: skip

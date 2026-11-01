@@ -73,6 +73,17 @@ Last updated: Phase 43.
   portfolio's currency; once per security and record date.
 - **Permissions** `wealth:advise` (tellers and managers), `wealth:approve` and
   `wealth:custody` (managers).
+- **Fixes from the Codex review of PR #33 (Phase 42):**
+  - The recall profile identifies a beneficiary by bank and account, so the same number at
+    another bank is neither a duplicate nor payee history; the workload now keeps one bank
+    per beneficiary, so its genuine duplicates go to the same bank.
+  - An unsettled duplicate candidate is dated by when it was entered, not by the recalled
+    payment's settlement.
+  - A clearing cycle can be limited to some payments; the recall workload and the generated
+    tests' fixture clear only the payments they made, never other pending payments.
+  - The recall workload builds its payers in the run's countries.
+  - The `recall-triage` measurement was re-run after the fixes and is unchanged (seed 2030,
+    300 recalls: 82.0 % against 94.0 %).
 - **Workflow factory:** eight `wealth.*` handlers and three workflows:
   - WF-1024 Investment Suitability Assessment
   - WF-1025 Investment Order
@@ -102,6 +113,9 @@ Found while building it:
   100 %.
 - **Lint:** the formatter expanded the securities table, which is now kept compact with
   `# fmt: off`.
+- **Review-fix tests:** the two new tests fail on the code before the fixes (the clearing
+  test with a `TypeError`, since the `only` parameter did not exist; the countries test on
+  the payments' currencies) and pass after.
 - **Frontend unit test:** two assertions in the first version were wrong (a lookup before
   the rows arrived, and the capitalised asset class); the page was not changed.
 
@@ -120,7 +134,8 @@ Found while building it:
 - **`clearing.recall_profile`:** what back office weighs before sending a recall.
   - The reason, days since settlement, and the days of its window left.
   - The payment's size and whether it is high value.
-  - Matching duplicates (same payer, beneficiary account and amount within three days).
+  - Matching duplicates (same payer, beneficiary bank and account, and amount within three
+    days).
   - How often the payer has paid the beneficiary before.
   - The payer's recalls in the last 90 days, and how many were refused.
 

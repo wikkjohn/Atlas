@@ -561,7 +561,7 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
                 beneficiary_account=clearing.account_number("123456789012"), amount=100_000,
                 reference="Generated test", initiated_by=_person(db, RoleCode.BANKING_EMPLOYEE).id,
             )  # fmt: skip
-            clearing.run_cycle(db, account.currency, None)
+            clearing.run_cycle(db, account.currency, None, only=[payment.id])
             known["outgoing_payment.payment_number"] = payment.payment_number
         if kinds & {"portfolio.portfolio_number", "security.code"}:
             known.update(_wealth_fixtures(db, customer, account, kinds))

@@ -55,7 +55,7 @@ before clearing.
 A cycle (`payments:operate`) runs for one currency in two steps.
 
 **1. Submission.** Every payment waiting for clearing goes into a batch (`CLB-`, oldest
-first). Its payer is debited into the clearing suspense account `CLEARING-OUT-<CCY>`, a
+first). Simulations and generated tests limit a cycle to the payments they made. Its payer is debited into the clearing suspense account `CLEARING-OUT-<CCY>`, a
 liability. If the payer can no longer pay (counting any arranged overdraft), that payment
 is rejected with code AM04 instead.
 
@@ -137,7 +137,8 @@ through a clearing cycle that day.
 ## Simulation workload and AI tool (Phase 42)
 
 The `recall_triage` workload drives WF-1023 v2 (scenario `recall-triage`).
-- **Cases:** each case is a business that has paid other banks. Its payments, earlier
+- **Cases:** each case is a business, in one of the run's countries, that has paid other
+  banks. A beneficiary is a bank and an account, as in the recall profile. Its payments, earlier
   payments and earlier recalls run through the real clearing service, and a recall of one
   settled payment arrives on the day. Back office (simulated department managers with
   `payments:approve`) decides every recall.

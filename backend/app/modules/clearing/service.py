@@ -544,6 +544,55 @@ def resolve_recall(db: Session, recall: PaymentRecall, actor_id: uuid.UUID | Non
     return recall
 
 
+def recall_profile(db: Session, recall: PaymentRecall, today: date) -> dict[str, Any]:
+    """What a back-office officer weighs before sending a recall (Phase 42): the reason and
+    how much of its window is left, the payment's size, whether a matching duplicate exists
+    (same payer, beneficiary account and amount within three days), how often the payer has
+    paid this beneficiary before, and the payer's other recalls in the last 90 days."""
+    from datetime import timedelta
+
+    payment = get_outgoing(db, recall.payment_id)
+    window = RECALL_WINDOWS[recall.reason_code]
+    days = (today - payment.settled_on).days if payment.settled_on else 0
+    others = list(
+        db.execute(
+            select(OutgoingPayment).where(
+                OutgoingPayment.debtor_account_id == payment.debtor_account_id,
+                OutgoingPayment.id != payment.id,
+            )
+        ).scalars()
+    )  # fmt: skip
+    created = payment.settled_on or today
+
+    def near(p: OutgoingPayment) -> bool:
+        when = p.settled_on or created
+        return abs((when - created).days) <= 3
+
+    same_payee = [p for p in others if p.beneficiary_account == payment.beneficiary_account]
+    duplicates = [p for p in same_payee if p.amount == payment.amount and near(p)
+                  and p.status in (OutgoingStatus.SETTLED, OutgoingStatus.PENDING,
+                                   OutgoingStatus.IN_CLEARING)]  # fmt: skip
+    history = [p for p in same_payee if p.status == OutgoingStatus.SETTLED and p not in duplicates]
+    since = today - timedelta(days=90)
+    recent = [
+        r for r, p in db.execute(
+            select(PaymentRecall, OutgoingPayment)
+            .join(OutgoingPayment, OutgoingPayment.id == PaymentRecall.payment_id)
+            .where(OutgoingPayment.debtor_account_id == payment.debtor_account_id,
+                   PaymentRecall.id != recall.id)
+        ).all()
+        if (p.settled_on or today) >= since
+    ]  # fmt: skip
+    return {
+        "reason_code": recall.reason_code, "currency": payment.currency,
+        "amount": payment.amount, "high_value": payment.high_value,
+        "days_since_settlement": days, "window_days": window, "days_left": window - days,
+        "duplicate_matches": len(duplicates), "payee_history": len(history),
+        "payer_recalls_90d": len(recent),
+        "payer_refused_90d": sum(r.status == RecallStatus.REFUSED for r in recent),
+    }  # fmt: skip
+
+
 def summary(db: Session) -> dict[str, Any]:
     def count(model, *where) -> int:
         return db.execute(select(func.count()).select_from(model).where(*where)).scalar_one()

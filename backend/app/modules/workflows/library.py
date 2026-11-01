@@ -2463,6 +2463,27 @@ def _request_recall(ctx: StepContext, params: RequestRecall) -> dict[str, Any]:
     return _recall_out(recall)
 
 
+class RecallRef(_Strict):
+    recall_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "clearing.recall_profile",
+    "Read what back office weighs before sending a recall: the reason's window, the payment's "
+    "size, matching duplicates, the payer's history with the beneficiary and its recalls.",
+    RecallRef,
+    "{reason_code, amount, high_value, days_since_settlement, window_days, days_left, "
+    "duplicate_matches, payee_history, payer_recalls_90d, payer_refused_90d} (Phase 42).",
+    reads=lambda params: [params.recall_id_path],
+    effect="reads",
+)
+def _recall_profile(ctx: StepContext, params: RecallRef) -> dict[str, Any]:
+    from app.modules.clearing import service as clearing
+
+    recall = clearing.get_recall(ctx.db, uuid.UUID(str(_required(ctx, params.recall_id_path))))
+    return clearing.recall_profile(ctx.db, recall, ctx.now.date())
+
+
 class RecallDecision(_Strict):
     recall_id_path: str = Field(min_length=1, max_length=200)
     decided_by_path: str = Field(min_length=1, max_length=200)

@@ -55,6 +55,26 @@ export interface CostAllocation {
   created_at: string;
 }
 
+export interface JournalLine {
+  account_code: string;
+  direction: "debit" | "credit";
+  amount: number;
+}
+
+export interface ManualJournal {
+  id: string;
+  journal_number: string;
+  currency: string;
+  effective_date: string;
+  description: string;
+  lines: JournalLine[];
+  amount: number;
+  status: "proposed" | "posted" | "rejected";
+  entry_number: string | null;
+  note: string | null;
+  created_at: string;
+}
+
 export interface FinanceSummary {
   last_closed_period: string | null;
   next_period: string | null;
@@ -62,6 +82,7 @@ export interface FinanceSummary {
   reports_to_submit: number;
   reports_submitted: number;
   allocations_to_post: number;
+  journals_to_approve: number;
 }
 
 export const REPORT_LABELS: Record<ReportType, string> = {

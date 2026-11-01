@@ -8,6 +8,7 @@ from app.modules.ai_tools.adapters.covenant_review import CovenantReviewAdapter
 from app.modules.ai_tools.adapters.credit_underwriting import CreditUnderwritingAdapter
 from app.modules.ai_tools.adapters.document_check import DocumentCheckAdapter
 from app.modules.ai_tools.adapters.fault_injection import FaultInjectionAdapter
+from app.modules.ai_tools.adapters.journal_review import JournalReviewAdapter
 from app.modules.ai_tools.adapters.kyc_assistant import KycAssistantAdapter
 from app.modules.ai_tools.adapters.mortgage_underwriting import MortgageUnderwritingAdapter
 from app.modules.ai_tools.adapters.overdraft_affordability import OverdraftAffordabilityAdapter
@@ -32,6 +33,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         SuitabilityReviewAdapter(),
         AlertReviewAdapter(),
         RatingReviewAdapter(),
+        JournalReviewAdapter(),
         FaultInjectionAdapter(),
     )
 }

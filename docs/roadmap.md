@@ -176,7 +176,9 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 49: month-end closes checked and approved by a second person, posting income
       and expense to retained earnings in month order; balance sheet, income statement,
       large exposures and credit quality extracts submitted to a synthetic regulator; shared
-      costs split across departments by headcount; WF-1033–1035; see `finance.md`)
+      costs split across departments by headcount; WF-1033–1035; see `finance.md`.
+      Phase 50: manual journals, the `journal-review` workload and the journal review
+      assistant)
 - [ ] Customer service: contact-centre cases, complaints, SLA timers
 - [ ] Collections and recoveries: payment plans, recoveries (extends WF-0004)
 - [ ] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
@@ -277,4 +279,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 47 (D19) | Risk: internal credit ratings with four-eyes overrides, obligor limits against exposure, IFRS 9 ECL provisioning posted to the ledger; WF-1030–1032 | complete |
 | Phase 48 (D20) | Risk, step 2: the `rating-overrides` workload on stored WF-1030 v2, decided by regional executives, and the AGB Rating Review Assistant | complete |
 | Phase 49 (D21) | Finance: month-end close with four-eyes approval, regulatory reporting extracts, cost allocation by headcount; WF-1033–1035 | complete |
-| Phase 50 (D22, proposed) | Finance, step 2: a `month-end-close` workload on stored WF-1033 v2, decided by finance approvers, and an AGB Close Review Assistant | next |
+| Phase 50 (D22) | Finance, step 2: manual journals with four-eyes posting, the `journal-review` workload on stored WF-1036 v2, decided by regional executives, and the AGB Journal Review Assistant (a month-end close workload was not simulable in volume: a month closes once, in order) | complete |
+| Phase 51 (D23, proposed) | Customer service: contact-centre cases, complaints, SLA timers | next |

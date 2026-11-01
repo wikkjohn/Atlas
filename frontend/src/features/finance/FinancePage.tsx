@@ -14,8 +14,11 @@ import {
   useCloses,
   useDecideAllocation,
   useDecideClose,
+  useDecideJournal,
   useDecideReport,
   useFinanceSummary,
+  useJournals,
+  useProposeJournal,
   usePrepareClose,
   usePrepareReport,
   useRecordExpense,
@@ -25,7 +28,7 @@ import { formatExactMoney, toMinorUnits } from "@/services/format";
 import { CHECK_LABELS, REPORT_LABELS, type ReportType } from "@/types/finance";
 
 const INPUT = "rounded-md border border-slate-200 px-2 py-1";
-const TONE: Record<string, Tone> = { prepared: "warn", calculated: "warn", closed: "good", submitted: "good", posted: "good", rejected: "neutral" };
+const TONE: Record<string, Tone> = { proposed: "warn", prepared: "warn", calculated: "warn", closed: "good", submitted: "good", posted: "good", rejected: "neutral" };
 const lastMonth = () => {
   const d = new Date();
   d.setDate(0);
@@ -342,7 +345,105 @@ function CostsPanel() {
   );
 }
 
-/** Finance (Phase 49): month-end close, regulatory reports and cost allocation. */
+function JournalsPanel() {
+  const { can } = useAuth();
+  const [offset, setOffset] = useState(0);
+  const journals = useJournals(offset);
+  const propose = useProposeJournal();
+  const decide = useDecideJournal();
+  const [form, setForm] = useState({ currency: "USD", debit: "", credit: "", amount: "", description: "" });
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <Panel title="Manual journals" subtitle="Journals on the bank's own ledger accounts (never a customer's), debits equal to credits, posted only when someone other than the preparer approves. The approver sees the journal's size against materiality (US$100,000), the accounts it touches, how far back it is dated, and any identical journal posted recently.">
+      {can("finance:close") && (
+        <form
+          aria-label="Propose journal"
+          className="mb-3 flex flex-wrap items-end gap-2 text-xs"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const amount = toMinorUnits(Number(form.amount), form.currency);
+            propose.mutate({
+              currency: form.currency,
+              effective_date: today,
+              description: form.description,
+              lines: [
+                { account_code: form.debit, direction: "debit", amount },
+                { account_code: form.credit, direction: "credit", amount },
+              ],
+            });
+          }}
+        >
+          <label className="flex flex-col gap-0.5 text-slate-600">
+            Debit account
+            <input aria-label="Debit account" placeholder="FIN-SHARED-COSTS-USD" className={`w-48 ${INPUT}`} value={form.debit} onChange={(e) => setForm({ ...form, debit: e.target.value.toUpperCase() })} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-slate-600">
+            Credit account
+            <input aria-label="Credit account" placeholder="FIN-ACCRUALS-USD" className={`w-48 ${INPUT}`} value={form.credit} onChange={(e) => setForm({ ...form, credit: e.target.value.toUpperCase() })} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-slate-600">
+            Amount ({form.currency})
+            <input aria-label="Journal amount" type="number" min={0.01} step="0.01" className={`w-28 ${INPUT}`} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+          </label>
+          <label className="flex flex-col gap-0.5 text-slate-600">
+            Description
+            <input aria-label="Journal description" className={`w-64 ${INPUT}`} maxLength={300} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </label>
+          <Button size="sm" type="submit" disabled={propose.isPending || !form.debit || !form.credit || !form.amount || !form.description}>
+            Propose
+          </Button>
+          {propose.data && <span role="status">{propose.data.journal_number} proposed</span>}
+          <ErrorMessage error={propose.error} />
+        </form>
+      )}
+      <ErrorMessage error={journals.error ?? decide.error} />
+      <table aria-label="Journals" className="min-w-full text-sm">
+        <tbody className="divide-y divide-slate-100">
+          {journals.data?.items.map((j) => (
+            <tr key={j.id} className="align-top">
+              <td className="px-2 py-1.5 font-mono text-xs">{j.journal_number}</td>
+              <td className="px-2 py-1.5 text-xs text-slate-600">
+                {j.effective_date} · {j.description}
+                <div>
+                  {j.lines.map((l, i) => (
+                    <span key={i} className="mr-3">
+                      {l.direction === "debit" ? "Dr" : "Cr"} {l.account_code} {formatExactMoney(l.amount, j.currency)}
+                    </span>
+                  ))}
+                </div>
+                {j.entry_number && <div>{j.entry_number}</div>}
+              </td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{formatExactMoney(j.amount, j.currency)}</td>
+              <td className="px-2 py-1.5">
+                <StatusPill compact tone={TONE[j.status]} label={j.status} />
+              </td>
+              <td className="px-2 py-1.5 text-right">
+                {j.status === "proposed" && can("finance:approve") && (
+                  <div className="flex justify-end gap-1">
+                    <Button size="sm" aria-label={`Post ${j.journal_number}`} onClick={() => decide.mutate({ id: j.id, approve: true })}>
+                      Post
+                    </Button>
+                    <Button size="sm" variant="secondary" aria-label={`Reject ${j.journal_number}`} onClick={() => decide.mutate({ id: j.id, approve: false })}>
+                      Reject
+                    </Button>
+                  </div>
+                )}
+              </td>
+            </tr>
+          ))}
+          {journals.data && journals.data.items.length === 0 && (
+            <tr>
+              <td className="px-2 py-3 text-center text-xs text-slate-500">No manual journals yet.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <Pager label="Journal pages" offset={offset} total={journals.data?.total ?? 0} onChange={setOffset} />
+    </Panel>
+  );
+}
+
+/** Finance (Phase 49): month-end close, regulatory reports and cost allocation; manual journals (Phase 50). */
 export function FinancePage() {
   const summary = useFinanceSummary();
   return (
@@ -355,7 +456,7 @@ export function FinancePage() {
               ["Last closed month", summary.data.last_closed_period ?? "None"],
               ["Closes to approve", summary.data.closes_to_approve],
               ["Reports to submit", summary.data.reports_to_submit],
-              ["Allocations to post", summary.data.allocations_to_post],
+              ["Journals to approve", summary.data.journals_to_approve],
             ] as const
           ).map(([label, value]) => (
             <div key={label} className="rounded-lg border border-slate-200 bg-white p-3">
@@ -370,6 +471,7 @@ export function FinancePage() {
           <ClosePanel nextPeriod={summary.data.next_period} />
           <ReportsPanel lastClosed={summary.data.last_closed_period} />
           <CostsPanel />
+          <JournalsPanel />
         </div>
       )}
       <ErrorMessage error={summary.error} />

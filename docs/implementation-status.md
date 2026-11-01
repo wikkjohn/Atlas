@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 49.
+Last updated: Phase 50.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -54,6 +54,85 @@ Last updated: Phase 49.
 | 47 | Departments, step 19: risk ([risk.md](risk.md)) | **Complete** |
 | 48 | Departments, step 20: the risk workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 49 | Departments, step 21: finance ([finance.md](finance.md)) | **Complete** |
+| 50 | Departments, step 22: manual journals, the finance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 50: what exists
+
+- **Manual journals** (migration 0036):
+  - two to twenty lines on the bank's own ledger accounts in one currency, debits equal to
+    credits;
+  - refused on customers' accounts and unknown accounts;
+  - posted only when someone other than the preparer approves (also a database constraint);
+  - finance's standard accounts (shared costs, accruals, retained earnings) are created on
+    first use, in a currency the bank already books in.
+
+  API at `/finance/journals`, with a journal panel on the Finance page.
+- **`finance.journal_profile`:** what an approver weighs:
+  - the size against materiality (US$100,000);
+  - equity, cash and income accounts;
+  - days backdated and a closed month;
+  - a round amount and the description;
+  - an identical journal posted in the 30 days before;
+  - the preparer's other journals on the same accounts this week.
+
+  It is also a library handler.
+- **AGB Journal Review Assistant** (`rule_based_journal_review`, `recommend_decision` only,
+  compatible with WF-1036, needs `finance:read`), with a deliberate blind spot: it never reads
+  the preparer's week. The seed registers it, and the AI Lab console has a sample.
+- **WF-1036 Manual Journal Approval:**
+  - v1: find the journal, then the approver posts or rejects it;
+  - v2: adds the profile and the AI review before the decision.
+
+  A generated-test fixture proposes a journal.
+- **Workload `journal_review` and scenario `journal-review` v1:**
+  - eight kinds with ground truth;
+  - each case on its own simulation ledger accounts;
+  - decided by simulated regional executives;
+  - a control check covers four-eyes against the initiator and the preparer,
+    `finance:approve`, and no journal posted without the decision.
+- **Roadmap change:** step 22 was proposed as a month-end close workload. A month closes once
+  and in order, so closes cannot be simulated 300 a day; manual journal approval is the
+  finance control that can.
+- **PR #40 (Phase 49)** had no review comments.
+- **Measured** (300 journals): AI assisted 96.7 % accurate against 87.0 %, approvers' hours 65
+  against 102. Split entries were posted 6 times of 45 either way.
+
+## Phase 50: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 663 passed (new: 4 — the journal rules and their blind spot; manual journals refused when unbalanced, short or on an unknown account, standard accounts created on first use, four-eyes posting, and the profile with a duplicate, the preparer's week, a round backdated cash journal and another preparer; the journal API with its permissions; baseline and AI-assisted journal runs with every case decided by an approver other than the preparer, no control violations, every kind's advice as designed) |
+| Migration 0036 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 46 workflows, 818 cases, 0 failed (WF-1036 v2: 14 cases, 100 % steps and routes); the four finance workflows re-run after the account fix below: 44 cases, 0 failed |
+| Frontend Vitest / typecheck / build | 137 passed (new: 1 — proposing and posting a manual journal) / clean / built |
+| Playwright on a fresh database | 54 passed (new: the journal assistant in the AI Lab console, recommending posting a split entry's third piece; a manager proposes a journal and a regional executive posts it), after the two fixes below |
+| Measurement | `journal-review`, seed 2030, 300 journals each: baseline 87.0 % accurate (20 wrongly posted, 19 wrongly rejected, 101.7 approver hours, median cycle 5.8 h); AI assisted 96.7 % (7, 3, 64.7 h, 2.1 h); split entries posted 6 against 6 of 45; the assistant's own advice 84 % accurate, 27 referred on |
+
+Found while building it:
+- **Tool registration:** registering the assistant needs its compatible workflow to exist,
+  and workflows with AI steps are imported after the tools. WF-1036 therefore has a v1
+  without the AI step, as earlier phases did.
+- **Execution input:** the control check first read `execution.input`, which does not exist;
+  an execution's input is in its context.
+- **Playwright, first run:** the new journal test failed with "No ledger account
+  FIN-ACCRUALS-USD". On a fresh database finance's standard accounts did not exist until
+  something created them. They are now created on first use, which a backend test covers.
+- **Playwright, second run:** the Phase 49 close test failed. The journal test, running in
+  parallel, debited the shared-cost pool between the close test's split and its posting, and
+  the posting was correctly refused ("pool changed"). The journal test now settles an
+  accrual from cash instead. The third run passed (54 of 54).
+- **Backend tests run twice at once:** a second pytest run started while the full suite was
+  running gave seven failures in the finance tests. Both runs share the test database. Run
+  alone, the same tests passed, and the full suite was re-run by itself.
+- **Unit test timing:** the journals table rendered before its rows; the test now waits for
+  them.
+
+## Phase 50: known limitations
+
+- **The assistant is rule-based** and blind to the preparer's week, by design.
+- **Simulation scope:** only manual journal review is simulated.
+- **No journal reversal** through the journal flow; a mistake is corrected by another
+  journal.
 
 ## Phase 49: what exists
 

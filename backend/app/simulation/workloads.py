@@ -2336,6 +2336,197 @@ class RatingOverrides(Workload):
         return check
 
 
+# --- Journal review (WF-1036, Phase 50) -------------------------------------------------------
+
+# Whether the approver should post the journal ("approved") or reject it ("rejected").
+JOURNAL_SHOULD_POST = frozenset({"routine_accrual", "reclassification", "large_documented"})
+JOURNAL_KINDS = JOURNAL_SHOULD_POST | {"equity_adjustment", "stale_backdated", "duplicate_entry",
+                                       "unexplained_cash", "split_below_threshold"}  # fmt: skip
+
+
+class JournalReview(Workload):
+    """Manual journals through WF-1036: a regional executive posts or rejects each, with the
+    AGB Journal Review Assistant's advice in AI-assisted runs. Every case has its own ledger
+    accounts, and any earlier journals it needs are proposed and posted through the real
+    finance service before the run.
+
+    Ground truth: a routine accrual, a reclassification between expense accounts and a
+    material accrual with a full description are posted; a journal straight to equity, one
+    dated months back, a duplicate of a journal posted days before, a round cash payment with
+    no description and a large entry split into pieces just under materiality are
+    rejected."""
+
+    key = "journal_review"
+    workflow_id = "WF-1036"
+    kinds = JOURNAL_KINDS
+    reviewer_roles = {"decision": "executive"}
+    job_titles = {"teller": "Finance Clerk", "manager": "Financial Controller",
+                  "executive": "Chief Financial Officer"}  # fmt: skip
+    ai_step = "ai_review"
+    automated_path = None  # an approver always decides
+
+    def _journal_case(self, sim: "_Simulation", rng, index: int, kind: str, today: date,
+                      teller, manager) -> str:  # fmt: skip
+        from app.modules.finance import service as finance
+        from app.modules.ledger.models import LedgerAccountType as T
+
+        db = sim.db
+        prefix = f"SIM-{sim.run_id.hex[:8].upper()}-{index}"
+
+        def account(suffix: str, kind_: str, name: str) -> str:
+            return ledger.ensure_ledger_account(
+                db, code=f"{prefix}-{suffix}", name=f"{name} (simulation)",
+                account_type=kind_, currency="USD",
+            ).code  # fmt: skip
+
+        expense = account("EXP", T.EXPENSE, "Operating expense")
+        accrual = account("ACR", T.LIABILITY, "Accrued expenses")
+
+        def usd(dollars: float, whole: int = 1) -> int:
+            return int(dollars // whole * whole) * 100
+
+        def lines(debit: str, credit: str, amount: int) -> list[dict]:
+            return [
+                {"account_code": debit, "direction": "debit", "amount": amount},
+                {"account_code": credit, "direction": "credit", "amount": amount},
+            ]
+
+        def propose(debit: str, credit: str, amount: int, description: str,
+                    on: date = today) -> str:  # fmt: skip
+            return finance.propose_journal(
+                db, currency="USD", effective_date=on, description=description,
+                lines=lines(debit, credit, amount), proposed_by=manager.id,
+            ).journal_number  # fmt: skip
+
+        def posted(debit: str, credit: str, amount: int, description: str, on: date) -> None:
+            journal = finance.find_journal(db, propose(debit, credit, amount, description, on))
+            finance.approve_journal(db, journal, teller.id)
+
+        threshold = finance.MATERIALITY_USD
+        if kind == "routine_accrual":
+            return propose(
+                expense,
+                accrual,
+                usd(rng.uniform(2_000, 40_000)),
+                "Accrual for October facilities invoices not yet received",
+            )
+        if kind == "reclassification":
+            other = account("EXP2", T.EXPENSE, "Technology expense")
+            return propose(
+                other,
+                expense,
+                usd(rng.uniform(1_000, 30_000)),
+                "Reclassify software licences booked to facilities in error",
+            )
+        if kind == "large_documented":
+            return propose(
+                expense,
+                accrual,
+                usd(rng.uniform(1.5, 4.0) * threshold),
+                "Year-end accrual for the core banking system migration, per the "
+                "signed vendor statement of work and milestone acceptance",
+            )
+        if kind == "equity_adjustment":
+            equity = account("RET", T.EQUITY, "Retained earnings")
+            income = account("INC", T.INCOME, "Fee income")
+            return propose(
+                equity,
+                income,
+                usd(rng.uniform(10_000, 80_000)),
+                "Adjust fee income to plan for the quarter",
+            )
+        if kind == "stale_backdated":
+            return propose(
+                expense,
+                accrual,
+                usd(rng.uniform(2_000, 40_000)),
+                "Accrual for facilities invoices not yet received",
+                on=today - timedelta(days=rng.randint(45, 120)),
+            )
+        if kind == "duplicate_entry":
+            amount = usd(rng.uniform(2_000, 40_000))
+            description = "Accrual for October facilities invoices not yet received"
+            posted(expense, accrual, amount, description,
+                   today - timedelta(days=rng.randint(3, 20)))  # fmt: skip
+            return propose(expense, accrual, amount, description)
+        if kind == "unexplained_cash":
+            cash = ledger.cash_account(db, "USD").code
+            return propose(expense, cash, usd(rng.uniform(5_000, 50_000), 1_000), "Adjustment")
+        if kind == "split_below_threshold":
+            description = "Accrual for professional services invoices not yet received"
+            for days_ago in range(rng.randint(2, 3), 0, -1):
+                posted(expense, accrual, usd(rng.uniform(0.7, 0.95) * threshold), description,
+                       today - timedelta(days=days_ago))  # fmt: skip
+            return propose(expense, accrual, usd(rng.uniform(0.7, 0.95) * threshold), description)
+        raise ValueError(kind)
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = sim.clock.start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "journal")
+            kind = _pick(rng, mix)
+            number = self._journal_case(sim, rng, index, kind, today, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in JOURNAL_SHOULD_POST else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={"journal_number": number},
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every approver's decision against four-eyes (the initiator and the preparer) and
+        authority, and no journal posted without the decision."""
+        from app.modules.finance.models import ManualJournal
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["decision", "approve"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "decision":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            number = ((execution.context or {}).get("input") or {}).get("journal_number", "")
+            preparer = db.execute(
+                select(ManualJournal.proposed_by).where(ManualJournal.journal_number == number)
+            ).scalar_one_or_none()  # fmt: skip
+            if step_run.actor_id in (execution.initiated_by, preparer):
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.FINANCE_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "approve" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "posted_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -2353,6 +2544,7 @@ WORKLOADS: dict[str, Workload] = {
         OrderReview(),
         AlertTriage(),
         RatingOverrides(),
+        JournalReview(),
     )
 }
 STAFF_ROLES = {

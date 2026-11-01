@@ -519,6 +519,11 @@ its executions. Their generated tests use fixtures: the next month that can clos
 month closed by two people, and this month with a shared cost to allocate. See
 [finance.md](finance.md).
 
+**WF-1036** (Phase 50) posts a proposed manual journal once someone other than its preparer
+approves. **v2** reads the journal profile (`finance.journal_profile`) and asks the AGB
+Journal Review Assistant (`ai.review`, advisory) before the approver decides
+(`journal-review`). Its generated tests propose a journal through a fixture.
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

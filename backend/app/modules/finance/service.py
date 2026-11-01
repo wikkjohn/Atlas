@@ -18,10 +18,13 @@ from app.modules.employees.models import Employee
 from app.modules.finance.models import (
     ALLOCATION_SEQUENCE,
     CLOSE_SEQUENCE,
+    JOURNAL_SEQUENCE,
     REPORT_SEQUENCE,
     AllocationStatus,
     CloseStatus,
     CostAllocation,
+    JournalStatus,
+    ManualJournal,
     PeriodClose,
     RegulatoryReport,
     ReportStatus,
@@ -44,6 +47,8 @@ RESULT_TYPES = (LedgerAccountType.INCOME, LedgerAccountType.EXPENSE)
 BALANCE_TYPES = (LedgerAccountType.ASSET, LedgerAccountType.LIABILITY, LedgerAccountType.EQUITY)
 LARGE_EXPOSURE_USD = 10_000  # obligors at or above this are reported
 LARGE_EXPOSURE_ROWS = 50
+MATERIALITY_USD = 100_000  # a manual journal at or above this is material
+STALE_DAYS = 31  # a manual journal dated further back than this is stale
 
 
 def _audit(db, actor_id, action: str, entity_type: str, entity_id, **metadata) -> None:
@@ -631,6 +636,190 @@ def reject_allocation(db: Session, allocation: CostAllocation, actor_id: uuid.UU
     return allocation
 
 
+# --- Manual journals (Phase 50) ---------------------------------------------------------------
+
+
+STANDARD_ACCOUNTS = {"FIN-SHARED-COSTS": "shared_costs_account", "FIN-ACCRUALS": "accruals_account",
+                     "FIN-RETAINED": "retained_earnings_account"}  # fmt: skip
+
+
+def _ledger_account(db: Session, code: str) -> LedgerAccount:
+    """The account with this code. Finance's standard accounts (shared costs, accruals and
+    retained earnings) are created on first use, in a currency the bank already books in."""
+    code = code.strip().upper()
+    account = db.execute(
+        select(LedgerAccount).where(LedgerAccount.code == code)
+    ).scalar_one_or_none()  # fmt: skip
+    if account is None:
+        prefix, _, currency = code.rpartition("-")
+        booked = db.execute(
+            select(LedgerAccount.id).where(LedgerAccount.currency == currency).limit(1)
+        ).first()  # fmt: skip
+        if prefix in STANDARD_ACCOUNTS and booked:
+            return globals()[STANDARD_ACCOUNTS[prefix]](db, currency)
+        raise BusinessRuleViolation(f"No ledger account {code}.", {"rule": "unknown_account"})
+    return account
+
+
+def propose_journal(db: Session, *, currency: str, effective_date: date, description: str,
+                    lines: list[dict[str, Any]],
+                    proposed_by: uuid.UUID) -> ManualJournal:  # fmt: skip
+    """Propose a manual journal: two to twenty lines on the bank's own ledger accounts in one
+    currency, debits equal to credits. Nothing is posted until someone else approves it.
+    Customers' accounts are moved only through their own services."""
+    from app.modules.accounts.models import Account
+
+    if not 2 <= len(lines) <= 20:
+        raise BusinessRuleViolation("A journal has 2 to 20 lines.", {"rule": "line_count"})
+    clean, debits, credits = [], 0, 0
+    for line in lines:
+        account = _ledger_account(db, str(line["account_code"]))
+        amount, direction = int(line["amount"]), str(line["direction"])
+        if account.currency != currency:
+            raise BusinessRuleViolation(f"{account.code} is in {account.currency}.",
+                                        {"rule": "currency_mismatch"})  # fmt: skip
+        if db.execute(select(Account.id).where(Account.ledger_account_id == account.id)).first():
+            raise BusinessRuleViolation(f"{account.code} is a customer's account.",
+                                        {"rule": "customer_account"})  # fmt: skip
+        if amount <= 0 or direction not in (Direction.DEBIT, Direction.CREDIT):
+            raise BusinessRuleViolation("Each line is a positive debit or credit.",
+                                        {"rule": "line_invalid"})  # fmt: skip
+        debits += amount if direction == Direction.DEBIT else 0
+        credits += amount if direction == Direction.CREDIT else 0
+        clean.append({"account_code": account.code, "direction": direction, "amount": amount})
+    if debits != credits:
+        raise BusinessRuleViolation("Debits must equal credits.", {"rule": "unbalanced"})
+    number = f"MJ-{db.execute(JOURNAL_SEQUENCE.next_value()).scalar_one():07d}"
+    journal = ManualJournal(
+        journal_number=number, currency=currency, effective_date=effective_date,
+        description=description.strip()[:300] or "Manual journal", lines=clean, amount=debits,
+        status=JournalStatus.PROPOSED.value, proposed_by=proposed_by,
+    )  # fmt: skip
+    db.add(journal)
+    db.flush()
+    _audit(db, proposed_by, "finance.journal_proposed", "manual_journal", journal.id,
+           journal_number=number, amount=debits, currency=currency)  # fmt: skip
+    return journal
+
+
+def get_journal(db: Session, journal_id: uuid.UUID, *, for_update: bool = False
+                ) -> ManualJournal:  # fmt: skip
+    query = select(ManualJournal).where(ManualJournal.id == journal_id)
+    if for_update:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    journal = db.execute(query).scalar_one_or_none()
+    if journal is None:
+        raise NotFoundError("Journal not found.")
+    return journal
+
+
+def find_journal(db: Session, number: str) -> ManualJournal | None:
+    return db.execute(
+        select(ManualJournal).where(ManualJournal.journal_number == number.strip().upper())
+    ).scalar_one_or_none()
+
+
+def _signature(journal: ManualJournal) -> frozenset:
+    return frozenset((line["account_code"], line["direction"]) for line in journal.lines)
+
+
+def journal_profile(db: Session, journal: ManualJournal, today: date | None = None
+                    ) -> dict[str, Any]:  # fmt: skip
+    """What an approver weighs before posting a manual journal (Phase 50): its size against
+    materiality, the kinds of account it touches (equity, cash, income), how far back it is
+    dated and whether into a closed month, a round amount, its description, an identical
+    journal posted in the 30 days before, and the preparer's other journals in the last seven
+    days on the same accounts (other than cash)."""
+    from app.modules.risk import service as risk
+
+    today = _today(today)
+    accounts = {line["account_code"]: _ledger_account(db, line["account_code"])
+                for line in journal.lines}  # fmt: skip
+    types = sorted({a.account_type for a in accounts.values()})
+    cash = ledger.cash_account(db, journal.currency).code
+    amount_usd = risk._usd(db, journal.amount, journal.currency, today)
+    month = f"{journal.effective_date:%Y-%m}"
+    signature = _signature(journal)
+    window_start = journal.effective_date - timedelta(days=30)
+    duplicate = next((other.journal_number for other in db.execute(
+        select(ManualJournal).where(
+            ManualJournal.id != journal.id, ManualJournal.status == JournalStatus.POSTED,
+            ManualJournal.currency == journal.currency, ManualJournal.amount == journal.amount,
+            ManualJournal.effective_date.between(window_start, journal.effective_date))
+    ).scalars() if _signature(other) == signature), None)  # fmt: skip
+    own = set(accounts) - {cash}
+    recent = [other for other in db.execute(
+        select(ManualJournal).where(
+            ManualJournal.id != journal.id, ManualJournal.proposed_by == journal.proposed_by,
+            ManualJournal.status != JournalStatus.REJECTED,
+            func.date(ManualJournal.created_at) > today - timedelta(days=7))
+    ).scalars() if own & {line["account_code"] for line in other.lines}]  # fmt: skip
+    major = journal.amount // 10 ** _exponent(journal.currency)
+    return {
+        "currency": journal.currency, "amount": journal.amount, "amount_usd": amount_usd,
+        "materiality_pct": amount_usd * 100 // MATERIALITY_USD, "lines": len(journal.lines),
+        "account_types": types,
+        "touches_equity": LedgerAccountType.EQUITY in types,
+        "touches_income": LedgerAccountType.INCOME in types,
+        "touches_cash": cash in accounts,
+        "effective_date": journal.effective_date.isoformat(),
+        "days_backdated": max((today - journal.effective_date).days, 0),
+        "in_closed_period": closed_period(db, month) is not None,
+        "round_amount": major > 0 and major % 1_000 == 0
+        and journal.amount % 10 ** _exponent(journal.currency) == 0,
+        "description_chars": len(journal.description),
+        "duplicate_of": duplicate,
+        "same_accounts_7d": len(recent),
+        "same_accounts_7d_usd": sum(risk._usd(db, o.amount, o.currency, today) for o in recent),
+    }  # fmt: skip
+
+
+def _exponent(currency: str) -> int:
+    from app.core.money import minor_unit_exponent
+
+    return minor_unit_exponent(currency)
+
+
+def approve_journal(db: Session, journal: ManualJournal, actor_id: uuid.UUID) -> ManualJournal:
+    """Post the journal to the ledger, dated its effective date: not by its preparer."""
+    journal = get_journal(db, journal.id, for_update=True)
+    _decide(journal, actor_id, journal.proposed_by, JournalStatus.PROPOSED, "proposed")
+    memo = f"{journal.journal_number} {journal.description}"[:200]
+    entry, _ = ledger.post_entry(
+        db, idempotency_key=f"finance-journal:{journal.journal_number}",
+        currency=journal.currency, description=memo, source="manual_journal",
+        lines=[ledger.LineSpec(_ledger_account(db, line["account_code"]).id,
+                               Direction(line["direction"]), line["amount"], memo[:200])
+               for line in journal.lines],
+        actor_id=actor_id, effective_date=journal.effective_date,
+    )  # fmt: skip
+    journal.status, journal.approved_by = JournalStatus.POSTED.value, actor_id
+    journal.entry_number, journal.decided_at = entry.entry_number, datetime.now(UTC)
+    db.flush()
+    _audit(db, actor_id, "finance.journal_posted", "manual_journal", journal.id,
+           journal_number=journal.journal_number, entry_number=entry.entry_number)  # fmt: skip
+    return journal
+
+
+def reject_journal(db: Session, journal: ManualJournal, actor_id: uuid.UUID,
+                   note: str) -> ManualJournal:  # fmt: skip
+    journal = get_journal(db, journal.id, for_update=True)
+    _decide(journal, actor_id, journal.proposed_by, JournalStatus.PROPOSED, "proposed")
+    journal.status, journal.approved_by = JournalStatus.REJECTED.value, actor_id
+    journal.note, journal.decided_at = (note.strip() or None), datetime.now(UTC)
+    db.flush()
+    _audit(db, actor_id, "finance.journal_rejected", "manual_journal", journal.id,
+           journal_number=journal.journal_number)  # fmt: skip
+    return journal
+
+
+def accruals_account(db: Session, currency: str) -> LedgerAccount:
+    return ledger.ensure_ledger_account(
+        db, code=f"FIN-ACCRUALS-{currency}", name=f"Accrued expenses ({currency})",
+        account_type=LedgerAccountType.LIABILITY, currency=currency,
+    )  # fmt: skip
+
+
 def summary(db: Session) -> dict[str, Any]:
     def count(model, *where) -> int:
         return db.execute(select(func.count()).select_from(model).where(*where)).scalar_one()
@@ -648,4 +837,6 @@ def summary(db: Session) -> dict[str, Any]:
                                    RegulatoryReport.status == ReportStatus.SUBMITTED),
         "allocations_to_post": count(CostAllocation,
                                      CostAllocation.status == AllocationStatus.CALCULATED),
+        "journals_to_approve": count(ManualJournal,
+                                     ManualJournal.status == JournalStatus.PROPOSED),
     }  # fmt: skip

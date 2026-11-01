@@ -35,6 +35,7 @@ from app.core.models import UUIDPrimaryKey
 CLOSE_SEQUENCE = Sequence("period_close_number_seq", start=1)
 REPORT_SEQUENCE = Sequence("regulatory_report_number_seq", start=1)
 ALLOCATION_SEQUENCE = Sequence("cost_allocation_number_seq", start=1)
+JOURNAL_SEQUENCE = Sequence("manual_journal_number_seq", start=1)
 
 
 class CloseStatus(StrEnum):
@@ -175,6 +176,45 @@ class CostAllocation(UUIDPrimaryKey, Base):
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class JournalStatus(StrEnum):
+    PROPOSED = "proposed"  # awaiting a second person's approval
+    POSTED = "posted"
+    REJECTED = "rejected"
+
+
+class ManualJournal(UUIDPrimaryKey, Base):
+    """A manual journal entry (Phase 50): proposed by one person, posted to the ledger only
+    when another approves it."""
+
+    __tablename__ = "manual_journals"
+    __table_args__ = (
+        CheckConstraint("status IN ('proposed', 'posted', 'rejected')", name="status_valid"),
+        CheckConstraint("approved_by IS NULL OR approved_by <> proposed_by", name="four_eyes"),
+        CheckConstraint("amount > 0", name="amount_positive"),
+    )
+
+    journal_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(String(300), nullable=False)
+    # [{account_code, direction, amount}]
+    lines: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)  # total debits, minor units
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    proposed_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    entry_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     note: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -68,6 +68,48 @@ each department's cost centre (`FIN-COST-<department>-<CCY>`, expense), dated th
 end. It needs the month to be open (rule `period_closed`) and the pool to be unchanged since
 the split (rule `pool_changed`).
 
+## Manual journals (Phase 50)
+
+A manual journal (`MJ-`, `finance:close`) is two to twenty lines on the bank's own ledger
+accounts in one currency, with debits equal to credits. It is refused on a customer's
+account (rule `customer_account`); those move only through their own services. Nothing is
+posted until someone other than the preparer approves it (`finance:approve`; rule
+`four_eyes`, also a database constraint). The entry is dated the journal's effective date.
+
+**The journal profile** (`finance.journal_profile`) is what the approver weighs:
+- the amount in US dollars against materiality (US$100,000);
+- the kinds of account it touches: equity, cash, income;
+- how many days back it is dated, and whether into a closed month;
+- a round amount (whole thousands);
+- the length of its description;
+- an identical journal (same amount, accounts and sides) posted in the 30 days before;
+- the preparer's other journals in the last seven days on the same accounts (other than
+  cash), and their total.
+
+## Simulation workload and AI tool (Phase 50)
+
+The `journal_review` workload drives WF-1036 v2 (scenario `journal-review`).
+- **Cases:** each case is a manual journal in US dollars on its own simulation ledger
+  accounts. It is proposed by a manager, and any earlier journals it needs are proposed and
+  posted first. A regional executive decides every case.
+- **Ground truth, post:**
+  - a routine accrual of US$2,000–40,000;
+  - a reclassification between two expense accounts;
+  - a material accrual (1.5–4 times materiality) with a full description.
+- **Ground truth, reject:**
+  - a journal from retained earnings to income;
+  - an accrual dated 45–120 days back;
+  - a duplicate of an accrual posted 3–20 days before;
+  - a round cash payment described only as "Adjustment";
+  - a large entry split into pieces, each 70–95 % of materiality, two or three of them posted
+    in the days before.
+- **Decisions:** in AI-assisted runs the AGB Journal Review Assistant advises the approver
+  from the journal profile.
+- **Control check:** four-eyes against both the initiator and the preparer, `finance:approve`
+  on each decision, and no journal posted without it.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## Workflows
 
 | Workflow | What it does |
@@ -75,6 +117,7 @@ the split (rule `pool_changed`).
 | WF-1033 Month-End Close | Prepares the close; an approver closes the month or rejects it |
 | WF-1034 Regulatory Report Submission | Extracts a report for a closed month; an approver submits or rejects it |
 | WF-1035 Cost Allocation | Splits a month's shared costs; an approver posts or rejects the split |
+| WF-1036 Manual Journal Approval | v1: an approver posts or rejects a proposed journal. v2 (Phase 50): the journal profile and the AGB Journal Review Assistant's advice first |
 
 The finance handlers need `finance:close` to start a workflow using them and `finance:read`
 to read its executions through the API.
@@ -94,3 +137,5 @@ to read its executions through the API.
 - **One driver.** Costs are allocated by headcount only, and shared costs are recorded by
   hand.
 - **A synthetic regulator.** Submitting records a reference; nothing is sent.
+- **Simulation scope.** Only manual journal review is simulated; closes, reports and
+  allocations are not.

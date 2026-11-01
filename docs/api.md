@@ -398,7 +398,12 @@ See [finance.md](finance.md). Amounts are minor units of their currency; periods
 | POST | `/api/v1/finance/allocations` | `finance:close` | `{period, currency}`: splits the pool by headcount (rule `nothing_to_allocate` if empty); 201 |
 | POST | `/api/v1/finance/allocations/{id}/post` | `finance:approve` | Not by the calculator; the month open (rule `period_closed`) and the pool unchanged (rule `pool_changed`) |
 | POST | `/api/v1/finance/allocations/{id}/reject` | `finance:approve` | `{note?}` |
-| GET | `/api/v1/finance/summary/counts` | `finance:read` | Last closed and next month, closes, reports and allocations awaiting a decision |
+| GET | `/api/v1/finance/journals` | `finance:read` | Manual journals, newest first (Phase 50) |
+| POST | `/api/v1/finance/journals` | `finance:close` | `{currency, effective_date, description, lines: [{account_code, direction, amount}]}`: balanced, on the bank's own accounts (rules `unbalanced`, `customer_account`, `unknown_account`); 201 |
+| GET | `/api/v1/finance/journals/{id}/profile` | `finance:read` | What the approver weighs |
+| POST | `/api/v1/finance/journals/{id}/approve` | `finance:approve` | Posts it; not by the preparer (rule `four_eyes`) |
+| POST | `/api/v1/finance/journals/{id}/reject` | `finance:approve` | `{note?}` |
+| GET | `/api/v1/finance/summary/counts` | `finance:read` | Last closed and next month, closes, reports, allocations and journals awaiting a decision |
 
 ### Country rules (Phase 25)
 

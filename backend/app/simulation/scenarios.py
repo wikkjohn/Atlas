@@ -761,3 +761,39 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="journal-review",
+        version=1,
+        name="Journal review (finance)",
+        description="A working day of manual journals through WF-1036 v2: a regional executive "
+        "posts or rejects each. A routine accrual, a reclassification between expense accounts "
+        "and a material accrual with a full description are posted; a journal straight to "
+        "equity, one dated months back, a duplicate of a journal posted days before, a round "
+        "cash payment with no description and a large entry split into pieces just under "
+        "materiality are rejected. In AI-assisted runs the AGB Journal Review Assistant advises "
+        "the approver (Phase 50).",
+        workload="journal_review",
+        workflow_id="WF-1036",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "routine_accrual": 0.22,
+                "reclassification": 0.14,
+                "large_documented": 0.10,
+                "equity_adjustment": 0.08,
+                "stale_backdated": 0.10,
+                "duplicate_entry": 0.10,
+                "unexplained_cash": 0.10,
+                "split_below_threshold": 0.16,
+            },
+            reviewers={"decision": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.4, "manager": 0.2, "executive": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

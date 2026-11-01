@@ -3364,6 +3364,269 @@ def _reject_provisions(ctx: StepContext, params: RunDecision) -> dict[str, Any]:
     return _run_out(run)
 
 
+# --- Finance (Phase 49) -----------------------------------------------------------------------
+
+FINANCE_ACCESS = {"start_permission": "finance:close", "read_permission": "finance:read"}
+
+
+class ClosePeriod(_Strict):
+    period_path: str = Field(min_length=1, max_length=200)
+
+
+def _close_out(close) -> dict[str, Any]:
+    failed = [c["check"] for c in close.checks if c["blocking"] and not c["passed"]]
+    return {"close_id": str(close.id), "close_number": close.close_number,
+            "period": close.period, "status": close.status, "checks_passed": not failed,
+            "failed_checks": failed,
+            "net_income": {ccy: r["net_income"] for ccy, r in close.results.items()}}  # fmt: skip
+
+
+@_library_handler(
+    "finance.prepare_close",
+    "Prepare a month's close: check the ledger as of its end (running a reconciliation if "
+    "none has run since) and measure each currency's result; nothing is posted.",
+    ClosePeriod,
+    "{close_id, close_number, period, status, checks_passed, failed_checks, net_income}; a "
+    "month already prepared or closed, or out of order, fails the step.",
+    reads=lambda params: [params.period_path],
+    effect="writes",
+    fixtures=lambda params: {params.period_path: "finance.open_period"},
+    **FINANCE_ACCESS,
+)
+def _prepare_close(ctx: StepContext, params: ClosePeriod) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    close = _trade_call("close_refused", finance.prepare_close, ctx.db,
+                        str(_required(ctx, params.period_path)), ctx.initiator_id,
+                        today=ctx.now.date())  # fmt: skip
+    return _close_out(close)
+
+
+class CloseDecision(_Strict):
+    close_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _period_close(ctx: StepContext, path: str):
+    from app.modules.finance import service as finance
+
+    return finance.get_close(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "finance.approve_close",
+    "Close the month: each currency's income and expense brought to zero against retained "
+    "earnings, dated the month's end.",
+    CloseDecision,
+    "{close_id, close_number, period, status, checks_passed, failed_checks, net_income}; a "
+    "failed blocking check fails the step.",
+    reads=lambda params: [params.close_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **FINANCE_ACCESS,
+)
+def _approve_close(ctx: StepContext, params: CloseDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    close = _trade_call("close_refused", finance.approve_close, ctx.db,
+                        _period_close(ctx, params.close_id_path), decider)  # fmt: skip
+    return _close_out(close)
+
+
+@_library_handler(
+    "finance.reject_close",
+    "Reject the prepared close; the month stays open.",
+    CloseDecision,
+    "{close_id, close_number, period, status, checks_passed, failed_checks, net_income}",
+    reads=lambda params: [params.close_id_path, params.decided_by_path],
+    effect="writes",
+    **FINANCE_ACCESS,
+)
+def _reject_close(ctx: StepContext, params: CloseDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    close = _trade_call("rejection_refused", finance.reject_close, ctx.db,
+                        _period_close(ctx, params.close_id_path), decider,
+                        params.note)  # fmt: skip
+    return _close_out(close)
+
+
+class PrepareReport(_Strict):
+    report_type_path: str = Field(min_length=1, max_length=200)
+    period_path: str = Field(min_length=1, max_length=200)
+
+
+def _report_out(report) -> dict[str, Any]:
+    return {"report_id": str(report.id),
+            "report_number": report.report_number, "report_type": report.report_type,
+            "period": report.period, "status": report.status, "rows": len(report.rows),
+            "reference": report.reference}  # fmt: skip
+
+
+@_library_handler(
+    "finance.prepare_report",
+    "Extract a regulatory report (balance sheet, income statement, large exposures or credit "
+    "quality) for a closed month.",
+    PrepareReport,
+    "{report_id, report_number, report_type, period, status, rows, reference}; a month not "
+    "closed fails the step.",
+    reads=lambda params: [params.report_type_path, params.period_path],
+    effect="writes",
+    fixtures=lambda params: {params.period_path: "finance.closed_period"},
+    **FINANCE_ACCESS,
+)
+def _prepare_report(ctx: StepContext, params: PrepareReport) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    report = _trade_call("report_refused", finance.prepare_report, ctx.db,
+                         str(_required(ctx, params.report_type_path)),
+                         str(_required(ctx, params.period_path)), ctx.initiator_id)  # fmt: skip
+    return _report_out(report)
+
+
+class ReportDecision(_Strict):
+    report_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _regulatory_report(ctx: StepContext, path: str):
+    from app.modules.finance import service as finance
+
+    return finance.get_report(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "finance.submit_report",
+    "Submit the report to the (synthetic) regulator and record its reference.",
+    ReportDecision,
+    "{report_id, report_number, report_type, period, status, rows, reference}; a report of "
+    "the type already submitted for the month fails the step.",
+    reads=lambda params: [params.report_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **FINANCE_ACCESS,
+)
+def _submit_report(ctx: StepContext, params: ReportDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    report = _trade_call("submission_refused", finance.submit_report, ctx.db,
+                         _regulatory_report(ctx, params.report_id_path), decider)  # fmt: skip
+    return _report_out(report)
+
+
+@_library_handler(
+    "finance.reject_report",
+    "Reject the report; nothing is submitted.",
+    ReportDecision,
+    "{report_id, report_number, report_type, period, status, rows, reference}",
+    reads=lambda params: [params.report_id_path, params.decided_by_path],
+    effect="writes",
+    **FINANCE_ACCESS,
+)
+def _reject_report(ctx: StepContext, params: ReportDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    report = _trade_call("rejection_refused", finance.reject_report, ctx.db,
+                         _regulatory_report(ctx, params.report_id_path), decider,
+                         params.note)  # fmt: skip
+    return _report_out(report)
+
+
+class Allocate(_Strict):
+    period_path: str = Field(min_length=1, max_length=200)
+    currency_path: str = Field(min_length=1, max_length=200)
+
+
+def _allocation_out(allocation) -> dict[str, Any]:
+    return {"allocation_id": str(allocation.id),
+            "allocation_number": allocation.allocation_number, "period": allocation.period,
+            "currency": allocation.currency, "pool": allocation.pool,
+            "departments": len(allocation.lines), "status": allocation.status}  # fmt: skip
+
+
+@_library_handler(
+    "finance.calculate_allocation",
+    "Split a month's shared operating costs in a currency across departments by active "
+    "headcount; nothing is posted.",
+    Allocate,
+    "{allocation_id, allocation_number, period, currency, pool, departments, status}; no "
+    "shared costs, or a closed month, fails the step.",
+    reads=lambda params: [params.period_path, params.currency_path],
+    effect="writes",
+    fixtures=lambda params: {
+        params.period_path: "finance.allocation_period",
+        params.currency_path: "finance.allocation_currency",
+    },
+    **FINANCE_ACCESS,
+)
+def _calculate_allocation(ctx: StepContext, params: Allocate) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    allocation = _trade_call("allocation_refused", finance.calculate_allocation, ctx.db,
+                             str(_required(ctx, params.period_path)),
+                             str(_required(ctx, params.currency_path)),
+                             ctx.initiator_id)  # fmt: skip
+    return _allocation_out(allocation)
+
+
+class AllocationDecision(_Strict):
+    allocation_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _cost_allocation(ctx: StepContext, path: str):
+    from app.modules.finance import service as finance
+
+    return finance.get_allocation(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "finance.post_allocation",
+    "Post the split: the shared costs moved to the departments' cost centres.",
+    AllocationDecision,
+    "{allocation_id, allocation_number, period, currency, pool, departments, status}; shared "
+    "costs changed since the split fail the step.",
+    reads=lambda params: [params.allocation_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **FINANCE_ACCESS,
+)
+def _post_allocation(ctx: StepContext, params: AllocationDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    allocation = _trade_call("posting_refused", finance.post_allocation, ctx.db,
+                             _cost_allocation(ctx, params.allocation_id_path),
+                             decider)  # fmt: skip
+    return _allocation_out(allocation)
+
+
+@_library_handler(
+    "finance.reject_allocation",
+    "Reject the split; nothing is posted.",
+    AllocationDecision,
+    "{allocation_id, allocation_number, period, currency, pool, departments, status}",
+    reads=lambda params: [params.allocation_id_path, params.decided_by_path],
+    effect="writes",
+    **FINANCE_ACCESS,
+)
+def _reject_allocation(ctx: StepContext, params: AllocationDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    allocation = _trade_call("rejection_refused", finance.reject_allocation, ctx.db,
+                             _cost_allocation(ctx, params.allocation_id_path), decider,
+                             params.note)  # fmt: skip
+    return _allocation_out(allocation)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

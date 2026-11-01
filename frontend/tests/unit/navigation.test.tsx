@@ -30,6 +30,7 @@ describe("Application shell", () => {
       "Wealth",
       "Compliance",
       "Risk",
+      "Finance",
       "Foreign Exchange",
       "Lending",
       "Mortgages",

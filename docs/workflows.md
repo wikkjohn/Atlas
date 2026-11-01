@@ -505,6 +505,20 @@ departs from the model's and asks the AGB Rating Review Assistant (`ai.review`, 
 before the approver decides (`rating-overrides`). Its approval step is `decision`; the
 outcome is `approved` when the grade is accepted, `rejected` when the model's stands.
 
+### WF-1033, WF-1034 and WF-1035: finance (Phase 49)
+
+The finance base processes:
+- **WF-1033** prepares a month's close and, once a second person approves
+  (`finance:approve`), closes it against retained earnings.
+- **WF-1034** extracts a regulatory report for a closed month and submits it on approval.
+- **WF-1035** splits a month's shared costs across departments by headcount and posts the
+  split on approval.
+
+The finance handlers need `finance:close` to start a workflow and `finance:read` to read
+its executions. Their generated tests use fixtures: the next month that can close, that
+month closed by two people, and this month with a shared cost to allocate. See
+[finance.md](finance.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

@@ -378,6 +378,28 @@ See [risk.md](risk.md). Exposure amounts are minor units of their currency; `_us
 | POST | `/api/v1/risk/provisions/{id}/reject` | `risk:approve` | `{note?}` |
 | GET | `/api/v1/risk/summary/counts` | `risk:read` | Approved and pending ratings, runs to post, the last posted run |
 
+### Finance (Phase 49)
+
+See [finance.md](finance.md). Amounts are minor units of their currency; periods are months, `YYYY-MM`.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/finance/closes` | `finance:read` | Newest first, with checks and results |
+| POST | `/api/v1/finance/closes` | `finance:close` | `{period}`: prepares the close (409 if already prepared or closed; 422 rule `out_of_order`); 201 |
+| POST | `/api/v1/finance/closes/{id}/approve` | `finance:approve` | Posts the closing entries; not by the preparer (rule `four_eyes`), not with a failed blocking check (rule `checks_failed`), in order |
+| POST | `/api/v1/finance/closes/{id}/reject` | `finance:approve` | `{note?}` |
+| GET | `/api/v1/finance/reports` | `finance:read` | Filter `report_type`; newest first |
+| POST | `/api/v1/finance/reports` | `finance:close` | `{report_type, period}`: a closed month only (rule `period_open`); 201 |
+| GET | `/api/v1/finance/reports/{id}/csv` | `finance:read` | The rows as CSV |
+| POST | `/api/v1/finance/reports/{id}/submit` | `finance:approve` | Not by the preparer; one of a type per month (409); records the reference |
+| POST | `/api/v1/finance/reports/{id}/reject` | `finance:approve` | `{note?}` |
+| POST | `/api/v1/finance/expenses` | `finance:close` | `{currency, amount, description, effective_date?}` with Idempotency-Key: a shared cost paid from cash; 201 |
+| GET | `/api/v1/finance/allocations` | `finance:read` | Newest first |
+| POST | `/api/v1/finance/allocations` | `finance:close` | `{period, currency}`: splits the pool by headcount (rule `nothing_to_allocate` if empty); 201 |
+| POST | `/api/v1/finance/allocations/{id}/post` | `finance:approve` | Not by the calculator; the month open (rule `period_closed`) and the pool unchanged (rule `pool_changed`) |
+| POST | `/api/v1/finance/allocations/{id}/reject` | `finance:approve` | `{note?}` |
+| GET | `/api/v1/finance/summary/counts` | `finance:read` | Last closed and next month, closes, reports and allocations awaiting a decision |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

@@ -172,7 +172,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       US dollars, IFRS 9 staged ECL posted to the ledger by a second person; WF-1030–1032;
       see `risk.md`. Phase 48: the `rating-overrides` workload and the rating review
       assistant)
-- [ ] Finance: GL close, regulatory reporting extracts, cost allocation
+- [x] Finance: GL close, regulatory reporting extracts, cost allocation
+      (Phase 49: month-end closes checked and approved by a second person, posting income
+      and expense to retained earnings in month order; balance sheet, income statement,
+      large exposures and credit quality extracts submitted to a synthetic regulator; shared
+      costs split across departments by headcount; WF-1033–1035; see `finance.md`)
 - [ ] Customer service: contact-centre cases, complaints, SLA timers
 - [ ] Collections and recoveries: payment plans, recoveries (extends WF-0004)
 - [ ] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
@@ -272,4 +276,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 46 (D18) | Compliance, step 2: the `alert-triage` workload on stored WF-1027 v2, decided by compliance officers, and the AGB Alert Review Assistant | complete |
 | Phase 47 (D19) | Risk: internal credit ratings with four-eyes overrides, obligor limits against exposure, IFRS 9 ECL provisioning posted to the ledger; WF-1030–1032 | complete |
 | Phase 48 (D20) | Risk, step 2: the `rating-overrides` workload on stored WF-1030 v2, decided by regional executives, and the AGB Rating Review Assistant | complete |
-| Phase 49 (D21, proposed) | Finance: GL close, regulatory reporting extracts, cost allocation | next |
+| Phase 49 (D21) | Finance: month-end close with four-eyes approval, regulatory reporting extracts, cost allocation by headcount; WF-1033–1035 | complete |
+| Phase 50 (D22, proposed) | Finance, step 2: a `month-end-close` workload on stored WF-1033 v2, decided by finance approvers, and an AGB Close Review Assistant | next |

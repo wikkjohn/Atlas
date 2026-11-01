@@ -34,7 +34,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from jsonschema import Draft202012Validator, FormatChecker
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import DomainError, PermissionDeniedError
@@ -570,6 +570,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             known.update(_wealth_fixtures(db, customer, account, kinds))
         if kinds & {"counterparty.code", "treasury_deal.deal_number", "fx_long.currency"}:
             known.update(_treasury_fixtures(db, kinds))
+        if kinds & FINANCE_KINDS:
+            known.update(_finance_fixtures(db, kinds))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -581,6 +583,41 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         outsider=_person(db, RoleCode.AUDITOR),
         values=values,
     )
+
+
+FINANCE_KINDS = {"finance.open_period", "finance.closed_period", "finance.allocation_period",
+                 "finance.allocation_currency"}  # fmt: skip
+
+
+def _finance_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
+    """The next month that can be closed (the one after the last closed, else last month),
+    closed by two people if a closed month is asked for; and this month with a shared USD
+    operating cost to allocate (Phase 49)."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.finance import service as finance
+    from app.modules.finance.models import CloseStatus, PeriodClose
+
+    today = datetime.now(UTC).date()
+    latest = db.execute(
+        select(func.max(PeriodClose.period)).where(PeriodClose.status == CloseStatus.CLOSED)
+    ).scalar_one()  # fmt: skip
+    last_month = today.replace(day=1) - timedelta(days=1)
+    open_period = finance._next(latest) if latest else f"{last_month:%Y-%m}"
+    out = {"finance.open_period": open_period, "finance.allocation_currency": "USD",
+           "finance.allocation_period": f"{today:%Y-%m}"}  # fmt: skip
+    if "finance.closed_period" in kinds:
+        preparer = _person(db, RoleCode.DEPARTMENT_MANAGER)
+        approver = _person(db, RoleCode.REGIONAL_EXECUTIVE)
+        close = finance.prepare_close(db, open_period, preparer.id, today=today)
+        finance.approve_close(db, close, approver.id)
+        out["finance.closed_period"] = open_period
+    if "finance.allocation_period" in kinds:
+        finance.record_expense(db, currency="USD", amount=250_000,
+                               description="Generated test rent",
+                               actor_id=_person(db, RoleCode.DEPARTMENT_MANAGER).id,
+                               idempotency_key=f"wftest-expense-{uuid.uuid4()}")  # fmt: skip
+    return out
 
 
 def _compliance_fixtures(db: Session, account, kinds: set[str]) -> dict[str, str]:

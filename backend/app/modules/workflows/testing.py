@@ -518,6 +518,7 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             db,
             "account.account_number" in kinds
             or "outgoing_payment.payment_number" in kinds
+            or "portfolio.portfolio_number" in kinds
             or bool(kinds & (card_kinds | mortgage_kinds)),
             creditworthy=bool(kinds & mortgage_kinds),
         )
@@ -562,6 +563,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             )  # fmt: skip
             clearing.run_cycle(db, account.currency, None)
             known["outgoing_payment.payment_number"] = payment.payment_number
+        if kinds & {"portfolio.portfolio_number", "security.code"}:
+            known.update(_wealth_fixtures(db, customer, account, kinds))
         if kinds & {"counterparty.code", "treasury_deal.deal_number", "fx_long.currency"}:
             known.update(_treasury_fixtures(db, kinds))
         if "payee.account_number" in kinds:
@@ -575,6 +578,29 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         outsider=_person(db, RoleCode.AUDITOR),
         values=values,
     )
+
+
+def _wealth_fixtures(db: Session, customer, account, kinds: set[str]) -> dict[str, str]:
+    """The synthetic securities, and if asked a portfolio on the fixture account: a balanced
+    profile (risk 4), 20,000.00 more cash and 20 units of the balanced fund (Phase 43)."""
+    from app.modules.accounts.service import deposit
+    from app.modules.wealth import service as wealth
+
+    wealth.ensure_securities(db)
+    out = {"security.code": "AGB-BAL-FUND"}
+    if "portfolio.portfolio_number" in kinds:
+        clerk = _person(db, RoleCode.BANKING_EMPLOYEE)
+        deposit(db, account.id, amount=2_000_000, memo="Generated test funds",
+                idempotency_key=f"wftest-wealth-{account.id}", actor_id=clerk.id)  # fmt: skip
+        wealth.record_profile(db, customer, objective="balanced", horizon_years=10,
+                              knowledge="basic", loss_capacity="high",
+                              assessed_by=clerk.id)  # fmt: skip
+        portfolio = wealth.open_portfolio(db, account, clerk.id)
+        fund = wealth.find_security(db, "AGB-BAL-FUND")
+        wealth.place_order(db, portfolio=portfolio, security=fund, side="buy", units=20,
+                           placed_by=clerk.id)  # fmt: skip
+        out["portfolio.portfolio_number"] = portfolio.portfolio_number
+    return out
 
 
 def _treasury_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:

@@ -1,0 +1,181 @@
+{
+  "workflow_id": "WF-1024",
+  "name": "Investment Suitability Assessment",
+  "version": 1,
+  "description": "An adviser records a customer's suitability questionnaire (objective, horizon, investment knowledge, capacity for loss), which gives a risk profile from 1 to 7 valid for a year; the customer's KYC must be verified. If asked, a portfolio is then opened in custody, paid for by one of the customer's own accounts. Stored definition: built only from library handlers (Phase 43).",
+  "business_owner": "Wealth Management",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "objective",
+      "horizon_years",
+      "knowledge",
+      "loss_capacity",
+      "account_number",
+      "open_portfolio"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "objective": {
+        "type": "string",
+        "enum": [
+          "balanced",
+          "growth",
+          "income",
+          "preservation"
+        ]
+      },
+      "horizon_years": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 50,
+        "examples": [
+          10
+        ]
+      },
+      "knowledge": {
+        "type": "string",
+        "enum": [
+          "basic",
+          "expert",
+          "informed",
+          "none"
+        ]
+      },
+      "loss_capacity": {
+        "type": "string",
+        "enum": [
+          "high",
+          "low",
+          "medium"
+        ]
+      },
+      "account_number": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}[0-9]{6,32}$"
+      },
+      "open_portfolio": {
+        "type": "boolean",
+        "examples": [
+          true
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "lookup.customer_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "SUIT-"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "next": "lookup"
+    },
+    {
+      "id": "lookup",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "profile"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Record the suitability assessment",
+      "handler": "wealth.record_profile",
+      "params": {
+        "customer_id_path": "lookup.customer_id",
+        "objective_path": "input.objective",
+        "horizon_path": "input.horizon_years",
+        "knowledge_path": "input.knowledge",
+        "loss_capacity_path": "input.loss_capacity"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_portfolio"
+    },
+    {
+      "id": "route_portfolio",
+      "type": "decision",
+      "name": "Open a portfolio?",
+      "transitions": [
+        {
+          "to": "open",
+          "when": {
+            "path": "input.open_portfolio",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "assessed"
+    },
+    {
+      "id": "open",
+      "type": "service_task",
+      "name": "Open the portfolio",
+      "handler": "wealth.open_portfolio",
+      "params": {
+        "customer_id_path": "lookup.customer_id",
+        "account_number_path": "input.account_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "assessed_only",
+      "next": "opened"
+    },
+    {
+      "id": "opened",
+      "type": "completion",
+      "name": "Assessed, portfolio opened",
+      "outcome": "approved"
+    },
+    {
+      "id": "assessed",
+      "type": "completion",
+      "name": "Assessed",
+      "outcome": "approved"
+    },
+    {
+      "id": "assessed_only",
+      "type": "completion",
+      "name": "Assessed; portfolio not opened",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Not assessed",
+      "outcome": "rejected"
+    }
+  ]
+}

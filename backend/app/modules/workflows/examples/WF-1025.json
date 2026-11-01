@@ -1,0 +1,274 @@
+{
+  "workflow_id": "WF-1025",
+  "name": "Investment Order",
+  "version": 1,
+  "description": "An adviser places a buy or sell order in a customer's portfolio. A buy is checked against the customer's current risk profile: the security's risk level, a complex product without the knowledge for it, and concentration above 40 % of investable assets make it unsuitable. A sell or a suitable buy goes to the dealing desk, where someone other than the adviser (wealth:advise) releases it for execution at the day's price; an unsuitable buy waits for someone else (wealth:approve) to approve it at the client's insistence, or reject it. Stored definition: built only from library handlers (Phase 43).",
+  "business_owner": "Wealth Management",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "portfolio_number",
+      "security_code",
+      "side",
+      "units"
+    ],
+    "properties": {
+      "portfolio_number": {
+        "type": "string",
+        "pattern": "^INV-[0-9]{8}$"
+      },
+      "security_code": {
+        "type": "string",
+        "pattern": "^[A-Z0-9-]{3,20}$",
+        "examples": [
+          "AGB-BAL-FUND"
+        ]
+      },
+      "side": {
+        "type": "string",
+        "enum": [
+          "buy",
+          "sell"
+        ]
+      },
+      "units": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000,
+        "examples": [
+          10
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "order.order_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.portfolio_number",
+        "prefix": "ORD-"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "next": "find"
+    },
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the portfolio",
+      "handler": "wealth.lookup_portfolio",
+      "params": {
+        "portfolio_number_path": "input.portfolio_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "order"
+    },
+    {
+      "id": "order",
+      "type": "service_task",
+      "name": "Place the order",
+      "handler": "wealth.place_order",
+      "params": {
+        "portfolio_id_path": "find.portfolio_id",
+        "security_code_path": "input.security_code",
+        "side_path": "input.side",
+        "units_path": "input.units"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_suitable"
+    },
+    {
+      "id": "route_suitable",
+      "type": "decision",
+      "name": "Unsuitable?",
+      "transitions": [
+        {
+          "to": "approval",
+          "when": {
+            "path": "order.awaiting_approval",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "release_approval"
+    },
+    {
+      "id": "release_approval",
+      "type": "approval",
+      "name": "Dealing desk release",
+      "description": "Someone on the dealing desk other than the adviser releases a suitable order for execution.",
+      "approval": {
+        "permissions": [
+          "wealth:advise"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "release",
+          "when": {
+            "path": "release_approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "cancel"
+    },
+    {
+      "id": "release",
+      "type": "service_task",
+      "name": "Execute the order",
+      "handler": "wealth.release_order",
+      "params": {
+        "order_id_path": "order.order_id",
+        "decided_by_path": "release_approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "executed"
+    },
+    {
+      "id": "cancel",
+      "type": "service_task",
+      "name": "Cancel the order",
+      "handler": "wealth.reject_order",
+      "params": {
+        "order_id_path": "order.order_id",
+        "decided_by_path": "release_approval.actor_id",
+        "note": "Not released by the dealing desk"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "cancelled"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Insistent-client approval",
+      "description": "Someone other than the adviser decides whether an unsuitable order goes ahead at the client's insistence.",
+      "approval": {
+        "permissions": [
+          "wealth:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Execute at the client's insistence",
+      "handler": "wealth.approve_order",
+      "params": {
+        "order_id_path": "order.order_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Insistent client"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "executed_on_insistence"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the order",
+      "handler": "wealth.reject_order",
+      "params": {
+        "order_id_path": "order.order_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Unsuitable for the customer"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "executed",
+      "type": "completion",
+      "name": "Executed",
+      "outcome": "approved"
+    },
+    {
+      "id": "executed_on_insistence",
+      "type": "completion",
+      "name": "Executed at the client's insistence",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected as unsuitable",
+      "outcome": "rejected"
+    },
+    {
+      "id": "cancelled",
+      "type": "completion",
+      "name": "Cancelled",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

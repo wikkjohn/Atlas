@@ -315,6 +315,28 @@ account currency.
 | POST | `/api/v1/payment-ops/recalls/{id}/resolve` | `payments:operate` | The beneficiary bank's answer: `accepted` (money back) or `refused` |
 | GET | `/api/v1/payment-ops/summary/counts` | `payments:read` | Awaiting approval, pending, returned, files to release, open recalls |
 
+### Wealth and investments (Phase 43)
+
+See [wealth.md](wealth.md). Order amounts and fees are minor units of the portfolio's
+currency; prices are minor units of the security's.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/wealth/securities` | `accounts:read` | The synthetic securities with today's prices |
+| POST | `/api/v1/wealth/profiles` | `wealth:advise` | `{customer_number, objective, horizon_years, knowledge, loss_capacity}`; 201 with the risk profile; 422 with rule `kyc_not_verified` |
+| GET | `/api/v1/wealth/profiles/{customer_number}` | `accounts:read` | The current profile, or `null` |
+| GET | `/api/v1/wealth/portfolios` | `accounts:read` | Newest first |
+| POST | `/api/v1/wealth/portfolios` | `wealth:advise` | `{account_number}`; 201 |
+| GET | `/api/v1/wealth/portfolios/{number}/valuation` | `accounts:read` | Holdings at today's prices, gain on cost, cash |
+| POST | `/api/v1/wealth/portfolios/{number}/close` | `wealth:advise` | 422 with rule `holdings_remain` or `order_pending` |
+| GET | `/api/v1/wealth/orders` | `accounts:read` | Filter `status`; newest first |
+| POST | `/api/v1/wealth/orders` | `wealth:advise` | `{portfolio_number, security_code, side, units}`; 201 `executed`, or `awaiting_approval` with `reasons`; 422 with rule `no_profile`, `insufficient_funds` or `units_not_held` |
+| POST | `/api/v1/wealth/orders/{id}/approve` · `/reject` | `wealth:approve` | `{note?}`; not by the adviser; approve executes |
+| POST | `/api/v1/wealth/orders/{id}/release` | `wealth:advise` | Executes a placed order; not by the adviser |
+| GET | `/api/v1/wealth/distributions` | `accounts:read` | Income paid |
+| POST | `/api/v1/wealth/distributions` | `wealth:custody` | `{security_code}`: pay today's income; 409 if already paid today |
+| GET | `/api/v1/wealth/summary/counts` | `accounts:read` | Open portfolios, orders awaiting approval, placed, executed, profiles |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

@@ -461,6 +461,14 @@ WF-1023 **v2** (Phase 42) reads the recall profile (`clearing.recall_profile`) a
 is recorded and asks the AGB Recall Assistant (`ai.review`, advisory) before back office
 decides (`recall-triage`).
 
+### WF-1024, WF-1025 and WF-1026: wealth and investments (Phase 43)
+
+The wealth base processes. WF-1024 records a customer's suitability assessment and can open
+a portfolio. WF-1025 places an order checked against the customer's profile: a suitable one
+is released by the dealing desk, an unsuitable one approved by a manager at the client's
+insistence or rejected. WF-1026 pays a security's income to its holders after a second
+person approves. See [wealth.md](wealth.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

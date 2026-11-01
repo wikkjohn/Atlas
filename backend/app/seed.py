@@ -604,6 +604,10 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
     from app.modules.treasury.service import ensure_counterparties
 
     ensure_counterparties(db)
+    # Synthetic securities for wealth and investments (Phase 43); idempotent.
+    from app.modules.wealth.service import ensure_securities
+
+    ensure_securities(db)
     _import_examples(db, report, with_ai_steps=False)
     _register_ai_tools(db, report)
     _import_example_definitions(db, report)

@@ -27,6 +27,7 @@ describe("Application shell", () => {
       "Cards",
       "Payments",
       "Payments Operations",
+      "Wealth",
       "Foreign Exchange",
       "Lending",
       "Mortgages",

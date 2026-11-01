@@ -1,0 +1,146 @@
+{
+  "workflow_id": "WF-1026",
+  "name": "Custody Income Distribution",
+  "version": 1,
+  "description": "Custody operations pay a security's coupon, dividend or fund distribution: half a year's income at the day's price, to every portfolio holding it, into each portfolio's cash account and converted to its currency; once per security and record date. Someone other than the initiator (wealth:custody) approves the payment. Stored definition: built only from library handlers (Phase 43).",
+  "business_owner": "Wealth Management",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "security_code"
+    ],
+    "properties": {
+      "security_code": {
+        "type": "string",
+        "pattern": "^[A-Z0-9-]{3,20}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find.code"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.security_code",
+        "prefix": "DIS-"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "next": "find"
+    },
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the security",
+      "handler": "wealth.lookup_security",
+      "params": {
+        "security_code_path": "input.security_code"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_income"
+    },
+    {
+      "id": "route_income",
+      "type": "decision",
+      "name": "Pays income?",
+      "transitions": [
+        {
+          "to": "approval",
+          "when": {
+            "path": "find.pays_income",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "no_income"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Payment approval",
+      "description": "Someone other than the initiator approves paying the income to the holders.",
+      "approval": {
+        "permissions": [
+          "wealth:custody"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "pay",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "not_paid"
+    },
+    {
+      "id": "pay",
+      "type": "service_task",
+      "name": "Pay the holders",
+      "handler": "wealth.distribute_income",
+      "params": {
+        "security_id_path": "find.security_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "paid"
+    },
+    {
+      "id": "paid",
+      "type": "completion",
+      "name": "Paid",
+      "outcome": "approved"
+    },
+    {
+      "id": "no_income",
+      "type": "completion",
+      "name": "Pays no income",
+      "outcome": "rejected"
+    },
+    {
+      "id": "not_paid",
+      "type": "completion",
+      "name": "Not approved",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

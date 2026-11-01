@@ -2551,6 +2551,279 @@ def _resolve_recall(ctx: StepContext, params: RecallDecision) -> dict[str, Any]:
     return _recall_out(recall)
 
 
+# --- Wealth and investments (Phase 43) -------------------------------------------------------
+
+
+class RecordProfile(_Strict):
+    customer_id_path: str = Field(min_length=1, max_length=200)
+    objective_path: str = Field(min_length=1, max_length=200)
+    horizon_path: str = Field(min_length=1, max_length=200)
+    knowledge_path: str = Field(min_length=1, max_length=200)
+    loss_capacity_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "wealth.record_profile",
+    "Record the customer's suitability assessment: a risk profile from 1 to 7 for a year.",
+    RecordProfile,
+    "{profile_id, risk_profile, expires_on}; a customer whose KYC is not verified fails the "
+    "step.",
+    reads=lambda params: [params.customer_id_path, params.objective_path, params.horizon_path,
+                          params.knowledge_path, params.loss_capacity_path],
+    effect="writes",
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
+)  # fmt: skip
+def _record_profile(ctx: StepContext, params: RecordProfile) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    profile = _trade_call(
+        "profile_refused", wealth.record_profile, ctx.db,
+        _customer(ctx, params.customer_id_path),
+        objective=str(_required(ctx, params.objective_path)),
+        horizon_years=int(_required(ctx, params.horizon_path)),
+        knowledge=str(_required(ctx, params.knowledge_path)),
+        loss_capacity=str(_required(ctx, params.loss_capacity_path)),
+        assessed_by=ctx.initiator_id, today=ctx.now.date(),
+    )  # fmt: skip
+    return {"profile_id": str(profile.id), "risk_profile": profile.risk_profile,
+            "expires_on": profile.expires_on.isoformat()}  # fmt: skip
+
+
+class OpenPortfolio(_Strict):
+    customer_id_path: str = Field(min_length=1, max_length=200)
+    account_number_path: str = Field(min_length=1, max_length=200)
+
+
+def _portfolio_out(portfolio) -> dict[str, Any]:
+    return {"portfolio_id": str(portfolio.id), "portfolio_number": portfolio.portfolio_number,
+            "currency": portfolio.currency, "status": portfolio.status}  # fmt: skip
+
+
+@_library_handler(
+    "wealth.open_portfolio",
+    "Open a portfolio in custody, paid for by one of the customer's own accounts.",
+    OpenPortfolio,
+    "{portfolio_id, portfolio_number, currency, status}; another customer's account fails "
+    "the step.",
+    reads=lambda params: [params.customer_id_path, params.account_number_path],
+    effect="writes",
+    fixtures=lambda params: {params.customer_id_path: "customer.id",
+                             params.account_number_path: "account.account_number"},
+)  # fmt: skip
+def _open_portfolio(ctx: StepContext, params: OpenPortfolio) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    customer = _customer(ctx, params.customer_id_path)
+    account = _clearing_account(ctx, params.account_number_path)
+    if account.customer_id != customer.id:
+        message = f"{account.account_number} is not {customer.customer_number}'s."
+        raise StepError("not_customers_account", message)
+    return _portfolio_out(_trade_call("portfolio_refused", wealth.open_portfolio, ctx.db,
+                                      account, ctx.initiator_id))  # fmt: skip
+
+
+class LookupPortfolio(_Strict):
+    portfolio_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "wealth.lookup_portfolio",
+    "Find a portfolio, its value today and the customer's current risk profile.",
+    LookupPortfolio,
+    "{portfolio_id, portfolio_number, currency, status, value, cash, risk_profile, "
+    "has_profile}; an unknown portfolio fails the step.",
+    reads=lambda params: [params.portfolio_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.portfolio_number_path: "portfolio.portfolio_number"},
+)
+def _lookup_portfolio(ctx: StepContext, params: LookupPortfolio) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    number = str(_required(ctx, params.portfolio_number_path))
+    portfolio = wealth.find_portfolio(ctx.db, number)
+    if portfolio is None:
+        raise StepError("portfolio_not_found", f"No portfolio {number}.")
+    value = wealth.valuation(ctx.db, portfolio, ctx.now.date())
+    profile = wealth.current_profile(ctx.db, portfolio.customer_id, ctx.now.date())
+    return {**_portfolio_out(portfolio), "value": value["value"], "cash": value["cash"],
+            "risk_profile": profile.risk_profile if profile else None,
+            "has_profile": profile is not None}  # fmt: skip
+
+
+class PlaceOrder(_Strict):
+    portfolio_id_path: str = Field(min_length=1, max_length=200)
+    security_code_path: str = Field(min_length=1, max_length=200)
+    side_path: str = Field(min_length=1, max_length=200)
+    units_path: str = Field(min_length=1, max_length=200)
+
+
+def _order_out(order) -> dict[str, Any]:
+    return {"order_id": str(order.id), "order_number": order.order_number,
+            "status": order.status, "side": order.side, "units": order.units,
+            "amount": order.amount, "fee": order.fee, "suitable": order.suitable,
+            "awaiting_approval": order.status == "awaiting_approval",
+            "reasons": [r["code"] for r in order.reasons]}  # fmt: skip
+
+
+def _portfolio(ctx: StepContext, path: str):
+    from app.modules.wealth import service as wealth
+
+    return wealth.get_portfolio(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "wealth.place_order",
+    "Place a buy or sell order, checked against the customer's profile. A sell or a "
+    "suitable buy is placed for the dealing desk; an unsuitable buy waits for an approval.",
+    PlaceOrder,
+    "{order_id, order_number, status, side, units, amount, fee, suitable, awaiting_approval, "
+    "reasons}; no current profile or too little cash fails the step.",
+    reads=lambda params: [params.portfolio_id_path, params.security_code_path,
+                          params.side_path, params.units_path],
+    effect="writes",
+)  # fmt: skip
+def _place_order(ctx: StepContext, params: PlaceOrder) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    code = str(_required(ctx, params.security_code_path))
+    security = wealth.find_security(ctx.db, code)
+    if security is None:
+        raise StepError("security_not_found", f"No security {code}.")
+    order = _trade_call(
+        "order_refused", wealth.place_order, ctx.db,
+        portfolio=_portfolio(ctx, params.portfolio_id_path), security=security,
+        side=str(_required(ctx, params.side_path)), units=int(_required(ctx, params.units_path)),
+        placed_by=ctx.initiator_id, today=ctx.now.date(), execute=False,
+    )  # fmt: skip
+    return _order_out(order)
+
+
+class OrderDecision(_Strict):
+    order_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Unsuitable for the customer", min_length=3, max_length=200)
+
+
+def _order(ctx: StepContext, path: str):
+    from app.modules.wealth import service as wealth
+
+    return wealth.get_order(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "wealth.approve_order",
+    "Approve an unsuitable order at the client's insistence: executed at today's price.",
+    OrderDecision,
+    "{order_id, order_number, status, side, units, amount, fee, suitable, awaiting_approval, "
+    "reasons}",
+    reads=lambda params: [params.order_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)  # fmt: skip
+def _approve_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    order = _trade_call("approval_refused", wealth.approve_order, ctx.db,
+                        _order(ctx, params.order_id_path), decider, params.note,
+                        today=ctx.now.date())  # fmt: skip
+    return _order_out(order)
+
+
+@_library_handler(
+    "wealth.release_order",
+    "The dealing desk executes a placed order at today's price; not its adviser.",
+    OrderDecision,
+    "{order_id, order_number, status, side, units, amount, fee, suitable, awaiting_approval, "
+    "reasons}; too little cash or units not held fails the step.",
+    reads=lambda params: [params.order_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)  # fmt: skip
+def _release_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    order = _trade_call("release_refused", wealth.release_order, ctx.db,
+                        _order(ctx, params.order_id_path), decider,
+                        today=ctx.now.date())  # fmt: skip
+    return _order_out(order)
+
+
+@_library_handler(
+    "wealth.reject_order",
+    "Reject an unsuitable order, or cancel a placed one.",
+    OrderDecision,
+    "{order_id, order_number, status, side, units, amount, fee, suitable, awaiting_approval, "
+    "reasons}",
+    reads=lambda params: [params.order_id_path, params.decided_by_path],
+    effect="writes",
+)  # fmt: skip
+def _reject_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    order = _trade_call("rejection_refused", wealth.reject_order, ctx.db,
+                        _order(ctx, params.order_id_path), decider, params.note)  # fmt: skip
+    return _order_out(order)
+
+
+class LookupSecurity(_Strict):
+    security_code_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "wealth.lookup_security",
+    "Find a security, its price today and the income one unit earns in half a year.",
+    LookupSecurity,
+    "{security_id, code, name, currency, risk_level, price, income_per_unit, pays_income}; "
+    "an unknown security fails the step.",
+    reads=lambda params: [params.security_code_path],
+    effect="reads",
+    fixtures=lambda params: {params.security_code_path: "security.code"},
+)
+def _lookup_security(ctx: StepContext, params: LookupSecurity) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    code = str(_required(ctx, params.security_code_path))
+    security = wealth.find_security(ctx.db, code)
+    if security is None:
+        raise StepError("security_not_found", f"No security {code}.")
+    per_unit = wealth.income_per_unit(security, ctx.now.date())
+    return {"security_id": str(security.id), "code": security.code, "name": security.name,
+            "currency": security.currency, "risk_level": security.risk_level,
+            "price": wealth.price_on(security, ctx.now.date()), "income_per_unit": per_unit,
+            "pays_income": security.income_bps > 0}  # fmt: skip
+
+
+class Distribute(_Strict):
+    security_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "wealth.distribute_income",
+    "Pay half a year's income to every holder of the security today, into their accounts.",
+    Distribute,
+    "{distribution_number, holders, income_per_unit, currency}; paying twice on one day "
+    "fails the step.",
+    reads=lambda params: [params.security_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+)
+def _distribute_income(ctx: StepContext, params: Distribute) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    security_id = uuid.UUID(str(_required(ctx, params.security_id_path)))
+    security = wealth.get_security(ctx.db, security_id)
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    distribution = _trade_call("distribution_refused", wealth.distribute_income, ctx.db,
+                               security, decider, today=ctx.now.date())  # fmt: skip
+    return {"distribution_number": distribution.distribution_number,
+            "holders": distribution.holders, "income_per_unit": distribution.income_per_unit,
+            "currency": security.currency}  # fmt: skip
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

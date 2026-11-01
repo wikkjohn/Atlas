@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 46.
+Last updated: Phase 47.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -51,6 +51,65 @@ Last updated: Phase 46.
 | 44 | Departments, step 16: the wealth workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 45 | Departments, step 17: compliance ([compliance.md](compliance.md)) | **Complete** |
 | 46 | Departments, step 18: the compliance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 47 | Departments, step 19: risk ([risk.md](risk.md)) | **Complete** |
+
+## Phase 47: what exists
+
+- **Risk module** (`app/modules/risk/`, migration 0034).
+- **Internal ratings** on a ten-grade scale, each grade with a one-year PD and a default
+  limit:
+  - the model starts from the KYC risk rating, goes two grades worse at 30 days past due,
+    one worse for a frozen facility, and to grade 10 at 90 days;
+  - the model's grade is approved at once; any other grade needs a rationale and a second
+    person's approval (also a database constraint); one pending rating per customer;
+  - a rating lasts a year.
+- **Obligor limits and exposure:** exposure in US dollars across active loans and
+  mortgages, commercial facilities (drawn plus 50 % of an active revolver's headroom) and
+  overdrawn accounts, against a set limit or the grade's; breaches largest excess first.
+- **ECL provisioning:** a run measures every exposure by IFRS 9 stage (12-month PD, lifetime
+  PD over up to five remaining years, or default) with LGD by exposure type, and a second
+  person posts each currency's change in the allowance against impairment expense.
+  Postings are serialised; a run calculated before one already posted is refused; a
+  currency with no exposure left is released.
+- **Permissions** `risk:read` (executives, department managers, auditors), `risk:rate`
+  (department managers) and `risk:approve` (global and regional executives).
+- **Workflow factory:** eight `risk.*` handlers (start needs `risk:rate`, reading
+  executions `risk:read`) and three workflows:
+  - WF-1030 Obligor Credit Rating
+  - WF-1031 Obligor Limit Change
+  - WF-1032 ECL Provisioning Run
+- **Risk page:** summary, obligor lookup with rating and limit forms, limit breaches,
+  ratings with approval, and provision runs with their lines.
+- **PR #37 (Phase 46)** had no review comments.
+
+## Phase 47: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 650 passed (new: 6 — stages and ECL; ratings by the model or with four-eyes approval; limits and exposure with breaches; provision runs posted by a second person, a repeat run posting nothing and an older run refused; the API with its permissions; a second pending override refused, a same-day older run refused and an allowance released when the exposure is gone) |
+| Migration 0034 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 42 workflows, 772 cases, 0 failed (WF-1030: 15 cases, WF-1031: 11, WF-1032: 10; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 133 passed (new: 3 — summary, breaches, ratings and runs with their lines; lookup, rating, limit, approval and posting; read-only with `risk:read`) / clean / built |
+| Playwright on a fresh database | 50 passed (new: a manager rates a borrower grade 9 against the model and calculates ECL; a regional executive approves the rating, sees the breach and posts the run) |
+
+Found while building it:
+- **Self-review before the PR:** four defects fixed, with a test that covers them:
+  - an allowance was never released once a currency's exposures were gone;
+  - two concurrent postings could both read the same allowance;
+  - an earlier run calculated the same day could be posted after a later one;
+  - a second override while one waited hit the unique index (a 500) instead of a 409.
+- **Rating order:** two ratings in one transaction share `created_at`; the current rating
+  is ordered by decision or creation time, then rating number.
+- **Test assumption:** the first limits test assumed the test loan was in GBP; it is not,
+  and the exposure assertion now allows for conversion.
+
+## Phase 47: known limitations
+
+- **A simple model:** fixed PD per grade and LGD per exposure type; no macroeconomic
+  scenarios, collateral values or discounting.
+- **On request only:** nothing calculates or posts provisions on a schedule, and a breach
+  blocks no lending.
+- **No simulation yet:** there is no risk workload or AI tool yet (Phase 48).
 
 ## Phase 46: what exists
 

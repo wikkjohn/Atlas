@@ -3131,6 +3131,213 @@ def _complete_kyc_review(ctx: StepContext, params: CompleteReview) -> dict[str, 
     return _review_out(review)
 
 
+# --- Risk (Phase 47) -------------------------------------------------------------------------
+
+RISK_ACCESS = {"start_permission": "risk:rate", "read_permission": "risk:read"}
+
+
+class RateObligor(_Strict):
+    customer_id_path: str = Field(min_length=1, max_length=200)
+    grade_path: str = Field(min_length=1, max_length=200)
+    rationale_path: str = Field(min_length=1, max_length=200)
+
+
+def _rating_out(rating) -> dict[str, Any]:
+    return {"rating_id": str(rating.id), "rating_number": rating.rating_number,
+            "grade": rating.grade, "suggested_grade": rating.suggested_grade,
+            "status": rating.status, "pending": rating.status == "pending"}  # fmt: skip
+
+
+@_library_handler(
+    "risk.rate_obligor",
+    "Rate the customer on the internal scale; a grade other than the model's waits for an "
+    "approval.",
+    RateObligor,
+    "{rating_id, rating_number, grade, suggested_grade, status, pending}; a departing grade "
+    "without a rationale fails the step.",
+    reads=lambda params: [params.customer_id_path, params.grade_path, params.rationale_path],
+    effect="writes",
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
+    **RISK_ACCESS,
+)
+def _rate_obligor(ctx: StepContext, params: RateObligor) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    rating = _trade_call(
+        "rating_refused", risk.rate, ctx.db, _customer(ctx, params.customer_id_path),
+        int(_required(ctx, params.grade_path)), ctx.initiator_id,
+        str(ctx.get(params.rationale_path) or ""), today=ctx.now.date(),
+    )  # fmt: skip
+    return _rating_out(rating)
+
+
+class RatingDecision(_Strict):
+    rating_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _decide_rating(ctx: StepContext, params: RatingDecision, approve: bool) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    rating = risk.get_rating(ctx.db, uuid.UUID(str(_required(ctx, params.rating_id_path))))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    rating = _trade_call("decision_refused", risk.decide_rating, ctx.db, rating, decider,
+                         approve)  # fmt: skip
+    return _rating_out(rating)
+
+
+@_library_handler(
+    "risk.approve_rating",
+    "Approve the departing grade; not by the person who rated.",
+    RatingDecision,
+    "{rating_id, rating_number, grade, suggested_grade, status, pending}",
+    reads=lambda params: [params.rating_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **RISK_ACCESS,
+)
+def _approve_rating(ctx: StepContext, params: RatingDecision) -> dict[str, Any]:
+    return _decide_rating(ctx, params, approve=True)
+
+
+@_library_handler(
+    "risk.reject_rating",
+    "Reject the departing grade: the customer keeps their current one.",
+    RatingDecision,
+    "{rating_id, rating_number, grade, suggested_grade, status, pending}",
+    reads=lambda params: [params.rating_id_path, params.decided_by_path],
+    effect="writes",
+    **RISK_ACCESS,
+)
+def _reject_rating(ctx: StepContext, params: RatingDecision) -> dict[str, Any]:
+    return _decide_rating(ctx, params, approve=False)
+
+
+class ObligorRef(_Strict):
+    customer_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "risk.obligor_profile",
+    "Read the customer's grade, credit limit and exposure in US dollars.",
+    ObligorRef,
+    "{customer_number, name, grade, pd_bps, limit_usd, limit_source, exposure_usd, "
+    "excess_usd, exposures}",
+    reads=lambda params: [params.customer_id_path],
+    effect="reads",
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
+    **RISK_ACCESS,
+)
+def _obligor_profile(ctx: StepContext, params: ObligorRef) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    return risk.obligor(ctx.db, _customer(ctx, params.customer_id_path), ctx.now.date())
+
+
+class SetLimit(_Strict):
+    customer_id_path: str = Field(min_length=1, max_length=200)
+    limit_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "risk.set_limit",
+    "Set the customer's credit limit in US dollars.",
+    SetLimit,
+    "{customer_number, grade, limit_usd, limit_source, exposure_usd, excess_usd}",
+    reads=lambda params: [params.customer_id_path, params.limit_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    fixtures=lambda params: {params.customer_id_path: "customer.id"},
+    **RISK_ACCESS,
+)
+def _set_limit(ctx: StepContext, params: SetLimit) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    customer = _customer(ctx, params.customer_id_path)
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    _trade_call("limit_refused", risk.set_limit, ctx.db, customer,
+                int(_required(ctx, params.limit_path)), decider, "Set by workflow")  # fmt: skip
+    view = risk.obligor(ctx.db, customer, ctx.now.date())
+    return {k: view[k] for k in ("customer_number", "grade", "limit_usd", "limit_source",
+                                 "exposure_usd", "excess_usd")}  # fmt: skip
+
+
+class NoParams(_Strict):
+    pass
+
+
+def _run_out(run) -> dict[str, Any]:
+    return {"run_id": str(run.id), "run_number": run.run_number, "status": run.status,
+            "exposures": run.exposures, "as_of": run.as_of.isoformat(),
+            "currencies": sorted(run.totals),
+            "change": {c: t.get("change", 0) for c, t in run.totals.items()}}  # fmt: skip
+
+
+@_library_handler(
+    "risk.calculate_provisions",
+    "Measure the loan book's expected credit loss as of today, by stage; nothing is posted.",
+    NoParams,
+    "{run_id, run_number, status, exposures, as_of, currencies, change}",
+    effect="writes",
+    **RISK_ACCESS,
+)
+def _calculate_provisions(ctx: StepContext, params: NoParams) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    return _run_out(risk.calculate(ctx.db, ctx.initiator_id, today=ctx.now.date()))
+
+
+class RunDecision(_Strict):
+    run_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _provision_run(ctx: StepContext, path: str):
+    from app.modules.risk import service as risk
+
+    return risk.get_run(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "risk.post_provisions",
+    "Post the run: each currency's loss allowance brought to its ECL through impairment.",
+    RunDecision,
+    "{run_id, run_number, status, exposures, as_of, currencies, change}; a run older than "
+    "one already posted fails the step.",
+    reads=lambda params: [params.run_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **RISK_ACCESS,
+)
+def _post_provisions(ctx: StepContext, params: RunDecision) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    run = _trade_call("posting_refused", risk.post_run, ctx.db,
+                      _provision_run(ctx, params.run_id_path), decider)  # fmt: skip
+    return _run_out(run)
+
+
+@_library_handler(
+    "risk.reject_provisions",
+    "Reject the run: nothing is posted.",
+    RunDecision,
+    "{run_id, run_number, status, exposures, as_of, currencies, change}",
+    reads=lambda params: [params.run_id_path, params.decided_by_path],
+    effect="writes",
+    **RISK_ACCESS,
+)
+def _reject_provisions(ctx: StepContext, params: RunDecision) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    run = _trade_call("rejection_refused", risk.reject_run, ctx.db,
+                      _provision_run(ctx, params.run_id_path), decider, params.note)  # fmt: skip
+    return _run_out(run)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

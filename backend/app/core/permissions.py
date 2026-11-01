@@ -55,6 +55,11 @@ class Permission(StrEnum):
     COMPLIANCE_READ = "compliance:read"
     COMPLIANCE_MONITOR = "compliance:monitor"
     COMPLIANCE_FILE = "compliance:file"
+    # Risk (Phase 47): read ratings, limits and provisions; rate obligors and calculate
+    # provisions; approve departing ratings, set limits and post provisions (never one's own).
+    RISK_READ = "risk:read"
+    RISK_RATE = "risk:rate"
+    RISK_APPROVE = "risk:approve"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -154,6 +159,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     RoleCode.PLATFORM_ADMINISTRATOR: frozenset(Permission),
     RoleCode.GLOBAL_EXECUTIVE: _BASE
     | {
+        Permission.RISK_READ,
+        Permission.RISK_APPROVE,
         Permission.EMPLOYEES_READ_COMPENSATION,
         Permission.USERS_READ,
         Permission.LEDGER_READ,
@@ -162,6 +169,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
     },
     RoleCode.REGIONAL_EXECUTIVE: _BASE
     | {
+        Permission.RISK_READ,
+        Permission.RISK_APPROVE,
         Permission.EMPLOYEES_READ_COMPENSATION,
         Permission.LOANS_APPROVE_LARGE,
         Permission.TREASURY_LIMITS,
@@ -184,6 +193,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.WEALTH_ADVISE,
         Permission.WEALTH_APPROVE,  # an unsuitable order at the client's insistence
         Permission.WEALTH_CUSTODY,
+        Permission.RISK_READ,
+        Permission.RISK_RATE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE
@@ -221,6 +232,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.JOBS_READ,
         Permission.OBSERVABILITY_READ,
         Permission.COMPLIANCE_READ,
+        Permission.RISK_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {

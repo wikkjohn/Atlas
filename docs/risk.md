@@ -98,10 +98,44 @@ refused (rule `superseded`); it can be rejected instead.
 The risk handlers need `risk:rate` to start a workflow using them and `risk:read` to read
 its executions through the API.
 
+## Simulation workload and AI tool (Phase 48)
+
+The `rating_overrides` workload drives WF-1030 v2 (scenario `rating-overrides`).
+- **Cases:** each case is a customer in one of the run's countries, rated low or medium KYC
+  risk (model grade 4 or 6). Their current account gets three months of dated deposits, and
+  some an arranged overdraft drawn to 85–100 % or a loan, through the real accounts, retail
+  and lending services. The case proposes a grade other than the model's with a rationale,
+  so a regional executive (`risk:approve`) decides every case.
+- **Ground truth, approve:**
+  - a downgrade of two notches with the overdraft drawn;
+  - a downgrade with debt at 1.6–3 times a year's money in;
+  - a one-notch precautionary downgrade;
+  - a one-notch upgrade for a customer whose money in is 6–24 times their debt.
+- **Ground truth, reject:**
+  - an upgrade with the overdraft drawn;
+  - a departure of three notches or more, either way;
+  - grade 10 (in default) without arrears;
+  - an upgrade the rater asked for, and was refused, two or three times this year.
+- **Decisions:** in AI-assisted runs the AGB Rating Review Assistant advises the approver,
+  from the profile `risk.rating_profile` reads. The profile covers:
+  - the model's and the proposed grade, and the notches between them;
+  - days past due and frozen facilities;
+  - exposure, the overdraft drawn against the arranged one;
+  - deposits in the last 90 days (a month's average) against debt;
+  - the default limits at both grades;
+  - the customer's other departures from the model in the last year, and how many were
+    rejected.
+- **Control check:** four-eyes and `risk:approve` on each decision, and no departing grade
+  approved without it.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## Limitations
 
 - **A simple model:** PDs and LGDs are fixed per grade and exposure type. There are no
   macroeconomic scenarios, collateral values or discounting.
 - **On request only:** nothing calculates or posts provisions on a schedule, and a breach
   blocks no lending.
+- **Simulation scope:** the workload covers rating overrides (`rating-overrides`); limits
+  and provisioning are not simulated.
 - **Exposure is read today:** a run's ECL uses each obligor's grade as of the run date.

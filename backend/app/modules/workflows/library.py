@@ -3234,6 +3234,32 @@ def _obligor_profile(ctx: StepContext, params: ObligorRef) -> dict[str, Any]:
     return risk.obligor(ctx.db, _customer(ctx, params.customer_id_path), ctx.now.date())
 
 
+class RatingRef(_Strict):
+    rating_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "risk.rating_profile",
+    "Read what an approver weighs before accepting a grade that departs from the model's: the "
+    "departure, exposure and overdraft use, money in against debt, the limits at both grades, "
+    "and the customer's other departures in the last year.",
+    RatingRef,
+    "{customer_type, kyc_risk, suggested_grade, proposed_grade, notches, direction, "
+    "worst_days_past_due, frozen_facility, exposure_usd, overdraft_usd, overdraft_use_pct, "
+    "monthly_inflow_usd, exposure_to_annual_inflow_pct, limit_at_model_usd, "
+    "limit_at_proposed_usd, rationale_chars, prior_overrides_365d, "
+    "prior_overrides_rejected_365d}",
+    reads=lambda params: [params.rating_id_path],
+    effect="reads",
+    **RISK_ACCESS,
+)
+def _rating_profile(ctx: StepContext, params: RatingRef) -> dict[str, Any]:
+    from app.modules.risk import service as risk
+
+    rating = risk.get_rating(ctx.db, uuid.UUID(str(_required(ctx, params.rating_id_path))))
+    return risk.rating_profile(ctx.db, rating, ctx.now.date())
+
+
 class SetLimit(_Strict):
     customer_id_path: str = Field(min_length=1, max_length=200)
     limit_path: str = Field(min_length=1, max_length=200)

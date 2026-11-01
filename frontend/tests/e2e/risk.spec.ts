@@ -44,3 +44,16 @@ test("Risk: a manager rates an obligor below the model and calculates ECL; a reg
   await expect(other.getByRole("table", { name: "Provision runs" }).getByRole("row").filter({ hasText: runNumber })).toContainText("posted");
   await otherContext.close();
 });
+
+test("AI Innovation Lab: the rating assistant would approve an upgrade refused three times this year (its blind spot)", async ({ page }) => {
+  // The tool reads risk data, so it needs risk:read: the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Rating Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Rating Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

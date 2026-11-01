@@ -500,6 +500,11 @@ WF-1032 calculates an ECL provisioning run; the approver posts it to the ledger 
 moves only behind the approval) or rejects it. The risk handlers need `risk:rate` to start
 and `risk:read` to read executions. See [risk.md](risk.md).
 
+WF-1030 **v2** (Phase 48) reads the rating profile (`risk.rating_profile`) for a grade that
+departs from the model's and asks the AGB Rating Review Assistant (`ai.review`, advisory)
+before the approver decides (`rating-overrides`). Its approval step is `decision`; the
+outcome is `approved` when the grade is accepted, `rejected` when the model's stands.
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

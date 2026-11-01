@@ -1,0 +1,221 @@
+{
+  "workflow_id": "WF-1030",
+  "name": "Obligor Credit Rating",
+  "version": 2,
+  "description": "Version 2 (Phase 48): before the approver decides a grade that departs from the model's, what they weigh is read (risk.rating_profile: the departure, days past due, exposure and overdraft use, money in against debt, the limits at both grades, and the customer's other departures in the last year) and the AGB Rating Review Assistant reviews it; its recommendation is advice only. A credit officer rates a customer on the internal ten-grade scale (grade 1 the strongest, 10 in default). The model suggests a grade from the customer's KYC risk rating, days past due on their loans and any facility frozen by a covenant breach; a grade other than the model's, with its rationale, waits for someone else's approval (risk:approve). Stored definition: built only from library handlers (Phase 47).",
+  "business_owner": "Credit Risk",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "grade",
+      "rationale"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "pattern": "^CUS-[0-9]{7,}$"
+      },
+      "grade": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "examples": [
+          9
+        ]
+      },
+      "rationale": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 300,
+        "examples": [
+          "Sector under severe stress"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "lookup.customer_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.customer_number",
+        "prefix": "RAT-"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "next": "lookup"
+    },
+    {
+      "id": "lookup",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "rate"
+    },
+    {
+      "id": "rate",
+      "type": "service_task",
+      "name": "Rate the obligor",
+      "handler": "risk.rate_obligor",
+      "params": {
+        "customer_id_path": "lookup.customer_id",
+        "grade_path": "input.grade",
+        "rationale_path": "input.rationale"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_pending"
+    },
+    {
+      "id": "route_pending",
+      "type": "decision",
+      "name": "Departs from the model?",
+      "transitions": [
+        {
+          "to": "profile",
+          "when": {
+            "path": "rate.pending",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "rated"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the rating profile",
+      "handler": "risk.rating_profile",
+      "params": {
+        "rating_id_path": "rate.rating_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI rating review (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-rating-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "decision"
+    },
+    {
+      "id": "decision",
+      "type": "approval",
+      "name": "Approve the grade",
+      "description": "Someone other than the rater approves a grade that departs from the model's.",
+      "approval": {
+        "permissions": [
+          "risk:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "decision.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Approve the rating",
+      "handler": "risk.approve_rating",
+      "params": {
+        "rating_id_path": "rate.rating_id",
+        "decided_by_path": "decision.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rated_on_approval"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the rating",
+      "handler": "risk.reject_rating",
+      "params": {
+        "rating_id_path": "rate.rating_id",
+        "decided_by_path": "decision.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "rated",
+      "type": "completion",
+      "name": "Rated at the model's grade",
+      "outcome": "approved"
+    },
+    {
+      "id": "rated_on_approval",
+      "type": "completion",
+      "name": "Rated on approval",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rating rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

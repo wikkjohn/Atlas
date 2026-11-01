@@ -724,3 +724,40 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="rating-overrides",
+        version=1,
+        name="Rating overrides (risk)",
+        description="A working day of credit ratings that depart from the model through WF-1030 "
+        "v2: a regional executive approves or rejects each. A downgrade a drawn overdraft or "
+        "heavy debt explains, a one-notch precautionary downgrade and a one-notch upgrade for a "
+        "customer whose income dwarfs their debt are approved; an upgrade with the overdraft "
+        "drawn, a departure of three notches or more, a default grade without arrears and an "
+        "upgrade already refused two or three times this year are rejected. In AI-assisted runs "
+        "the AGB Rating Review Assistant advises the approver (Phase 48).",
+        workload="rating_overrides",
+        workflow_id="WF-1030",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "overdraft_stress_downgrade": 0.14,
+                "heavy_debt_downgrade": 0.12,
+                "cautious_downgrade": 0.10,
+                "strong_inflow_upgrade": 0.14,
+                "upgrade_under_strain": 0.10,
+                "excessive_upgrade": 0.10,
+                "unfounded_default": 0.06,
+                "unsupported_downgrade": 0.10,
+                "rating_shopping": 0.14,
+            },
+            reviewers={"decision": ReviewerModel(mean_minutes=30, accuracy=0.85)},
+            staff_mix={"teller": 0.4, "manager": 0.2, "executive": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

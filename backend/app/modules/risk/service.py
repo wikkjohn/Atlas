@@ -18,7 +18,14 @@ from app.modules.accounts.models import Account, AccountStatus
 from app.modules.customers.models import Customer
 from app.modules.fx import service as fx
 from app.modules.ledger import service as ledger
-from app.modules.ledger.models import Direction, LedgerAccount, LedgerAccountType, LedgerBalance
+from app.modules.ledger.models import (
+    Direction,
+    JournalEntry,
+    JournalLine,
+    LedgerAccount,
+    LedgerAccountType,
+    LedgerBalance,
+)
 from app.modules.risk.models import (
     PROVISION_SEQUENCE,
     RATING_SEQUENCE,
@@ -56,8 +63,13 @@ def _today(today: date | None) -> date:
 
 def _usd(db: Session, amount: int, currency: str, day: date) -> int:
     """Minor units of a currency in whole US dollars at the day's rate."""
+    return _usd_cents(db, amount, currency, day) // 100
+
+
+def _usd_cents(db: Session, amount: int, currency: str, day: date) -> int:
+    """Minor units of a currency in US cents at the day's rate."""
     major = Decimal(amount) / Decimal(10) ** minor_unit_exponent(currency)
-    return int(major / fx.rate(db, currency, day))
+    return int(major * 100 / fx.rate(db, currency, day))
 
 
 # --- Exposure ---------------------------------------------------------------------------------
@@ -286,6 +298,64 @@ def breaches(db: Session, today: date | None = None, limit: int = 100) -> list[d
             out.append({k: v for k, v in view.items() if k != "exposures"})
     out.sort(key=lambda o: -o["excess_usd"])
     return out[:limit]
+
+
+def rating_profile(db: Session, rating: CreditRating, today: date | None = None
+                   ) -> dict[str, Any]:  # fmt: skip
+    """What an approver weighs before accepting a grade that departs from the model's (Phase
+    48): the departure itself, the customer's exposure and overdraft use, their money in (cash
+    and transfers deposited in the 90 days before today, a month's average) against their
+    debt, the default limits at the model's and the proposed grade, and the customer's other
+    departures from the model in the last 365 days, and how many were rejected."""
+    today = _today(today)
+    customer = db.get(Customer, rating.customer_id)
+    held = exposures(db, today, [customer.id])
+    # Ratios are taken in cents: a small loan in a weak currency is only a few dollars.
+    exposure = sum(_usd_cents(db, e.ead, e.currency, today) for e in held)
+    overdrawn = {e.reference: e for e in held if e.exposure_type == "overdraft"}
+    accounts = list(db.execute(
+        select(Account).where(Account.customer_id == customer.id,
+                              Account.status != AccountStatus.CLOSED)
+    ).scalars())  # fmt: skip
+    overdraft = sum(_usd_cents(db, e.ead, e.currency, today) for e in overdrawn.values())
+    arranged = sum(_usd_cents(db, a.overdraft_limit, a.currency, today) for a in accounts
+                   if a.account_number in overdrawn)  # fmt: skip
+    since = today - timedelta(days=90)
+    inflow = 0
+    for account in accounts:
+        credited = db.execute(
+            select(func.coalesce(func.sum(JournalLine.amount), 0))
+            .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+            .where(JournalLine.ledger_account_id == account.ledger_account_id,
+                   JournalLine.direction == Direction.CREDIT, JournalEntry.source == "deposit",
+                   JournalEntry.effective_date > since, JournalEntry.effective_date <= today)
+        ).scalar_one()  # fmt: skip
+        inflow += _usd_cents(db, int(credited), account.currency, today)
+    monthly = inflow // 3
+    year_ago = today - timedelta(days=365)
+    others = db.execute(
+        select(CreditRating.status).where(
+            CreditRating.customer_id == customer.id, CreditRating.id != rating.id,
+            CreditRating.grade != CreditRating.suggested_grade,
+            CreditRating.rated_on > year_ago, CreditRating.rated_on <= today)
+    ).scalars().all()  # fmt: skip
+    notches = rating.grade - rating.suggested_grade
+    return {
+        "customer_type": customer.customer_type, "kyc_risk": customer.risk_rating,
+        "suggested_grade": rating.suggested_grade, "proposed_grade": rating.grade,
+        "notches": notches, "direction": "downgrade" if notches > 0 else "upgrade",
+        "worst_days_past_due": int(rating.factors.get("worst_days_past_due", 0)),
+        "frozen_facility": bool(rating.factors.get("frozen_facility", False)),
+        "exposure_usd": exposure // 100, "overdraft_usd": overdraft // 100,
+        "overdraft_use_pct": min(overdraft * 100 // arranged, 999) if arranged else 0,
+        "monthly_inflow_usd": monthly // 100,
+        "exposure_to_annual_inflow_pct": min(exposure * 100 // max(monthly * 12, 1), 99_999),
+        "limit_at_model_usd": GRADES[rating.suggested_grade][1],
+        "limit_at_proposed_usd": GRADES[rating.grade][1],
+        "rationale_chars": len(rating.rationale),
+        "prior_overrides_365d": len(others),
+        "prior_overrides_rejected_365d": sum(1 for s in others if s == RatingStatus.REJECTED),
+    }  # fmt: skip
 
 
 # --- ECL provisioning -------------------------------------------------------------------------

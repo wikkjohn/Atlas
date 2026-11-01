@@ -586,7 +586,7 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
 
 
 FINANCE_KINDS = {"finance.open_period", "finance.closed_period", "finance.allocation_period",
-                 "finance.allocation_currency"}  # fmt: skip
+                 "finance.allocation_currency", "manual_journal.journal_number"}  # fmt: skip
 
 
 def _finance_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
@@ -612,6 +612,17 @@ def _finance_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
         close = finance.prepare_close(db, open_period, preparer.id, today=today)
         finance.approve_close(db, close, approver.id)
         out["finance.closed_period"] = open_period
+    if "manual_journal.journal_number" in kinds:
+        # A routine accrual of 1,200.00 dated today, proposed by a manager (Phase 50).
+        journal = finance.propose_journal(
+            db, currency="USD", effective_date=today, description="Generated test accrual",
+            lines=[{"account_code": finance.shared_costs_account(db, "USD").code,
+                    "direction": "debit", "amount": 120_000},
+                   {"account_code": finance.accruals_account(db, "USD").code,
+                    "direction": "credit", "amount": 120_000}],
+            proposed_by=_person(db, RoleCode.DEPARTMENT_MANAGER).id,
+        )  # fmt: skip
+        out["manual_journal.journal_number"] = journal.journal_number
     if "finance.allocation_period" in kinds:
         finance.record_expense(db, currency="USD", amount=250_000,
                                description="Generated test rent",

@@ -279,6 +279,27 @@ const SAMPLE_RATING = {
     prior_overrides_rejected_365d: 3,
   },
 };
+const SAMPLE_JOURNAL = {
+  profile: {
+    currency: "USD",
+    amount: 9000000,
+    amount_usd: 90000,
+    materiality_pct: 90,
+    lines: 2,
+    account_types: ["expense", "liability"],
+    touches_equity: false,
+    touches_income: false,
+    touches_cash: false,
+    effective_date: "2026-10-20",
+    days_backdated: 0,
+    in_closed_period: false,
+    round_amount: false,
+    description_chars: 58,
+    duplicate_of: null,
+    same_accounts_7d: 2,
+    same_accounts_7d_usd: 172000,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -292,6 +313,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_suitability_review: SAMPLE_SUITABILITY,
   rule_based_alert_review: SAMPLE_ALERT,
   rule_based_rating_review: SAMPLE_RATING,
+  rule_based_journal_review: SAMPLE_JOURNAL,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

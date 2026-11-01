@@ -331,7 +331,7 @@ removing postings would rewrite the books; only workflow history is lifecycle-ma
   process when no worker is configured, otherwise in `python -m app.cli worker`
   processes. A run whose process stops is reported as interrupted and must be started
   again; the job is not retried.
-- Seventeen scenarios exist (`retail-onboarding` v1/v2, `domestic-payments` v1,
+- Eighteen scenarios exist (`retail-onboarding` v1/v2, `domestic-payments` v1,
   `payments-easter` v1, `global-onboarding` v1, `global-payments` v1, `personal-loans`
   v1/v2, `retail-overdrafts` v1 — Phase 30, the first on a stored workflow, WF-1003 v2 —
   `card-fraud-alerts` v1 — Phase 32, on stored WF-1008 v2 — and `mortgage-applications`
@@ -342,7 +342,8 @@ removing postings would rewrite the books; only workflow history is lifecycle-ma
   Phase 42, on stored WF-1023 v2 — and `order-review` v1 — Phase 44, on stored WF-1025 v2,
   decided by simulated wealth managers — `alert-triage` v1 — Phase 46, on stored WF-1027
   v2, decided by simulated compliance officers — and `rating-overrides` v1 — Phase 48, on
-  stored WF-1030 v2, decided by simulated regional executives; see
+  stored WF-1030 v2, decided by simulated regional executives — and `journal-review` v1 —
+  Phase 50, on stored WF-1036 v2, decided by simulated regional executives; see
   [ai-testing.md](ai-testing.md)). `payments-easter` (Phase 26) sets a business calendar, so arrivals skip UK
   weekends and holidays; see [business-calendars.md](business-calendars.md). The two
   `global-*` scenarios (Phase 28) generate cases that follow each country's rules and run

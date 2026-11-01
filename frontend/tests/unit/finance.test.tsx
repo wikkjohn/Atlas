@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { CostAllocation, PeriodClose, RegulatoryReport } from "@/types/finance";
+import type { CostAllocation, ManualJournal, PeriodClose, RegulatoryReport } from "@/types/finance";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
@@ -51,13 +51,31 @@ const allocation: CostAllocation = {
   created_at: "2026-11-01T09:20:00Z",
 };
 
+const journal: ManualJournal = {
+  id: "mj-1",
+  journal_number: "MJ-0000001",
+  currency: "USD",
+  effective_date: "2026-11-01",
+  description: "Accrual for legal fees",
+  lines: [
+    { account_code: "FIN-SHARED-COSTS-USD", direction: "debit", amount: 250_000 },
+    { account_code: "FIN-ACCRUALS-USD", direction: "credit", amount: 250_000 },
+  ],
+  amount: 250_000,
+  status: "proposed",
+  entry_number: null,
+  note: null,
+  created_at: "2026-11-01T09:30:00Z",
+};
+
 const routes = {
   ...healthyRoutes,
   "GET /api/v1/finance/summary/counts": () =>
-    jsonResponse({ last_closed_period: "2026-09", next_period: "2026-10", closes_to_approve: 1, reports_to_submit: 1, reports_submitted: 0, allocations_to_post: 1 }),
+    jsonResponse({ last_closed_period: "2026-09", next_period: "2026-10", closes_to_approve: 1, reports_to_submit: 1, reports_submitted: 0, allocations_to_post: 1, journals_to_approve: 1 }),
   "GET /api/v1/finance/closes": () => jsonResponse(page([prepared])),
   "GET /api/v1/finance/reports": () => jsonResponse(page([report])),
   "GET /api/v1/finance/allocations": () => jsonResponse(page([allocation])),
+  "GET /api/v1/finance/journals": () => jsonResponse(page([journal])),
 };
 
 describe("Finance page", () => {
@@ -116,5 +134,31 @@ describe("Finance page", () => {
     expect(screen.queryByRole("button", { name: "Close CLS-0000002" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Submit REG-0000001" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download REG-0000001" })).toBeInTheDocument();
+  });
+
+  it("proposes and posts a manual journal", async () => {
+    const api = mockApi({
+      ...routes,
+      "POST /api/v1/finance/journals": () => jsonResponse(journal, 201),
+      "POST /api/v1/finance/journals/mj-1/approve": () => jsonResponse({ ...journal, status: "posted", entry_number: "JE-00000077" }),
+    });
+    renderApp("/finance");
+    const table = await screen.findByRole("table", { name: "Journals" });
+    await within(table).findByText("MJ-0000001");
+    expect(table).toHaveTextContent("Dr FIN-SHARED-COSTS-USD $2,500.00Cr FIN-ACCRUALS-USD $2,500.00");
+    const form = screen.getByRole("form", { name: "Propose journal" });
+    await userEvent.type(within(form).getByLabelText("Debit account"), "fin-shared-costs-usd");
+    await userEvent.type(within(form).getByLabelText("Credit account"), "FIN-ACCRUALS-USD");
+    await userEvent.type(within(form).getByLabelText("Journal amount"), "2500");
+    await userEvent.type(within(form).getByLabelText("Journal description"), "Accrual for legal fees");
+    await userEvent.click(within(form).getByRole("button", { name: "Propose" }));
+    expect(await within(form).findByRole("status")).toHaveTextContent("MJ-0000001 proposed");
+    await userEvent.click(screen.getByRole("button", { name: "Post MJ-0000001" }));
+    await waitFor(() => expect(api.requests.filter((r) => r.method !== "GET")).toHaveLength(2));
+    const proposed = api.requests.find((r) => r.path === "/api/v1/finance/journals" && r.method === "POST");
+    expect(proposed?.body).toMatchObject({ currency: "USD", description: "Accrual for legal fees", lines: [
+      { account_code: "FIN-SHARED-COSTS-USD", direction: "debit", amount: 250_000 },
+      { account_code: "FIN-ACCRUALS-USD", direction: "credit", amount: 250_000 },
+    ] });
   });
 });

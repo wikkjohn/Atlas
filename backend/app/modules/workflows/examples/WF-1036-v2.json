@@ -1,0 +1,172 @@
+{
+  "workflow_id": "WF-1036",
+  "name": "Manual Journal Approval",
+  "version": 2,
+  "description": "Version 2 (Phase 50): before the approver decides, what they weigh is read (finance.journal_profile: its size against materiality, equity, cash and income accounts, how far back it is dated and whether into a closed month, a round amount, its description, an identical journal posted recently, and the preparer's other journals on the same accounts this week) and the AGB Journal Review Assistant reviews it; its recommendation is advice only. A manual journal proposed by finance (the bank's own ledger accounts, one currency, debits equal to credits) is posted to the ledger by someone other than its preparer (finance:approve), or rejected. Stored definition: built only from library handlers (Phase 50).",
+  "business_owner": "Finance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "journal_number"
+    ],
+    "properties": {
+      "journal_number": {
+        "type": "string",
+        "pattern": "^MJ-[0-9]{7,}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find.journal_number"
+  },
+  "start": "find",
+  "steps": [
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the journal",
+      "handler": "finance.find_journal",
+      "params": {
+        "journal_number_path": "input.journal_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_open"
+    },
+    {
+      "id": "route_open",
+      "type": "decision",
+      "name": "Still proposed?",
+      "transitions": [
+        {
+          "to": "profile",
+          "when": {
+            "path": "find.proposed",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "already_handled"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the journal profile",
+      "handler": "finance.journal_profile",
+      "params": {
+        "journal_id_path": "find.journal_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI journal review (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-journal-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "decision"
+    },
+    {
+      "id": "decision",
+      "type": "approval",
+      "name": "Approve the journal",
+      "description": "Someone other than the preparer posts the journal or rejects it.",
+      "approval": {
+        "permissions": [
+          "finance:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "decision.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Post the journal",
+      "handler": "finance.approve_journal",
+      "params": {
+        "journal_id_path": "find.journal_id",
+        "decided_by_path": "decision.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "posted"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the journal",
+      "handler": "finance.reject_journal",
+      "params": {
+        "journal_id_path": "find.journal_id",
+        "decided_by_path": "decision.actor_id",
+        "note": "Journal not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "posted",
+      "type": "completion",
+      "name": "Posted",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "already_handled",
+      "type": "completion",
+      "name": "Already decided",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

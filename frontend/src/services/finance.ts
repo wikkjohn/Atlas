@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { apiDownload, apiGet, apiPost, query } from "@/services/api";
 import type { Page } from "@/types/enterprise";
-import type { CostAllocation, FinanceSummary, PeriodClose, RegulatoryReport, ReportType } from "@/types/finance";
+import type { CostAllocation, FinanceSummary, JournalLine, ManualJournal, PeriodClose, RegulatoryReport, ReportType } from "@/types/finance";
 
 export const FINANCE_PAGE = 10;
 
@@ -26,6 +26,7 @@ export function useFinanceSummary() {
 export const useCloses = (offset = 0) => useQuery(paged<PeriodClose>("closes", offset));
 export const useReports = (offset = 0) => useQuery(paged<RegulatoryReport>("reports", offset));
 export const useAllocations = (offset = 0) => useQuery(paged<CostAllocation>("allocations", offset));
+export const useJournals = (offset = 0) => useQuery(paged<ManualJournal>("journals", offset));
 
 export function usePrepareClose() {
   const invalidate = useInvalidate();
@@ -90,6 +91,23 @@ export function useDecideAllocation() {
   return useMutation({
     mutationFn: ({ id, post }: { id: string; post: boolean }) =>
       apiPost<CostAllocation>(`/api/v1/finance/allocations/${id}/${post ? "post" : "reject"}`, post ? {} : { note: "Rejected on review" }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useProposeJournal() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (body: { currency: string; effective_date: string; description: string; lines: JournalLine[] }) => apiPost<ManualJournal>("/api/v1/finance/journals", body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDecideJournal() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, approve }: { id: string; approve: boolean }) =>
+      apiPost<ManualJournal>(`/api/v1/finance/journals/${id}/${approve ? "approve" : "reject"}`, approve ? {} : { note: "Rejected on review" }),
     onSuccess: invalidate,
   });
 }

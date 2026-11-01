@@ -41,3 +41,39 @@ test("Finance: a manager prepares last month's close, a report and a cost split;
   await expect(other.getByRole("table", { name: "Allocations" }).getByRole("row").filter({ hasText: allocationNumber })).toContainText("posted");
   await otherContext.close();
 });
+
+test("AI Innovation Lab: the journal assistant would post the third piece of a split entry (its blind spot)", async ({ page }) => {
+  // The tool reads finance data, so it needs finance:read: the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Journal Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Journal Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});
+
+test("Finance: a manager proposes a manual journal and a regional executive posts it", async ({ browser, page }) => {
+  await signIn(page, "manager", "/finance");
+  const form = page.getByRole("form", { name: "Propose journal" });
+  // Settling an accrual from cash: it leaves the shared-cost pool alone, which the close test,
+  // running alongside, splits and posts.
+  await form.getByLabel("Debit account").fill("FIN-ACCRUALS-USD");
+  await form.getByLabel("Credit account").fill("1000-USD");
+  await form.getByLabel("Journal amount").fill("2500");
+  await form.getByLabel("Journal description").fill("Settle accrued October legal fees");
+  await form.getByRole("button", { name: "Propose" }).click();
+  const status = form.getByRole("status");
+  await expect(status).toContainText("proposed");
+  const journalNumber = (await status.innerText()).split(" ")[0];
+  await expect(page.getByRole("button", { name: `Post ${journalNumber}` })).toHaveCount(0);
+
+  const otherContext = await browser.newContext();
+  const other = await otherContext.newPage();
+  await signIn(other, "regional", "/finance");
+  await other.getByRole("button", { name: `Post ${journalNumber}` }).click();
+  await expect(other.getByRole("table", { name: "Journals" }).getByRole("row").filter({ hasText: journalNumber })).toContainText("JE-");
+  await otherContext.close();
+});

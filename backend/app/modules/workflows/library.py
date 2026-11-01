@@ -3627,6 +3627,113 @@ def _reject_allocation(ctx: StepContext, params: AllocationDecision) -> dict[str
     return _allocation_out(allocation)
 
 
+class FindJournal(_Strict):
+    journal_number_path: str = Field(min_length=1, max_length=200)
+
+
+def _journal_out(journal) -> dict[str, Any]:
+    return {"journal_id": str(journal.id), "journal_number": journal.journal_number,
+            "currency": journal.currency, "amount": journal.amount, "status": journal.status,
+            "proposed": journal.status == "proposed",
+            "entry_number": journal.entry_number}  # fmt: skip
+
+
+@_library_handler(
+    "finance.find_journal",
+    "Find a manual journal by number.",
+    FindJournal,
+    "{journal_id, journal_number, currency, amount, status, proposed, entry_number}; an "
+    "unknown number fails the step.",
+    reads=lambda params: [params.journal_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.journal_number_path: "manual_journal.journal_number"},
+    **FINANCE_ACCESS,
+)
+def _find_journal(ctx: StepContext, params: FindJournal) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    journal = finance.find_journal(ctx.db, str(_required(ctx, params.journal_number_path)))
+    if journal is None:
+        raise StepError("unknown_journal", "No such manual journal.")
+    return _journal_out(journal)
+
+
+class JournalRef(_Strict):
+    journal_id_path: str = Field(min_length=1, max_length=200)
+
+
+def _manual_journal(ctx: StepContext, path: str):
+    from app.modules.finance import service as finance
+
+    return finance.get_journal(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "finance.journal_profile",
+    "Read what an approver weighs before posting a manual journal: its size against "
+    "materiality, the accounts it touches, how far back it is dated, a round amount, its "
+    "description, an identical recent journal, and the preparer's other journals on the same "
+    "accounts this week.",
+    JournalRef,
+    "{currency, amount, amount_usd, materiality_pct, lines, account_types, touches_equity, "
+    "touches_income, touches_cash, effective_date, days_backdated, in_closed_period, "
+    "round_amount, description_chars, duplicate_of, same_accounts_7d, same_accounts_7d_usd}",
+    reads=lambda params: [params.journal_id_path],
+    effect="reads",
+    **FINANCE_ACCESS,
+)
+def _journal_profile(ctx: StepContext, params: JournalRef) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    return finance.journal_profile(ctx.db, _manual_journal(ctx, params.journal_id_path),
+                                   ctx.now.date())  # fmt: skip
+
+
+class JournalDecision(_Strict):
+    journal_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+@_library_handler(
+    "finance.approve_journal",
+    "Post the manual journal to the ledger, dated its effective date.",
+    JournalDecision,
+    "{journal_id, journal_number, currency, amount, status, proposed, entry_number}; the "
+    "preparer deciding fails the step.",
+    reads=lambda params: [params.journal_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **FINANCE_ACCESS,
+)
+def _approve_journal(ctx: StepContext, params: JournalDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    journal = _trade_call("posting_refused", finance.approve_journal, ctx.db,
+                          _manual_journal(ctx, params.journal_id_path), decider)  # fmt: skip
+    return _journal_out(journal)
+
+
+@_library_handler(
+    "finance.reject_journal",
+    "Reject the manual journal; nothing is posted.",
+    JournalDecision,
+    "{journal_id, journal_number, currency, amount, status, proposed, entry_number}",
+    reads=lambda params: [params.journal_id_path, params.decided_by_path],
+    effect="writes",
+    **FINANCE_ACCESS,
+)
+def _reject_journal(ctx: StepContext, params: JournalDecision) -> dict[str, Any]:
+    from app.modules.finance import service as finance
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    journal = _trade_call("rejection_refused", finance.reject_journal, ctx.db,
+                          _manual_journal(ctx, params.journal_id_path), decider,
+                          params.note)  # fmt: skip
+    return _journal_out(journal)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

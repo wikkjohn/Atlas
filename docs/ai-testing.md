@@ -683,3 +683,57 @@ one run each):
 
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
+
+## WF-1036 v2 and the journal review assistant (Phase 50)
+
+WF-1036 v2 is a stored workflow. A proposed manual journal is read for its profile
+(`finance.journal_profile`) and the assistant is asked through `ai.review` before a regional
+executive (`finance:approve`), never the preparer, posts it or rejects it. An approver always
+decides, so the scenario runs baseline and AI assisted only.
+
+Each case is a journal on its own simulation ledger accounts. Earlier journals the case needs
+(a duplicate's original, a split entry's first pieces) are proposed and posted first through
+the real finance service.
+
+What the assistant (`rule_based_journal_review`) weighs:
+- **Reject:**
+  - a journal straight to equity;
+  - a duplicate of a journal posted in the 30 days before;
+  - one dated more than 31 days back, or into a closed month;
+  - a round cash amount with a description under 20 characters;
+  - a material journal (US$100,000 or more) with a description under 40 characters.
+- **Refer on:** a material journal with a full description.
+- **Post:** anything else, as routine.
+
+Its **blind spot** is the preparer's week. The profile counts the preparer's other journals
+on the same accounts in the last seven days, and their total, and the assistant never reads
+them. So a large entry split into pieces, each just under materiality, looks like a run of
+routine accruals, and it recommends posting.
+
+What `journal-review` v1 measured (seed 2030, 300 journals, 12 staff, default assumptions;
+one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 87.0 % | 96.7 % |
+| Wrongly posted | 20 | 7 |
+| Wrongly rejected | 19 | 3 |
+| Split entries posted (of 45) | 6 | 6 |
+| Approver hours | 101.7 | 64.7 |
+| Median cycle time (hours) | 5.8 | 2.1 |
+| Tool's recommendation accuracy | — | 84 % (27 referred on) |
+
+**Where the assistant helps:**
+- Routine accruals and reclassifications wrongly rejected fall from 17 to 1.
+- Equity adjustments, stale and duplicate journals and unexplained cash are posted once in
+  121 (14 times in the baseline).
+- Approvers' time falls by more than a third.
+
+**Where it does not:**
+- It recommends posting all 45 split entries. In this run the simulated approvers posted 6
+  either way: following the advice made the blind spot no worse, but no better.
+- A material, documented journal is referred on, which leaves approvers where the baseline
+  was: 25 of 27 posted either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.

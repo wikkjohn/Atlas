@@ -13,7 +13,13 @@ from app.core.idempotency import RequiredIdempotencyKey
 from app.core.pagination import Page, PageParamsDep, paginate
 from app.core.permissions import Permission
 from app.modules.finance import service
-from app.modules.finance.models import CostAllocation, PeriodClose, RegulatoryReport, ReportType
+from app.modules.finance.models import (
+    CostAllocation,
+    ManualJournal,
+    PeriodClose,
+    RegulatoryReport,
+    ReportType,
+)
 from app.modules.identity.dependencies import Authorized
 
 router = APIRouter(prefix="/finance", tags=["finance"])
@@ -224,6 +230,78 @@ def reject_allocation(allocation_id: uuid.UUID, body: Note, db: DbSession,
         service.reject_allocation(
             db, service.get_allocation(db, allocation_id), actor.id, body.note
         )  # fmt: skip
+    )
+
+
+# --- Manual journals (Phase 50) ---------------------------------------------------------------
+
+
+class JournalLineIn(BaseModel):
+    account_code: str = Field(min_length=1, max_length=60)
+    direction: str = Field(pattern="^(debit|credit)$")
+    amount: int = Field(gt=0, le=10_000_000_000_000)
+
+
+class JournalIn(BaseModel):
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    effective_date: date
+    description: str = Field(min_length=1, max_length=300)
+    lines: list[JournalLineIn] = Field(min_length=2, max_length=20)
+
+
+class JournalOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    journal_number: str
+    currency: str
+    effective_date: date
+    description: str
+    lines: list
+    amount: int
+    status: str
+    entry_number: str | None
+    note: str | None
+    created_at: datetime
+
+
+@router.get("/journals", response_model=Page[JournalOut], summary="Manual journals, newest first")
+def list_journals(db: DbSession, page: PageParamsDep, _: Authorized(READ)):
+    query = select(ManualJournal).order_by(ManualJournal.created_at.desc(),
+                                           ManualJournal.journal_number.desc())  # fmt: skip
+    return _page(db, query, page, JournalOut)
+
+
+@router.post("/journals", response_model=JournalOut, status_code=status.HTTP_201_CREATED,
+             summary="Propose a manual journal; nothing is posted until approved")  # fmt: skip
+def propose_journal(body: JournalIn, db: DbSession, actor: Authorized(Permission.FINANCE_CLOSE)):
+    journal = service.propose_journal(
+        db, currency=body.currency, effective_date=body.effective_date,
+        description=body.description, lines=[line.model_dump() for line in body.lines],
+        proposed_by=actor.id,
+    )  # fmt: skip
+    return JournalOut.model_validate(journal)
+
+
+@router.get("/journals/{journal_id}/profile", summary="What an approver weighs")
+def journal_profile(journal_id: uuid.UUID, db: DbSession, _: Authorized(READ)) -> dict:
+    return service.journal_profile(db, service.get_journal(db, journal_id))
+
+
+@router.post("/journals/{journal_id}/approve", response_model=JournalOut,
+             summary="Post the journal; not by its preparer")  # fmt: skip
+def approve_journal(journal_id: uuid.UUID, db: DbSession,
+                    actor: Authorized(Permission.FINANCE_APPROVE)):  # fmt: skip
+    return JournalOut.model_validate(
+        service.approve_journal(db, service.get_journal(db, journal_id), actor.id)
+    )
+
+
+@router.post("/journals/{journal_id}/reject", response_model=JournalOut, summary="Reject it")
+def reject_journal(journal_id: uuid.UUID, body: Note, db: DbSession,
+                   actor: Authorized(Permission.FINANCE_APPROVE)):  # fmt: skip
+    return JournalOut.model_validate(
+        service.reject_journal(db, service.get_journal(db, journal_id), actor.id, body.note)
     )
 
 

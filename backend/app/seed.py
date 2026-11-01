@@ -868,6 +868,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["risk:read"],
         "compatible_workflows": ["WF-1030"],
     },
+    {
+        "tool_id": "agb-journal-assistant",
+        "tool_name": "AGB Journal Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews manual journals before a second person posts them: size "
+        "against materiality, equity, cash and income accounts, backdating, round amounts, the "
+        "description and recent duplicates, with an explanation and a post, reject or refer "
+        "recommendation. Advisory: it never posts anything (Phase 50).",
+        "adapter": "rule_based_journal_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["finance:read"],
+        "compatible_workflows": ["WF-1036"],
+    },
 ]
 
 

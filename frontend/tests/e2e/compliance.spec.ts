@@ -53,3 +53,17 @@ test("Compliance: structuring is detected, investigated, escalated and filed by 
   await expect(filed).toContainText("FIU-");
   await otherContext.close();
 });
+
+test("AI Innovation Lab: the alert assistant would close a repeat offender's case (its blind spot)", async ({ page }) => {
+  // The tool reads compliance data, so it needs compliance:read: the administrator has it, an
+  // AI researcher does not.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Alert Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Alert Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

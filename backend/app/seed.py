@@ -839,6 +839,21 @@ DEMO_AI_TOOLS = [
         "permissions": ["accounts:read"],
         "compatible_workflows": ["WF-1025"],
     },
+    {
+        "tool_id": "agb-alert-assistant",
+        "tool_name": "AGB Alert Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews AML alerts under investigation before a second compliance "
+        "officer closes a case with no action: the rule, the activity against the account's own "
+        "baseline, the customer's type and risk, and reports already filed, with an explanation "
+        "and a close, escalate-to-report or refer recommendation. Advisory: it never closes or "
+        "files anything (Phase 46).",
+        "adapter": "rule_based_alert_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["compliance:read"],
+        "compatible_workflows": ["WF-1027"],
+    },
 ]
 
 

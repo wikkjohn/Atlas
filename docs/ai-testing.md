@@ -525,6 +525,63 @@ run each):
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
 
+## WF-1027 v2 and the alert review assistant (Phase 46)
+
+WF-1027 v2 is a stored workflow. When an AML alert is investigated, it reads the alert
+profile (`compliance.alert_profile`) and asks the assistant through `ai.review` before a
+second compliance officer (`compliance:monitor`) decides whether the case may be closed with
+no action, or is escalated to a suspicious activity report. An officer always decides, so
+the scenario runs baseline and AI assisted only. The workflow's outcome reads as the
+sign-off: `approved` when the case is closed, `rejected` when it is escalated.
+
+Each case's account gets four months of dated activity, posted through the real accounts
+service, and its alert is raised by a real monitoring run before the run.
+
+What the assistant (`rule_based_alert_review`) weighs:
+- **Escalate:**
+  - structuring;
+  - money passed through at four times the account's usual level;
+  - a high-risk customer's turnover at three times it;
+  - a customer with a report already filed.
+- **Concerns:** a business's cash at 2.5 times its usual level, especially in large
+  amounts; repeated large cash deposits by an individual.
+- **No concern:**
+  - a business's cash in line with its usual takings;
+  - a one-off large deposit;
+  - a pass-through pattern the account always has.
+
+Its **blind spot** is the alert history. The profile counts the customer's earlier alerts in
+the last year, closed or dismissed, and the assistant never reads the count. So a customer
+whose cash keeps setting off alerts looks like a business banking its usual takings and is
+recommended for closing.
+
+What `alert-triage` v1 measured (seed 2030, 300 alerts, 12 staff, default assumptions; one
+run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 87.0 % | 95.7 % |
+| Wrongly closed | 22 | 11 |
+| Wrongly escalated | 17 | 2 |
+| Repeat offenders' cases closed (of 43) | 8 | 10 |
+| Officer hours | 127.1 | 79.2 |
+| Median cycle time (hours) | 6.9 | 2.9 |
+| Tool's recommendation accuracy | — | 85 % (20 referred on) |
+
+**Where the assistant helps:**
+- Explained alerts wrongly escalated fall from 17 to 2.
+- Structuring, funnel accounts and high-risk spikes are never closed (13 in the baseline).
+- Officers' time falls by more than a third.
+
+**Where it does not:**
+- The assistant recommends closing all 43 repeat offenders' cases. The simulated officers,
+  following it, close 10 rather than 8.
+- A business's sudden spike is referred on, which leaves officers where the baseline was:
+  1 closed either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

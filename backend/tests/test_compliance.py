@@ -164,3 +164,49 @@ def test_the_compliance_api(client: TestClient, db: Session) -> None:
     assert filed["status"] == "filed" and filed["filing_reference"].startswith("FIU-")
     counts = client.get("/api/v1/compliance/summary/counts", headers=second).json()
     assert counts["filed_sars"] >= 1
+
+
+def test_pr36_review_fixes(client: TestClient, db: Session) -> None:
+    """A rerun skips a resolved alert's window; a customer's new alert waits while their
+    report is drafted; compliance workflows need compliance permissions to start and read."""
+    import json
+
+    from app.modules.workflows import authoring
+    from app.modules.workflows.examples import HERE
+
+    staff = make_staff(db)
+    officer = make_user(db, RoleCode.COMPLIANCE_OFFICER)
+    customer, account = _structurer(db, staff)
+    compliance.run_monitoring(db, account_ids=[account.id])
+    structuring = compliance.find_open_alert(db, account.id, "structuring")
+    compliance.dismiss_alert(db, structuring, officer.id, "Explained")
+    # The same window again: the dismissed alert is not raised again, and nothing fails.
+    assert compliance.run_monitoring(db, account_ids=[account.id]).alerts_raised == 0
+    rapid = compliance.find_open_alert(db, account.id, "rapid_movement")
+    case_row = compliance.open_case(db, rapid, officer.id)
+    compliance.draft_sar(db, case_row, officer.id)
+    other = open_account(db, staff, customer, AccountType.SAVINGS)
+    for n in range(3):
+        deposit(db, other.id, amount=950_000, memo="Cash", actor_id=staff.employee.id,
+                idempotency_key=f"pr36-{other.id}-{n}")  # fmt: skip
+    compliance.run_monitoring(db, account_ids=[other.id])
+    late = compliance.find_open_alert(db, other.id, "structuring")
+    with pytest.raises(BusinessRuleViolation, match="report is drafted"):
+        compliance.open_case(db, late, officer.id)
+    # Starting and reading WF-1027 through the API.
+    admin = make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)
+    authoring.import_definition(db, json.loads((HERE / "WF-1027.json").read_text()), admin.id)
+    db.commit()
+    url = "/api/v1/workflows/WF-1027/executions"
+    body = {"input": {"alert_number": late.alert_number}}
+    assert client.post(url, json=body, headers=auth(staff.employee)).status_code == 403
+    started = client.post(url, json=body, headers=auth(officer))
+    assert started.status_code == 201
+    execution = f"/api/v1/workflow-executions/{started.json()['id']}"
+    assert client.get(execution, headers=auth(staff.employee)).status_code == 404
+    assert client.get(execution, headers=auth(officer)).status_code == 200
+    listed = client.get("/api/v1/workflow-executions?workflow_id=WF-1027",
+                        headers=auth(staff.employee)).json()  # fmt: skip
+    assert listed["total"] == 0
+    assert client.get("/api/v1/workflow-executions?workflow_id=WF-1027",
+                      headers=auth(officer)).json()["total"] == 1  # fmt: skip

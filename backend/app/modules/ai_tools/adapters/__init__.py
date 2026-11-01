@@ -1,5 +1,6 @@
 """Adapter registry: the implementations registered tools can reference by `adapter` key."""
 
+from app.modules.ai_tools.adapters.alert_review import AlertReviewAdapter
 from app.modules.ai_tools.adapters.back_office_check import BackOfficeCheckAdapter
 from app.modules.ai_tools.adapters.base import AIToolAdapter
 from app.modules.ai_tools.adapters.card_fraud import CardFraudAdapter
@@ -28,6 +29,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         BackOfficeCheckAdapter(),
         RecallReviewAdapter(),
         SuitabilityReviewAdapter(),
+        AlertReviewAdapter(),
         FaultInjectionAdapter(),
     )
 }

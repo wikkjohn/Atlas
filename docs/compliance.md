@@ -28,15 +28,18 @@ anchor rate.
 | `high_risk_turnover` | A high-risk customer's money in of five times the threshold or more | 50 |
 
 **Alerts** (`ALR-`) record what the rule saw: the deposits, totals and threshold. An account
-with an open or investigated alert for a rule gets no second one for it; runs can be
-repeated.
+with an open or investigated alert for a rule gets no second one for it, and a window that
+already raised an alert (resolved or not) raises none again, so runs can be repeated.
 
 ## Alerts and cases
 
 - **Dismiss:** an open alert can be dismissed as a false positive, with a note.
 - **Investigate:** this opens a case (`CASE-`) for the customer, which takes in every open
-  alert of theirs. If a case is already under way for the customer, the alerts join it.
-  There is one case under way per customer, which is also a database constraint.
+  alert of theirs. If a case is being investigated for the customer, the alerts join it.
+  While the customer's case has a drafted report, new alerts wait until it is filed (rule
+  `report_pending`), so a filed report covers every alert it escalates. There is one case
+  under way per customer, which is also a database constraint. Opening a case locks the
+  customer first, so two officers investigating the same customer cannot deadlock.
 - **Close with no action:** someone other than the investigator closes the case. This is
   also a database constraint, and the alerts are closed with it.
 - **Escalate:** a suspicious activity report (`SAR-`) is drafted from the case's alerts,
@@ -93,6 +96,46 @@ kinds:
   cash deposits of 90 % of the threshold;
 - `compliance_case.case_number`: a case on another account with a drafted report.
 
+## Simulation workload and AI tool (Phase 46)
+
+The `alert_triage` workload drives WF-1027 v2 (scenario `alert-triage`).
+- **Cases:** each case is a customer in one of the run's countries. Their account gets four
+  months of dated deposits and withdrawals (`deposit` and `withdraw` accept an effective
+  date). A real monitoring run then raises the alert. A second compliance officer decides
+  every case.
+- **Ground truth, close:**
+  - a business banking its usual cash takings, four to eight times the threshold a month;
+  - a one-off large deposit by an individual;
+  - an individual whose salary is passed straight through every month.
+- **Ground truth, escalate:**
+  - structuring;
+  - a funnel account: money passed through at many times its usual level;
+  - a high-risk customer's turnover at four or more times usual;
+  - a business's sudden spike of large cash deposits;
+  - a business whose usual takings set off two or three earlier alerts in the year, closed
+    as explained.
+- **Decisions:** in AI-assisted runs the AGB Alert Review Assistant advises the officer,
+  from the profile `compliance.alert_profile` reads. The profile covers:
+  - the rule and the amount against the threshold;
+  - the customer's type and risk rating;
+  - the window's money in against the average month of the 90 days before it;
+  - earlier alerts and filed reports.
+- **Control check:** four-eyes and `compliance:monitor` on each decision, and no case closed
+  without the sign-off.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
+## Workflow access
+
+Compliance workflows disclose alerts and cases, so their handlers declare who may use them
+through the workflow API:
+- starting WF-1027, WF-1028 or WF-1029 needs `compliance:monitor`;
+- listing, viewing or signalling their executions needs `compliance:read`.
+
+Executions a caller may not read are left out of the execution list and reported as not
+found. Compliance officers can start workflows (`workflows:start`). The engine itself (the
+simulation and the generated tests) is not restricted.
+
 ## API and permissions
 
 See [api.md](api.md) (*Compliance*).
@@ -113,4 +156,7 @@ See [api.md](api.md) (*Compliance*).
 - **A synthetic FIU.** Filing records a reference; nothing is sent anywhere.
 - **The seeded data is noisy.** The demo population's opening balances are cash deposits,
   so a first run on it raises many `large_cash` alerts.
-- **No simulation yet.** There is no compliance workload or AI tool yet (Phase 46).
+- **Simulation scope.** The workload covers alert triage (`alert-triage`); monitoring runs,
+  report filing and KYC reviews are not simulated.
+- **Workflow tasks.** The approval inbox shows tasks to anyone holding the approval's
+  permissions; for compliance workflows those are compliance permissions anyway.

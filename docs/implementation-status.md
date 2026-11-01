@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 45.
+Last updated: Phase 46.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -50,6 +50,73 @@ Last updated: Phase 45.
 | 43 | Departments, step 15: wealth and investments ([wealth.md](wealth.md)) | **Complete** |
 | 44 | Departments, step 16: the wealth workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 45 | Departments, step 17: compliance ([compliance.md](compliance.md)) | **Complete** |
+| 46 | Departments, step 18: the compliance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 46: what exists
+
+- **`compliance.alert_profile`:** what an officer weighs before closing an alert's case.
+  - The rule and score, and the amount against the threshold.
+  - The customer's type and risk rating.
+  - The window's money in against the account's own baseline (the average month of the 90
+    days before the window).
+  - The customer's earlier alerts in the last year and reports filed.
+
+  It is also a library handler.
+- **AGB Alert Review Assistant** (`rule_based_alert_review`, `recommend_decision` only,
+  compatible with WF-1027, needs `compliance:read`), with a deliberate blind spot: it never
+  reads the customer's earlier alerts. The seed registers it, and the AI Lab console has a
+  sample.
+- **WF-1027 v2:** alert profile and AI review before the second officer decides; the outcome
+  reads as the sign-off (closed: approved, escalated: rejected).
+- **Workload `alert_triage` and scenario `alert-triage` v1:**
+  - Accounts in the run's countries with four months of dated activity (deposits and
+    withdrawals accept an effective date), and alerts raised by real monitoring runs.
+  - Eight kinds with ground truth, decided by simulated compliance officers.
+  - A control check covers four-eyes, `compliance:monitor` and no closure without the
+    sign-off.
+- **Fixes from the Codex review of PR #36 (Phase 45):**
+  - A monitoring rerun no longer fails with a unique-constraint error after an alert of the
+    same window was resolved; that window raises nothing again.
+  - While a customer's case has a drafted report, their new alerts wait until it is filed,
+    instead of being escalated by a report that does not cover them.
+  - Compliance workflows need compliance permissions through the API: `compliance:monitor`
+    to start, `compliance:read` to list, view or signal executions, declared by their
+    library handlers. Compliance officers gained `workflows:start`.
+  - Opening a case locks the customer first, so concurrent investigations of one customer's
+    alerts cannot deadlock.
+- **Measured** (300 alerts): AI assisted 95.7 % accurate against 87.0 %, officers' hours 79
+  against 127. Repeat offenders' cases closed rose to 10 from 8, the one kind it made worse.
+
+## Phase 46: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 644 passed (new: 4 — the alert rules and their blind spot; the alert profile against the baseline with an earlier alert; baseline and AI-assisted alert runs with every case decided by a second officer, no control violations, every kind's advice as designed; a rerun after a resolved alert, a new alert waiting for a drafted report, and compliance workflow access through the API (PR #36 review)) |
+| Generated workflow tests | 39 workflows, 736 cases, 0 failed (WF-1027 v2: 17 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 130 passed / clean / built |
+| Playwright on a fresh database | 49 passed (new: the alert assistant in the AI Lab console, recommending closing a repeat offender's case), after the fix below |
+| Measurement | `alert-triage`, seed 2030, 300 alerts each: baseline 87.0 % accurate (22 wrongly closed, 17 wrongly escalated, 127.1 officer hours, median cycle 6.9 h); AI assisted 95.7 % (11, 2, 79.2 h, 2.9 h); repeat offenders closed 8 against 10 of 43; the assistant's own advice 85 % accurate, 20 referred on |
+
+Found while building it:
+- **First workload run:** it failed with "Object of type Decimal is not JSON serializable":
+  the profile's baseline was a database sum (a Decimal), which the workflow context cannot
+  store. It is now converted to an integer. The profile test had passed because a Decimal
+  compares equal to an integer.
+- **Playwright, first run:** the new AI Lab test failed with "Your role cannot use this
+  tool": the assistant needs `compliance:read`, which AI researchers do not have. The test
+  now signs in as the administrator; the second run passed (49 of 49).
+- **Review-fix test, first version:** it opened a second current account for one customer,
+  which the accounts rules refuse; it now uses a savings account. Compliance officers could
+  not start workflows at all (no `workflows:start`), which the test also exposed.
+- **Review-fix test:** it fails on the code before the fixes (a unique-constraint error on
+  the rerun) and passes after. There is no concurrency test for the customer lock.
+
+## Phase 46: known limitations
+
+- **The assistant is rule-based** and blind to the customer's earlier alerts, by design.
+- **Simulation scope:** only alert triage is simulated.
+- **Access is declared per handler:** a stored workflow is restricted only if it uses a
+  restricted handler; the approval inbox is governed by the approval's permissions.
 
 ## Phase 45: what exists
 

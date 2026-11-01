@@ -1,0 +1,201 @@
+{
+  "workflow_id": "WF-1027",
+  "name": "AML Alert Investigation",
+  "version": 2,
+  "description": "Version 2 (Phase 46): before the second officer decides, what they weigh is read (compliance.alert_profile: the rule, the amount against the threshold, the customer, the window's activity against the account's own baseline, and the customer's earlier alerts and filed reports) and the AGB Alert Review Assistant reviews it; its recommendation is advice only. The outcome reads as the sign-off: approved when the case is closed with no action, rejected when it is escalated. An alert raised by transaction monitoring (a large cash deposit, structuring under the reporting threshold, rapid movement of funds, or high turnover by a high-risk customer) is investigated in a case for its customer, which takes in every open alert of theirs. Closing the case with no action needs a second compliance officer's sign-off (compliance:monitor); without it the case is escalated and a suspicious activity report drafted. Stored definition: built only from library handlers (Phase 45).",
+  "business_owner": "Financial Crime Compliance",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "alert_number"
+    ],
+    "properties": {
+      "alert_number": {
+        "type": "string",
+        "pattern": "^ALR-[0-9]{7,}$"
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find.alert_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.alert_number",
+        "prefix": "AML-"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "next": "find"
+    },
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the alert",
+      "handler": "compliance.lookup_alert",
+      "params": {
+        "alert_number_path": "input.alert_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_open"
+    },
+    {
+      "id": "route_open",
+      "type": "decision",
+      "name": "Still open?",
+      "transitions": [
+        {
+          "to": "investigate",
+          "when": {
+            "path": "find.open",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "already_handled"
+    },
+    {
+      "id": "investigate",
+      "type": "service_task",
+      "name": "Open the case",
+      "handler": "compliance.open_case",
+      "params": {
+        "alert_id_path": "find.alert_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "profile"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the alert profile",
+      "handler": "compliance.alert_profile",
+      "params": {
+        "alert_id_path": "find.alert_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI alert review (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-alert-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "decision"
+    },
+    {
+      "id": "decision",
+      "type": "approval",
+      "name": "Sign off closing with no action",
+      "description": "A second compliance officer signs off closing the case with no action; refusing escalates it to a suspicious activity report.",
+      "approval": {
+        "permissions": [
+          "compliance:monitor"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "close",
+          "when": {
+            "path": "decision.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "escalate"
+    },
+    {
+      "id": "escalate",
+      "type": "service_task",
+      "name": "Draft the suspicious activity report",
+      "handler": "compliance.draft_sar",
+      "params": {
+        "case_id_path": "investigate.case_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "escalated"
+    },
+    {
+      "id": "close",
+      "type": "service_task",
+      "name": "Close with no action",
+      "handler": "compliance.close_case",
+      "params": {
+        "case_id_path": "investigate.case_id",
+        "decided_by_path": "decision.actor_id",
+        "note": "No suspicion after investigation"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "closed"
+    },
+    {
+      "id": "escalated",
+      "type": "completion",
+      "name": "Escalated: report drafted",
+      "outcome": "rejected"
+    },
+    {
+      "id": "closed",
+      "type": "completion",
+      "name": "Closed with no action",
+      "outcome": "approved"
+    },
+    {
+      "id": "already_handled",
+      "type": "completion",
+      "name": "Already handled",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

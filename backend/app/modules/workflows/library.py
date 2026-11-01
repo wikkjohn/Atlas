@@ -49,6 +49,10 @@ class LibraryHandler:
     # "account.account_number" | "payee.account_number" (a second customer's account) |
     # "blocked_card.card_number" | "authorization.auth_code" (Phase 31)}.
     fixtures: Callable[[Any], dict[str, str]] | None = None
+    # Who may start a workflow using this handler, and read its executions, through the API
+    # (Phase 46, PR #36 review): e.g. compliance handlers disclose alerts and cases.
+    start_permission: str | None = None
+    read_permission: str | None = None
 
     def params_schema(self) -> dict[str, Any]:
         return self.params_model.model_json_schema()
@@ -82,6 +86,8 @@ def _library_handler(
     check: Callable[[Any, Any], list[str]] | None = None,
     step_type: StepType = StepType.SERVICE_TASK,
     fixtures: Callable[[Any], dict[str, str]] | None = None,
+    start_permission: str | None = None,
+    read_permission: str | None = None,
 ) -> Callable[[Callable[[StepContext, Any], dict[str, Any]]], None]:
     def register(func: Callable[[StepContext, Any], dict[str, Any]]) -> None:
         def run(ctx: StepContext) -> dict[str, Any]:
@@ -99,7 +105,7 @@ def _library_handler(
             registry.service_task(name)(run)
         LIBRARY[name] = LibraryHandler(
             name, step_type, summary, params_model, output, reads, effect,
-            requires_approval, check, fixtures,
+            requires_approval, check, fixtures, start_permission, read_permission,
         )  # fmt: skip
 
     return register
@@ -107,6 +113,25 @@ def _library_handler(
 
 def get(name: str) -> LibraryHandler | None:
     return LIBRARY.get(name)
+
+
+def access(definition: Any) -> tuple[set[str], set[str]]:
+    """The permissions a definition's handlers require to start it, and to read its
+    executions, through the API."""
+    start: set[str] = set()
+    read: set[str] = set()
+    for step in definition.steps:
+        handler = LIBRARY.get(step.handler or "")
+        if handler is not None:
+            start |= {handler.start_permission} - {None}
+            read |= {handler.read_permission} - {None}
+    return start, read
+
+
+def restricted_handlers(permissions: Any) -> list[str]:
+    """Handlers whose executions a holder of `permissions` may not read."""
+    return [h.name for h in LIBRARY.values()
+            if h.read_permission and h.read_permission not in permissions]  # fmt: skip
 
 
 Code = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
@@ -2870,6 +2895,8 @@ def _alert_out(alert) -> dict[str, Any]:
     reads=lambda params: [params.alert_number_path],
     effect="reads",
     fixtures=lambda params: {params.alert_number_path: "aml_alert.alert_number"},
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _lookup_alert(ctx: StepContext, params: LookupAlert) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -2904,6 +2931,8 @@ def _case_out(db, case_row) -> dict[str, Any]:
     "that is not open fails the step.",
     reads=lambda params: [params.alert_id_path],
     effect="writes",
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _open_case(ctx: StepContext, params: AlertRef) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -2911,6 +2940,27 @@ def _open_case(ctx: StepContext, params: AlertRef) -> dict[str, Any]:
     alert = compliance.get_alert(ctx.db, uuid.UUID(str(_required(ctx, params.alert_id_path))))
     case_row = _trade_call("case_refused", compliance.open_case, ctx.db, alert, ctx.initiator_id)
     return _case_out(ctx.db, case_row)
+
+
+@_library_handler(
+    "compliance.alert_profile",
+    "Read what an officer weighs before closing an alert's case: the rule, the amount against "
+    "the threshold, the customer, the window's activity against the account's baseline, and "
+    "earlier alerts and filed reports.",
+    AlertRef,
+    "{rule, score, currency, amount, amount_x_threshold_pct, deposits, customer_type, "
+    "customer_risk, credits, baseline_monthly_credits, activity_vs_baseline_pct, "
+    "prior_alerts_365d, prior_reports_filed}",
+    reads=lambda params: [params.alert_id_path],
+    effect="reads",
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
+)
+def _alert_profile(ctx: StepContext, params: AlertRef) -> dict[str, Any]:
+    from app.modules.compliance import service as compliance
+
+    alert = compliance.get_alert(ctx.db, uuid.UUID(str(_required(ctx, params.alert_id_path))))
+    return compliance.alert_profile(ctx.db, alert, ctx.now.date())
 
 
 class CaseDecision(_Strict):
@@ -2933,6 +2983,8 @@ def _compliance_case(ctx: StepContext, path: str):
     reads=lambda params: [params.case_id_path, params.decided_by_path],
     effect="writes",
     requires_approval=True,
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _close_case(ctx: StepContext, params: CaseDecision) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -2955,6 +3007,8 @@ class CaseRef(_Strict):
     "{case_id, case_number, status, alerts, sar_id, sar_number, has_draft_sar}",
     reads=lambda params: [params.case_id_path],
     effect="writes",
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _draft_sar(ctx: StepContext, params: CaseRef) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -2977,6 +3031,8 @@ class LookupCase(_Strict):
     reads=lambda params: [params.case_number_path],
     effect="reads",
     fixtures=lambda params: {params.case_number_path: "compliance_case.case_number"},
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _lookup_case(ctx: StepContext, params: LookupCase) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -3001,6 +3057,8 @@ class SarDecision(_Strict):
     reads=lambda params: [params.sar_id_path, params.decided_by_path],
     effect="writes",
     requires_approval=True,
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _file_sar(ctx: StepContext, params: SarDecision) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -3033,6 +3091,8 @@ def _review_out(review) -> dict[str, Any]:
     reads=lambda params: [params.customer_id_path],
     effect="writes",
     fixtures=lambda params: {params.customer_id_path: "customer.id"},
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )
 def _open_kyc_review(ctx: StepContext, params: OpenReview) -> dict[str, Any]:
     from app.modules.compliance import service as compliance
@@ -3057,6 +3117,8 @@ class CompleteReview(_Strict):
                           params.risk_rating_path],
     effect="writes",
     requires_approval=True,
+    start_permission="compliance:monitor",
+    read_permission="compliance:read",
 )  # fmt: skip
 def _complete_kyc_review(ctx: StepContext, params: CompleteReview) -> dict[str, Any]:
     from app.modules.compliance import service as compliance

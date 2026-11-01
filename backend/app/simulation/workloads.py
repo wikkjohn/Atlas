@@ -1997,6 +1997,179 @@ class OrderReview(Workload):
         return check
 
 
+# --- Alert triage (WF-1027 v2, Phase 46) -----------------------------------------------------
+
+# The case may be closed with no action ("approved"); the rest are escalated ("rejected").
+ALERT_SHOULD_CLOSE = frozenset({"payroll_cash_business", "one_off_windfall",
+                                "salary_pass_through"})  # fmt: skip
+ALERT_RULE_OF = {"payroll_cash_business": "large_cash", "one_off_windfall": "large_cash",
+                 "salary_pass_through": "rapid_movement", "classic_structuring": "structuring",
+                 "funnel_account": "rapid_movement", "high_risk_spike": "high_risk_turnover",
+                 "business_spike": "large_cash", "repeat_offender": "large_cash"}  # fmt: skip
+
+
+class AlertTriage(Workload):
+    """AML alerts through WF-1027 v2: a second compliance officer decides whether each case
+    may be closed with no action, with the AGB Alert Review Assistant's advice in AI-assisted
+    runs. Each account's four months of activity are posted, dated, through the real accounts
+    service, and the alert is raised by a real monitoring run before the run.
+
+    Ground truth: a business's cash in line with its usual takings, a one-off large deposit
+    and a salary passed straight through every month are closed; structuring, a funnel
+    account, a high-risk customer's spike, a business's sudden spike and a customer whose cash
+    set off two or three earlier alerts in the year are escalated."""
+
+    key = "alert_triage"
+    workflow_id = "WF-1027"
+    kinds = frozenset(ALERT_RULE_OF)
+    reviewer_roles = {"decision": "compliance"}
+    job_titles = {"teller": "Customer Adviser", "manager": "Branch Manager",
+                  "compliance": "AML Investigator"}  # fmt: skip
+    ai_step = "ai_review"
+    automated_path = None  # an officer always decides
+
+    def _alert_case(self, sim: "_Simulation", rng, kind: str, today: date, teller,
+                    manager) -> str:  # fmt: skip
+        """One account's dated history and the alert monitoring raises on it."""
+        from app.modules.accounts.service import withdraw
+        from app.modules.compliance import service as compliance
+        from app.modules.compliance.models import AmlAlert
+
+        db = sim.db
+        country = rng.choice(sim.countries)
+        if kind in ("payroll_cash_business", "business_spike", "repeat_offender"):
+            account = _verified_business(sim, f"{rng.choice(LAST_NAMES)} {rng.choice(TRADES)} Ltd",
+                                         country)  # fmt: skip
+        else:
+            name, born = _person(rng, today)
+            account = _customer_account(sim, name=name, born=born, country_code=country)
+        limit = compliance.threshold(account.currency)
+        posted = [0]
+
+        def move(amount: float, days_ago: int, out: bool = False) -> None:
+            posted[0] += 1
+            call = withdraw if out else deposit
+            call(db, account.id, amount=max(int(amount), 1), memo="Simulation activity",
+                 actor_id=teller.id, effective_date=today - timedelta(days=days_ago),
+                 idempotency_key=f"sim-aml-{sim.run_id}-{account.id}-{posted[0]}")  # fmt: skip
+
+        def months(per_month: float, chunks: int, out_share: float = 0.0,
+                   window: bool = True) -> None:  # fmt: skip
+            """`per_month` paid in over `chunks` deposits each month of the baseline (and the
+            window), `out_share` of it taken out again later in the month."""
+            for start in (115, 85, 55) + ((25,) if window else ()):
+                for c in range(chunks):
+                    move(per_month / chunks * rng.uniform(0.9, 1.1), start - c * 3)
+                if out_share:
+                    move(per_month * out_share, start - chunks * 3 - 1, out=True)
+
+        if kind in ("payroll_cash_business", "repeat_offender"):
+            months(limit * rng.uniform(4, 8), 4)
+            if kind == "repeat_offender":
+                # Earlier alerts on the same takings, closed as explained.
+                for window_end in (today - timedelta(days=35), today - timedelta(days=65),
+                                   today - timedelta(days=95))[:rng.randint(2, 3)]:  # fmt: skip
+                    compliance.run_monitoring(db, window_end=window_end, account_ids=[account.id])
+                    for alert in db.execute(select(AmlAlert).where(
+                            AmlAlert.account_id == account.id,
+                            AmlAlert.status == "open")).scalars():  # fmt: skip
+                        compliance.dismiss_alert(db, alert, manager.id, "Usual takings")
+        elif kind == "business_spike":
+            months(limit * rng.uniform(0.8, 1.2), 3, window=False)
+            for d in range(rng.randint(2, 3)):
+                move(limit * rng.uniform(1.6, 2.2), 20 - d * 4)
+        elif kind == "one_off_windfall":
+            months(limit * rng.uniform(0.2, 0.4), 1, out_share=0.8)
+            move(limit * rng.uniform(1.1, 2.5), rng.randint(3, 20))
+        elif kind == "salary_pass_through":
+            months(limit * rng.uniform(2.2, 3.0), 5, out_share=rng.uniform(0.85, 0.95))
+        elif kind == "classic_structuring":
+            months(limit * rng.uniform(0.1, 0.3), 1, window=False)
+            first = rng.randint(10, 20)
+            for d in range(rng.randint(3, 5)):
+                move(limit * rng.uniform(0.85, 0.97), first - d * 2)
+        elif kind == "funnel_account":
+            months(limit * rng.uniform(0.1, 0.2), 1, window=False)
+            total = limit * rng.uniform(3, 6)
+            for d in range(8):
+                move(total / 8, 24 - d * 2)
+            move(total * rng.uniform(0.85, 0.95), 5, out=True)
+        elif kind == "high_risk_spike":
+            customer = db.get(Customer, account.customer_id)
+            review_customer(db, customer, CustomerReview(risk_rating=RiskRating.HIGH), None)
+            months(limit * rng.uniform(0.8, 1.2), 3, window=False)
+            for d in range(10):
+                move(limit * rng.uniform(0.5, 0.75), 25 - d * 2)
+        else:
+            raise ValueError(kind)
+        compliance.run_monitoring(db, window_end=today, account_ids=[account.id])
+        alert = compliance.find_open_alert(db, account.id, ALERT_RULE_OF[kind])
+        if alert is None:
+            raise RuntimeError(f"{kind}: monitoring raised no {ALERT_RULE_OF[kind]} alert")
+        return alert.alert_number
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = sim.clock.start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "alert")
+            kind = _pick(rng, mix)
+            number = self._alert_case(sim, rng, kind, today, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in ALERT_SHOULD_CLOSE else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={"alert_number": number},
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every officer's decision against four-eyes and authority, and no case closed with
+        no action without a sign-off."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["decision", "close"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "decision":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.COMPLIANCE_MONITOR not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "close" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "closed_without_sign_off", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -2012,6 +2185,7 @@ WORKLOADS: dict[str, Workload] = {
         DealConfirmations(),
         RecallTriage(),
         OrderReview(),
+        AlertTriage(),
     )
 }
 STAFF_ROLES = {

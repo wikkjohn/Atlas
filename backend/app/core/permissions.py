@@ -202,6 +202,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.COMPLIANCE_READ,
         Permission.COMPLIANCE_MONITOR,
         Permission.COMPLIANCE_FILE,
+        Permission.WORKFLOWS_START,  # start the compliance workflows (Phase 46)
     },
     RoleCode.AI_RESEARCHER: _BASE
     | {

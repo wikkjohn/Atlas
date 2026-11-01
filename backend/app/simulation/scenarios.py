@@ -688,3 +688,39 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="alert-triage",
+        version=1,
+        name="Alert triage (compliance)",
+        description="A working day of AML alerts through WF-1027 v2: a second compliance officer "
+        "decides whether each case may be closed with no action. A business banking its usual "
+        "cash takings, a one-off large deposit and an account that always passes its salary "
+        "straight through may be closed; structuring, a funnel account, a high-risk customer's "
+        "spike, a business's sudden spike and a customer whose cash keeps setting off alerts are "
+        "escalated. In AI-assisted runs the AGB Alert Review Assistant advises the officer "
+        "(Phase 46).",
+        workload="alert_triage",
+        workflow_id="WF-1027",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "payroll_cash_business": 0.18,
+                "one_off_windfall": 0.14,
+                "salary_pass_through": 0.12,
+                "classic_structuring": 0.14,
+                "funnel_account": 0.12,
+                "high_risk_spike": 0.08,
+                "business_spike": 0.10,
+                "repeat_offender": 0.12,
+            },
+            reviewers={"decision": ReviewerModel(mean_minutes=25, accuracy=0.85)},
+            staff_mix={"teller": 0.3, "manager": 0.2, "compliance": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

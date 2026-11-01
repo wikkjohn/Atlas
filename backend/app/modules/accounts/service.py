@@ -419,6 +419,7 @@ def deposit(
     memo: str | None,
     idempotency_key: str,
     actor_id: uuid.UUID,
+    effective_date: date | None = None,
 ) -> tuple[Account, str, uuid.UUID, bool]:
     """Synthetic cash deposit: debit the bank's cash, credit the customer's deposit account."""
     account = get_account(db, account_id, for_update=True)
@@ -439,6 +440,7 @@ def deposit(
         source="deposit",
         lines=lines,
         actor_id=actor_id,
+        effective_date=effective_date,
     )
     return account, entry.entry_number, entry.id, replayed
 
@@ -451,6 +453,7 @@ def withdraw(
     memo: str | None,
     idempotency_key: str,
     actor_id: uuid.UUID,
+    effective_date: date | None = None,
 ) -> tuple[Account, str, uuid.UUID, bool]:
     """Synthetic cash withdrawal, within the balance and any arranged overdraft."""
     account = get_account(db, account_id, for_update=True)
@@ -479,6 +482,7 @@ def withdraw(
         source="withdrawal",
         lines=lines,
         actor_id=actor_id,
+        effective_date=effective_date,
     )
     return account, entry.entry_number, entry.id, replayed
 

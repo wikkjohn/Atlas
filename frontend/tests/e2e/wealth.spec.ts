@@ -50,3 +50,15 @@ test("Wealth: an assessed customer buys within their profile; an unsuitable orde
   await expect(decided).toContainText("Insistent client");
   await managerContext.close();
 });
+
+test("AI Innovation Lab: the suitability assistant would let a serial insister's order go ahead (its blind spot)", async ({ page }) => {
+  await signIn(page, "researcher", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Suitability Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Suitability Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

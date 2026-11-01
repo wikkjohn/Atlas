@@ -1821,6 +1821,182 @@ class RecallTriage(Workload):
         return check
 
 
+# --- Order review (WF-1025 v2, Phase 44) -----------------------------------------------------
+
+ORDER_SHOULD_REFUSE = frozenset({"large_gap", "complex_novice", "liquidity_drain",
+                                 "serial_insister", "stretch_without_experience"})  # fmt: skip
+# The customer's answers (objective, horizon, knowledge, capacity for loss) by kind.
+ORDER_PROFILE_OF = {
+    "experienced_small_step": ("balanced", 12, "informed", "high"),  # risk 4
+    "serial_insister": ("balanced", 12, "informed", "high"),  # risk 4
+    "safe_concentration": ("income", 8, "basic", "medium"),  # risk 3
+    "large_gap": ("preservation", 6, "basic", "high"),  # risk 2
+    "complex_novice": ("growth", 15, "basic", "high"),  # risk 6
+    "liquidity_drain": ("balanced", 12, "informed", "high"),  # risk 4
+    "stretch_without_experience": ("balanced", 12, "informed", "high"),  # risk 4
+}
+
+
+class OrderReview(Workload):
+    """Unsuitable investment orders through WF-1025 v2: a manager decides whether each may go
+    ahead at the client's insistence, with the AGB Suitability Review Assistant's advice in
+    AI-assisted runs. Each customer's profile, portfolio and earlier orders run through the
+    real wealth service before the run.
+
+    Ground truth: a small step one level above an experienced customer's profile and a
+    concentration in a low-risk bond go ahead; a security three or more levels above the
+    profile, a complex product for a customer with basic knowledge, an order that leaves less
+    than a tenth of the customer's assets in cash, a customer with several orders that went
+    ahead against advice in the last 90 days, and a two-level step without experience are
+    refused."""
+
+    key = "order_review"
+    workflow_id = "WF-1025"
+    kinds = frozenset({"experienced_small_step", "safe_concentration"} | ORDER_SHOULD_REFUSE)
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "Investment Adviser", "manager": "Wealth Manager"}
+    ai_step = "ai_review"
+    automated_path = None  # a manager always decides
+
+    def _order_case(self, sim: "_Simulation", rng, kind: str, today: date, teller,
+                    manager) -> dict[str, Any]:  # fmt: skip
+        """One customer's history, and the unsuitable order the case places."""
+        from app.modules.customers.models import Customer
+        from app.modules.wealth import service as wealth
+
+        db = sim.db
+        name, born = _person(rng, today, 30, 70)
+        country = rng.choice(sim.countries)
+        cash_usd = rng.randint(40, 400) * 1_000
+        account = _customer_account(sim, name=name, born=born, country_code=country)
+        currency = account.currency
+        deposit(db, account.id, amount=_usd(cash_usd, currency),
+                memo="Savings (simulation)", actor_id=teller.id,
+                idempotency_key=f"sim-wealth-{sim.run_id}-{account.id}")  # fmt: skip
+        customer = db.get(Customer, account.customer_id)
+        objective, horizon, knowledge, loss = ORDER_PROFILE_OF[kind]
+        assessed = today - timedelta(days=200)
+        wealth.record_profile(db, customer, objective=objective, horizon_years=horizon,
+                              knowledge=knowledge, loss_capacity=loss, assessed_by=teller.id,
+                              today=assessed)  # fmt: skip
+        portfolio = wealth.open_portfolio(db, account, teller.id)
+
+        def units_for(code: str, share: float, on: date) -> tuple[Any, int]:
+            """Units of the security worth about `share` of the customer's cash."""
+            security = wealth.find_security(db, code)
+            price = wealth.convert(db, wealth.price_on(security, on), security.currency,
+                                   currency, on)  # fmt: skip
+            target = int(wealth._cash_balance(db, account) * share)
+            return security, max(1, target // max(price, 1))
+
+        def insisted(code: str, share: float, days_ago: int, approve: bool = True) -> None:
+            """An earlier unsuitable order, decided `days_ago` days before today."""
+            on = today - timedelta(days=days_ago)
+            security, units = units_for(code, share, on)
+            order = wealth.place_order(db, portfolio=portfolio, security=security, side="buy",
+                                       units=units, placed_by=teller.id, today=on)  # fmt: skip
+            when = datetime.combine(on, datetime.min.time(), tzinfo=UTC) + timedelta(hours=11)
+            if approve:
+                wealth.approve_order(db, order, manager.id, "Insistent client", today=on,
+                                     now=when)  # fmt: skip
+            else:
+                wealth.reject_order(db, order, manager.id, "Unsuitable", now=when)
+
+        if kind == "experienced_small_step":
+            insisted("AGB-GLOBAL-EQ", rng.uniform(0.03, 0.08), rng.randint(120, 190))
+            code, share = "AGB-GLOBAL-EQ", rng.uniform(0.03, 0.08)
+        elif kind == "serial_insister":
+            insisted("AGB-GLOBAL-EQ", rng.uniform(0.03, 0.06), rng.randint(120, 190))
+            for _ in range(rng.randint(3, 5)):
+                insisted("AGB-GLOBAL-EQ", rng.uniform(0.02, 0.04), rng.randint(5, 85))
+            if rng.random() < 0.5:
+                insisted("AGB-EM-EQ", rng.uniform(0.02, 0.04), rng.randint(5, 85), approve=False)
+            code, share = "AGB-GLOBAL-EQ", rng.uniform(0.03, 0.06)
+        elif kind == "safe_concentration":
+            code, share = "AGB-GOVT-2031", rng.uniform(0.5, 0.75)
+        elif kind in ("large_gap", "stretch_without_experience"):
+            code = rng.choice(("AGB-EM-EQ", "EQ-NORTHWIND", "EQ-HELIOS"))  # risk 6
+            share = rng.uniform(0.03, 0.1)
+        elif kind == "complex_novice":
+            code, share = "SN-AUTOCALL-28", rng.uniform(0.03, 0.1)
+        elif kind == "liquidity_drain":
+            code, share = "AGB-GLOBAL-EQ", rng.uniform(0.92, 0.96)
+        else:
+            raise ValueError(kind)
+        security, units = units_for(code, share, today)
+        amount = wealth.convert(db, units * wealth.price_on(security, today), security.currency,
+                                currency, today)  # fmt: skip
+        if not wealth.suitability(db, portfolio, security, amount, today):
+            raise RuntimeError(f"{kind}: the order would be suitable")
+        return {"portfolio_number": portfolio.portfolio_number, "security_code": code,
+                "side": "buy", "units": units}  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.wealth import service as wealth
+
+        db = sim.db
+        wealth.ensure_securities(db)
+        mix = normalized(sim.config.mix)
+        today = sim.clock.start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "order")
+            kind = _pick(rng, mix)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="rejected" if kind in ORDER_SHOULD_REFUSE else "approved",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload=self._order_case(sim, rng, kind, today, teller, manager),
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every manager's decision against four-eyes and authority, and no order executed
+        without an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "approve", "release"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.WEALTH_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "release" or (
+                step_run.step_id == "approve" and execution.id not in approved
+            ):
+                check.violations.append(
+                    {"rule": "order_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -1835,6 +2011,7 @@ WORKLOADS: dict[str, Workload] = {
         DiscrepantPresentations(),
         DealConfirmations(),
         RecallTriage(),
+        OrderReview(),
     )
 }
 STAFF_ROLES = {

@@ -301,7 +301,7 @@ function OrdersPanel({ selected }: { selected: string | null }) {
               </td>
               <td className="px-2 py-1.5 text-right">
                 <div className="flex justify-end gap-1">
-                  {o.status === "awaiting_approval" && can("wealth:approve") && (
+                  {(o.status === "awaiting_approval" || o.status === "placed") && can("wealth:approve") && (
                     <>
                       <Button size="sm" aria-label={`Approve ${o.order_number}`} onClick={() => action.mutate({ id: o.id, action: "approve" })}>
                         Approve

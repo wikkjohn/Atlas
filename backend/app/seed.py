@@ -825,6 +825,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["payments:read"],
         "compatible_workflows": ["WF-1023"],
     },
+    {
+        "tool_id": "agb-suitability-assistant",
+        "tool_name": "AGB Suitability Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews unsuitable investment orders before a manager lets one go ahead "
+        "at the client's insistence: the risk gap, the customer's experience and knowledge, "
+        "complex products, concentration and the cash left, with an explanation and a go-ahead, "
+        "refuse or escalate recommendation. Advisory: it never executes an order (Phase 44).",
+        "adapter": "rule_based_suitability_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["accounts:read"],
+        "compatible_workflows": ["WF-1025"],
+    },
 ]
 
 

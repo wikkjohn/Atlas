@@ -158,7 +158,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 43: ten synthetic securities with deterministic daily prices, a suitability
       questionnaire giving a risk profile from 1 to 7, portfolios in custody, orders checked
       for risk, complexity and concentration with four-eyes for unsuitable ones, income paid
-      to holders; WF-1024–1026; see `wealth.md`)
+      to holders; WF-1024–1026; see `wealth.md`. Phase 44: the `order-review` workload and
+      the suitability review assistant)
 - [ ] Compliance: AML monitoring, case management, SAR filing, periodic KYC refresh
 - [ ] Risk: credit ratings, limits, provisioning (ECL)
 - [ ] Finance: GL close, regulatory reporting extracts, cost allocation
@@ -256,4 +257,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 41 (D13) | Payments operations: outgoing payments to synthetic banks, clearing cycles with returns, bulk payment files, recalls; WF-1021–1023 | complete |
 | Phase 42 (D14) | Payments operations, step 2: the `recall-triage` workload on stored WF-1023 v2, decided by back office, and the AGB Recall Assistant | complete |
 | Phase 43 (D15) | Wealth and investments: synthetic securities, suitability profiles, portfolios in custody, orders with suitability checks, income; WF-1024–1026 | complete |
-| Phase 44 (D16, proposed) | Wealth, step 2: an order-review workload on stored WF-1025 v2, decided by managers, and an AI suitability review assistant | next |
+| Phase 44 (D16) | Wealth, step 2: the `order-review` workload on stored WF-1025 v2, decided by wealth managers, and the AGB Suitability Review Assistant | complete |
+| Phase 45 (D17, proposed) | Compliance: AML transaction monitoring, case management, SAR filing, periodic KYC refresh | next |

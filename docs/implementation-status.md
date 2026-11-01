@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 43.
+Last updated: Phase 44.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -48,6 +48,72 @@ Last updated: Phase 43.
 | 41 | Departments, step 13: payments operations ([payments-operations.md](payments-operations.md)) | **Complete** |
 | 42 | Departments, step 14: the payments operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 43 | Departments, step 15: wealth and investments ([wealth.md](wealth.md)) | **Complete** |
+| 44 | Departments, step 16: the wealth workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 44: what exists
+
+- **`wealth.order_profile`:** what a manager weighs before an unsuitable order goes ahead.
+  - Why it is unsuitable, and the gap between the security's risk and the customer's
+    profile.
+  - The customer's answers, the order's share of their investable assets and the cash it
+    leaves.
+  - Whether they have held a security this risky before.
+  - Their orders that went ahead against advice, and that were refused, in the last 90 days.
+
+  It is also a library handler.
+- **AGB Suitability Review Assistant** (`rule_based_suitability_review`,
+  `recommend_decision` only, compatible with WF-1025), with a deliberate blind spot: it never
+  reads the customer's record of insisting. The seed registers it, and the AI Lab console has
+  a sample.
+- **WF-1025 v2:** order profile and AI review before the manager decides an unsuitable order.
+- **Workload `order_review` and scenario `order-review` v1:**
+  - Customers in the run's countries, each with a profile, a portfolio and earlier orders
+    built through the real wealth service.
+  - Seven kinds with ground truth, decided by simulated wealth managers (`wealth:approve`).
+  - A control check covers four-eyes, `wealth:approve`, no order executed without an
+    approval and no unsuitable order released by the dealing desk.
+- **Decision dates:** approving or rejecting an order records the workflow's (simulated)
+  time, so the profile's 90-day counts follow simulated dates.
+- **Fixes from the Codex review of PR #34 (Phase 43):**
+  - Releasing a placed buy checks suitability again against today's holdings, prices and
+    profile: two placed orders can no longer add up to an unsuitable position without a
+    manager. A refused release leaves the order placed for a manager; WF-1025 v2 sends it to
+    the manager, and the Wealth page offers managers Approve and Reject on placed orders.
+  - Paying income is refused, before anything is recorded, while a holder's cash account is
+    not open, instead of skipping that holder for good.
+  - Placing an order locks the portfolio, so an order cannot be placed while it is being
+    closed.
+  - The order profile's reasons are worked out on the day it is read.
+- **Measured** (300 orders): AI assisted 95.3 % accurate against 82.0 %, managers' hours 64
+  against 98. Serial insisters let through rose to 7 from 6, the one kind it made worse.
+
+## Phase 44: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 634 passed (new: 4 — the suitability rules and their blind spot; the order profile with experience, an order against advice and a refusal in the last 90 days; baseline and AI-assisted order runs with every order decided by a manager, no control violations, every kind's advice as designed; a placed buy checked again at release and income refused while a holder's account is frozen (PR #34 review)) |
+| Generated workflow tests | 36 workflows, 697 cases, 0 failed (WF-1025 v2: 24 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 125 passed (the wealth page test now also checks a manager's Approve on a placed order (PR #34 review)) / clean / built |
+| Playwright on a fresh database | 47 passed on the first run (new: the suitability assistant in the AI Lab console, recommending a serial insister's order go ahead) |
+| Measurement | `order-review`, seed 2030, 300 orders each: baseline 82.0 % accurate (25 wrongly let go ahead, 29 wrongly refused, 98.2 manager hours, median cycle 4.3 h); AI assisted 95.3 % (13, 1, 63.8, 1.5 h); serial insisters let through 6 against 7 of 42; the assistant's own advice 84 % accurate, 30 escalated |
+
+Found while building it:
+- **New tests:** the three new workload tests passed on their first run, and WF-1025 v2's
+  generated tests passed on their first run.
+- **Measurement** re-run after the review fixes: unchanged.
+- **Income refusal, first version:** the regression test found that a refused payment left
+  its distribution row in the session, because the check ran after the row was added. The
+  service now checks every holder before recording anything.
+- **Review-fix test:** the new test fails on the code before the fixes (release did not
+  raise) and passes after. There is no concurrency test for the portfolio lock.
+
+## Phase 44: known limitations
+
+- **The assistant is rule-based** and blind to the customer's record of insisting, by design.
+- **Simulation scope.** Only unsuitable orders are simulated; assessments, suitable orders
+  and income are not.
+- **Earlier orders' dates.** An order's `created_at` is the real time it was entered; only
+  its decision date follows the simulation.
 
 ## Phase 43: what exists
 

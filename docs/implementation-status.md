@@ -101,7 +101,7 @@ Last updated: Phase 50.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 663 passed (new: 4 — the journal rules and their blind spot; manual journals refused when unbalanced, short or on an unknown account, standard accounts created on first use, four-eyes posting, and the profile with a duplicate, the preparer's week, a round backdated cash journal and another preparer; the journal API with its permissions; baseline and AI-assisted journal runs with every case decided by an approver other than the preparer, no control violations, every kind's advice as designed) |
 | Migration 0036 | upgrade, `alembic check` clean, downgrade and upgrade again |
 | Generated workflow tests | 46 workflows, 818 cases, 0 failed (WF-1036 v2: 14 cases, 100 % steps and routes); the four finance workflows re-run after the account fix below: 44 cases, 0 failed |
 | Frontend Vitest / typecheck / build | 137 passed (new: 1 — proposing and posting a manual journal) / clean / built |

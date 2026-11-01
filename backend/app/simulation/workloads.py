@@ -2170,6 +2170,172 @@ class AlertTriage(Workload):
         return check
 
 
+# --- Rating overrides (WF-1030 v2, Phase 48) -------------------------------------------------
+
+# The grade proposed against the model (low KYC risk: model grade 4; medium: 6), and whether the
+# approver should accept it ("approved") or keep the model's ("rejected").
+RATING_PROPOSAL = {
+    "overdraft_stress_downgrade": ("low", 6, True,
+                                   "Overdraft fully drawn for months; serviceability weak"),
+    "heavy_debt_downgrade": ("low", 5, True, "Debt well above a year's income on file"),
+    "cautious_downgrade": ("low", 5, True, "Employer's sector under stress this year"),
+    "strong_inflow_upgrade": ("medium", 5, True, "Strong regular income against little debt"),
+    "upgrade_under_strain": ("medium", 5, False, "Long-standing customer, good relationship"),
+    "excessive_upgrade": ("medium", 3, False, "Excellent income and very low borrowing"),
+    "unfounded_default": ("low", 10, False, "Customer said to be leaving the country"),
+    "unsupported_downgrade": ("low", 7, False, "Precautionary review of the whole segment"),
+    "rating_shopping": ("medium", 5, False, "Strong regular income against little debt"),
+}  # fmt: skip
+
+
+class RatingOverrides(Workload):
+    """Credit ratings that depart from the model through WF-1030 v2: a regional executive
+    approves or rejects each, with the AGB Rating Review Assistant's advice in AI-assisted runs.
+    Each customer's three months of deposits, overdraft and loan are booked, dated, through the
+    real accounts, retail and lending services before the run.
+
+    Ground truth: a downgrade explained by a drawn overdraft or debt above a year's money in, a
+    one-notch precautionary downgrade and a one-notch upgrade for a customer whose money in
+    dwarfs their debt are approved; an upgrade with the overdraft drawn, a departure of three
+    notches or more, a default grade without arrears and an upgrade a rater has asked for (and
+    been refused) two or three times this year are rejected."""
+
+    key = "rating_overrides"
+    workflow_id = "WF-1030"
+    kinds = frozenset(RATING_PROPOSAL)
+    reviewer_roles = {"decision": "executive"}
+    job_titles = {"teller": "Credit Analyst", "manager": "Branch Manager",
+                  "executive": "Chief Risk Officer"}  # fmt: skip
+    ai_step = "ai_review"
+    automated_path = None  # an approver always decides
+
+    def _rating_case(self, sim: "_Simulation", rng, kind: str, today: date, teller,
+                     manager) -> str:  # fmt: skip
+        """One customer's dated history; returns their customer number."""
+        from app.modules.accounts.service import withdraw
+        from app.modules.retail import service as retail
+        from app.modules.risk import service as risk
+
+        db = sim.db
+        kyc, _, _, rationale = RATING_PROPOSAL[kind]
+        name, born = _person(rng, today)
+        account = _customer_account(sim, name=name, born=born,
+                                    country_code=rng.choice(sim.countries))  # fmt: skip
+        customer = db.get(Customer, account.customer_id)
+        if kyc == "medium":
+            review_customer(db, customer, CustomerReview(risk_rating=RiskRating.MEDIUM), None)
+        currency = account.currency
+        posted = [0]
+
+        def move(amount: float, days_ago: int, out: bool = False) -> None:
+            posted[0] += 1
+            call = withdraw if out else deposit
+            call(db, account.id, amount=max(int(amount), 1), memo="Simulation activity",
+                 actor_id=teller.id, effective_date=today - timedelta(days=days_ago),
+                 idempotency_key=f"sim-rat-{sim.run_id}-{account.id}-{posted[0]}")  # fmt: skip
+
+        def income(monthly: float) -> None:
+            for start in (80, 50, 20):
+                for c in range(2):
+                    move(monthly / 2 * rng.uniform(0.9, 1.1), start - c * 10)
+
+        def loan(major: float) -> int:
+            principal = to_minor_units(int(major), currency)
+            lending.originate(
+                db, customer_id=customer.id, account_id=account.id, principal=principal,
+                annual_rate_bps=1200, term_months=36, purpose="other",
+                requested_by=teller.id, underwriter=manager, committee=None,
+                now=sim.history_at,
+            )  # fmt: skip
+            return principal
+
+        if kind in ("overdraft_stress_downgrade", "upgrade_under_strain"):
+            limit = retail.max_overdraft(retail.get_product(db, account.account_type), currency)
+            retail.set_overdraft(db, account, limit, manager.id, source="simulation")
+            income(limit * rng.uniform(0.3, 0.7))
+            held = ledger.balance(db, ledger.get_ledger_account(db, account.ledger_account_id))
+            move(held + limit * rng.uniform(0.85, 1.0), 2, out=True)
+        elif kind == "heavy_debt_downgrade":
+            principal = loan(rng.uniform(15_000, 25_000))
+            income(principal / 12 / rng.uniform(1.6, 3.0))
+        else:
+            principal = loan(rng.uniform(1_000, 5_000))
+            income(principal * rng.uniform(0.5, 1.0))
+            if kind == "rating_shopping":
+                # Upgrades asked for before, and refused.
+                for days_ago in (60, 150, 250)[: rng.randint(2, 3)]:
+                    on = today - timedelta(days=days_ago)
+                    earlier = risk.rate(db, customer, rng.choice((4, 5)), teller.id, rationale,
+                                        today=on)  # fmt: skip
+                    risk.decide_rating(db, earlier, manager.id, approve=False)
+        return customer.customer_number
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = sim.clock.start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "rating")
+            kind = _pick(rng, mix)
+            number = self._rating_case(sim, rng, kind, today, teller, manager)
+            _, grade, approve, rationale = RATING_PROPOSAL[kind]
+            if kind == "heavy_debt_downgrade":
+                grade = rng.choice((5, 6))
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if approve else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={"customer_number": number, "grade": grade,
+                             "rationale": rationale},
+                )
+            )  # fmt: skip
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every approver's decision against four-eyes and authority, and no departing grade
+        approved without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["decision", "approve"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "decision":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.RISK_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "approve" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "approved_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -2186,6 +2352,7 @@ WORKLOADS: dict[str, Workload] = {
         RecallTriage(),
         OrderReview(),
         AlertTriage(),
+        RatingOverrides(),
     )
 }
 STAFF_ROLES = {

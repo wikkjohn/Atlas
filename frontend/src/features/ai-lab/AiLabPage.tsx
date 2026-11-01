@@ -257,6 +257,28 @@ const SAMPLE_ALERT = {
     prior_reports_filed: 0,
   },
 };
+const SAMPLE_RATING = {
+  profile: {
+    customer_type: "individual",
+    kyc_risk: "medium",
+    suggested_grade: 6,
+    proposed_grade: 5,
+    notches: -1,
+    direction: "upgrade",
+    worst_days_past_due: 0,
+    frozen_facility: false,
+    exposure_usd: 3200,
+    overdraft_usd: 0,
+    overdraft_use_pct: 0,
+    monthly_inflow_usd: 2400,
+    exposure_to_annual_inflow_pct: 11,
+    limit_at_model_usd: 2000000,
+    limit_at_proposed_usd: 2000000,
+    rationale_chars: 42,
+    prior_overrides_365d: 3,
+    prior_overrides_rejected_365d: 3,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -269,6 +291,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_recall_review: SAMPLE_RECALL,
   rule_based_suitability_review: SAMPLE_SUITABILITY,
   rule_based_alert_review: SAMPLE_ALERT,
+  rule_based_rating_review: SAMPLE_RATING,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

@@ -854,6 +854,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["compliance:read"],
         "compatible_workflows": ["WF-1027"],
     },
+    {
+        "tool_id": "agb-rating-assistant",
+        "tool_name": "AGB Rating Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews credit ratings that depart from the model's grade before a "
+        "second person approves them: the departure, days past due, overdraft use and debt "
+        "against money in, with an explanation and an approve, keep-the-model or refer "
+        "recommendation. Advisory: it never rates or approves anything (Phase 48).",
+        "adapter": "rule_based_rating_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["risk:read"],
+        "compatible_workflows": ["WF-1030"],
+    },
 ]
 
 

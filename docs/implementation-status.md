@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 47.
+Last updated: Phase 48.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -52,6 +52,61 @@ Last updated: Phase 47.
 | 45 | Departments, step 17: compliance ([compliance.md](compliance.md)) | **Complete** |
 | 46 | Departments, step 18: the compliance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 47 | Departments, step 19: risk ([risk.md](risk.md)) | **Complete** |
+| 48 | Departments, step 20: the risk workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 48: what exists
+
+- **`risk.rating_profile`:** what an approver weighs before accepting a grade that departs
+  from the model's.
+  - The model's and the proposed grade, the notches between them, days past due and frozen
+    facilities.
+  - Exposure, and the overdraft drawn against the arranged one.
+  - Deposits in the last 90 days (a month's average) against debt; ratios are taken in US
+    cents, so small loans in weak currencies keep their precision.
+  - The default limits at both grades.
+  - The customer's other departures from the model in the last year, and how many were
+    rejected.
+
+  It is also a library handler.
+- **AGB Rating Review Assistant** (`rule_based_rating_review`, `recommend_decision` only,
+  compatible with WF-1030, needs `risk:read`), with a deliberate blind spot: it never reads
+  the customer's refused departures. The seed registers it, and the AI Lab console has a
+  sample.
+- **WF-1030 v2:** rating profile and AI review before the approver decides a departing grade;
+  the approval step is `decision`.
+- **Workload `rating_overrides` and scenario `rating-overrides` v1:**
+  - Customers in the run's countries with three months of dated deposits, and an overdraft
+    drawn or a loan, booked through the real services.
+  - Nine kinds with ground truth, decided by simulated regional executives.
+  - A control check covers four-eyes, `risk:approve` and no departing grade approved without
+    the decision.
+- **PR #38 (Phase 47)** had no review comments.
+- **Measured** (300 ratings): AI assisted 94.7 % accurate against 87.0 %, approvers' hours 99
+  against 153. Refused upgrades asked for again and approved rose to 8 from 4, the one kind
+  it made worse.
+
+## Phase 48: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 653 passed (new: 3 — the rating rules and their blind spot; the rating profile with a drawn overdraft, 90 days' deposits and a refused earlier departure; baseline and AI-assisted rating runs with every case decided by an approver, no control violations, every kind's advice as designed) |
+| Generated workflow tests | WF-1030 v2: 17 cases, 0 failed, 100 % steps and routes |
+| Frontend Vitest / typecheck / build | 133 passed / clean / built |
+| Playwright on a fresh database | 51 passed (new: the rating assistant in the AI Lab console, recommending approving an upgrade refused three times this year) |
+| Measurement | `rating-overrides`, seed 2030, 300 ratings each: baseline 87.0 % accurate (15 wrongly approved, 24 wrongly rejected, 152.6 approver hours, median cycle 12.3 h); AI assisted 94.7 % (9, 7, 98.9 h, 6.5 h); refused upgrades approved 4 against 8 of 44; the assistant's own advice 83 % accurate, 35 referred on |
+
+Found while building it:
+- **Ratio precision:** the profile first took its ratios in whole US dollars; a loan of a few
+  thousand units of a weak currency is only a few dollars, enough to distort debt against
+  money in. They are now taken in cents.
+- **The new backend tests** passed on their first run.
+
+## Phase 48: known limitations
+
+- **The assistant is rule-based** and blind to the customer's refused departures, by design.
+- **Simulation scope:** only rating overrides are simulated; limits and provisioning are not.
+- **No arrears cases:** the workload's customers are never past due, so the model's arrears
+  notches are not exercised by the simulation (the backend tests cover them).
 
 ## Phase 47: what exists
 

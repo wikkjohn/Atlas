@@ -630,3 +630,56 @@ was blocked (the action is not granted), leaving results identical to the baseli
 
 Experiments, the cost model, success criteria, regressions, reports and the
 Benchmarking screen are described in [benchmarking.md](benchmarking.md).
+
+## WF-1030 v2 and the rating review assistant (Phase 48)
+
+WF-1030 v2 is a stored workflow. When a rating departs from the model's grade, it reads the
+rating profile (`risk.rating_profile`) and asks the assistant through `ai.review` before a
+regional executive (`risk:approve`) approves the grade or keeps the model's. An approver
+always decides, so the scenario runs baseline and AI assisted only.
+
+Each case's customer gets three months of dated deposits, and an overdraft drawn or a loan
+where the case needs one, through the real accounts, retail and lending services.
+
+What the assistant (`rule_based_rating_review`) weighs:
+- **Keep the model's grade:**
+  - grade 10 (in default) without 90 days past due;
+  - a departure of three notches or more;
+  - an upgrade with the overdraft 75 % drawn or more, or debt above 120 % of a year's money
+    in.
+- **Refer on:** an upgrade nothing supports; a downgrade with no overdraft or debt strain.
+- **Approve:** a downgrade the overdraft or debt explains; an upgrade with debt at most 25 %
+  of a year's money in and no overdraft drawn.
+
+Its **blind spot** is the rating history. The profile counts the customer's other departures
+from the model in the last year and how many were rejected, and the assistant never reads
+them. So an upgrade a rater keeps asking for, and is refused, looks like a strong customer
+due one notch, and it recommends approving.
+
+What `rating-overrides` v1 measured (seed 2030, 300 ratings, 12 staff, default assumptions;
+one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 87.0 % | 94.7 % |
+| Wrongly approved | 15 | 9 |
+| Wrongly rejected | 24 | 7 |
+| Refused upgrades asked for again, approved (of 44) | 4 | 8 |
+| Approver hours | 152.6 | 98.9 |
+| Median cycle time (hours) | 12.3 | 6.5 |
+| Tool's recommendation accuracy | — | 83 % (35 referred on) |
+
+**Where the assistant helps:**
+- Justified grades wrongly rejected fall from 24 to 7.
+- Upgrades under strain, departures of three notches or more and default grades without
+  arrears are rejected 100 times of 101 (11 approved in the baseline).
+- Approvers' time falls by about a third.
+
+**Where it does not:**
+- It recommends approving all 44 upgrades already refused this year. The simulated
+  approvers, following it, approve 8 rather than 4.
+- A one-notch precautionary downgrade is referred on, which leaves approvers where the
+  baseline was: 30 of 35 approved either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.

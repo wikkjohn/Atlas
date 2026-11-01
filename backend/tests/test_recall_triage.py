@@ -160,3 +160,21 @@ def test_recall_runs_with_and_without_the_assistant(db: Session, factory) -> Non
     assert recovered and all("resolve" in c.path for c in recovered)
     withdrawn = _cases(db, assisted, outcome="rejected")
     assert withdrawn and all("withdraw" in c.path for c in withdrawn)
+
+
+def test_recall_cases_come_from_the_runs_countries(db: Session, factory) -> None:
+    """PR #33 review: a run limited to Germany builds its payers there (EUR payments)."""
+    from app.modules.clearing.models import OutgoingPayment
+
+    _setup(db)
+    creator = make_user(db, RoleCode.AI_RESEARCHER)
+    run = create_run(
+        db, SCENARIO, profile="custom", applications=6, employees=6, seed=5,
+        created_by=creator.id, countries=["DE"],
+    )  # fmt: skip
+    db.commit()
+    execute_run(factory, run.id)
+    db.expire_all()
+    assert db.get(SimulationRun, run.id).status == SimulationStatus.COMPLETED
+    currencies = set(db.execute(select(OutgoingPayment.currency)).scalars())
+    assert currencies == {"EUR"}

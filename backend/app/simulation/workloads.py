@@ -1691,29 +1691,33 @@ class RecallTriage(Workload):
         from app.modules.clearing import service as clearing
 
         db = sim.db
+        # From the run's countries (PR #33 review).
         account = _verified_business(sim, f"{rng.choice(LAST_NAMES)} Trading Ltd",
-                                     rng.choice(("GB", "DE", "US")))  # fmt: skip
+                                     rng.choice(sim.countries))  # fmt: skip
         threshold, _ = payments.limits_for(db, account, today)
         key = f"sim-recall-{sim.run_id}-{account.id}"
         deposit(db, account.id, amount=threshold * 30, memo="Trading receipts (simulation)",
                 actor_id=teller.id, idempotency_key=key)  # fmt: skip
 
-        def beneficiary() -> str:
+        def beneficiary() -> tuple[str, str]:
+            """A beneficiary: its bank and account (PR #33 review: both identify it)."""
             base = f"{rng.randint(10**11, 10**12 - 1)}"
             if base.endswith("00"):  # closed at the beneficiary's bank
                 base = base[:-1] + "1"
-            return clearing.account_number(base)
+            return rng.choice(sorted(clearing.BANKS)), clearing.account_number(base)
 
-        def pay(amount: int, to: str, days_ago: int):
+        def pay(amount: int, to: tuple[str, str], days_ago: int):
             on = today - timedelta(days=days_ago)
             payment = clearing.create_outgoing(
                 db, debtor=account, beneficiary_name=f"{rng.choice(LAST_NAMES)} Supplies",
-                beneficiary_bank=rng.choice(sorted(clearing.BANKS)), beneficiary_account=to,
-                amount=amount, reference="Invoice", initiated_by=teller.id, today=on,
+                beneficiary_bank=to[0], beneficiary_account=to[1], amount=amount,
+                reference="Invoice", initiated_by=teller.id, today=on,
             )  # fmt: skip
             if payment.status == "awaiting_approval":
                 clearing.approve_outgoing(db, payment, manager.id)
-            clearing.run_cycle(db, account.currency, None, today=on)
+            # Only this payment: other pending payments are not the simulation's to clear
+            # (PR #33 review).
+            clearing.run_cycle(db, account.currency, None, today=on, only=[payment.id])
             return payment
 
         def small() -> int:

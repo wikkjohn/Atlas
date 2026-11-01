@@ -45,6 +45,11 @@ class Permission(StrEnum):
     TREASURY_DEAL = "treasury:deal"
     TREASURY_CONFIRM = "treasury:confirm"
     TREASURY_LIMITS = "treasury:limits"
+    # Wealth (Phase 43): suitability assessments, portfolios and orders; approve unsuitable
+    # orders (never one's own); pay income to holders in custody.
+    WEALTH_ADVISE = "wealth:advise"
+    WEALTH_APPROVE = "wealth:approve"
+    WEALTH_CUSTODY = "wealth:custody"
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -171,9 +176,14 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.TREASURY_DEAL,
         Permission.TREASURY_CONFIRM,  # back office: confirm and settle others' deals
         Permission.PAYMENTS_OPERATE,
+        Permission.WEALTH_ADVISE,
+        Permission.WEALTH_APPROVE,  # an unsuitable order at the client's insistence
+        Permission.WEALTH_CUSTODY,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
-    RoleCode.BANKING_EMPLOYEE: _BASE | _FRONT_OFFICE | {Permission.TREASURY_DEAL},
+    RoleCode.BANKING_EMPLOYEE: _BASE
+    | _FRONT_OFFICE
+    | {Permission.TREASURY_DEAL, Permission.WEALTH_ADVISE},
     RoleCode.COMPLIANCE_OFFICER: _BASE
     | {
         Permission.AUDIT_READ,

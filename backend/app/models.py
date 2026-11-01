@@ -22,6 +22,7 @@ from app.modules.retail import models as retail  # noqa: F401
 from app.modules.rules import models as rules  # noqa: F401
 from app.modules.trade import models as trade  # noqa: F401
 from app.modules.treasury import models as treasury  # noqa: F401
+from app.modules.wealth import models as wealth  # noqa: F401
 from app.modules.workflows import models as workflows
 from app.observability import models as observability  # noqa: F401
 from app.simulation import models as simulation  # noqa: F401

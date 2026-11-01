@@ -569,6 +569,15 @@ def change_status(
                 f"Outgoing payment {refundable} could still come back to this account.",
                 {"rule": "refundable_payment", "payment_number": refundable},
             )
+        from app.modules.wealth.service import open_portfolio_for_account
+
+        portfolio = open_portfolio_for_account(db, account.id)
+        if portfolio:
+            # Sales and income are paid into this account (Phase 43).
+            raise BusinessRuleViolation(
+                f"The account pays for portfolio {portfolio}, which is still open.",
+                {"rule": "open_portfolio", "portfolio_number": portfolio},
+            )
         remaining = ledger.balance(db, _ledger_account(db, account))
         if remaining != 0:
             raise BusinessRuleViolation(

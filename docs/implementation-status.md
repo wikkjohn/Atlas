@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 42.
+Last updated: Phase 43.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -47,13 +47,95 @@ Last updated: Phase 42.
 | 40 | Departments, step 12: the treasury workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 41 | Departments, step 13: payments operations ([payments-operations.md](payments-operations.md)) | **Complete** |
 | 42 | Departments, step 14: the payments operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 43 | Departments, step 15: wealth and investments ([wealth.md](wealth.md)) | **Complete** |
+
+## Phase 43: what exists
+
+- **Wealth module** (`app/modules/wealth/`, migration 0032).
+  - Ten synthetic securities (money market, bonds, funds, equities, two complex structured
+    products), risk levels 1–7, with deterministic daily prices.
+  - Prices converted to a portfolio's currency at the day's mid rates.
+- **Suitability:** a questionnaire (objective, horizon, knowledge, capacity for loss) gives
+  a risk profile from 1 to 7, valid for a year; the customer's KYC must be verified.
+- **Portfolios in custody** on one of the customer's accounts: holdings at average cost, off
+  the balance sheet; valuation with gain on cost; closed only when empty. The cash account
+  cannot be closed while its portfolio is open.
+- **Orders:** whole units at the day's price, a 0.25 % fee (at least one major unit), cash
+  covered without the overdraft.
+  - A buy is unsuitable above the customer's risk profile, for a complex product without
+    the knowledge, or above 40 % of investable assets.
+  - Suitable orders execute at once (API); unsuitable ones wait for someone other than the
+    adviser (`wealth:approve`, also a database constraint), who approves at the client's
+    insistence or rejects.
+  - In stored workflows a suitable order is placed and released by the dealing desk, so no
+    workflow moves money before an approval.
+- **Income:** half a year's income at the day's price to every holder, converted to each
+  portfolio's currency; once per security and record date.
+- **Permissions** `wealth:advise` (tellers and managers), `wealth:approve` and
+  `wealth:custody` (managers).
+- **Fixes from the Codex review of PR #33 (Phase 42):**
+  - The recall profile identifies a beneficiary by bank and account, so the same number at
+    another bank is neither a duplicate nor payee history; the workload now keeps one bank
+    per beneficiary, so its genuine duplicates go to the same bank.
+  - An unsettled duplicate candidate is dated by when it was entered, not by the recalled
+    payment's settlement.
+  - A clearing cycle can be limited to some payments; the recall workload and the generated
+    tests' fixture clear only the payments they made, never other pending payments.
+  - The recall workload builds its payers in the run's countries.
+  - The `recall-triage` measurement was re-run after the fixes and is unchanged (seed 2030,
+    300 recalls: 82.0 % against 94.0 %).
+- **Workflow factory:** eight `wealth.*` handlers and three workflows:
+  - WF-1024 Investment Suitability Assessment
+  - WF-1025 Investment Order
+  - WF-1026 Custody Income Distribution
+
+  Fixture kinds `portfolio.portfolio_number` and `security.code`.
+- **Wealth page:** securities, the suitability form, portfolios with valuation and paging,
+  orders with approval and release and paging, and income payments.
+
+## Phase 43: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 630 passed (new: 7 — the recall profile's beneficiary by bank and account, an unsettled candidate dated by entry, and a cycle limited to some payments (PR #33 review); recall cases built in the run's countries (PR #33 review); risk profiles, deterministic prices and the fee floor; suitable orders executed with the cash, fees, average cost and valuation checked, selling more than held and buying beyond the cash refused; unsuitable orders (risk, complex product, concentration) waiting for a second person, rejected or approved at the client's insistence, a placed order released with four-eyes, no buying without a current profile; income paid to a EUR bond's holder in USD once a day, account and portfolio closure refused while they hold anything; the API with its permissions) |
+| Migration 0032 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 36 workflows, 695 cases, 0 failed (WF-1024: 10 cases, WF-1025: 22, WF-1026: 11; each 100 % steps and routes, after the fix below) |
+| Frontend Vitest / typecheck / build | 125 passed (new: 4 — securities, portfolios with their valuation, orders with reasons and income; recording a profile, opening a portfolio, placing, approving and releasing orders and paying income; paging back through orders; read-only without the wealth permissions) / clean / built |
+| Playwright on a fresh database | 46 passed on the first run (new: a teller assesses a customer (risk 3), opens a portfolio and buys a money-market fund, executed at once; a risk-7 complex tracker waits and the teller cannot approve it; a manager approves it at the client's insistence) |
+
+Found while building it:
+- **Generated tests, first run:** WF-1025 failed 13 of 15 cases with "'order' moved money
+  without a granted approval". Placing an order executed a suitable one in the same step,
+  and stored workflows must never move money before an approval. Fixed by placing the
+  order in the workflow (`placed`) and adding a dealing-desk release step. One route then
+  failed because the planner forces the "unsuitable" branch on a really suitable order; a
+  manager's approval now also executes a placed order. All three workflows then passed at
+  100 %.
+- **Lint:** the formatter expanded the securities table, which is now kept compact with
+  `# fmt: off`.
+- **Review-fix tests:** the two new tests fail on the code before the fixes (the clearing
+  test with a `TypeError`, since the `only` parameter did not exist; the countries test on
+  the payments' currencies) and pass after.
+- **Frontend unit test:** two assertions in the first version were wrong (a lookup before
+  the rows arrived, and the capitalised asset class); the page was not changed.
+
+## Phase 43: known limitations
+
+- **Synthetic market.** Deterministic prices, no order book, spread or settlement cycle;
+  orders settle the same day against the bank's cash, with no broker, custodian or FX
+  position for the conversion.
+- **Whole units only;** no limit orders, switches or savings plans.
+- **Simplified suitability:** one questionnaire and three checks; no periodic review.
+- **Income on request;** nothing pays it on a schedule, and there is no tax withholding.
+- **No simulation yet.** There is no wealth workload or AI tool yet (Phase 44).
 
 ## Phase 42: what exists
 
 - **`clearing.recall_profile`:** what back office weighs before sending a recall.
   - The reason, days since settlement, and the days of its window left.
   - The payment's size and whether it is high value.
-  - Matching duplicates (same payer, beneficiary account and amount within three days).
+  - Matching duplicates (same payer, beneficiary bank and account, and amount within three
+    days).
   - How often the payer has paid the beneficiary before.
   - The payer's recalls in the last 90 days, and how many were refused.
 

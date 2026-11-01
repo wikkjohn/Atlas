@@ -159,12 +159,22 @@ def _post(db: Session, *, key: str, currency: str, memo: str, lines: list[tuple]
     )  # fmt: skip
 
 
+def lock_query(ids):
+    """FOR NO KEY UPDATE: it conflicts with itself, so treasury settlements serialise, but
+    not with the KEY SHARE locks that inserting journal lines takes on their ledger
+    accounts, so it cannot deadlock with postings in other transactions (PR #31 review)."""
+    return (
+        select(LedgerAccount.id)
+        .where(LedgerAccount.id.in_(sorted(ids)))
+        .order_by(LedgerAccount.id)
+        .with_for_update(key_share=True)
+    )
+
+
 def _lock(db: Session, *accounts: LedgerAccount) -> None:
     """Lock the ledger account rows a check reads before posting to them, in id order, so
     two treasury settlements cannot both pass against the same balance (PR #30 review)."""
-    ids = sorted({a.id for a in accounts})
-    db.execute(select(LedgerAccount.id).where(LedgerAccount.id.in_(ids))
-               .order_by(LedgerAccount.id).with_for_update()).all()  # fmt: skip
+    db.execute(lock_query({a.id for a in accounts})).all()
 
 
 def _cash(db: Session, currency: str) -> int:
@@ -640,6 +650,9 @@ def deal_profile(db: Session, deal: TreasuryDeal, today: date) -> dict[str, Any]
             TreasuryDeal.id != deal.id, TreasuryDeal.counterparty_id == deal.counterparty_id,
             TreasuryDeal.kind == deal.kind, TreasuryDeal.currency == deal.currency,
             TreasuryDeal.principal == deal.principal, TreasuryDeal.value_date == deal.value_date,
+            # The same terms: rate and maturity too (PR #31 review).
+            TreasuryDeal.rate_bps == deal.rate_bps,
+            TreasuryDeal.maturity_date == deal.maturity_date,
             TreasuryDeal.status.in_([DealStatus.BOOKED, DealStatus.SETTLED]),
         )
     ).scalar_one()  # fmt: skip

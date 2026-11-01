@@ -1,0 +1,209 @@
+{
+  "workflow_id": "WF-1021",
+  "name": "Outgoing External Payment",
+  "version": 1,
+  "description": "A customer pays an account at another (synthetic) bank. The beneficiary bank must be one the clearing system reaches and the beneficiary account's check digits right; the amount must be within the payer's payment limits. A high-value payment waits for an approval by someone else (payments:approve); every payment then waits for the next clearing cycle, which debits the payer and pays out, or returns it when the beneficiary bank has closed the account. Stored definition: built only from library handlers (Phase 41).",
+  "business_owner": "Payments Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "account_number",
+      "beneficiary_name",
+      "beneficiary_bank",
+      "beneficiary_account",
+      "amount"
+    ],
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}[0-9]{6,32}$"
+      },
+      "beneficiary_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 140,
+        "examples": [
+          "Synthetic Supplier Ltd"
+        ]
+      },
+      "beneficiary_bank": {
+        "type": "string",
+        "enum": [
+          "ALPEDEFF",
+          "HARBSGSG",
+          "KITSJPJT",
+          "LACBFRPP",
+          "NBKAGB22",
+          "RIVRUS33"
+        ]
+      },
+      "beneficiary_account": {
+        "type": "string",
+        "pattern": "^[0-9]{14}$",
+        "examples": [
+          "12345678901218"
+        ]
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000000000000,
+        "examples": [
+          5000000
+        ]
+      },
+      "reference": {
+        "type": "string",
+        "maxLength": 140,
+        "examples": [
+          "Invoice 42"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "create.payment_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.account_number",
+        "prefix": "OPY-"
+      },
+      "next": "create"
+    },
+    {
+      "id": "create",
+      "type": "service_task",
+      "name": "Enter the payment",
+      "handler": "clearing.create_outgoing",
+      "params": {
+        "account_number_path": "input.account_number",
+        "beneficiary_name_path": "input.beneficiary_name",
+        "bank_path": "input.beneficiary_bank",
+        "beneficiary_account_path": "input.beneficiary_account",
+        "amount_path": "input.amount",
+        "reference_path": "input.reference"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_high_value"
+    },
+    {
+      "id": "route_high_value",
+      "type": "decision",
+      "name": "High value?",
+      "transitions": [
+        {
+          "to": "approval",
+          "when": {
+            "path": "create.high_value",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "queued"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "High-value approval",
+      "description": "Someone other than the person who entered it approves a high-value payment to another bank.",
+      "approval": {
+        "permissions": [
+          "payments:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Queue for clearing",
+      "handler": "clearing.approve_outgoing",
+      "params": {
+        "payment_id_path": "create.payment_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "queued_after_approval"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the payment",
+      "handler": "clearing.reject_outgoing",
+      "params": {
+        "payment_id_path": "create.payment_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "High-value payment not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "queued",
+      "type": "completion",
+      "name": "Queued for clearing",
+      "outcome": "approved"
+    },
+    {
+      "id": "queued_after_approval",
+      "type": "completion",
+      "name": "Approved and queued",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

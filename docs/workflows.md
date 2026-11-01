@@ -324,6 +324,17 @@ Phase 18 added the domain handlers, so stored workflows read and change banking 
 | `treasury.book_fx_trade` | writes | `counterparty_path`, `sell_currency_path`, `buy_currency_path`, `amount_path` | a spot trade at the mid rate that reduces a long position (Phase 39) |
 | `treasury.confirm_fx_trade` | moves money (approval required) | `trade_id_path`, `decided_by_path` | back office settles both legs (Phase 39) |
 | `treasury.cancel_fx_trade` | writes | `trade_id_path`, `decided_by_path` | cancels a booked spot trade (Phase 39) |
+| `clearing.create_outgoing` | writes | `account_number_path`, `beneficiary_name_path`, `bank_path`, `beneficiary_account_path`, `amount_path`, `reference_path` (optional) | enters a payment to another bank; reports `high_value` (Phase 41) |
+| `clearing.approve_outgoing` | writes (approval required) | `payment_id_path`, `decided_by_path` | approves a high-value payment for clearing (Phase 41) |
+| `clearing.reject_outgoing` | writes | `payment_id_path`, `decided_by_path`, `note` | rejects a payment before clearing (Phase 41) |
+| `clearing.receive_bulk` | writes | `account_number_path`, `file_name_path`, `lines_path` | receives and validates a bulk file (Phase 41) |
+| `clearing.release_bulk` | writes (approval required) | `bulk_id_path`, `decided_by_path` | releases a file: each valid line becomes a payment (Phase 41) |
+| `clearing.reject_bulk` | writes | `bulk_id_path`, `decided_by_path`, `note` | rejects a file (Phase 41) |
+| `clearing.lookup_outgoing` | reads | `payment_number_path` | an outgoing payment and its status (Phase 41) |
+| `clearing.request_recall` | writes | `payment_id_path`, `reason_path` | records a recall (Phase 41) |
+| `clearing.approve_recall` | writes (approval required) | `recall_id_path`, `decided_by_path` | cancels a payment not yet cleared, or sends the recall; reports `sent` (Phase 41) |
+| `clearing.withdraw_recall` | writes | `recall_id_path`, `decided_by_path` | withdraws a recall (Phase 41) |
+| `clearing.resolve_recall` | moves money (approval required) | `recall_id_path`, `decided_by_path` | the beneficiary bank's answer; reports `returned` (Phase 41) |
 | `retail.issue_statement` | writes | `account_number_path`, `period_path` (optional, `YYYY-MM`) | issues, or finds, an account's statement for a month that has ended (Phase 29) |
 | `ai.review` (AI task) | advisory | `tool_id`, `action`, `payload` (tool field → context path) | calls a registered AI tool through the invocation service; returns its recommendation, or `available: false, recommendation: escalate` when no usable answer came back — it never decides |
 
@@ -436,6 +447,14 @@ back office confirms. See [treasury.md](treasury.md).
 WF-1018 **v2** (Phase 40) reads the deal profile (`treasury.deal_profile`) after booking and
 asks the AGB Back-Office Check Assistant (`ai.review`, advisory) before back office decides
 (`deal-confirmations`). It accepts counterparty codes with digits.
+
+### WF-1021, WF-1022 and WF-1023: payments operations (Phase 41)
+
+The payments operations base processes. WF-1021 enters a payment to another bank, with a
+second person's approval when high value. WF-1022 receives a bulk payment file and has a
+second person release or reject it. WF-1023 records a recall, has a second person approve
+it, and records the beneficiary bank's answer. See
+[payments-operations.md](payments-operations.md).
 
 ### Authoring
 

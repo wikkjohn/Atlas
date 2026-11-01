@@ -389,8 +389,8 @@ What the assistant (`rule_based_back_office_check`) weighs:
   - liquidity coverage after a placement below 110 %.
 - **Minor:** a rate 0.50–1.50 points off the reference against the bank.
 
-Its **blind spot** is duplicates. The profile counts deals with the same counterparty,
-terms and value date booked the same day, and the assistant never reads that count. So a
+Its **blind spot** is duplicates. The profile counts deals booked the same day with the
+same counterparty, kind, currency, principal, rate and maturity, and the assistant never reads that count. So a
 dealer's double-keyed booking looks like an ordinary deal and is recommended for
 confirmation.
 

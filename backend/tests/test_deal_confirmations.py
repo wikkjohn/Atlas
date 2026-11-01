@@ -164,3 +164,29 @@ def test_deal_runs_with_and_without_the_assistant(db: Session, factory) -> None:
     assert confirmed and all("settle" in c.path for c in confirmed)
     cancelled = _cases(db, assisted, outcome="rejected")
     assert cancelled and all("cancel" in c.path for c in cancelled)
+
+
+def test_pr31_review_fixes(db: Session) -> None:
+    """Settlement locks use FOR NO KEY UPDATE; a same-day deal on other terms is no
+    duplicate."""
+    import uuid
+
+    from sqlalchemy.dialects import postgresql
+
+    sql = str(treasury.lock_query({uuid.uuid4()}).compile(dialect=postgresql.dialect()))
+    assert sql.endswith("FOR NO KEY UPDATE")
+    staff = make_staff(db)
+    treasury.ensure_counterparties(db)
+    northgate = treasury.find_counterparty(db, "CP-NORTHGATE")
+
+    def book(rate: int, tenor: int):
+        return treasury.book_deal(
+            db, counterparty=northgate, kind="borrowing", currency="USD", principal=50_000_000,
+            rate_bps=rate, tenor_days=tenor, booked_by=staff.employee.id, today=TODAY,
+        )  # fmt: skip
+
+    book(500, 30)
+    other_rate, other_tenor, same = book(510, 30), book(500, 60), book(500, 30)
+    assert treasury.deal_profile(db, other_rate, TODAY)["same_day_duplicates"] == 0
+    assert treasury.deal_profile(db, other_tenor, TODAY)["same_day_duplicates"] == 0
+    assert treasury.deal_profile(db, same, TODAY)["same_day_duplicates"] == 1

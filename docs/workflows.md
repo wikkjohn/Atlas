@@ -469,6 +469,10 @@ is released by the dealing desk, an unsuitable one approved by a manager at the 
 insistence or rejected. WF-1026 pays a security's income to its holders after a second
 person approves. See [wealth.md](wealth.md).
 
+WF-1025 **v2** (Phase 44) reads the order profile (`wealth.order_profile`) when an order is
+unsuitable and asks the AGB Suitability Review Assistant (`ai.review`, advisory) before the
+manager decides (`order-review`).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

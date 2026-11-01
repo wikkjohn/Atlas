@@ -2726,7 +2726,7 @@ def _approve_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
     decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
     order = _trade_call("approval_refused", wealth.approve_order, ctx.db,
                         _order(ctx, params.order_id_path), decider, params.note,
-                        today=ctx.now.date())  # fmt: skip
+                        today=ctx.now.date(), now=ctx.now)  # fmt: skip
     return _order_out(order)
 
 
@@ -2764,8 +2764,31 @@ def _reject_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
 
     decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
     order = _trade_call("rejection_refused", wealth.reject_order, ctx.db,
-                        _order(ctx, params.order_id_path), decider, params.note)  # fmt: skip
+                        _order(ctx, params.order_id_path), decider, params.note,
+                        now=ctx.now)  # fmt: skip
     return _order_out(order)
+
+
+class OrderRef(_Strict):
+    order_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "wealth.order_profile",
+    "Read what a manager weighs before an unsuitable order goes ahead: the reasons, the risk "
+    "gap, the customer's answers, the order's share of their assets and the cash it leaves, "
+    "their experience, and orders of theirs that went ahead against advice.",
+    OrderRef,
+    "{reasons, security_code, asset_class, risk_level, complex, risk_profile, risk_gap, "
+    "objective, knowledge, horizon_years, loss_capacity, amount, currency, share_after_pct, "
+    "cash_after_pct, experienced, insisted_90d, refused_90d}",
+    reads=lambda params: [params.order_id_path],
+    effect="reads",
+)
+def _order_profile(ctx: StepContext, params: OrderRef) -> dict[str, Any]:
+    from app.modules.wealth import service as wealth
+
+    return wealth.order_profile(ctx.db, _order(ctx, params.order_id_path), ctx.now.date())
 
 
 class LookupSecurity(_Strict):

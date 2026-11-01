@@ -653,3 +653,38 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="order-review",
+        version=1,
+        name="Order review (wealth)",
+        description="A working day of unsuitable investment orders through WF-1025 v2: a "
+        "manager decides whether each may go ahead at the client's insistence. A small step one "
+        "level above an experienced customer's profile and a concentration in a low-risk bond "
+        "may; a security far above the profile, a complex product for a novice, an order that "
+        "spends almost all the customer's cash, a customer who insists order after order and a "
+        "two-level step without experience may not. In AI-assisted runs the AGB Suitability "
+        "Review Assistant advises the manager (Phase 44).",
+        workload="order_review",
+        workflow_id="WF-1025",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 15, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "experienced_small_step": 0.22,
+                "safe_concentration": 0.18,
+                "large_gap": 0.12,
+                "complex_novice": 0.12,
+                "liquidity_drain": 0.10,
+                "serial_insister": 0.16,
+                "stretch_without_experience": 0.10,
+            },
+            reviewers={"approval": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

@@ -426,6 +426,9 @@ def place_order(
         raise BusinessRuleViolation("The side is buy or sell.")
     if units <= 0:
         raise BusinessRuleViolation("The units must be a positive whole number.")
+    # Locked, so an order cannot be placed while the portfolio is being closed (PR #34
+    # review).
+    portfolio = get_portfolio(db, portfolio.id, for_update=True)
     if portfolio.status != PortfolioStatus.OPEN:
         raise BusinessRuleViolation(f"{portfolio.portfolio_number} is {portfolio.status}.")
     if not security.active:
@@ -484,12 +487,13 @@ def _decide(db: Session, order: InvestmentOrder, actor_id: uuid.UUID,
 
 
 def approve_order(db: Session, order: InvestmentOrder, actor_id: uuid.UUID, note: str,
-                  today: date | None = None) -> InvestmentOrder:  # fmt: skip
+                  today: date | None = None,
+                  now: datetime | None = None) -> InvestmentOrder:  # fmt: skip
     """Approve an unsuitable order at the client's insistence, or a placed one: executed at
     the day's price."""
     order = _decide(db, order, actor_id, OrderStatus.AWAITING_APPROVAL, OrderStatus.PLACED)
     order.approved_by, order.note = actor_id, (note.strip() or "Insistent client")[:200]
-    order.decided_at = datetime.now(UTC)
+    order.decided_at = now or datetime.now(UTC)
     _execute(db, order, actor_id, _today(today))
     _audit(db, actor_id, "wealth.order_approved", "investment_order", order.id,
            order_number=order.order_number, note=order.note)  # fmt: skip
@@ -501,19 +505,35 @@ def release_order(db: Session, order: InvestmentOrder, actor_id: uuid.UUID,
     """The dealing desk executes a placed (suitable) order at the day's price; not the
     adviser who placed it."""
     order = _decide(db, order, actor_id, OrderStatus.PLACED)
+    today = _today(today)
+    if order.side == "buy":
+        # Checked again against today's holdings, prices and profile: orders placed together
+        # can add up to an unsuitable position (PR #34 review). The order stays placed, for
+        # a manager (wealth:approve) to approve or reject.
+        portfolio = get_portfolio(db, order.portfolio_id, for_update=True)
+        security = get_security(db, order.security_id)
+        _price(db, order, portfolio, security, today)
+        reasons = suitability(db, portfolio, security, order.amount, today)
+        if reasons:
+            raise BusinessRuleViolation(
+                f"{order.order_number} is no longer suitable: "
+                + " ".join(r["message"] for r in reasons)
+                + " A manager must approve or reject it.",
+                {"rule": "now_unsuitable", "reasons": [r["code"] for r in reasons]},
+            )
     order.approved_by, order.decided_at = actor_id, datetime.now(UTC)
-    _execute(db, order, actor_id, _today(today))
+    _execute(db, order, actor_id, today)
     _audit(db, actor_id, "wealth.order_released", "investment_order", order.id,
            order_number=order.order_number)  # fmt: skip
     return order
 
 
-def reject_order(db: Session, order: InvestmentOrder, actor_id: uuid.UUID,
-                 note: str) -> InvestmentOrder:  # fmt: skip
+def reject_order(db: Session, order: InvestmentOrder, actor_id: uuid.UUID, note: str,
+                 now: datetime | None = None) -> InvestmentOrder:  # fmt: skip
     """Reject an unsuitable order, or cancel a placed one."""
     order = _decide(db, order, actor_id, OrderStatus.AWAITING_APPROVAL, OrderStatus.PLACED)
     order.status, order.note = OrderStatus.REJECTED.value, (note.strip() or "Unsuitable")[:200]
-    order.decided_at = datetime.now(UTC)
+    order.decided_at = now or datetime.now(UTC)
     db.flush()
     _audit(db, actor_id, "wealth.order_rejected", "investment_order", order.id,
            order_number=order.order_number, note=order.note)  # fmt: skip
@@ -542,23 +562,34 @@ def distribute_income(db: Session, security: Security, paid_by: uuid.UUID | None
     if exists:
         raise ConflictError(f"{security.code} income for {today} was paid ({exists}).")
     per_unit = income_per_unit(security, today)
-    number = f"DIS-{db.execute(DISTRIBUTION_SEQUENCE.next_value()).scalar_one():07d}"
-    distribution = IncomeDistribution(distribution_number=number, security_id=security.id,
-                                      record_date=today, income_per_unit=per_unit, holders=0,
-                                      paid_by=paid_by)  # fmt: skip
-    db.add(distribution)
-    db.flush()
     rows = db.execute(
         select(Holding, Portfolio).join(Portfolio, Portfolio.id == Holding.portfolio_id)
         .where(Holding.security_id == security.id, Holding.units > 0,
                Portfolio.status == PortfolioStatus.OPEN)
         .order_by(Portfolio.portfolio_number)
     ).tuples().all()  # fmt: skip
+    payees = []
     for holding, portfolio in rows:
+        account = accounts.get_account(db, portfolio.cash_account_id)
+        if account.status != AccountStatus.OPEN:
+            # Refused before anything is recorded, rather than skipped: the record date
+            # could not be paid again later (PR #34 review).
+            raise BusinessRuleViolation(
+                f"{portfolio.portfolio_number}'s cash account is {account.status}: pay "
+                f"{security.code}'s income once every holder's account is open.",
+                {"rule": "holder_account_not_open", "portfolio_number": portfolio.portfolio_number},
+            )
+        payees.append((holding, portfolio, account))
+    number = f"DIS-{db.execute(DISTRIBUTION_SEQUENCE.next_value()).scalar_one():07d}"
+    distribution = IncomeDistribution(distribution_number=number, security_id=security.id,
+                                      record_date=today, income_per_unit=per_unit, holders=0,
+                                      paid_by=paid_by)  # fmt: skip
+    db.add(distribution)
+    db.flush()
+    for holding, portfolio, account in payees:
         amount = convert(db, holding.units * per_unit, security.currency, portfolio.currency,
                          today)  # fmt: skip
-        account = accounts.get_account(db, portfolio.cash_account_id)
-        if amount <= 0 or account.status != AccountStatus.OPEN:
+        if amount <= 0:
             continue
         memo = f"{number} {security.code} income on {holding.units} units"
         ledger.post_entry(
@@ -575,6 +606,59 @@ def distribute_income(db: Session, security: Security, paid_by: uuid.UUID | None
            distribution_number=number, security=security.code, holders=distribution.holders,
            income_per_unit=per_unit)  # fmt: skip
     return distribution
+
+
+def order_profile(db: Session, order: InvestmentOrder, today: date) -> dict[str, Any]:
+    """What a manager weighs before letting an unsuitable order go ahead at the client's
+    insistence (Phase 44): why it is unsuitable, how far the security's risk is above the
+    customer's profile, the customer's answers, the order's share of their investable assets
+    and the cash it leaves, whether they have held securities this risky before, and how
+    often orders of theirs went ahead against advice, or were refused, in the last 90 days."""
+    portfolio = get_portfolio(db, order.portfolio_id)
+    security = get_security(db, order.security_id)
+    profile = current_profile(db, portfolio.customer_id, today)
+    value = valuation(db, portfolio, today)
+    investable = value["value"] + max(value["cash"], 0)
+    held = next((h["value"] for h in value["holdings"] if h["security_code"] == security.code), 0)
+    portfolios = select(Portfolio.id).where(Portfolio.customer_id == portfolio.customer_id)
+    others = (InvestmentOrder.portfolio_id.in_(portfolios), InvestmentOrder.id != order.id)
+    experienced = db.execute(
+        select(func.count()).select_from(InvestmentOrder)
+        .join(Security, Security.id == InvestmentOrder.security_id)
+        .where(*others, InvestmentOrder.side == "buy",
+               InvestmentOrder.status == OrderStatus.EXECUTED,
+               Security.risk_level >= security.risk_level)
+    ).scalar_one()  # fmt: skip
+    since = datetime.combine(today - timedelta(days=90), datetime.min.time(), tzinfo=UTC)
+    against_advice = db.execute(
+        select(InvestmentOrder.status).where(*others, InvestmentOrder.suitable.is_(False),
+                                             InvestmentOrder.decided_at >= since)
+    ).scalars().all()  # fmt: skip
+    risk_profile = profile.risk_profile if profile else 0
+    pct = (lambda part: part * 100 // investable) if investable > 0 else (lambda part: 0)
+    if profile is None:
+        reasons = ["no_profile"]
+    elif order.side == "buy":
+        # Today's reasons: a placed order may have become unsuitable since (PR #34 review).
+        reasons = [r["code"] for r in suitability(db, portfolio, security, order.amount, today)]
+    else:
+        reasons = []
+    return {
+        "reasons": reasons, "security_code": security.code,
+        "asset_class": security.asset_class, "risk_level": security.risk_level,
+        "complex": security.complex, "risk_profile": risk_profile,
+        "risk_gap": max(security.risk_level - risk_profile, 0),
+        "objective": profile.objective if profile else "", "knowledge":
+        profile.knowledge if profile else "none",
+        "horizon_years": profile.horizon_years if profile else 0,
+        "loss_capacity": profile.loss_capacity if profile else "low",
+        "amount": order.amount, "currency": portfolio.currency,
+        "share_after_pct": pct(held + order.amount),
+        "cash_after_pct": pct(max(value["cash"], 0) - order.amount - order.fee),
+        "experienced": experienced > 0,
+        "insisted_90d": sum(s == OrderStatus.EXECUTED for s in against_advice),
+        "refused_90d": sum(s == OrderStatus.REJECTED for s in against_advice),
+    }  # fmt: skip
 
 
 def summary(db: Session) -> dict[str, Any]:

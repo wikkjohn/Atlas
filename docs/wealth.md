@@ -98,6 +98,11 @@ unsuitable for each of these reasons:
 - **Placed:** in stored workflows, a suitable order is placed (`placed`) and released by
   someone on the dealing desk other than the adviser (`wealth:advise`). Stored workflows
   never move money before an approval. A manager approving a placed order also executes it.
+- **Release is checked again.** A placed buy is checked against today's holdings, prices
+  and profile when it is released; orders placed together can add up to an unsuitable
+  position. If it is no longer suitable, release is refused (rule `now_unsuitable`) and the
+  order stays placed for a manager to approve or reject. WF-1025 v2 then sends it to the
+  manager.
 
 **Settlement:**
 
@@ -106,6 +111,7 @@ unsuitable for each of these reasons:
 | Buy | the customer's account (amount and fee) | the bank's cash account `1000-<CCY>` (amount), `WEALTH-FEES-<CCY>` (fee) |
 | Sell | `1000-<CCY>` (amount) | the customer's account (amount less fee), `WEALTH-FEES-<CCY>` (fee) |
 
+Placing an order locks the portfolio, so an order cannot arrive while it is being closed.
 Execution locks the portfolio, the cash account and the holding before checking them.
 Profiles, portfolios, orders and decisions are audited.
 
@@ -119,6 +125,9 @@ Custody operations (`wealth:custody`) pay a security's income to every holder.
 - **Once per security and record date** (`DIS-` followed by seven digits). This is also a
   database constraint.
 - **No income:** a security that pays none (the tracker) is refused.
+- **Every holder must be payable.** If a holder's cash account is frozen, the payment is
+  refused before anything is recorded (rule `holder_account_not_open`), so it can be paid
+  once the account is open again.
 
 ## The base processes (workflow factory)
 
@@ -142,6 +151,32 @@ kinds:
   (risk 4), 20,000.00 more cash and 20 units of the balanced fund;
 - `security.code`: AGB-BAL-FUND.
 
+## Simulation workload and AI tool (Phase 44)
+
+The `order_review` workload drives WF-1025 v2 (scenario `order-review`).
+- **Cases:** each case is a customer in one of the run's countries with savings, a profile
+  assessed 200 days before, a portfolio and, for some kinds, earlier orders. All of it runs
+  through the real wealth service. On the day, an unsuitable buy order arrives. Managers
+  (simulated department managers with `wealth:approve`) decide every order.
+- **Ground truth, go ahead:**
+  - one level above an experienced customer's profile, 3–8 % of their cash;
+  - 50–75 % of the customer's cash in a risk-2 government bond (concentration only).
+- **Ground truth, refuse:**
+  - a risk-6 security for a customer with a risk-2 profile;
+  - a complex structured note for a customer with basic knowledge;
+  - an order spending 92–96 % of the customer's cash;
+  - a small step from a customer with 3–5 orders that went ahead against advice in the last
+    90 days (and sometimes one refused);
+  - a risk-6 security, two levels above the profile, with no experience at that level.
+- **Decisions:** in AI-assisted runs the AGB Suitability Review Assistant advises the
+  manager, from the profile `wealth.order_profile` reads (the reasons, the risk gap, the
+  customer's answers, the order's share of their assets and the cash it leaves, their
+  experience, and their orders against advice and refused in the last 90 days).
+- **Control check:** four-eyes and authority on each decision, no order executed without
+  an approval, and no unsuitable order released by the dealing desk.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Wealth and investments*). Reading needs `accounts:read`.
@@ -163,4 +198,5 @@ See [api.md](api.md) (*Wealth and investments*). Reading needs `accounts:read`.
   product, no cooling-off period and no periodic review.
 - **Income is paid on request.** Nothing pays coupons or dividends on a schedule, and there
   is no tax withholding.
-- **No simulation yet.** There is no wealth workload or AI tool yet (Phase 44).
+- **Simulation scope.** The workload covers unsuitable orders (`order-review`); suitability
+  assessments, suitable orders and income are not simulated.

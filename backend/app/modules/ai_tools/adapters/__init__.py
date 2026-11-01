@@ -12,6 +12,7 @@ from app.modules.ai_tools.adapters.mortgage_underwriting import MortgageUnderwri
 from app.modules.ai_tools.adapters.overdraft_affordability import OverdraftAffordabilityAdapter
 from app.modules.ai_tools.adapters.payment_screening import PaymentScreeningAdapter
 from app.modules.ai_tools.adapters.recall_review import RecallReviewAdapter
+from app.modules.ai_tools.adapters.suitability_review import SuitabilityReviewAdapter
 
 ADAPTERS: dict[str, AIToolAdapter] = {
     adapter.key: adapter
@@ -26,6 +27,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         DocumentCheckAdapter(),
         BackOfficeCheckAdapter(),
         RecallReviewAdapter(),
+        SuitabilityReviewAdapter(),
         FaultInjectionAdapter(),
     )
 }

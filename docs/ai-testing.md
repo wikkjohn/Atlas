@@ -472,6 +472,59 @@ one run each):
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
 
+## WF-1025 v2 and the suitability review assistant (Phase 44)
+
+WF-1025 v2 is a stored workflow. When an investment order is unsuitable, it reads the order
+profile (`wealth.order_profile`) and asks the assistant through `ai.review` before a manager
+(`wealth:approve`) decides whether the order may go ahead at the client's insistence or is
+refused. A manager always decides, so the scenario runs baseline and AI assisted only. Each
+case's customer, profile, portfolio and earlier orders run through the real wealth service
+before the run.
+
+What the assistant (`rule_based_suitability_review`) weighs:
+- **Refuse:**
+  - a security three or more risk levels above the customer's profile;
+  - a complex product for a customer whose knowledge is none or basic;
+  - an order that leaves less than a tenth of the customer's assets in cash.
+- **Concerns:** two levels above the profile; a step above it without experience at that
+  level; concentration in a security above risk 2.
+- **No concern:** one level above the profile for an experienced customer, and concentration
+  in a low-risk security.
+
+Its **blind spot** is the customer's record. The profile counts orders of theirs that went
+ahead against advice in the last 90 days, and orders refused, and the assistant never reads
+either count. So a customer who insists order after order looks like a first, small step and
+is recommended to go ahead.
+
+What `order-review` v1 measured (seed 2030, 300 orders, 12 staff, default assumptions; one
+run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 82.0 % | 95.3 % |
+| Wrongly let go ahead | 25 | 13 |
+| Wrongly refused | 29 | 1 |
+| Serial insisters' orders let go ahead (of 42) | 6 | 7 |
+| Review labour hours | 98.2 | 63.8 |
+| Median cycle time (hours) | 4.3 | 1.5 |
+| Tool's recommendation accuracy | — | 84 % (30 escalated) |
+
+**Where the assistant helps:**
+- Experienced customers' small steps and low-risk concentrations wrongly refused fall from
+  29 to 1.
+- Large risk gaps and complex products for novices are never let through (9 in the
+  baseline), and only one order that drains the customer's cash goes ahead (5).
+- Managers' time falls by about a third.
+
+**Where it does not:**
+- The assistant recommends letting all 42 serial insisters' orders go ahead. The simulated
+  managers, following it, let 7 through rather than 6.
+- Two-level steps without experience are escalated, which leaves managers where the baseline
+  was: 5 let through either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.
+
 ## Experiment configurations
 
 Scenario `retail-onboarding` **v2** (pinned to WF-0001 v2) runs in three modes:

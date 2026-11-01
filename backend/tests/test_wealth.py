@@ -200,3 +200,29 @@ def test_the_wealth_api(client: TestClient, db: Session) -> None:
     assert paid.status_code == 201 and paid.json()["holders"] >= 1
     counts = client.get("/api/v1/wealth/summary/counts", headers=teller).json()
     assert counts["executed"] >= 2 and counts["awaiting_approval"] == 0
+
+
+def test_pr34_review_fixes(db: Session) -> None:
+    """A placed buy is checked again when released; income is refused, not skipped, while a
+    holder's account is not open."""
+    staff = make_staff(db)
+    _, account, portfolio = _investor(db, staff)
+    fund = wealth.find_security(db, "AGB-BAL-FUND")  # risk 4, the profile's level
+    price = wealth.convert(db, wealth.price_on(fund, TODAY), "GBP", "USD", TODAY)
+    units = _balance(db, account) * 30 // 100 // price  # about 30 % of the assets each
+    first = _order(db, staff, portfolio, "AGB-BAL-FUND", units, execute=False)
+    second = _order(db, staff, portfolio, "AGB-BAL-FUND", units, execute=False)
+    assert first.status == second.status == "placed"  # each suitable on its own
+    wealth.release_order(db, first, staff.manager.id, today=TODAY)
+    with pytest.raises(BusinessRuleViolation, match="no longer suitable"):
+        wealth.release_order(db, second, staff.manager.id, today=TODAY)
+    assert second.status == "placed"
+    assert "concentration" in wealth.order_profile(db, second, TODAY)["reasons"]
+    wealth.approve_order(db, second, staff.manager.id, "Insistent client", today=TODAY)
+    assert second.status == "executed"
+    # Income while the holder's account is frozen: refused, and nothing recorded.
+    change_status(db, account.id, AccountStatus.FROZEN, staff.manager.id, "Investigation")
+    with pytest.raises(BusinessRuleViolation, match="frozen"):
+        wealth.distribute_income(db, fund, staff.manager.id, today=TODAY)
+    change_status(db, account.id, AccountStatus.OPEN, staff.manager.id, "Cleared")
+    assert wealth.distribute_income(db, fund, staff.manager.id, today=TODAY).holders >= 1

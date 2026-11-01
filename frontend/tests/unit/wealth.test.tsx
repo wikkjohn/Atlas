@@ -102,6 +102,9 @@ describe("Wealth page", () => {
     const orders = screen.getByRole("table", { name: "Orders" });
     expect(within(orders).getByText("ORD-00000002").closest("tr")).toHaveTextContent("Risk level 6 is above the customer's profile of 4.");
     expect(screen.getByRole("table", { name: "Income distributions" })).toHaveTextContent("AGB-GOVT-2031 on 2026-11-01 · $1.77 a unit");
+    // A placed order: the dealing desk releases it, and a manager may approve or reject it (PR #34 review).
+    expect(screen.getByRole("button", { name: "Release ORD-00000003" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve ORD-00000003" })).toBeInTheDocument();
   });
 
   it("records a profile, opens a portfolio, places and decides orders, and pays income", async () => {

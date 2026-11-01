@@ -218,6 +218,28 @@ const SAMPLE_RECALL = {
     payer_refused_90d: 3,
   },
 };
+const SAMPLE_SUITABILITY = {
+  profile: {
+    reasons: ["risk_above_profile"],
+    security_code: "AGB-GLOBAL-EQ",
+    asset_class: "fund",
+    risk_level: 5,
+    complex: false,
+    risk_profile: 4,
+    risk_gap: 1,
+    objective: "balanced",
+    knowledge: "informed",
+    horizon_years: 12,
+    loss_capacity: "high",
+    amount: 600000,
+    currency: "USD",
+    share_after_pct: 18,
+    cash_after_pct: 70,
+    experienced: true,
+    insisted_90d: 4,
+    refused_90d: 1,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -228,6 +250,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_document_check: SAMPLE_DOCUMENT_CHECK,
   rule_based_back_office_check: SAMPLE_BACK_OFFICE,
   rule_based_recall_review: SAMPLE_RECALL,
+  rule_based_suitability_review: SAMPLE_SUITABILITY,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

@@ -618,3 +618,38 @@ register_scenario(
         ),
     )
 )
+
+
+register_scenario(
+    Scenario(
+        scenario_id="recall-triage",
+        version=1,
+        name="Recall triage (payments operations)",
+        description="A working day of recalls of settled payments to other banks through WF-1023 "
+        "v2: back office decides whether to send each recall to the beneficiary's bank. A "
+        "genuine duplicate and a fraud reported within a day are worth sending; a claimed "
+        "duplicate with no matching payment, a fraud claim against a beneficiary paid many times "
+        "before, a customer who recalls payment after payment and a late technical recall of a "
+        "high-value payment are not. In AI-assisted runs the AGB Recall Assistant advises back "
+        "office (Phase 42).",
+        workload="recall_triage",
+        workflow_id="WF-1023",
+        workflow_version=2,
+        simulated_start=datetime(2026, 9, 15, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "genuine_duplicate": 0.25,
+                "fraud_reported_fast": 0.20,
+                "claimed_duplicate_no_match": 0.15,
+                "fraud_on_known_payee": 0.13,
+                "serial_recaller": 0.17,
+                "stretched_tech": 0.10,
+            },
+            reviewers={"approval": ReviewerModel(mean_minutes=15, accuracy=0.85)},
+            staff_mix={"teller": 0.5, "manager": 0.5},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

@@ -101,6 +101,24 @@ function OutgoingForm() {
   );
 }
 
+/** Newer/older paging for a list served newest first, `OPS_PAGE` rows at a time. */
+function Pager({ label, offset, total, onChange }: { label: string; offset: number; total: number; onChange: (offset: number) => void }) {
+  if (total <= OPS_PAGE) return null;
+  return (
+    <nav aria-label={label} className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-600">
+      <span>
+        {offset + 1}–{Math.min(offset + OPS_PAGE, total)} of {total}
+      </span>
+      <Button size="sm" variant="secondary" disabled={offset === 0} onClick={() => onChange(Math.max(offset - OPS_PAGE, 0))}>
+        Newer
+      </Button>
+      <Button size="sm" variant="secondary" disabled={offset + OPS_PAGE >= total} onClick={() => onChange(offset + OPS_PAGE)}>
+        Older
+      </Button>
+    </nav>
+  );
+}
+
 function OutgoingPanel() {
   const { can } = useAuth();
   const [offset, setOffset] = useState(0);
@@ -146,19 +164,7 @@ function OutgoingPanel() {
           )}
         </tbody>
       </table>
-      {total > OPS_PAGE && (
-        <nav aria-label="Payment pages" className="mt-2 flex items-center justify-end gap-2 text-xs text-slate-600">
-          <span>
-            {offset + 1}–{Math.min(offset + OPS_PAGE, total)} of {total}
-          </span>
-          <Button size="sm" variant="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - OPS_PAGE, 0))}>
-            Newer
-          </Button>
-          <Button size="sm" variant="secondary" disabled={offset + OPS_PAGE >= total} onClick={() => setOffset(offset + OPS_PAGE)}>
-            Older
-          </Button>
-        </nav>
-      )}
+      <Pager label="Payment pages" offset={offset} total={total} onChange={setOffset} />
     </Panel>
   );
 }
@@ -206,7 +212,8 @@ function ClearingPanel() {
 
 function BulkPanel() {
   const { can } = useAuth();
-  const files = useBulkFiles();
+  const [offset, setOffset] = useState(0);
+  const files = useBulkFiles(offset);
   const receive = useReceiveBulk();
   const decide = useDecideBulk();
   const [form, setForm] = useState({ account: "", name: "", text: "" });
@@ -263,13 +270,15 @@ function BulkPanel() {
           ))}
         </tbody>
       </table>
+      <Pager label="Bulk file pages" offset={offset} total={files.data?.total ?? 0} onChange={setOffset} />
     </Panel>
   );
 }
 
 function RecallsPanel() {
   const { can } = useAuth();
-  const recalls = useRecalls();
+  const [offset, setOffset] = useState(0);
+  const recalls = useRecalls(offset);
   const request = useRequestRecall();
   const action = useRecallAction();
   const [form, setForm] = useState({ payment: "", reason: "DUPL" });
@@ -335,6 +344,7 @@ function RecallsPanel() {
           ))}
         </tbody>
       </table>
+      <Pager label="Recall pages" offset={offset} total={recalls.data?.total ?? 0} onChange={setOffset} />
     </Panel>
   );
 }

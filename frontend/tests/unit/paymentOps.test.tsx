@@ -153,4 +153,28 @@ describe("Payments Operations page", () => {
     expect(screen.queryByRole("button", { name: /^Approve / })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Record answer / })).not.toBeInTheDocument();
   });
+
+  it("pages back to older bulk files and recalls beyond the newest 25 (PR #32 review)", async () => {
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/payment-ops/bulk": (request) =>
+        request.search.get("offset") === "25"
+          ? jsonResponse(page([{ ...bulk, id: "blk-old", file_number: "BLK-0000099", status: "released" }], 26, 25, 25))
+          : jsonResponse(page([bulk], 26, 25, 0)),
+      "GET /api/v1/payment-ops/recalls": (request) =>
+        request.search.get("offset") === "25"
+          ? jsonResponse(page([{ ...recalls[0], id: "rcl-old", recall_number: "RCL-0000099", status: "refused" }], 27, 25, 25))
+          : jsonResponse(page(recalls, 27, 25, 0)),
+    });
+    renderApp("/payment-ops");
+    const filePages = await screen.findByRole("navigation", { name: "Bulk file pages" });
+    expect(filePages).toHaveTextContent("1–25 of 26");
+    await userEvent.click(within(filePages).getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("BLK-0000099")).toBeInTheDocument();
+    const recallPages = screen.getByRole("navigation", { name: "Recall pages" });
+    await userEvent.click(within(recallPages).getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("RCL-0000099")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Recall pages" })).toHaveTextContent("26–27 of 27");
+    expect(api.requests.filter((r) => r.search.get("offset") === "25")).toHaveLength(2);
+  });
 });

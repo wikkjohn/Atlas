@@ -238,8 +238,11 @@ def submit_batch(db: Session, currency: str, actor_id: uuid.UUID | None,
     db.add(batch)
     db.flush()
     suspense = clearing_account(db, currency)
+    # Every payer locked up front in id order, the same order internal transfers lock in, so
+    # a cycle cannot deadlock with them (PR #32 review); payments still go oldest first.
+    debtors = payments._lock_accounts(db, sorted({p.debtor_account_id for p in pending}))
     for payment in pending:
-        debtor = accounts.get_account(db, payment.debtor_account_id, for_update=True)
+        debtor = debtors[payment.debtor_account_id]
         if debtor.status != AccountStatus.OPEN or payment.amount > accounts.available(db, debtor):
             payment.status, payment.return_code = OutgoingStatus.REJECTED.value, "AM04"
             payment.reason, payment.closed_at = "Insufficient funds at clearing.", datetime.now(UTC)
@@ -286,7 +289,6 @@ def settle_batch(db: Session, batch: ClearingBatch, actor_id: uuid.UUID | None,
             .with_for_update()
         ).scalars()
     )  # fmt: skip
-    paid_out = 0
     for payment in items:
         if closed_at_beneficiary_bank(payment.beneficiary_account):
             debtor = accounts.get_account(db, payment.debtor_account_id)
@@ -300,15 +302,15 @@ def settle_batch(db: Session, batch: ClearingBatch, actor_id: uuid.UUID | None,
             payment.closed_at = datetime.now(UTC)
             batch.returned_count += 1
         else:
+            # One entry per payment: a batch total could exceed the ledger's line limit
+            # where each payment does not (PR #32 review).
+            _post(db, key=f"clearing-settle:{payment.payment_number}", currency=batch.currency,
+                  memo=f"Settlement {batch.batch_number}: {payment.payment_number}",
+                  lines=[(suspense.id, Direction.DEBIT, payment.amount),
+                         (cash.id, Direction.CREDIT, payment.amount)],
+                  actor_id=actor_id, today=today)  # fmt: skip
             payment.status, payment.settled_on = OutgoingStatus.SETTLED.value, today
-            paid_out += payment.amount
             batch.settled_count += 1
-    if paid_out:
-        _post(db, key=f"clearing-settle:{batch.batch_number}", currency=batch.currency,
-              memo=f"Settlement {batch.batch_number}",
-              lines=[(suspense.id, Direction.DEBIT, paid_out),
-                     (cash.id, Direction.CREDIT, paid_out)],
-              actor_id=actor_id, today=today)  # fmt: skip
     batch.status, batch.settled_at = BatchStatus.SETTLED.value, datetime.now(UTC)
     db.flush()
     _audit(db, actor_id, "clearing.batch_settled", "clearing_batch", batch.id,
@@ -542,6 +544,80 @@ def resolve_recall(db: Session, recall: PaymentRecall, actor_id: uuid.UUID | Non
     _audit(db, actor_id, "clearing.recall_resolved", "payment_recall", recall.id,
            recall_number=recall.recall_number, status=recall.status)  # fmt: skip
     return recall
+
+
+def refundable_payment(db: Session, account_id: uuid.UUID, today: date) -> str | None:
+    """An outgoing payment from the account that could still credit it back: not yet
+    settled, settled within the longest recall window, or with an open recall."""
+    from datetime import timedelta
+
+    since = today - timedelta(days=max(RECALL_WINDOWS.values()))
+    live = (OutgoingStatus.AWAITING_APPROVAL, OutgoingStatus.PENDING, OutgoingStatus.IN_CLEARING)
+    found = db.execute(
+        select(OutgoingPayment.payment_number).where(
+            OutgoingPayment.debtor_account_id == account_id,
+            (OutgoingPayment.status.in_(live))
+            | ((OutgoingPayment.status == OutgoingStatus.SETTLED)
+               & (OutgoingPayment.settled_on >= since)),
+        )
+    ).scalars().first()  # fmt: skip
+    if found:
+        return found
+    return db.execute(
+        select(OutgoingPayment.payment_number)
+        .join(PaymentRecall, PaymentRecall.payment_id == OutgoingPayment.id)
+        .where(OutgoingPayment.debtor_account_id == account_id,
+               PaymentRecall.status.in_([RecallStatus.REQUESTED, RecallStatus.SENT]))
+    ).scalars().first()  # fmt: skip
+
+
+def recall_profile(db: Session, recall: PaymentRecall, today: date) -> dict[str, Any]:
+    """What a back-office officer weighs before sending a recall (Phase 42): the reason and
+    how much of its window is left, the payment's size, whether a matching duplicate exists
+    (same payer, beneficiary account and amount within three days), how often the payer has
+    paid this beneficiary before, and the payer's other recalls in the last 90 days."""
+    from datetime import timedelta
+
+    payment = get_outgoing(db, recall.payment_id)
+    window = RECALL_WINDOWS[recall.reason_code]
+    days = (today - payment.settled_on).days if payment.settled_on else 0
+    others = list(
+        db.execute(
+            select(OutgoingPayment).where(
+                OutgoingPayment.debtor_account_id == payment.debtor_account_id,
+                OutgoingPayment.id != payment.id,
+            )
+        ).scalars()
+    )  # fmt: skip
+    created = payment.settled_on or today
+
+    def near(p: OutgoingPayment) -> bool:
+        when = p.settled_on or created
+        return abs((when - created).days) <= 3
+
+    same_payee = [p for p in others if p.beneficiary_account == payment.beneficiary_account]
+    duplicates = [p for p in same_payee if p.amount == payment.amount and near(p)
+                  and p.status in (OutgoingStatus.SETTLED, OutgoingStatus.PENDING,
+                                   OutgoingStatus.IN_CLEARING)]  # fmt: skip
+    history = [p for p in same_payee if p.status == OutgoingStatus.SETTLED and p not in duplicates]
+    since = today - timedelta(days=90)
+    recent = [
+        r for r, p in db.execute(
+            select(PaymentRecall, OutgoingPayment)
+            .join(OutgoingPayment, OutgoingPayment.id == PaymentRecall.payment_id)
+            .where(OutgoingPayment.debtor_account_id == payment.debtor_account_id,
+                   PaymentRecall.id != recall.id)
+        ).all()
+        if (p.settled_on or today) >= since
+    ]  # fmt: skip
+    return {
+        "reason_code": recall.reason_code, "currency": payment.currency,
+        "amount": payment.amount, "high_value": payment.high_value,
+        "days_since_settlement": days, "window_days": window, "days_left": window - days,
+        "duplicate_matches": len(duplicates), "payee_history": len(history),
+        "payer_recalls_90d": len(recent),
+        "payer_refused_90d": sum(r.status == RecallStatus.REFUSED for r in recent),
+    }  # fmt: skip
 
 
 def summary(db: Session) -> dict[str, Any]:

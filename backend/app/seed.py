@@ -807,6 +807,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["payments:read"],
         "compatible_workflows": ["WF-1018"],
     },
+    {
+        "tool_id": "agb-recall-assistant",
+        "tool_name": "AGB Recall Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews recalls of settled payments before back office sends them: the "
+        "reason's window, matching duplicates, the payer's history with the beneficiary and the "
+        "payment's size, with an explanation and a send, withdraw or escalate recommendation. "
+        "Advisory: it never sends a recall (Phase 42).",
+        "adapter": "rule_based_recall_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["payments:read"],
+        "compatible_workflows": ["WF-1023"],
+    },
 ]
 
 

@@ -1,0 +1,245 @@
+{
+  "workflow_id": "WF-1023",
+  "name": "Payment Recall",
+  "version": 2,
+  "description": "Version 2 (Phase 42): before the approval, what back office weighs is read (clearing.recall_profile: the reason's window, the payment's size, matching duplicates, the payer's history with the beneficiary and its other recalls) and the AGB Recall Assistant reviews it; its recommendation is advice only. A customer or the bank asks for an outgoing payment back (duplicate, fraud, technical error or customer request). Someone other than the requester (payments:approve) approves the recall: a payment not yet cleared is cancelled at once; a settled one is sent to the beneficiary's bank, which returns the money within the reason's window after settlement (10 days for duplicates and technical errors, 5 for customer requests, 3 for fraud) or refuses. Stored definition: built only from library handlers (Phase 41).",
+  "business_owner": "Payments Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "payment_number",
+      "reason_code"
+    ],
+    "properties": {
+      "payment_number": {
+        "type": "string",
+        "pattern": "^OPY-[0-9]{8}$"
+      },
+      "reason_code": {
+        "type": "string",
+        "enum": [
+          "DUPL",
+          "FRAD",
+          "TECH",
+          "CUST"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "find.payment_number"
+  },
+  "start": "assign_key",
+  "steps": [
+    {
+      "id": "assign_key",
+      "type": "service_task",
+      "name": "Assign case reference",
+      "handler": "core.business_key",
+      "params": {
+        "path": "input.payment_number",
+        "prefix": "RCL-"
+      },
+      "next": "find"
+    },
+    {
+      "id": "find",
+      "type": "service_task",
+      "name": "Find the payment",
+      "handler": "clearing.lookup_outgoing",
+      "params": {
+        "payment_number_path": "input.payment_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "request"
+    },
+    {
+      "id": "request",
+      "type": "service_task",
+      "name": "Record the recall",
+      "handler": "clearing.request_recall",
+      "params": {
+        "payment_id_path": "find.payment_id",
+        "reason_path": "input.reason_code"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "profile"
+    },
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the recall profile",
+      "handler": "clearing.recall_profile",
+      "params": {
+        "recall_id_path": "request.recall_id"
+      },
+      "next": "ai_review"
+    },
+    {
+      "id": "ai_review",
+      "type": "ai_task",
+      "name": "AI recall review (advisory)",
+      "handler": "ai.review",
+      "params": {
+        "tool_id": "agb-recall-assistant",
+        "action": "recommend_decision",
+        "payload": {
+          "profile": "profile"
+        }
+      },
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the recall",
+      "description": "Someone other than the requester approves the recall.",
+      "approval": {
+        "permissions": [
+          "payments:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 14400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "withdraw"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Cancel or send the recall",
+      "handler": "clearing.approve_recall",
+      "params": {
+        "recall_id_path": "request.recall_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "route_sent"
+    },
+    {
+      "id": "route_sent",
+      "type": "decision",
+      "name": "Sent to the beneficiary's bank?",
+      "transitions": [
+        {
+          "to": "resolve",
+          "when": {
+            "path": "approve.sent",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "cancelled"
+    },
+    {
+      "id": "resolve",
+      "type": "service_task",
+      "name": "The beneficiary bank's answer",
+      "handler": "clearing.resolve_recall",
+      "params": {
+        "recall_id_path": "request.recall_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "route_returned"
+    },
+    {
+      "id": "route_returned",
+      "type": "decision",
+      "name": "Money returned?",
+      "transitions": [
+        {
+          "to": "recovered",
+          "when": {
+            "path": "resolve.returned",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "refused_by_bank"
+    },
+    {
+      "id": "withdraw",
+      "type": "service_task",
+      "name": "Withdraw the recall",
+      "handler": "clearing.withdraw_recall",
+      "params": {
+        "recall_id_path": "request.recall_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "withdrawn"
+    },
+    {
+      "id": "cancelled",
+      "type": "completion",
+      "name": "Cancelled before clearing",
+      "outcome": "approved"
+    },
+    {
+      "id": "recovered",
+      "type": "completion",
+      "name": "Money returned",
+      "outcome": "approved"
+    },
+    {
+      "id": "refused_by_bank",
+      "type": "completion",
+      "name": "Refused by the beneficiary's bank",
+      "outcome": "rejected"
+    },
+    {
+      "id": "withdrawn",
+      "type": "completion",
+      "name": "Withdrawn",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Unknown payment",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

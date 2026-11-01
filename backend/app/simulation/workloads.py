@@ -1657,6 +1657,166 @@ class DealConfirmations(Workload):
         return check
 
 
+# --- Recall triage (WF-1023 v2, Phase 42) ----------------------------------------------------
+
+RECALL_SHOULD_WITHDRAW = frozenset({"claimed_duplicate_no_match", "fraud_on_known_payee",
+                                    "serial_recaller", "stretched_tech"})  # fmt: skip
+RECALL_REASON_OF = {"genuine_duplicate": "DUPL", "fraud_reported_fast": "FRAD",
+                    "claimed_duplicate_no_match": "DUPL", "fraud_on_known_payee": "FRAD",
+                    "serial_recaller": "CUST", "stretched_tech": "TECH"}  # fmt: skip
+
+
+class RecallTriage(Workload):
+    """Recalls of settled payments to other banks through WF-1023 v2: back office decides
+    whether to send each recall to the beneficiary's bank, with the AGB Recall Assistant's
+    advice in AI-assisted runs. Each case's payments, earlier payments and earlier recalls
+    run through the real clearing service before the run.
+
+    Ground truth: a genuine duplicate and a fraud reported within a day are sent; a claimed
+    duplicate with no matching payment, a fraud claim against a beneficiary paid three or more
+    times before, a customer with several earlier recalls (most refused) and a late technical
+    recall of a high-value payment are withdrawn."""
+
+    key = "recall_triage"
+    workflow_id = "WF-1023"
+    kinds = frozenset({"genuine_duplicate", "fraud_reported_fast"} | RECALL_SHOULD_WITHDRAW)
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "Payments Officer", "manager": "Payments Back Office"}
+    ai_step = "ai_review"
+    automated_path = None  # back office always decides
+
+    def _settled_payment(self, sim: "_Simulation", rng, kind: str, today: date, teller,
+                         manager):  # fmt: skip
+        """One case's history and the settled payment its recall is about."""
+        from app.modules.clearing import service as clearing
+
+        db = sim.db
+        account = _verified_business(sim, f"{rng.choice(LAST_NAMES)} Trading Ltd",
+                                     rng.choice(("GB", "DE", "US")))  # fmt: skip
+        threshold, _ = payments.limits_for(db, account, today)
+        key = f"sim-recall-{sim.run_id}-{account.id}"
+        deposit(db, account.id, amount=threshold * 30, memo="Trading receipts (simulation)",
+                actor_id=teller.id, idempotency_key=key)  # fmt: skip
+
+        def beneficiary() -> str:
+            base = f"{rng.randint(10**11, 10**12 - 1)}"
+            if base.endswith("00"):  # closed at the beneficiary's bank
+                base = base[:-1] + "1"
+            return clearing.account_number(base)
+
+        def pay(amount: int, to: str, days_ago: int):
+            on = today - timedelta(days=days_ago)
+            payment = clearing.create_outgoing(
+                db, debtor=account, beneficiary_name=f"{rng.choice(LAST_NAMES)} Supplies",
+                beneficiary_bank=rng.choice(sorted(clearing.BANKS)), beneficiary_account=to,
+                amount=amount, reference="Invoice", initiated_by=teller.id, today=on,
+            )  # fmt: skip
+            if payment.status == "awaiting_approval":
+                clearing.approve_outgoing(db, payment, manager.id)
+            clearing.run_cycle(db, account.currency, None, today=on)
+            return payment
+
+        def small() -> int:
+            return int(threshold * rng.uniform(0.05, 0.5))
+
+        payee = beneficiary()
+        if kind == "genuine_duplicate":
+            days, amount = rng.randint(1, 6), small()
+            pay(amount, payee, days)
+            return pay(amount, payee, days)  # keyed twice the same day
+        if kind == "fraud_reported_fast":
+            for _ in range(rng.randint(0, 1)):
+                pay(small(), payee, rng.randint(20, 80))
+            return pay(small(), payee, rng.randint(0, 1))
+        if kind == "claimed_duplicate_no_match":
+            return pay(small(), payee, rng.randint(1, 6))
+        if kind == "fraud_on_known_payee":
+            for _ in range(rng.randint(3, 6)):
+                pay(small(), payee, rng.randint(20, 80))
+            return pay(small(), payee, rng.randint(0, 1))
+        if kind == "serial_recaller":
+            # Earlier recalls, all but one refused: answered after the five-day window.
+            earlier = rng.randint(3, 5)
+            for n in range(earlier):
+                days_ago = rng.randint(15, 80)
+                old = pay(small(), beneficiary(), days_ago)
+                recall = clearing.request_recall(db, old, "CUST", teller.id)
+                clearing.approve_recall(db, recall, manager.id)
+                answered = today - timedelta(days=days_ago - (9 if n < earlier - 1 else 2))
+                clearing.resolve_recall(db, recall, manager.id, today=answered)
+            return pay(small(), payee, rng.randint(1, 2))
+        # stretched_tech
+        for _ in range(rng.randint(1, 3)):
+            pay(small(), payee, rng.randint(20, 80))
+        return pay(int(threshold * rng.uniform(1.5, 4)), payee, rng.randint(8, 9))
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = sim.clock.start.date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "recall")
+            kind = _pick(rng, mix)
+            payment = self._settled_payment(sim, rng, kind, today, teller, manager)
+            if payment.status != "settled":
+                raise RuntimeError(f"{kind} case {index}: the payment did not settle")
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome=("rejected" if kind in RECALL_SHOULD_WITHDRAW else "approved"),
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={
+                        "payment_number": payment.payment_number,
+                        "reason_code": RECALL_REASON_OF[kind],
+                    },
+                )  # fmt: skip
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every back-office decision against four-eyes and authority, and every recall sent
+        to the beneficiary's bank only after an approval."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "approve", "resolve"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.PAYMENTS_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id in ("approve", "resolve") and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "recall_without_approval", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -1670,6 +1830,7 @@ WORKLOADS: dict[str, Workload] = {
         CovenantBreaches(),
         DiscrepantPresentations(),
         DealConfirmations(),
+        RecallTriage(),
     )
 }
 STAFF_ROLES = {

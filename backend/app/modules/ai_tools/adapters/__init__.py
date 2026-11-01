@@ -11,6 +11,7 @@ from app.modules.ai_tools.adapters.kyc_assistant import KycAssistantAdapter
 from app.modules.ai_tools.adapters.mortgage_underwriting import MortgageUnderwritingAdapter
 from app.modules.ai_tools.adapters.overdraft_affordability import OverdraftAffordabilityAdapter
 from app.modules.ai_tools.adapters.payment_screening import PaymentScreeningAdapter
+from app.modules.ai_tools.adapters.recall_review import RecallReviewAdapter
 
 ADAPTERS: dict[str, AIToolAdapter] = {
     adapter.key: adapter
@@ -24,6 +25,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         CovenantReviewAdapter(),
         DocumentCheckAdapter(),
         BackOfficeCheckAdapter(),
+        RecallReviewAdapter(),
         FaultInjectionAdapter(),
     )
 }

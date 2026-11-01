@@ -560,6 +560,15 @@ def change_status(
                 f"The account backs trade instrument {live}, which is still live.",
                 {"rule": "live_trade_instrument", "instrument_number": live},
             )
+        from app.modules.clearing.service import refundable_payment
+
+        refundable = refundable_payment(db, account.id, datetime.now(UTC).date())
+        if refundable:
+            # A return or a recall would credit a closed account (PR #32 review).
+            raise BusinessRuleViolation(
+                f"Outgoing payment {refundable} could still come back to this account.",
+                {"rule": "refundable_payment", "payment_number": refundable},
+            )
         remaining = ledger.balance(db, _ledger_account(db, account))
         if remaining != 0:
             raise BusinessRuleViolation(

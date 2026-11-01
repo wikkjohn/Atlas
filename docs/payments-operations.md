@@ -63,10 +63,16 @@ is rejected with code AM04 instead.
 
 | Result | Debit | Credit |
 | --- | --- | --- |
-| Paid out (one entry for the batch) | `CLEARING-OUT-<CCY>` | the bank's cash account `1000-<CCY>` |
+| Paid out (one entry per payment) | `CLEARING-OUT-<CCY>` | the bank's cash account `1000-<CCY>` |
 | Returned, code AC04 (account closed) | `CLEARING-OUT-<CCY>` | the payer's account |
 
-Each batch records how many payments it held, settled and returned.
+Each batch records how many payments it held, settled and returned. Submission locks the
+payers' accounts in a fixed order, so two cycles cannot deadlock on them. Settling one
+entry per payment keeps every ledger line within its limit, however large the batch.
+
+**Closing a payer's account.** An account cannot be closed while one of its outgoing
+payments could still come back to it: one not yet settled, one settled within the last
+10 days (the longest recall window), or one with an open recall.
 
 ## Bulk payment files
 
@@ -128,6 +134,28 @@ coverage (WF-1021: 13 cases, WF-1022: 11, WF-1023: 19). The generated tests add 
 kind, `outgoing_payment.payment_number`: a payment from the fixture account, settled
 through a clearing cycle that day.
 
+## Simulation workload and AI tool (Phase 42)
+
+The `recall_triage` workload drives WF-1023 v2 (scenario `recall-triage`).
+- **Cases:** each case is a business that has paid other banks. Its payments, earlier
+  payments and earlier recalls run through the real clearing service, and a recall of one
+  settled payment arrives on the day. Back office (simulated department managers with
+  `payments:approve`) decides every recall.
+- **Ground truth, send:**
+  - a duplicate keyed twice the same day, recalled 1–6 days later;
+  - fraud reported 0–1 days after settlement.
+- **Ground truth, withdraw:**
+  - a "duplicate" with no matching payment;
+  - a fraud claim against a beneficiary paid 3–6 times before;
+  - a customer request from a payer with 3–5 earlier recalls, all but one refused;
+  - a technical recall 8–9 days after a high-value payment.
+- **Decisions:** in AI-assisted runs the AGB Recall Assistant advises back office, from the
+  profile `clearing.recall_profile` reads.
+- **Control check:** four-eyes and authority on each decision, and no recall sent or
+  answered without an approval.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## API and permissions
 
 See [api.md](api.md) (*Payments operations*). Reading needs `payments:read`.
@@ -148,4 +176,5 @@ See [api.md](api.md) (*Payments operations*). Reading needs `payments:read`.
   recalls.
 - **No screening.** Outgoing payments are not screened against the sanctions lists. The
   fraud screening of WF-0002 does not apply to them.
-- **No simulation yet.** There is no payments operations workload or AI tool yet (Phase 42).
+- **Simulation scope.** The workload covers recall triage (`recall-triage`); outgoing
+  payments, clearing and bulk files are not simulated.

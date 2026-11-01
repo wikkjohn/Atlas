@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 41.
+Last updated: Phase 42.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -46,6 +46,65 @@ Last updated: Phase 41.
 | 39 | Departments, step 11: treasury and markets ([treasury.md](treasury.md)) | **Complete** |
 | 40 | Departments, step 12: the treasury workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 41 | Departments, step 13: payments operations ([payments-operations.md](payments-operations.md)) | **Complete** |
+| 42 | Departments, step 14: the payments operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 42: what exists
+
+- **`clearing.recall_profile`:** what back office weighs before sending a recall.
+  - The reason, days since settlement, and the days of its window left.
+  - The payment's size and whether it is high value.
+  - Matching duplicates (same payer, beneficiary account and amount within three days).
+  - How often the payer has paid the beneficiary before.
+  - The payer's recalls in the last 90 days, and how many were refused.
+
+  It is also a library handler.
+- **AGB Recall Assistant** (`rule_based_recall_review`, `recommend_decision` only,
+  compatible with WF-1023), with a deliberate blind spot: it never reads the payer's
+  earlier recalls. The seed registers it, and the AI Lab console has a sample.
+- **WF-1023 v2:** recall profile and AI review before back office approves.
+- **Workload `recall_triage` and scenario `recall-triage` v1:**
+  - Each case is a business whose payments, earlier payments and earlier recalls run
+    through the real clearing service; a recall of one settled payment arrives on the day.
+  - Six kinds with ground truth, decided by simulated back office (`payments:approve`).
+  - A control check covers four-eyes, `payments:approve`, and no recall sent or answered
+    without an approval.
+- **Fixes from the Codex review of PR #32 (Phase 41):**
+  - Settlement posts one entry per settled payment, so a batch whose total is above the
+    ledger's 10^15 line limit still settles.
+  - Submission locks the payers' accounts in id order, so two cycles cannot deadlock.
+  - An account cannot be closed while one of its outgoing payments could still come back:
+    not yet settled, settled within the last 10 days, or with an open recall.
+  - The Payments Operations page pages through bulk files and recalls beyond the newest 25.
+- **Measured** (300 recalls): AI assisted 94.0 % accurate against 82.0 %, review hours 48
+  against 74. Serial recallers sent rose to 10 from 9, the one kind it made worse.
+
+## Phase 42: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 623 passed (new: 4 — the recall rules and their payer blind spot; the recall profile with a keyed-twice duplicate, payee history and a refused earlier recall; baseline and AI-assisted recall runs with every case decided by back office, no control violations, every kind's advice as designed, recalls sent and answered only after approval; a batch above the ledger line limit settling, and closure refused while a payment could come back (PR #32 review)) |
+| Generated workflow tests | 33 workflows, 652 cases, 0 failed (WF-1023 v2: 21 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 121 passed (new: paging back through bulk files and recalls (PR #32 review)) / clean / built |
+| Playwright on a fresh database | 45 passed on the first run (new: the recall assistant in the AI Lab console, recommending sending a recall) |
+| Measurement | `recall-triage`, seed 2030, 300 recalls each: baseline 82.0 % accurate (31 wrongly sent, 23 wrongly withdrawn, 73.6 review hours, median cycle 2.8 h); AI assisted 94.0 % (16, 2, 48.2, 0.5 h); serial recallers sent 9 against 10 of 52; the assistant's own advice 80 % accurate, 37 escalated |
+
+Found while building it:
+- **Lint:** ruff flagged closures defined inside the case loop (B023); case set-up moved into
+  a method.
+- **Review-fix tests:** the first version of the closure test settled its payments on a
+  fixed test date, more than 10 days before the real date the closure check uses, so it did
+  not raise; it now settles on the real date. Both review-fix tests (backend and frontend)
+  fail on the code before the fixes and pass after. There is no concurrency test for the
+  lock order.
+
+## Phase 42: known limitations
+
+- **The assistant is rule-based** and blind to the payer's recall history, by design.
+- **Simulation scope.** Only recall triage is simulated; outgoing payments, clearing cycles
+  and bulk files are not.
+- **Closure check uses the real date.** The refundable-payment check reads today's date, not
+  a simulated business date.
+- **No automation.** Nothing runs clearing cycles or answers recalls automatically.
 
 ## Phase 41: what exists
 

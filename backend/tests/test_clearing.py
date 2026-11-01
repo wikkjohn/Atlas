@@ -1,6 +1,6 @@
 """Phase 41: payments operations — outgoing payments, clearing, bulk files and recalls."""
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,8 +22,9 @@ CLOSED = clearing.account_number("123456789000")  # closed at the beneficiary's 
 def _payer(db: Session, staff, balance: int = 5_000_000):
     customer = make_customer(db)
     account = open_account(db, staff, customer, AccountType.CURRENT)
-    deposit(db, account.id, amount=balance, memo="Synthetic", actor_id=staff.employee.id,
-            idempotency_key=f"clearing-{account.id}")  # fmt: skip
+    if balance:
+        deposit(db, account.id, amount=balance, memo="Synthetic", actor_id=staff.employee.id,
+                idempotency_key=f"clearing-{account.id}")  # fmt: skip
     return account
 
 
@@ -164,3 +165,26 @@ def test_the_payments_operations_api(client: TestClient, db: Session) -> None:
     assert (
         client.get("/api/v1/payment-ops/summary/counts", headers=teller).json()["open_recalls"] == 0
     )
+
+
+def test_pr32_review_fixes(db: Session) -> None:
+    """Settlement posts one entry per payment, so a batch above the ledger's line limit
+    settles; an account cannot be closed while a payment could still come back to it."""
+    from app.modules.accounts.models import AccountStatus
+    from app.modules.accounts.service import change_status
+
+    staff = make_staff(db)
+    account = _payer(db, staff, balance=0)
+    big = 600_000_000_000_000  # each within the line limit, together above it
+    for n in range(2):
+        deposit(db, account.id, amount=big, memo="Synthetic", actor_id=staff.employee.id,
+                idempotency_key=f"big-{account.id}-{n}")  # fmt: skip
+    first, second = _pay(db, staff, account), _pay(db, staff, account)
+    first.amount = second.amount = big  # as if the country's limits allowed it
+    db.flush()
+    # Settled today (the real date the closure check uses), so within the recall windows.
+    today = datetime.now(UTC).date()
+    batch = clearing.run_cycle(db, account.currency, staff.manager.id, today=today)
+    assert batch.settled_count == 2 and batch.total == 2 * big
+    with pytest.raises(BusinessRuleViolation, match="could still come back"):
+        change_status(db, account.id, AccountStatus.CLOSED, staff.manager.id, "Closing")

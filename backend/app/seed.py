@@ -962,6 +962,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["service:read"],
         "compatible_workflows": ["WF-1038"],
     },
+    {
+        "tool_id": "agb-collections-assistant",
+        "tool_name": "AGB Collections Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews a proposed payment plan before a collections manager activates "
+        "it: the monthly commitment against the money paid into the borrower's account and "
+        "whether any came in recently, with an explanation and an activate, reject or refer "
+        "recommendation. Advisory: it never activates a plan (Phase 54).",
+        "adapter": "rule_based_plan_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["loans:read"],
+        "compatible_workflows": ["WF-1040"],
+    },
 ]
 
 

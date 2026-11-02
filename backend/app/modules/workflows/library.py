@@ -4162,6 +4162,30 @@ def _reject_recovery(ctx: StepContext, params: RecoveryDecision) -> dict[str, An
     return _recovery_out(recovery)
 
 
+class PlanRef(_Strict):
+    plan_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "collections.plan_profile",
+    "Read what an approver weighs before activating a payment plan: the arrears and how late "
+    "they are, the monthly commitment against the money paid into the account in 90 days, "
+    "the loan's age and the borrower's earlier plans.",
+    PlanRef,
+    "{currency, arrears_amount, arrears_usd, days_past_due, overdue_instalments, "
+    "interval_days, monthly_payment, monthly_commitment, inflow_90d, credits_90d, "
+    "commitment_to_income_pct, days_since_last_credit, loan_age_days, prior_plans, "
+    "prior_plans_broken}",
+    reads=lambda params: [params.plan_id_path],
+    effect="reads",
+    **COLLECTIONS_ACCESS,
+)
+def _plan_profile(ctx: StepContext, params: PlanRef) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    return collections.plan_profile(ctx.db, _payment_plan(ctx, params.plan_id_path))
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

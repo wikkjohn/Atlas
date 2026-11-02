@@ -833,3 +833,37 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="payment-plans",
+        version=1,
+        name="Payment plans (collections)",
+        description="A working day of payment plans through WF-1040 v2: a collections manager "
+        "activates or rejects each plan proposed for a loan in arrears. A plan the borrower can "
+        "afford, one with only two instalments overdue and one that is stretched but within "
+        "means are activated; a plan for a borrower with nothing coming in, one that would take "
+        "most of the income and one for a borrower who already broke a plan on the loan are "
+        "rejected. In AI-assisted runs the AGB Collections Review Assistant advises the manager "
+        "(Phase 54).",
+        workload="payment_plans",
+        workflow_id="WF-1040",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "affordable": 0.22,
+                "short_arrears": 0.14,
+                "stretched": 0.14,
+                "no_income": 0.14,
+                "unaffordable": 0.16,
+                "broken_before": 0.20,
+            },
+            reviewers={"approval": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.6, "manager": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

@@ -50,3 +50,16 @@ test("Collections: a debt sale on a written-off loan waits for the credit commit
   await expect(pending).toContainText(/JE-/);
   await expect(regional.getByRole("table", { name: "Written-off loans" }).getByRole("row").filter({ hasText: loan })).toContainText(/recovered \D1,000\.00/);
 });
+
+test("AI Innovation Lab: the collections assistant would activate a plan for a borrower who broke one before (its blind spot)", async ({ page }) => {
+  // The tool reads lending data (loans:read); the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Collections Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Collections Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

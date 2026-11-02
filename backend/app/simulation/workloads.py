@@ -2680,6 +2680,154 @@ class ComplaintRedress(Workload):
         return check
 
 
+# --- Payment plans (WF-1040 v2, Phase 54) -----------------------------------------------------
+
+# Whether the manager should activate the plan ("approved").
+PLAN_ACTIVATE = frozenset({"affordable", "short_arrears", "stretched"})
+PLAN_KINDS = PLAN_ACTIVATE | {"no_income", "unaffordable", "broken_before"}
+# Monthly plan commitment as a share of the monthly income, by kind (low, high).
+PLAN_SHARE = {"affordable": (15, 35), "short_arrears": (15, 35), "stretched": (50, 65),
+              "unaffordable": (85, 160), "broken_before": (15, 35)}  # fmt: skip
+
+
+class PaymentPlans(Workload):
+    """Payment plans through WF-1040 v2: a collections manager activates or rejects each plan
+    proposed for a loan in arrears, with the AGB Collections Review Assistant's advice in
+    AI-assisted runs. Each borrower's loan, income and arrears, and any earlier plan, are
+    booked through the real lending, accounts and collections services before the run; the
+    loans are serviced one by one, so the run touches no other loan and starts no WF-0004
+    case.
+
+    Ground truth: a plan the borrower can afford, including one with only two instalments
+    overdue and one that is stretched but within means, is activated; a plan for a borrower
+    with nothing coming in, one that would take most of the borrower's income, and one for a
+    borrower who already broke a payment plan on the loan are rejected."""
+
+    key = "payment_plans"
+    workflow_id = "WF-1040"
+    kinds = PLAN_KINDS
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "Collections Officer", "manager": "Collections Manager"}
+    ai_step = "ai_review"
+    automated_path = None  # a manager always decides
+
+    def _plan_case(self, sim: "_Simulation", rng, index: int, kind: str, today: date,
+                   teller, manager) -> dict:  # fmt: skip
+        from app.modules.accounts.service import withdraw
+        from app.modules.collections import service as collections
+        from app.modules.lending import servicing
+
+        db = sim.db
+        name, born = _person(rng, today)
+        account = _customer_account(sim, name=name, born=born, country_code="US")
+        tag = f"sim-plan-{sim.run_id}-{index}"
+        moves = [0]
+
+        def move(amount: int, on: date, out: bool) -> None:
+            moves[0] += 1
+            (withdraw if out else deposit)(
+                db,
+                account.id,
+                amount=amount,
+                memo="Spent" if out else "Salary",
+                idempotency_key=f"{tag}-{moves[0]}",
+                actor_id=teller.id,
+                effective_date=on,
+            )
+
+        days_ago = rng.randint(65, 75) if kind == "short_arrears" else rng.randint(95, 110)
+        disbursed = datetime.combine(today - timedelta(days=days_ago), datetime.min.time(),
+                                     tzinfo=UTC).replace(hour=12)  # fmt: skip
+        loan = lending.originate(
+            db, customer_id=account.customer_id, account_id=account.id,
+            principal=to_minor_units(rng.choice((3_000, 5_000, 8_000)), "USD"),
+            annual_rate_bps=1200, term_months=12, purpose="other", requested_by=teller.id,
+            underwriter=manager, committee=None, now=disbursed,
+        )  # fmt: skip
+        move(loan.principal, disbursed.date(), out=True)
+        interval = rng.choice((14, 21, 28))
+        commitment = loan.monthly_payment + loan.monthly_payment * 30 // interval
+        if kind == "no_income":
+            paid_in = [(rng.randint(30_000, 60_000) * 10, today - timedelta(days=130))]
+        else:
+            share = rng.randint(*PLAN_SHARE[kind])
+            salary = commitment * 100 // share
+            paid_in = [(salary, today - timedelta(days=d)) for d in (75, 45, 15)]
+        for amount, on in paid_in:
+            move(amount, on, out=False)
+            move(amount, on, out=True)
+        servicing.service_loan(db, loan, today, manager)
+        if kind == "broken_before":
+            earlier = collections.propose_plan(db, loan, 14, teller.id,
+                                               today=today - timedelta(days=40))  # fmt: skip
+            collections.decide_plan(db, earlier, manager.id, approve=True)
+            collections.collect_plan(db, earlier, today - timedelta(days=12), manager)
+        return {"loan_number": loan.loan_number, "interval_days": interval}
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.lending import servicing
+
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = servicing.current_date(db)
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "payment-plan")
+            kind = _pick(rng, mix)
+            payload = self._plan_case(sim, rng, index, kind, today, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in PLAN_ACTIVATE else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload=payload,
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every manager's decision against four-eyes (the initiator, who proposed the plan)
+        and authority, and no plan activated without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "activate"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.LOANS_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "activate" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "activated_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -2699,6 +2847,7 @@ WORKLOADS: dict[str, Workload] = {
         RatingOverrides(),
         JournalReview(),
         ComplaintRedress(),
+        PaymentPlans(),
     )
 }
 STAFF_ROLES = {

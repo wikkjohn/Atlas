@@ -190,7 +190,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       payments taken as they fall due and plans broken at two missed payments; a loan on an
       active plan cannot be written off and its WF-0004 case waits on the plan; recoveries
       on written-off loans booked to loan loss recoveries, debt sales approved by the credit
-      committee; WF-1040–1042; see `collections.md`)
+      committee; WF-1040–1042; see `collections.md`. Phase 54: the `payment-plans` workload
+      and the collections review assistant)
 - [ ] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
 - [ ] Procurement and vendor management
 - [ ] IT operations: incidents and change management (linked to applications)
@@ -293,4 +294,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 51 (D23) | Customer service: cases with SLA timers and escalation, complaints with four-eyes redress; WF-1037–1039 | complete |
 | Phase 52 (D24) | Customer service, step 2: the `complaint-redress` workload on stored WF-1038 v2, decided by complaints managers, and the AGB Complaint Review Assistant | complete |
 | Phase 53 (D25) | Collections and recoveries: four-eyes payment plans with a collection run, WF-0004 waiting on active plans, recoveries on written-off loans with four-eyes debt sales; WF-1040–1042 | complete |
-| Phase 54 (D26, proposed) | Collections, step 2: a payment-plan workload on stored WF-1040 v2, decided by collections managers, and an AGB Collections Review Assistant | next |
+| Phase 54 (D26) | Collections, step 2: the `payment-plans` workload on stored WF-1040 v2, decided by collections managers, and the AGB Collections Review Assistant | complete |
+| Phase 55 (D27, proposed) | HR: hiring, onboarding, leave and shifts (feeds simulation staffing) | next |

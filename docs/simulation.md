@@ -345,7 +345,8 @@ removing postings would rewrite the books; only workflow history is lifecycle-ma
   stored WF-1030 v2, decided by simulated regional executives — and `journal-review` v1 —
   Phase 50, on stored WF-1036 v2, decided by simulated regional executives — and
   `complaint-redress` v1 — Phase 52, on stored WF-1038 v2, decided by simulated complaints
-  managers; see
+  managers — and `payment-plans` v1 — Phase 54, on stored WF-1040 v2, decided by simulated
+  collections managers; see
   [ai-testing.md](ai-testing.md)). `payments-easter` (Phase 26) sets a business calendar, so arrivals skip UK
   weekends and holidays; see [business-calendars.md](business-calendars.md). The two
   `global-*` scenarios (Phase 28) generate cases that follow each country's rules and run

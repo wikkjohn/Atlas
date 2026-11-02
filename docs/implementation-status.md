@@ -97,7 +97,21 @@ Last updated: Phase 55.
 
 ## Phase 55: verified results
 
-PHASE55_RESULTS
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 684 passed (new: 5 — requisitions, four-eyes approval, offers inside the band, a hire with its onboarding checklist; leave in US business days, overlaps, the annual balance, four-eyes decisions and the sweep; shift rules (other department, leave, double booking, full shift, rest, 48 hours) and capacity with and without rosters; a simulation run staffed from a department's capacity on the simulated day; the API with its permissions). The HR, workflow-testing and stored-definition tests were re-run after the fixture fix below: 22 passed |
+| Migration 0039 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 55 workflows, 901 cases, 0 failed (WF-1043: 10 cases, WF-1044: 10, WF-1045: 3; each 100 % steps and routes), after the fix below |
+| Frontend Vitest / typecheck / build | 146 passed (new: 3 — summary, requisitions with candidates, leave, shifts and capacity; opening and approving a requisition, an offer and a leave decision; read-only with `hr:read`) / clean / built |
+| Playwright on a fresh database | 61 passed (new: 2 — a manager opens a requisition, an executive approves it, an offer outside the band is refused and the candidate is hired with an onboarding checklist; leave counted in business days, refused to its requester and approved by another) |
+
+Found while building it:
+- **Generated tests could not set up:** the HR fixture gave its new employee a surname with
+  digits, which employee names do not allow, so every WF-1043 and WF-1044 generated test
+  failed before running. The surname is now letters only.
+- **Test expectations, not code:** the first unit and backend test runs failed on test
+  details (a date range with exactly the remaining leave, a label matching three elements,
+  options not loaded yet); the tests were corrected.
 
 ## Phase 55: known limitations
 

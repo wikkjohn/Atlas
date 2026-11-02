@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 57.
+Last updated: Phase 58.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -62,6 +62,55 @@ Last updated: Phase 57.
 | 55 | Departments, step 27: human resources ([hr.md](hr.md)) | **Complete** |
 | 56 | Departments, step 28: the human resources workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 57 | Departments, step 29: procurement and vendor management ([procurement.md](procurement.md)) | **Complete** |
+| 58 | Departments, step 30: the procurement workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 58: what exists
+
+- **`procurement.invoice_profile`:** what an approver weighs before paying an invoice:
+  - its amount, in US dollars too;
+  - the vendor's category, tier and age;
+  - any bank-detail change, and the payments to the new account since;
+  - whether the invoice is dated before its order;
+  - partial delivery, and how far the invoiced total runs over what was received;
+  - the vendor's other invoices in the 90 days before, and how many were for the same
+    amount.
+
+  It is also a library handler. `procurement.record_invoice` now takes the date on the
+  vendor's invoice.
+- **AGB Invoice Review Assistant** (`rule_based_invoice_review`, `recommend_decision` only,
+  compatible with WF-1048, needs `procurement:read`), with a deliberate blind spot: it
+  never reads the vendor's same-amount history. The seed registers it, and the AI Lab
+  console has a sample.
+- **WF-1048 v2:** the invoice profile and AI review after a matched invoice is recorded,
+  before the manager releases the payment.
+- **Workload `invoice_payments` and scenario `invoice-payments` v1:**
+  - an approved US vendor and a received order per case, with bank changes and earlier
+    paid invoices booked through the real procurement service;
+  - eight kinds with ground truth, decided by simulated department managers;
+  - a control check covers four-eyes, `procurement:approve`, and nothing paid without the
+    decision.
+- **PR #48 (Phase 57)** had no review comments; CI passed on the first run.
+- **Measured** (300 invoices): AI assisted 95.0 % accurate against 82.0 %, managers' hours
+  47.6 against 73.6. Near-duplicate invoices paid: 11 of 48 against 10.
+
+## Phase 58: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | Full run: 695 passed, 1 failed. The failure (`test_system.py::test_system_status_is_operational_after_migrations`, "needs_migration") came from the next phase's migration file, written into the working tree while the run was going: the test compares the database with the newest migration on disk. With that work set aside and the test database recreated, `test_system.py` and `test_invoice_review.py` passed (8). New: 3 — the invoice rules and their blind spot; the invoice profile (a bank change with nothing paid since, an invoice dated before its order, a partial delivery invoiced 1 % over, an earlier invoice from the vendor); baseline and AI-assisted invoice runs with every invoice decided by a manager other than its recorder, no control violations, every kind's advice as designed |
+| Generated workflow tests | 58 workflows, 937 cases, 0 failed (WF-1048 v2: 14 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 149 passed / clean / built |
+| Playwright on a fresh database | 65 passed (new: the invoice assistant in the AI Lab console, recommending payment of a bill sent again) |
+| Measurement | `invoice-payments`, seed 2030, 300 invoices each: baseline 82.0 % accurate (23 wrongly paid, 31 wrongly rejected, 73.6 manager hours, median cycle 3.8 h); AI assisted 95.0 % (11, 4, 47.6 h, 1.1 h); near-duplicates paid 11 against 10 of 48; the assistant's own advice 82 % accurate, 32 referred on |
+
+Found while building it: nothing failed in the new tests or the measurement on their first
+runs.
+
+## Phase 58: known limitations
+
+- **The assistant is rule-based** and blind to the vendor's same-amount history, by design.
+- **Only invoice payments are simulated;** vendor onboarding and orders are not.
+- **US vendors in US dollars only.**
 
 ## Phase 57: what exists
 

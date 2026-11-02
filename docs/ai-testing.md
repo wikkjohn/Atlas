@@ -902,3 +902,64 @@ one run each):
 
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
+
+## WF-1048 v2 and the invoice review assistant (Phase 58)
+
+WF-1048 v2 is a stored workflow. After a vendor's invoice is recorded and matched, it reads
+the invoice profile (`procurement.invoice_profile`) and asks the assistant through
+`ai.review`. A department manager (`procurement:approve`, someone other than whoever
+recorded the invoice) then releases the payment or rejects the invoice. Held invoices end
+before the review. A manager always decides, so the scenario runs baseline and AI assisted
+only.
+
+Each case has its own approved US vendor and a received purchase order. The history the
+case needs is booked through the real procurement service:
+- a bank-detail change, verified by a second person;
+- earlier invoices paid to the vendor.
+
+What the assistant (`rule_based_invoice_review`) weighs:
+- **Reject:**
+  - the vendor's bank account changed less than 30 days ago, and nothing has been paid to
+    it since;
+  - the invoice is dated before its order was raised.
+- **Refer on:**
+  - the invoiced total runs over what was received, within the 2 % tolerance;
+  - US$10,000 or more from a vendor registered less than 30 days ago;
+  - a high-risk vendor.
+- **Approve:** anything else, as routine.
+
+Its **blind spot** is the vendor's history. The profile counts the vendor's other invoices
+in the 90 days before and how many were for the same amount, and the assistant never reads
+them. So the same bill sent again under a new reference looks like any routine invoice, and
+it recommends paying.
+
+What `invoice-payments` v1 measured (seed 2030, 300 invoices, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 82.0 % | 95.0 % |
+| Wrongly paid | 23 | 11 |
+| Wrongly rejected | 31 | 4 |
+| Near-duplicate invoices paid (of 48) | 10 | 11 |
+| Manager hours | 73.6 | 47.6 |
+| Median cycle time (hours) | 3.8 | 1.1 |
+| Tool's recommendation accuracy | — | 82 % (32 referred on) |
+
+**Where the assistant helps:**
+- Routine invoices, partial deliveries, old bank changes and small first invoices wrongly
+  rejected fall from 28 to 1.
+- Invoices to a newly changed bank account, and invoices dated before their order, are
+  paid 0 times in 72 (13 times in the baseline).
+- Managers' time falls by more than a third.
+
+**Where it does not:**
+- It recommends paying all 48 near-duplicates. The simulated managers paid 10 of them in
+  the baseline and 11 with the assistant: the blind spot made outcomes no better, and one
+  more duplicate was paid.
+- Invoices within the tolerance are referred on, which leaves managers where the baseline
+  was: 29 of 32 paid either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.
+

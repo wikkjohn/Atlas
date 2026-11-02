@@ -85,6 +85,9 @@ Matched or held invoices can be rejected; nothing is paid.
 | WF-1047 Purchase Order | raise → approval (`procurement:approve`) → approve or reject | `procurement.raise_order`, `procurement.approve_order`, `procurement.reject_order` |
 | WF-1048 Invoice Payment | record → matched? → approval (`procurement:approve`) → pay or reject; held invoices end there | `procurement.record_invoice`, `procurement.pay_invoice`, `procurement.reject_invoice` |
 
+`procurement.record_invoice` takes the date on the vendor's invoice (`invoice_date_path`,
+optional since Phase 58); without it, the invoice is dated the day it is recorded.
+
 The handlers need `procurement:manage` to start and `procurement:read` to read executions.
 Approving a high-risk vendor or a large order in a workflow needs a decider holding
 `procurement:approve_large`. Paying an invoice moves money, so it comes after an approval.
@@ -93,6 +96,32 @@ Their generated tests take, from fixtures:
 - an approved US facilities vendor;
 - an active US department;
 - an approved order of US$1,000 from the vendor, received in full.
+
+## Simulation workload and AI tool (Phase 58)
+
+The `invoice_payments` workload drives WF-1048 v2 (scenario `invoice-payments`).
+- **Cases:** each case has its own approved US vendor and a received purchase order. Any
+  bank-detail change and earlier paid invoices the case needs are booked through the real
+  procurement service. The workflow then records the invoice, with the date the vendor put
+  on it, and a department manager (`procurement:approve`) pays or rejects it.
+- **Ground truth:**
+  - paid: routine invoices, partial deliveries, invoices within the 2 % tolerance, vendors
+    whose bank details changed long ago, and small first invoices from new vendors;
+  - rejected: an invoice to a bank account changed in the last fortnight with nothing paid
+    to it yet, an invoice dated before its order, and the same bill sent again under a new
+    reference.
+- **`procurement.invoice_profile`** (also a library handler) reads:
+  - the amount, in US dollars too;
+  - the vendor's category, tier and age;
+  - any bank-detail change, and how many payments have gone to the new account since;
+  - whether the invoice is dated before its order, and how old it is;
+  - whether the delivery was partial, and how far the invoiced total runs over what was
+    received;
+  - the vendor's other invoices in the 90 days before, and how many were for the same
+    amount.
+- **AGB Invoice Review Assistant** (`agb-invoice-assistant`): advisory. It is blind to the
+  vendor's same-amount history; see [ai-testing.md](ai-testing.md) for its rules and the
+  measurement.
 
 ## Permissions
 
@@ -112,4 +141,5 @@ Their generated tests take, from fixtures:
 - **No budgets:** orders are not checked against a department's budget.
 - **Vendors are never re-screened** after registration, and none is suspended
   automatically.
-- **Not simulated yet:** no workload drives these workflows (planned for Phase 58).
+- **Only invoice payments are simulated** (Phase 58); vendor onboarding and purchase orders
+  are not.

@@ -103,3 +103,16 @@ test("Procurement: a sanctions hit is never approved, and a bank change waits fo
   await expect(row(manager, "Vendors", vendor)).toContainText("pays to US000333333333");
   await expect(row(manager, "Vendors", vendor)).not.toContainText("awaiting checks");
 });
+
+test("AI Innovation Lab: the invoice assistant would pay the same bill sent again (its blind spot)", async ({ page }) => {
+  // The tool reads procurement data (procurement:read); the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Invoice Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Invoice Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

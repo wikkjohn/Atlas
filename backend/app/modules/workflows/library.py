@@ -4636,6 +4636,8 @@ class RecordInvoice(_Strict):
     order_number_path: str = Field(min_length=1, max_length=200)
     vendor_reference_path: str = Field(min_length=1, max_length=200)
     amount_path: str = Field(min_length=1, max_length=200)
+    # The date on the vendor's invoice; the day it is recorded when not given (Phase 58).
+    invoice_date_path: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 def _invoice_out(invoice) -> dict[str, Any]:
@@ -4654,6 +4656,7 @@ def _invoice_out(invoice) -> dict[str, Any]:
         params.order_number_path,
         params.vendor_reference_path,
         params.amount_path,
+        *([params.invoice_date_path] if params.invoice_date_path else []),
     ],  # fmt: skip
     effect="writes",
     fixtures=lambda params: {params.order_number_path: "procurement.received_order_number"},
@@ -4667,9 +4670,22 @@ def _record_invoice(ctx: StepContext, params: RecordInvoice) -> dict[str, Any]:
     invoice = _trade_call(
         "invoice_refused", procurement.record_invoice, ctx.db, order,
         str(_required(ctx, params.vendor_reference_path)),
-        int(_required(ctx, params.amount_path)), ctx.now.date(), ctx.initiator_id,
+        int(_required(ctx, params.amount_path)), _invoice_date(ctx, params.invoice_date_path),
+        ctx.initiator_id,
     )  # fmt: skip
     return _invoice_out(invoice)
+
+
+def _invoice_date(ctx: StepContext, path: str | None):
+    from datetime import date
+
+    value = ctx.get(path, None) if path else None
+    if not value:
+        return ctx.now.date()
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError as exc:
+        raise StepError("invalid_value", f"'{value}' is not a date.", {"path": path}) from exc
 
 
 class InvoiceDecision(_Strict):
@@ -4681,6 +4697,30 @@ def _vendor_invoice(ctx: StepContext, path: str):
     from app.modules.procurement import service as procurement
 
     return procurement.get_invoice(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+class InvoiceRef(_Strict):
+    invoice_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "procurement.invoice_profile",
+    "Read what an approver weighs before paying an invoice: its amount, the vendor's age, "
+    "tier and any bank-detail change (and payments since), whether the invoice predates the "
+    "order, how far it runs over what was received, and the vendor's other invoices in 90 "
+    "days and how many were for the same amount.",
+    InvoiceRef,
+    "{amount, currency, amount_usd, vendor_category, vendor_risk_tier, vendor_age_days, "
+    "bank_changed_days_ago, paid_since_bank_change, invoice_before_order, invoice_age_days, "
+    "partial_delivery, over_received_bps, vendor_invoices_90d, same_amount_invoices_90d}",
+    reads=lambda params: [params.invoice_id_path],
+    effect="reads",
+    **PROCUREMENT_ACCESS,
+)
+def _invoice_profile(ctx: StepContext, params: InvoiceRef) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    return procurement.invoice_profile(ctx.db, _vendor_invoice(ctx, params.invoice_id_path))
 
 
 @_library_handler(

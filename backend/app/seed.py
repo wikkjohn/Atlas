@@ -1008,6 +1008,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["procurement:read"],
         "compatible_workflows": ["WF-1048"],
     },
+    {
+        "tool_id": "agb-change-assistant",
+        "tool_name": "AGB Change Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews a change request before it is approved: the backout plan, open "
+        "P1 and P2 incidents on the application, business-hours windows on critical systems, "
+        "short notice and long windows, with an explanation and an approve, reject or refer "
+        "recommendation. Advisory: it never approves a change (Phase 60).",
+        "adapter": "rule_based_change_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["itops:read"],
+        "compatible_workflows": ["WF-1050"],
+    },
 ]
 
 

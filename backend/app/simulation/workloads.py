@@ -3198,6 +3198,175 @@ class InvoicePayments(Workload):
         return check
 
 
+# --- Change approvals (WF-1050 v2, Phase 60) --------------------------------------------------
+
+# Whether the manager should approve the change ("approved").
+CHANGE_APPROVE = frozenset({"routine", "tier3_daytime", "short_notice"})
+CHANGE_KINDS = CHANGE_APPROVE | {"no_backout", "during_incident", "business_hours",
+                                 "serial_failures"}  # fmt: skip
+CHANGE_TITLES = ("Upgrade the database driver", "Apply the monthly OS patches",
+                 "Rotate the TLS certificates", "Deploy release 4.2", "Resize the job queue",
+                 "Upgrade the message broker", "Change the batch schedule")  # fmt: skip
+
+
+def _weekday_ahead(base: datetime, rng, low: int, high: int) -> int:
+    """Days ahead of `base`, between low and high, landing on a weekday."""
+    days = rng.randint(low, high)
+    while (base + timedelta(days=days)).weekday() >= 5:
+        days += 1
+    return days
+
+
+class ChangeApprovals(Workload):
+    """Normal change requests through WF-1050 v2: a department manager approves or rejects
+    each, with the AGB Change Review Assistant's advice in AI-assisted runs. Every case has
+    its own tier-2 or tier-3 application, with whatever history it needs (failed changes and
+    the incidents they opened, an open incident) booked through the real IT operations
+    service before the run, dated against the scenario's simulated day.
+
+    Ground truth: routine changes out of hours, daytime changes to tier-3 applications and
+    changes raised at short notice for the small hours are approved; a change with no
+    backout plan, a change to an application with a P2 still open, a business-hours window
+    on a tier-2 application, and another change to an application whose last changes kept
+    failing are rejected."""
+
+    key = "change_approvals"
+    workflow_id = "WF-1050"
+    kinds = CHANGE_KINDS
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "Change Coordinator", "manager": "Department Manager"}
+    ai_step = "ai_review"
+    automated_path = None  # a manager always decides
+
+    def _department(self, sim: "_Simulation"):
+        from app.modules.organizations.models import Organization, OrganizationType
+
+        found = getattr(sim, "_change_department", None)
+        if found is None:
+            found = sim.db.execute(
+                select(Organization).join(Country, Country.id == Organization.country_id)
+                .where(Organization.organization_type == OrganizationType.DEPARTMENT,
+                       Organization.status == "active", Country.iso_country_code == "US")
+                .order_by(Organization.name).limit(1)
+            ).scalar_one()  # fmt: skip
+            sim._change_department = found
+        return found
+
+    def _change_case(self, sim: "_Simulation", rng, index: int, kind: str, base: datetime,
+                     teller, manager) -> dict:  # fmt: skip
+        from app.modules.itops import service as itops
+
+        db = sim.db
+        tier = 3 if kind in ("tier3_daytime", "no_backout") else 2
+        app = itops.register_application(
+            db, name=f"Simulated System {sim.run_id.hex[:6]}-{index}",
+            description="A simulated application", department_id=self._department(sim).id,
+            tier=tier, actor_id=None)  # fmt: skip
+        plan = "Redeploy the previous release and restore the configuration backup."
+
+        def past_change(days_ago: int, success: bool) -> None:
+            raised = base - timedelta(days=days_ago)
+            change = itops.raise_change(
+                db, app, title=CHANGE_TITLES[rng.randrange(len(CHANGE_TITLES))],
+                kind="normal", backout_plan=plan, planned_start=raised + timedelta(days=2),
+                planned_end=raised + timedelta(days=2, hours=2), requested_by=teller.id,
+                now=raised)  # fmt: skip
+            itops.decide_change(db, change, manager.id, True)
+            done = raised + timedelta(days=2, hours=1)
+            _, incident = itops.implement(db, change, teller.id, success, done)
+            if incident is not None:  # the failure was dealt with: nothing left open
+                itops.acknowledge(db, incident, teller.id, done + timedelta(minutes=10))
+                itops.resolve(db, incident, "Rolled the change back.", teller.id,
+                              now=done + timedelta(hours=2))  # fmt: skip
+                itops.close(db, incident, manager.id, now=done + timedelta(hours=3))
+
+        days, hour, hours, backout = _weekday_ahead(base, rng, 3, 10), 22, rng.randint(1, 4), plan
+        if kind == "routine" and rng.random() < 0.5:
+            past_change(rng.randint(20, 80), True)
+        elif kind == "tier3_daytime":
+            hour = rng.randint(10, 15)
+        elif kind == "short_notice":
+            # The small hours of the next day: under a day ahead of a working-day request.
+            days, hour = 1, rng.randint(2, 6)
+        elif kind == "no_backout":
+            backout = ""
+        elif kind == "during_incident":
+            opened = base - timedelta(hours=rng.randint(1, 6))
+            itops.open_incident(db, app, "Slow responses for some users", "medium", "high",
+                                teller.id, now=opened)  # fmt: skip
+        elif kind == "business_hours":
+            hour = rng.randint(10, 15)
+        elif kind == "serial_failures":
+            for back in sorted(rng.sample(range(10, 85), rng.randint(2, 3)), reverse=True):
+                past_change(back, False)
+        db.flush()
+        return {"application_number": app.application_number,
+                "title": CHANGE_TITLES[rng.randrange(len(CHANGE_TITLES))], "kind": "normal",
+                "backout_plan": backout, "days_ahead": days, "hours": hours,
+                "start_hour": hour}  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        base = sim.scenario.simulated_start
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "change")
+            kind = _pick(rng, mix)
+            payload = self._change_case(sim, rng, index, kind, base, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in CHANGE_APPROVE else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload=payload,
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every manager's decision against four-eyes (the initiator, who raised the change)
+        and authority, and no change approved without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "approve"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        decided: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    decided.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.ITOPS_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "approve" and execution.id not in decided:
+                check.violations.append(
+                    {"rule": "approved_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -3220,6 +3389,7 @@ WORKLOADS: dict[str, Workload] = {
         PaymentPlans(),
         LeaveRequests(),
         InvoicePayments(),
+        ChangeApprovals(),
     )
 }
 STAFF_ROLES = {

@@ -342,7 +342,7 @@ def raise_change(db: Session, application: Application, *, title: str, kind: str
         planned_start=planned_start, planned_end=planned_end,
         incident_id=incident.id if incident else None,
         status=(ChangeStatus.APPROVED if kind == "standard" else ChangeStatus.REQUESTED).value,
-        requested_by=requested_by,
+        requested_by=requested_by, created_at=now,
     )  # fmt: skip
     db.add(change)
     db.flush()
@@ -418,6 +418,50 @@ def implement(db: Session, change: ChangeRequest, actor_id: uuid.UUID, success: 
     _audit(db, actor_id, f"itops.change_{change.status}", "change_request", change.id,
            change_number=change.change_number)  # fmt: skip
     return change, incident
+
+
+BUSINESS_HOURS = range(8, 18)  # UTC hours a window should avoid on tier-1 and tier-2 systems
+
+
+def change_profile(db: Session, change: ChangeRequest) -> dict[str, Any]:
+    """What an approver weighs before approving a change (Phase 60), as of the day it was
+    raised: its kind, risk, the application's tier, the backout plan, the window's length,
+    start hour and lead time, whether it falls in business hours or the freeze, the
+    application's open P1 and P2 incidents, and the failed changes in the 90 days before,
+    to the application and by the requester."""
+    app = get_application(db, change.application_id)
+    asked = change.created_at
+    since = asked - timedelta(days=90)
+    failed = ChangeRequest.status == ChangeStatus.FAILED
+
+    def count(*where) -> int:
+        return db.execute(
+            select(func.count()).select_from(ChangeRequest)
+            .where(ChangeRequest.id != change.id, ChangeRequest.created_at < asked, *where)
+        ).scalar_one()  # fmt: skip
+
+    open_major = db.execute(
+        select(func.count()).select_from(Incident).where(
+            Incident.application_id == app.id, Incident.priority <= 2,
+            Incident.status.in_([IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]))
+    ).scalar_one()  # fmt: skip
+    start, end = change.planned_start, change.planned_end
+    return {
+        "kind": change.kind, "risk": change.risk, "tier": app.tier,
+        "has_backout_plan": len(change.backout_plan.strip()) >= 10,
+        "window_hours": round((end - start).total_seconds() / 3600, 2),
+        "start_hour_utc": start.hour,
+        "business_hours": start.weekday() < 5 and start.hour in BUSINESS_HOURS,
+        "lead_hours": round((start - asked).total_seconds() / 3600, 1),
+        "in_freeze": frozen(start, end),
+        "open_major_incidents": open_major,
+        "app_failed_changes_90d": count(ChangeRequest.application_id == app.id, failed,
+                                        ChangeRequest.created_at >= since),
+        "app_changes_90d": count(ChangeRequest.application_id == app.id,
+                                 ChangeRequest.created_at >= since),
+        "requester_failed_changes_90d": count(ChangeRequest.requested_by == change.requested_by,
+                                              failed, ChangeRequest.created_at >= since),
+    }  # fmt: skip
 
 
 def summary(db: Session, now: datetime | None = None) -> dict[str, Any]:

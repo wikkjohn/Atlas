@@ -62,6 +62,11 @@ class StartSimulation(BaseModel):
         description="Only this active country's customers, with staff from its subsidiary "
         "(Phase 28); default: every active country",
     )
+    staffing_department_id: uuid.UUID | None = Field(
+        default=None,
+        description="Custom profile, instead of employees: as many staff as this department "
+        "has available on the scenario's simulated day, by HR's leave and rosters (Phase 55)",
+    )
 
 
 class StartSuite(BaseModel):

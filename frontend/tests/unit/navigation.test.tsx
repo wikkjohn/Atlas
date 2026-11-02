@@ -21,6 +21,7 @@ describe("Application shell", () => {
       "Organization",
       "Countries",
       "Employees",
+      "Human Resources",
       "Customers",
       "Accounts",
       "Retail Banking",

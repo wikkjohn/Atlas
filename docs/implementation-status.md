@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 54.
+Last updated: Phase 55.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -59,6 +59,68 @@ Last updated: Phase 54.
 | 52 | Departments, step 24: the customer service workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 53 | Departments, step 25: collections and recoveries ([collections.md](collections.md)) | **Complete** |
 | 54 | Departments, step 26: the collections workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 55 | Departments, step 27: human resources ([hr.md](hr.md)) | **Complete** |
+
+## Phase 55: what exists
+
+- **HR module** (`app/modules/hr/`, migration 0039).
+- **Hiring:**
+  - requisitions for a role, openings and a yearly salary band, approved by someone other
+    than the requester (`hr:approve`, also a database constraint);
+  - candidates, offers inside the band, and hires through the employees service, in the
+    department, at the offered salary, reporting to its manager;
+  - the requisition is filled with its last opening.
+- **Onboarding:** five checklist items per hire, due from the start date; overdue ones are
+  counted.
+- **Leave:**
+  - annual, sick or unpaid, counted in the business days of the employee's country;
+  - annual leave against 25 days a year; no overlaps;
+  - decided by someone other than the requester (also a database constraint);
+  - a sweep sets employees on leave and back.
+- **Shifts:** rosters refuse another department's staff, people on leave, double booking,
+  more than 48 hours a week and less than 11 hours' rest.
+- **Capacity:** a department's available staff on a day, overall and by simulated role.
+- **Simulation staffing:** a custom run can be staffed from a department's capacity on
+  the simulated day; the capacity is part of the run's configuration and hash.
+- **Permissions:**
+  - `hr:read`: managers, executives, auditors;
+  - `hr:manage`: department managers;
+  - `hr:approve`: regional and global executives.
+- **Workflow factory:** seven `hr.*` handlers and three workflows:
+  - WF-1043 Job Requisition
+  - WF-1044 Leave Request
+  - WF-1045 Leave Status Sweep
+- **Human Resources page** (`/hr`): summary, capacity, requisitions with candidates and
+  offers, leave, shifts and onboarding.
+- **PR #45 (Phase 54)** had no review comments. One CI end-to-end failure (the experiments
+  test) passed on its one re-run; its cause was not established.
+
+## Phase 55: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 684 passed (new: 5 — requisitions, four-eyes approval, offers inside the band, a hire with its onboarding checklist; leave in US business days, overlaps, the annual balance, four-eyes decisions and the sweep; shift rules (other department, leave, double booking, full shift, rest, 48 hours) and capacity with and without rosters; a simulation run staffed from a department's capacity on the simulated day; the API with its permissions). The HR, workflow-testing and stored-definition tests were re-run after the fixture fix below: 22 passed |
+| Migration 0039 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 55 workflows, 901 cases, 0 failed (WF-1043: 10 cases, WF-1044: 10, WF-1045: 3; each 100 % steps and routes), after the fix below |
+| Frontend Vitest / typecheck / build | 146 passed (new: 3 — summary, requisitions with candidates, leave, shifts and capacity; opening and approving a requisition, an offer and a leave decision; read-only with `hr:read`) / clean / built |
+| Playwright on a fresh database | 61 passed (new: 2 — a manager opens a requisition, an executive approves it, an offer outside the band is refused and the candidate is hired with an onboarding checklist; leave counted in business days, refused to its requester and approved by another) |
+
+Found while building it:
+- **Generated tests could not set up:** the HR fixture gave its new employee a surname with
+  digits, which employee names do not allow, so every WF-1043 and WF-1044 generated test
+  failed before running. The surname is now letters only.
+- **Test expectations, not code:** the first unit and backend test runs failed on test
+  details (a date range with exactly the remaining leave, a label matching three elements,
+  options not loaded yet); the tests were corrected.
+
+## Phase 55: known limitations
+
+- **No self-service:** a manager records leave for an employee.
+- **Whole days only;** sick leave is not capped and annual leave does not carry over.
+- **No payroll:** salaries are recorded, not paid.
+- **Capacity sizes a run but does not shape it:** the role mix still comes from the
+  scenario.
+- **No simulation of HR yet:** there is no HR workload or AI tool yet (proposed Phase 56).
 
 ## Phase 54: what exists
 

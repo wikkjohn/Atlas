@@ -192,7 +192,12 @@ for the factory, a simulation workload and at least one AI tool candidate.
       on written-off loans booked to loan loss recoveries, debt sales approved by the credit
       committee; WF-1040–1042; see `collections.md`. Phase 54: the `payment-plans` workload
       and the collections review assistant)
-- [ ] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
+- [x] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
+      (Phase 55: requisitions approved by a second person, offers inside the salary band
+      and hires with onboarding checklists; leave in each country's business days against
+      a 25-day entitlement, decided by a second person, with a status sweep; shift rosters
+      with leave, double-booking, 48-hour and 11-hour-rest checks; a department's capacity
+      on the simulated day can staff a simulation run; WF-1043–1045; see `hr.md`)
 - [ ] Procurement and vendor management
 - [ ] IT operations: incidents and change management (linked to applications)
 - [ ] Legal, audit, marketing, facilities and the remaining departments (thin modules)
@@ -295,4 +300,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 52 (D24) | Customer service, step 2: the `complaint-redress` workload on stored WF-1038 v2, decided by complaints managers, and the AGB Complaint Review Assistant | complete |
 | Phase 53 (D25) | Collections and recoveries: four-eyes payment plans with a collection run, WF-0004 waiting on active plans, recoveries on written-off loans with four-eyes debt sales; WF-1040–1042 | complete |
 | Phase 54 (D26) | Collections, step 2: the `payment-plans` workload on stored WF-1040 v2, decided by collections managers, and the AGB Collections Review Assistant | complete |
-| Phase 55 (D27, proposed) | HR: hiring, onboarding, leave and shifts (feeds simulation staffing) | next |
+| Phase 55 (D27) | HR: four-eyes requisitions, offers within the band and hires with onboarding, leave in country business days, shift rosters, department capacity staffing simulation runs; WF-1043–1045 | complete |
+| Phase 56 (D28, proposed) | HR, step 2: a leave-request workload on stored WF-1044 v2, decided by department managers, and an AGB Leave Review Assistant | next |

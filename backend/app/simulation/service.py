@@ -199,7 +199,33 @@ def _ensure_idle(db: Session) -> None:
         )
 
 
+def _hr_staffing(db: Session, body: StartSimulation) -> dict | None:
+    """The department's capacity on the simulated day, when the run is staffed from HR."""
+    if body.staffing_department_id is None:
+        return None
+    from app.modules.hr import service as hr
+
+    if body.profile != "custom" or body.employees is not None:
+        raise BusinessRuleViolation(
+            "A run staffed from HR uses the custom profile with applications and no employees."
+        )
+    scenario = get_scenario(body.scenario_id, body.scenario_version)
+    if scenario is None:
+        raise NotFoundError(f"Scenario {body.scenario_id} is not registered.")
+    staffing = hr.capacity(db, body.staffing_department_id, scenario.simulated_start.date())
+    if staffing["available"] < 3:
+        raise BusinessRuleViolation(
+            f"{staffing['department']} has {staffing['available']} staff available on "
+            f"{staffing['on']}; a run needs at least 3.",
+            {"staffing": staffing},
+        )
+    return staffing
+
+
 def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> SimulationRun:
+    staffing = _hr_staffing(db, body)
+    if staffing is not None:
+        body = body.model_copy(update={"employees": staffing["available"]})
     scenario, applications, employees = _resolve(body)
     _check_profile_shards(body)
     tool = _resolve_tool(db, scenario, [body.mode], body.tool_id, body.tool_version)
@@ -216,6 +242,7 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
         tool=tool,
         shards=body.shards,
         countries=[body.country] if body.country else None,
+        staffing=staffing,
     )
 
 

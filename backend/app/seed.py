@@ -658,9 +658,11 @@ def _seed_collections(db: Session) -> None:
             kyc_status=KycStatus.VERIFIED, risk_rating=RiskRating.LOW), None)  # fmt: skip
         request = submit_request(db, customer_id=customer.id, account_type=AccountType.CURRENT,
                                  currency=None, requested_by=clerk.id)  # fmt: skip
-        account = approve_request(db, request.id, manager)
         disbursed = datetime.combine(today - timedelta(days=days_ago), datetime.min.time(),
                                      tzinfo=UTC).replace(hour=12)  # fmt: skip
+        # Opened before the loan, so these accounts are not the newest the bank has (other
+        # demos and tests pick the newest open account).
+        account = approve_request(db, request.id, manager, now=disbursed - timedelta(days=7))
         loan = lending.originate(
             db, customer_id=customer.id, account_id=account.id,
             principal=to_minor_units(5_000, account.currency), annual_rate_bps=1200,

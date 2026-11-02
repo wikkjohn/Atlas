@@ -100,7 +100,21 @@ Last updated: Phase 59.
 
 ## Phase 59: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 700 passed (new: 4 — priorities and targets, acknowledging late, resolving, a P1 closed only with a review by someone other than the resolver, a P4 without one, the SLA sweep; change risk, standard changes pre-approved only when low risk, four-eyes approval, overlapping windows, executive approval for tier 1, the month-end freeze and emergency changes tied to a P1 or P2; a failed change opening an incident attributed to it; the API with its permissions) |
+| Migration 0041 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 61 workflows, 959 cases, 0 failed (WF-1049: 7 cases, WF-1050: 12, WF-1051: 3; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 152 passed (new: 3 — summary, the freeze, incidents with breaches and causes, changes needing an executive, the catalogue; reporting, acknowledging and closing incidents, raising, approving and failing changes; read-only with `itops:read`) / clean / built |
+| Playwright on a fresh database | 67 passed (new: 2 — a P1 acknowledged, resolved and closed only with a review by someone else; a change approved by someone else that fails and opens an incident) |
+
+Found while building it:
+- **Kept out of the previous PR:** this phase was started while Phase 58's checks ran. Its
+  migration file on disk made one Phase 58 test fail (the system status compares the
+  database with the newest migration on disk); the work was set aside until Phase 58 was
+  merged.
+- **Postgres had stopped** before the first test run; it was restarted. One verification
+  command ran from the wrong directory and did nothing; it was run again.
 
 ## Phase 59: known limitations
 

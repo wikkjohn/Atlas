@@ -569,6 +569,14 @@ def write_off(db: Session, loan_id: uuid.UUID, approver: AuthenticatedUser, on: 
     loan = _lock_loan(db, loan_id)
     if loan.status != LoanStatus.ACTIVE:
         raise ConflictError(f"The loan is {loan.status}.")
+    from app.modules.collections.service import active_plan
+
+    plan = active_plan(db, loan.id)
+    if plan is not None:  # the borrower is keeping to a payment plan (Phase 53)
+        raise BusinessRuleViolation(
+            f"{loan.loan_number} is on payment plan {plan.plan_number}.",
+            {"rule": "plan_active", "plan_number": plan.plan_number},
+        )
     state = arrears(db, loan, on)
     if state.days_past_due < WRITE_OFF_DAYS:
         raise BusinessRuleViolation(

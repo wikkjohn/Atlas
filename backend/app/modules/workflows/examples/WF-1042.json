@@ -1,0 +1,44 @@
+{
+  "workflow_id": "WF-1042",
+  "name": "Plan Collection Run",
+  "version": 1,
+  "description": "Every active payment plan's payments due by the lending business date are taken: each settles the loan's oldest overdue instalment from the borrower's account; a payment the account cannot cover is missed, and two missed (or a schedule run out with one missed) break the plan. Stored definition: built only from library handlers (Phase 53).",
+  "business_owner": "Collections",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "presentation": {
+    "subject_path": "collect.as_of"
+  },
+  "start": "collect",
+  "steps": [
+    {
+      "id": "collect",
+      "type": "service_task",
+      "name": "Take the plan payments",
+      "handler": "collections.collect",
+      "params": {},
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Collected",
+      "outcome": "approved"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

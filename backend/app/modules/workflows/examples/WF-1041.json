@@ -1,0 +1,137 @@
+{
+  "workflow_id": "WF-1041",
+  "name": "Debt Sale",
+  "version": 1,
+  "description": "Collections records the sale of a written-off loan's debt, never for more than remains written off. The credit committee (loans:approve_large), someone other than the recorder, approves it and the proceeds are posted to loan loss recoveries, or rejects it. Stored definition: built only from library handlers (Phase 53).",
+  "business_owner": "Collections",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "loan_number",
+      "amount"
+    ],
+    "properties": {
+      "loan_number": {
+        "type": "string",
+        "pattern": "^LN-[0-9]{7,}$"
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000000,
+        "examples": [
+          1000
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "record.recovery_number"
+  },
+  "start": "record",
+  "steps": [
+    {
+      "id": "record",
+      "type": "service_task",
+      "name": "Record the debt sale",
+      "handler": "collections.record_debt_sale",
+      "params": {
+        "loan_number_path": "input.loan_number",
+        "amount_path": "input.amount"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the sale",
+      "description": "The credit committee, someone other than the recorder, approves the sale.",
+      "approval": {
+        "permissions": [
+          "loans:approve_large"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "post",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "post",
+      "type": "service_task",
+      "name": "Post the proceeds",
+      "handler": "collections.approve_recovery",
+      "params": {
+        "recovery_id_path": "record.recovery_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "posted"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject the sale",
+      "handler": "collections.reject_recovery",
+      "params": {
+        "recovery_id_path": "record.recovery_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Debt sale not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "rejected"
+    },
+    {
+      "id": "posted",
+      "type": "completion",
+      "name": "Posted",
+      "outcome": "approved"
+    },
+    {
+      "id": "rejected",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

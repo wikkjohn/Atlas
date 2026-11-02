@@ -185,7 +185,12 @@ for the factory, a simulation workload and at least one AI tool candidate.
       escalates; complaints acknowledged in two days and answered in eight weeks, with
       redress paid by a second person; WF-1037–1039; see `customer-service.md`. Phase 52:
       the `complaint-redress` workload and the complaint review assistant)
-- [ ] Collections and recoveries: payment plans, recoveries (extends WF-0004)
+- [x] Collections and recoveries: payment plans, recoveries (extends WF-0004)
+      (Phase 53: payment plans for loans in arrears, activated by a second person, with
+      payments taken as they fall due and plans broken at two missed payments; a loan on an
+      active plan cannot be written off and its WF-0004 case waits on the plan; recoveries
+      on written-off loans booked to loan loss recoveries, debt sales approved by the credit
+      committee; WF-1040–1042; see `collections.md`)
 - [ ] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
 - [ ] Procurement and vendor management
 - [ ] IT operations: incidents and change management (linked to applications)
@@ -287,4 +292,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 50 (D22) | Finance, step 2: manual journals with four-eyes posting, the `journal-review` workload on stored WF-1036 v2, decided by regional executives, and the AGB Journal Review Assistant (a month-end close workload was not simulable in volume: a month closes once, in order) | complete |
 | Phase 51 (D23) | Customer service: cases with SLA timers and escalation, complaints with four-eyes redress; WF-1037–1039 | complete |
 | Phase 52 (D24) | Customer service, step 2: the `complaint-redress` workload on stored WF-1038 v2, decided by complaints managers, and the AGB Complaint Review Assistant | complete |
-| Phase 53 (D25, proposed) | Collections and recoveries: payment plans, recoveries (extends WF-0004) | next |
+| Phase 53 (D25) | Collections and recoveries: four-eyes payment plans with a collection run, WF-0004 waiting on active plans, recoveries on written-off loans with four-eyes debt sales; WF-1040–1042 | complete |
+| Phase 54 (D26, proposed) | Collections, step 2: a payment-plan workload on stored WF-1040 v2, decided by collections managers, and an AGB Collections Review Assistant | next |

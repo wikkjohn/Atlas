@@ -23,7 +23,10 @@ test("Loan servicing: a manager moves the business date, a teller pays a loan of
   await expect(teller.getByTestId("business-date")).toHaveText(target);
   await expect(teller.getByRole("button", { name: "Run servicing" })).toHaveCount(0);
   await teller.getByRole("tab", { name: "Active" }).click();
-  await teller.getByRole("button", { name: /^Open LN-/ }).first().click();
+  // A personal loan that is up to date: not a mortgage another test has just completed, nor
+  // the seeded loan in arrears, whose borrower cannot pay it off.
+  const payable = teller.getByRole("row").filter({ has: teller.getByRole("button", { name: /^Open LN-/ }) }).filter({ hasNotText: "Mortgage" }).filter({ hasNotText: "DPD" });
+  await payable.first().getByRole("button", { name: /^Open LN-/ }).click();
   const dialog = teller.getByRole("dialog", { name: /^Loan LN-/ });
   await expect(dialog.getByRole("table", { name: "Repayment schedule" }).getByRole("row")).not.toHaveCount(0);
   await dialog.getByRole("button", { name: "Pay off early…" }).click();

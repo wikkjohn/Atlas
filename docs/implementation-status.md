@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 52.
+Last updated: Phase 53.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -57,6 +57,69 @@ Last updated: Phase 52.
 | 50 | Departments, step 22: manual journals, the finance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 51 | Departments, step 23: customer service ([customer-service.md](customer-service.md)) | **Complete** |
 | 52 | Departments, step 24: the customer service workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 53 | Departments, step 25: collections and recoveries ([collections.md](collections.md)) | **Complete** |
+
+## Phase 53: what exists
+
+- **Collections module** (`app/modules/collections/`, migration 0038), extending WF-0004.
+- **The arrears book:** active loans in arrears, most days past due first, with any open
+  plan.
+- **Payment plans:**
+  - one catch-up payment per overdue instalment, every 7 to 31 days;
+  - activated or rejected by someone other than the proposer (also a database constraint);
+  - one open plan per loan (a partial unique index);
+  - a collection run takes the payments due through loan servicing's own repayment: paid,
+    missed or already settled;
+  - completed when every payment is made; broken at two missed payments, or when the
+    schedule ends with one missed.
+- **WF-0004 waits on a plan:** a loan on an active plan cannot be written off (rule
+  `plan_active`), its collections case does not escalate to a write-off review, and a
+  write-off approved before the plan began is not booked. A broken plan lets the next
+  servicing run escalate the case.
+- **Recoveries on written-off loans:**
+  - borrower payments and agency remittances post at once; debt sales wait for someone
+    other than the recorder (`loans:approve_large`);
+  - booked to loan loss recoveries (`LOAN-RECOVERIES-<CCY>`, income);
+  - never more than was written off.
+- **Workflow factory:** seven `collections.*` handlers and three workflows:
+  - WF-1040 Payment Plan
+  - WF-1041 Debt Sale
+  - WF-1042 Plan Collection Run
+- **Demo data:** the seed adds a loan two instalments in arrears and a written-off loan.
+- **Collections page** (`/collections`, `loans:read`): summary, the arrears book with plan
+  proposals, plans with their schedules, approval and the collection run, written-off loans
+  with recoveries and debt-sale approval.
+- **PR #43 (Phase 52)** had no review comments.
+
+## Phase 53: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 676 passed (new: 5 — plans with one payment per overdue instalment, four-eyes activation, no write-off while active, a missed payment and a broken plan; a kept plan completing; WF-0004 waiting on an active plan past 90 days and escalating once it breaks; recoveries never above the write-off, a debt sale posted only after a second approval; the API with its permissions) |
+| Migration 0038 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 52 workflows, 876 cases, 0 failed (WF-1040: 10 cases, WF-1041: 10, WF-1042: 3; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 143 passed (new: 3 — arrears, plans and written-off loans; proposing and approving a plan, taking payments, recording and approving a recovery; read-only with `loans:read`) / clean / built |
+| Playwright on a fresh database | 58 passed (new: 2 — a manager proposes a plan, cannot approve it, and an admin activates it; a manager records a debt sale and a regional executive approves it) |
+
+Found while building it:
+- **WF-0004 and plans:** refusing to write off a loan on an active plan would have failed
+  WF-0004's write-off step outright. WF-0004 now waits on the plan instead; a new test
+  covers it.
+- **Demo data:** the seed had no loan in arrears, so the page and its end-to-end tests had
+  nothing to work on. The seed now adds one, and a written-off loan.
+- **Build output committed by mistake:** a `tsc -b` run emitted `.js` files next to the
+  TypeScript sources, and the first Phase 53 commit picked them up. Playwright then ran
+  every spec twice against one database, and six failed on each other's data. The files
+  were removed and the suite re-run on a fresh database: 58 passed.
+
+## Phase 53: known limitations
+
+- **Whole instalments only:** a plan payment settles one overdue instalment; there are no
+  partial payments or reduced amounts.
+- **Instalments falling due during a plan** are collected by loan servicing as usual.
+- **Agency placement is not modelled:** only the agency's remittance is recorded.
+- **No simulation yet:** there is no collections workload or AI tool yet (proposed
+  Phase 54).
 
 ## Phase 52: what exists
 

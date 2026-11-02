@@ -850,3 +850,55 @@ run each):
 
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
+
+## WF-1044 v2 and the leave review assistant (Phase 56)
+
+WF-1044 v2 is a stored workflow. After leave is requested, it reads the leave profile
+(`hr.leave_profile`) and asks the assistant through `ai.review`. A department manager
+(`hr:manage`, someone other than the requester) then approves or rejects the leave. A
+manager always decides, so the scenario runs baseline and AI assisted only.
+
+Each case has its own five-person US department, created for it. The colleagues' leave
+that sets the department's cover, and the employee's earlier short-notice days off, are
+requested and approved through the real HR service.
+
+What the assistant (`rule_based_leave_review`) weighs:
+- **Reject:**
+  - the department's cover on the leave's working days, with the others already away,
+    below 60 %;
+  - five days or more of annual leave asked for less than a week ahead.
+- **Refer on:** cover of 60 % to 70 %, or more than five days off sick.
+- **Approve:** anything else, as routine.
+
+Its **blind spot** is the employee's history. The profile counts their other requests in
+the 90 days before and how many came at short notice, and the assistant never reads them.
+So someone who keeps asking for a day or two off at the last minute looks like any short
+request, and it recommends approving.
+
+What `leave-requests` v1 measured (seed 2030, 300 requests, 12 staff, default assumptions;
+one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 82.0 % | 94.7 % |
+| Wrongly approved | 29 | 11 |
+| Wrongly rejected | 25 | 5 |
+| Serial short-notice requests approved (of 51) | 10 | 10 |
+| Manager hours | 98.2 | 62.0 |
+| Median cycle time (hours) | 5.7 | 2.2 |
+| Tool's recommendation accuracy | — | 81 % (28 referred on) |
+
+**Where the assistant helps:**
+- Routine, planned, sick and short leave wrongly rejected falls from 20 to 0.
+- Under-covered leave and long leave at short notice are approved once in 79 (19 times in
+  the baseline).
+- Managers' time falls by more than a third.
+
+**Where it does not:**
+- It recommends approving all 51 serial short-notice requests. In this run the simulated
+  managers approved 10 either way: the blind spot made outcomes no worse, but no better.
+- Tight cover is referred on, which leaves managers where the baseline was: 23 of 28
+  approved either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.

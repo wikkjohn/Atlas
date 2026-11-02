@@ -2936,6 +2936,12 @@ class LeaveRequests(Workload):
             notice, days = rng.randint(2, 4), rng.randint(6, 8)
         start = _weekday_on_or_after(today + timedelta(days=notice))
         end = _after_weekdays(start, days)
+        if end.year != start.year:
+            # Leave may not span two years (it is split at the year end): stop at the last
+            # weekday of the year. Only cases asked for close to the year end are shorter.
+            end = date(start.year, 12, 31)
+            while end.weekday() >= 5:
+                end -= timedelta(days=1)
         for colleague in team[1 : 1 + others]:
             approved(colleague, start, end)
         if kind == "serial_short_notice":

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 55.
+Last updated: Phase 56.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -60,6 +60,55 @@ Last updated: Phase 55.
 | 53 | Departments, step 25: collections and recoveries ([collections.md](collections.md)) | **Complete** |
 | 54 | Departments, step 26: the collections workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 55 | Departments, step 27: human resources ([hr.md](hr.md)) | **Complete** |
+| 56 | Departments, step 28: the human resources workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 56: what exists
+
+- **`hr.leave_profile`:** what a manager weighs before approving leave:
+  - its kind, length and notice;
+  - the annual balance left after it;
+  - the department's cover on its working days, with the others already away;
+  - sick days this year;
+  - the employee's other requests in the 90 days before, and how many came at short notice.
+
+  It is also a library handler.
+- **AGB Leave Review Assistant** (`rule_based_leave_review`, `recommend_decision` only,
+  compatible with WF-1044, needs `hr:read`), with a deliberate blind spot: it never reads
+  the employee's short-notice history. The seed registers it, and the AI Lab console has a
+  sample.
+- **WF-1044 v2:** the leave profile and AI review after the leave is requested, before the
+  manager decides.
+- **Workload `leave_requests` and scenario `leave-requests` v1:**
+  - a five-person US department per case, with colleagues' leave and the employee's earlier
+    requests booked through the real HR service;
+  - eight kinds with ground truth, decided by simulated department managers;
+  - a control check covers four-eyes, `hr:manage`, and no leave approved without the
+    decision.
+- **PR #46 (Phase 55)** had no review comments; CI passed on the first run.
+- **Measured** (300 requests): AI assisted 94.7 % accurate against 82.0 %, managers' hours
+  62 against 98. Serial short-notice requests approved stayed at 10 of 51.
+
+## Phase 56: verified results
+
+PHASE56_RESULTS
+
+Found while building it:
+- **Leave across the year end:** the first measurement showed planned two-week leave
+  "rejected" half the time in both modes. Leave 30 to 60 days after 2 November crosses the
+  year end, which the HR service rightly refuses, so the request never reached the manager.
+  The workload now ends such leave on the last weekday of the year; the measurement was
+  run again.
+- **Short notice slipping past a week:** the first run of the new tests found a "short
+  notice" case asked 7 days ahead once its start moved past a weekend. The workload now asks
+  at most 4 days ahead, and for 6 to 8 days, so a holiday still leaves 5 or more.
+- **Postgres had stopped** before the first test run; it was restarted.
+
+## Phase 56: known limitations
+
+- **The assistant is rule-based** and blind to the employee's short-notice history, by
+  design.
+- **Only leave decisions are simulated;** hiring and rostering are not.
+- **US departments only;** cases asked for close to the year end are shorter.
 
 ## Phase 55: what exists
 

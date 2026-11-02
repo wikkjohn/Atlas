@@ -197,7 +197,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       and hires with onboarding checklists; leave in each country's business days against
       a 25-day entitlement, decided by a second person, with a status sweep; shift rosters
       with leave, double-booking, 48-hour and 11-hour-rest checks; a department's capacity
-      on the simulated day can staff a simulation run; WF-1043–1045; see `hr.md`)
+      on the simulated day can staff a simulation run; WF-1043–1045; see `hr.md`. Phase 56:
+      the `leave-requests` workload and the leave review assistant)
 - [ ] Procurement and vendor management
 - [ ] IT operations: incidents and change management (linked to applications)
 - [ ] Legal, audit, marketing, facilities and the remaining departments (thin modules)
@@ -301,4 +302,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 53 (D25) | Collections and recoveries: four-eyes payment plans with a collection run, WF-0004 waiting on active plans, recoveries on written-off loans with four-eyes debt sales; WF-1040–1042 | complete |
 | Phase 54 (D26) | Collections, step 2: the `payment-plans` workload on stored WF-1040 v2, decided by collections managers, and the AGB Collections Review Assistant | complete |
 | Phase 55 (D27) | HR: four-eyes requisitions, offers within the band and hires with onboarding, leave in country business days, shift rosters, department capacity staffing simulation runs; WF-1043–1045 | complete |
-| Phase 56 (D28, proposed) | HR, step 2: a leave-request workload on stored WF-1044 v2, decided by department managers, and an AGB Leave Review Assistant | next |
+| Phase 56 (D28) | HR, step 2: the `leave-requests` workload on stored WF-1044 v2, decided by department managers, and the AGB Leave Review Assistant | complete |
+| Phase 57 (D29, proposed) | Procurement and vendor management | next |

@@ -111,6 +111,29 @@ staff a run.
 The handlers need `hr:manage` to start and `hr:read` to read executions. Their generated
 tests take an active department, and a new employee hired into it, from fixtures.
 
+## Simulation workload and AI tool (Phase 56)
+
+The `leave_requests` workload drives WF-1044 v2 (scenario `leave-requests`).
+- **Cases:** each case is a five-person US department, created for it. The colleagues' leave
+  it needs is requested and approved through the real HR service, and so are the
+  employee's earlier requests: a day off at a day or two's notice, recorded on the day it
+  was asked for. The workflow then requests the leave and a department manager
+  (`hr:manage`) approves or rejects it.
+- **Ground truth:**
+  - approved: routine annual leave, two weeks planned well ahead, short sickness, a day or
+    two at short notice, and leave that leaves the department tightly but sufficiently
+    covered;
+  - rejected: leave that would leave the department under-covered, a week or more asked for
+    at short notice, and another day or two at short notice from someone who has asked at
+    the last minute three or four times in 90 days.
+- **`hr.leave_profile`** (also a library handler): the leave's kind, length and notice, the
+  annual balance left after it, the department's cover on its working days with the others
+  already away, sick days this year, and the employee's other requests in the 90 days
+  before and how many came at short notice (under 7 days).
+- **AGB Leave Review Assistant** (`agb-leave-assistant`): advisory. It is blind to the
+  employee's short-notice history; see [ai-testing.md](ai-testing.md) for its rules and the
+  measurement.
+
 ## Permissions
 
 - `hr:read`: department managers, regional and global executives, auditors.
@@ -124,5 +147,6 @@ tests take an active department, and a new employee hired into it, from fixtures
 - **Whole days only:** no half days or hourly leave.
 - **Sick leave is not capped,** and there is no carry-over of annual leave between years.
 - **Salaries are recorded, not paid:** there is no payroll.
+- **The simulation covers leave decisions only;** hiring and rostering are not simulated.
 - **Capacity sizes a run, it does not shape it:** the run's role mix still comes from the
   scenario, not from the department's roles.

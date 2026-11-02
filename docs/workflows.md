@@ -571,6 +571,10 @@ The human resources base processes:
 The handlers need `hr:manage` to start and `hr:read` to read executions. Fixtures provide an
 active department and a new employee hired into it. See [hr.md](hr.md).
 
+WF-1044 **v2** (Phase 56) reads the leave profile (`hr.leave_profile`) after the leave is
+requested and asks the AGB Leave Review Assistant (`ai.review`, advisory) before the manager
+decides (`leave-requests`).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

@@ -644,8 +644,10 @@ def _hr_fixtures(db: Session) -> dict[str, str]:
                Country.operational_status == OperationalStatus.ACTIVE)
         .order_by(Organization.name).limit(1)
     ).scalar_one()  # fmt: skip
+    # Names are letters only: a random id's hex digits mapped onto letters.
+    surname = "Test" + uuid.uuid4().hex[:6].translate(str.maketrans("0123456789", "ghijklmnop"))
     employee = create_employee(db, EmployeeCreate(
-        first_name="Generated", last_name=f"Test{uuid.uuid4().hex[:6]}", organization_id=dept.id,
+        first_name="Generated", organization_id=dept.id, last_name=surname,
         job_title="Generated test employee", annual_compensation=5_000_000,
     ), None)  # fmt: skip
     return {"hr.department_id": str(dept.id), "hr.employee_number": employee.employee_number}

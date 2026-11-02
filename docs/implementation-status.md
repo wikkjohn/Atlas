@@ -93,7 +93,13 @@ Last updated: Phase 54.
 
 ## Phase 54: verified results
 
-PHASE54_RESULTS
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 679 passed (new: 3 — the plan rules and their blind spot; the plan profile with an earlier broken plan, salary in the 90 days and once outside it; baseline and AI-assisted plan runs with every plan decided by a manager other than its proposer, no control violations, every kind's advice as designed) |
+| Generated workflow tests | 52 workflows, 878 cases, 0 failed (WF-1040 v2: 12 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 143 passed / clean / built |
+| Playwright on a fresh database | 59 passed, twice in a row (new: the collections assistant in the AI Lab console, recommending a plan for a borrower who broke one before). An earlier run had one failure: the payments-operations test timed out on "Request recall" (35 s); it passed on its own and in the three full runs after, and Phase 54 does not touch that code, so its cause is not established |
+| Measurement | `payment-plans`, seed 2030, 300 plans each: baseline 82.0 % accurate (32 wrongly activated, 22 wrongly rejected, 98.2 manager hours, median cycle 6.2 h); AI assisted 92.7 % (17, 5, 64.6 h, 2.7 h); plans for borrowers who broke one before activated 14 against 17 of 61; the assistant's own advice 76 % accurate, 45 referred on |
 
 Found while building it:
 - **Shared test data, found in PR #44's CI:** the lending and risk end-to-end tests both took
@@ -102,6 +108,11 @@ Found while building it:
   that cannot be paid off. The seeded borrowers' accounts are now opened before their loans,
   the lending test pays off an up-to-date personal loan, and the risk test rates the seeded
   borrower in arrears and checks the exposure is still there.
+- **The risk test's breach list, found in a local run:** the second page approved the rating
+  while the breach list's first request was still in flight. A query with no data yet is not
+  refetched when a mutation invalidates it, so the list kept its answer from before the
+  approval. The Playwright trace showed the request starting before the approval and not
+  repeated after it. The test now lets the list load first.
 - **Earlier plans:** the profile first counted only plans created before this one; plans
   made in the same transaction share its creation time, so a broken plan could be missed.
   It now counts all of the borrower's other plans.

@@ -1,0 +1,169 @@
+{
+  "workflow_id": "WF-1048",
+  "name": "Invoice Payment",
+  "version": 1,
+  "description": "A vendor's invoice is recorded against a received purchase order. It is matched when the total invoiced stays within 2 % of what was received; otherwise it is held for the Procurement page. A matched invoice is paid by someone other than whoever recorded it (procurement:approve), to the vendor's verified bank account, debiting purchases and crediting the bank's cash, or rejected. Stored definition: built only from library handlers (Phase 57).",
+  "business_owner": "Procurement",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "order_number",
+      "vendor_reference",
+      "amount"
+    ],
+    "properties": {
+      "order_number": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+      },
+      "vendor_reference": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40,
+        "pattern": "^[A-Za-z0-9-]+$",
+        "examples": [
+          "HOS-2026-0412"
+        ]
+      },
+      "amount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000,
+        "examples": [
+          100000
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "record.invoice_number"
+  },
+  "start": "record",
+  "steps": [
+    {
+      "id": "record",
+      "type": "service_task",
+      "name": "Record the invoice",
+      "handler": "procurement.record_invoice",
+      "params": {
+        "order_number_path": "input.order_number",
+        "vendor_reference_path": "input.vendor_reference",
+        "amount_path": "input.amount"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_matched"
+    },
+    {
+      "id": "route_matched",
+      "type": "decision",
+      "name": "Matched?",
+      "transitions": [
+        {
+          "to": "approval",
+          "when": {
+            "path": "record.matched",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "held"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the payment",
+      "description": "Someone other than whoever recorded the invoice releases the payment.",
+      "approval": {
+        "permissions": [
+          "procurement:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "pay",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "pay",
+      "type": "service_task",
+      "name": "Pay it",
+      "handler": "procurement.pay_invoice",
+      "params": {
+        "invoice_id_path": "record.invoice_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject it",
+      "handler": "procurement.reject_invoice",
+      "params": {
+        "invoice_id_path": "record.invoice_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "declined"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Paid",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "held",
+      "type": "completion",
+      "name": "Held: does not match",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

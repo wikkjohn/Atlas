@@ -1,0 +1,165 @@
+{
+  "workflow_id": "WF-1046",
+  "name": "Vendor Onboarding",
+  "version": 1,
+  "description": "A new supplier is registered: its name is screened against every sanctions list and it is tiered by risk (its category, one tier higher outside the bank's active countries). Someone other than the registrant (procurement:approve) approves it, and purchase orders may be raised for it, or rejects it. A sanctions hit is never approved, and a high-risk vendor only by an executive. Stored definition: built only from library handlers (Phase 57).",
+  "business_owner": "Procurement",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "name",
+      "country",
+      "category",
+      "bank_account"
+    ],
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 200,
+        "examples": [
+          "Harbour Office Supplies"
+        ]
+      },
+      "country": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "examples": [
+          "US"
+        ]
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "facilities",
+          "marketing",
+          "it",
+          "professional_services",
+          "outsourcing"
+        ],
+        "examples": [
+          "facilities"
+        ]
+      },
+      "bank_account": {
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 40,
+        "pattern": "^[A-Z0-9]+$",
+        "examples": [
+          "US000123456789"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "register.vendor_number"
+  },
+  "start": "register",
+  "steps": [
+    {
+      "id": "register",
+      "type": "service_task",
+      "name": "Register the vendor",
+      "handler": "procurement.register_vendor",
+      "params": {
+        "name_path": "input.name",
+        "country_path": "input.country",
+        "category_path": "input.category",
+        "bank_account_path": "input.bank_account"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the vendor",
+      "description": "Someone other than the registrant checks the vendor and its screening.",
+      "approval": {
+        "permissions": [
+          "procurement:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Approve it",
+      "handler": "procurement.approve_vendor",
+      "params": {
+        "vendor_id_path": "register.vendor_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject it",
+      "handler": "procurement.reject_vendor",
+      "params": {
+        "vendor_id_path": "register.vendor_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "declined"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Approved",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "workflow_id": "WF-1047",
+  "name": "Purchase Order",
+  "version": 1,
+  "description": "A department orders from an approved vendor: one line, a quantity at a unit price in the vendor's currency. Someone other than the requester (procurement:approve) approves the order, above US$50,000 only an executive, or rejects it. Goods are then received and invoiced on the Procurement page. Stored definition: built only from library handlers (Phase 57).",
+  "business_owner": "Procurement",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "vendor_number",
+      "department_id",
+      "description",
+      "quantity",
+      "unit_price"
+    ],
+    "properties": {
+      "vendor_number": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+      },
+      "department_id": {
+        "type": "string",
+        "pattern": "^[0-9a-f-]{36}$"
+      },
+      "description": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 150,
+        "examples": [
+          "Printer paper, A4, boxes of five reams"
+        ]
+      },
+      "quantity": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "examples": [
+          20
+        ]
+      },
+      "unit_price": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000000,
+        "examples": [
+          2500
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "raise.order_number"
+  },
+  "start": "raise",
+  "steps": [
+    {
+      "id": "raise",
+      "type": "service_task",
+      "name": "Raise the order",
+      "handler": "procurement.raise_order",
+      "params": {
+        "vendor_number_path": "input.vendor_number",
+        "department_id_path": "input.department_id",
+        "description_path": "input.description",
+        "quantity_path": "input.quantity",
+        "unit_price_path": "input.unit_price"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the order",
+      "description": "Someone other than the requester approves the spend.",
+      "approval": {
+        "permissions": [
+          "procurement:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Approve it",
+      "handler": "procurement.approve_order",
+      "params": {
+        "order_id_path": "raise.order_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject it",
+      "handler": "procurement.reject_order",
+      "params": {
+        "order_id_path": "raise.order_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "declined"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Approved",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

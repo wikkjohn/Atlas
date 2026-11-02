@@ -103,6 +103,13 @@ class Permission(StrEnum):
     HR_READ = "hr:read"  # requisitions, candidates, leave, shifts, onboarding, capacity
     HR_MANAGE = "hr:manage"  # open requisitions, offer, hire, decide leave, roster shifts
     HR_APPROVE = "hr:approve"  # approve a requisition (the headcount budget)
+    # Procurement and vendor management (Phase 57).
+    PROCUREMENT_READ = "procurement:read"  # vendors, purchase orders, invoices
+    PROCUREMENT_MANAGE = "procurement:manage"  # register vendors, raise orders, receive, invoice
+    # Approve vendors and orders, verify bank changes, pay invoices (never one's own).
+    PROCUREMENT_APPROVE = "procurement:approve"
+    # High-risk vendors and orders above US$50,000.
+    PROCUREMENT_APPROVE_LARGE = "procurement:approve_large"
 
 
 class RoleCode(StrEnum):
@@ -182,6 +189,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.TREASURY_LIMITS,
         Permission.HR_READ,
         Permission.HR_APPROVE,
+        Permission.PROCUREMENT_READ,
+        Permission.PROCUREMENT_APPROVE,
+        Permission.PROCUREMENT_APPROVE_LARGE,
     },
     RoleCode.REGIONAL_EXECUTIVE: _BASE
     | {
@@ -194,6 +204,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.TREASURY_LIMITS,
         Permission.HR_READ,
         Permission.HR_APPROVE,
+        Permission.PROCUREMENT_READ,
+        Permission.PROCUREMENT_APPROVE,
+        Permission.PROCUREMENT_APPROVE_LARGE,
     },
     RoleCode.DEPARTMENT_MANAGER: _BASE
     | _FRONT_OFFICE
@@ -221,10 +234,18 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
         Permission.HR_READ,
         Permission.HR_MANAGE,
+        Permission.PROCUREMENT_READ,
+        Permission.PROCUREMENT_MANAGE,
+        Permission.PROCUREMENT_APPROVE,
     },
     RoleCode.BANKING_EMPLOYEE: _BASE
     | _FRONT_OFFICE
-    | {Permission.TREASURY_DEAL, Permission.WEALTH_ADVISE},
+    | {
+        Permission.TREASURY_DEAL,
+        Permission.WEALTH_ADVISE,
+        Permission.PROCUREMENT_READ,
+        Permission.PROCUREMENT_MANAGE,
+    },
     RoleCode.COMPLIANCE_OFFICER: _BASE
     | {
         Permission.AUDIT_READ,
@@ -260,6 +281,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.RISK_READ,
         Permission.FINANCE_READ,
         Permission.HR_READ,
+        Permission.PROCUREMENT_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {

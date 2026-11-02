@@ -576,6 +576,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             known.update(_collections_fixtures(db, kinds))
         if kinds & {"hr.department_id", "hr.employee_number"}:
             known.update(_hr_fixtures(db))
+        if kinds & PROCUREMENT_KINDS:
+            known.update(_procurement_fixtures(db))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -651,6 +653,41 @@ def _hr_fixtures(db: Session) -> dict[str, str]:
         job_title="Generated test employee", annual_compensation=5_000_000,
     ), None)  # fmt: skip
     return {"hr.department_id": str(dept.id), "hr.employee_number": employee.employee_number}
+
+
+PROCUREMENT_KINDS = {"procurement.vendor_number", "procurement.department_id",
+                     "procurement.received_order_number"}  # fmt: skip
+
+
+def _procurement_fixtures(db: Session) -> dict[str, str]:
+    """An approved US facilities vendor, an active US department, and an approved order of
+    US$1,000 from the vendor, received in full (Phase 57)."""
+    from app.modules.countries.models import Country
+    from app.modules.organizations.models import Organization, OrganizationType
+    from app.modules.procurement import service as procurement
+
+    clerk = _person(db, RoleCode.BANKING_EMPLOYEE)
+    manager = _person(db, RoleCode.DEPARTMENT_MANAGER)
+    dept = db.execute(
+        select(Organization).join(Country, Country.id == Organization.country_id)
+        .where(Organization.organization_type == OrganizationType.DEPARTMENT,
+               Organization.status == "active", Country.iso_country_code == "US")
+        .order_by(Organization.name).limit(1)
+    ).scalar_one()  # fmt: skip
+    vendor = procurement.register_vendor(
+        db, name=f"Generated Supplies {uuid.uuid4().hex[:6]}", country_code="US",
+        category="facilities", bank_account=f"US{uuid.uuid4().int % 10**12:012d}",
+        registered_by=clerk.id,
+    )  # fmt: skip
+    procurement.decide_vendor(db, vendor, manager.id, True)
+    order = procurement.raise_order(db, vendor, dept.id, "Generated test supplies",
+                                    [{"description": "Paper", "quantity": 10,
+                                      "unit_price": 10_000}], clerk.id)  # fmt: skip
+    procurement.decide_order(db, order, manager.id, True)
+    procurement.receive(db, order, order.total, clerk.id)
+    return {"procurement.vendor_number": vendor.vendor_number,
+            "procurement.department_id": str(dept.id),
+            "procurement.received_order_number": order.order_number}  # fmt: skip
 
 
 FINANCE_KINDS = {"finance.open_period", "finance.closed_period", "finance.allocation_period",

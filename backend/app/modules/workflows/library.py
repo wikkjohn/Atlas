@@ -3966,6 +3966,202 @@ def _sla_sweep(ctx: StepContext, params: NoParams) -> dict[str, Any]:
     return cs.sweep(ctx.db, ctx.initiator_id, now=ctx.now)
 
 
+# --- Collections and recoveries (Phase 53) -------------------------------------------------------
+
+COLLECTIONS_ACCESS = {"start_permission": "loans:service", "read_permission": "loans:read"}
+
+
+class ProposePlan(_Strict):
+    loan_number_path: str = Field(min_length=1, max_length=200)
+    interval_days_path: str = Field(min_length=1, max_length=200)
+
+
+def _plan_out(plan) -> dict[str, Any]:
+    return {"plan_id": str(plan.id), "plan_number": plan.plan_number, "status": plan.status,
+            "payments": plan.payments, "arrears_amount": plan.arrears_amount,
+            "days_past_due": plan.days_past_due}  # fmt: skip
+
+
+@_library_handler(
+    "collections.propose_plan",
+    "Propose a payment plan for a loan in arrears: one catch-up payment per overdue "
+    "instalment, every few days; nothing changes until it is approved.",
+    ProposePlan,
+    "{plan_id, plan_number, status, payments, arrears_amount, days_past_due}; a loan not in "
+    "arrears, or already on a plan, fails the step.",
+    reads=lambda params: [params.loan_number_path, params.interval_days_path],
+    effect="writes",
+    fixtures=lambda params: {params.loan_number_path: "arrears_loan.loan_number"},
+    **COLLECTIONS_ACCESS,
+)
+def _propose_plan(ctx: StepContext, params: ProposePlan) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    loan = _trade_call("loan_not_found", collections.find_loan, ctx.db,
+                       str(_required(ctx, params.loan_number_path)))  # fmt: skip
+    plan = _trade_call("plan_refused", collections.propose_plan, ctx.db, loan,
+                       int(_required(ctx, params.interval_days_path)),
+                       ctx.initiator_id)  # fmt: skip
+    return _plan_out(plan)
+
+
+class PlanDecision(_Strict):
+    plan_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _payment_plan(ctx: StepContext, path: str):
+    from app.modules.collections import service as collections
+
+    return collections.get_plan(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "collections.approve_plan",
+    "Activate the payment plan; while it is active the loan cannot be written off.",
+    PlanDecision,
+    "{plan_id, plan_number, status, payments, arrears_amount, days_past_due}",
+    reads=lambda params: [params.plan_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **COLLECTIONS_ACCESS,
+)
+def _approve_plan(ctx: StepContext, params: PlanDecision) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    plan = _trade_call("plan_refused", collections.decide_plan, ctx.db,
+                       _payment_plan(ctx, params.plan_id_path), decider, True)  # fmt: skip
+    return _plan_out(plan)
+
+
+@_library_handler(
+    "collections.reject_plan",
+    "Reject the proposed payment plan.",
+    PlanDecision,
+    "{plan_id, plan_number, status, payments, arrears_amount, days_past_due}",
+    reads=lambda params: [params.plan_id_path, params.decided_by_path],
+    effect="writes",
+    **COLLECTIONS_ACCESS,
+)
+def _reject_plan(ctx: StepContext, params: PlanDecision) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    plan = _trade_call("rejection_refused", collections.decide_plan, ctx.db,
+                       _payment_plan(ctx, params.plan_id_path), decider, False,
+                       params.note)  # fmt: skip
+    return _plan_out(plan)
+
+
+@_library_handler(
+    "collections.collect",
+    "Take the active payment plans' payments due by today; two missed payments break a plan.",
+    NoParams,
+    "{as_of, plans, paid, missed, completed, broken}",
+    effect="writes",
+    **COLLECTIONS_ACCESS,
+)
+def _collect_plans(ctx: StepContext, params: NoParams) -> dict[str, Any]:
+    from app.core.permissions import permissions_for
+    from app.modules.collections import service as collections
+    from app.modules.identity.models import User
+    from app.modules.identity.service import AuthenticatedUser
+    from app.modules.lending import servicing
+
+    as_of = servicing.current_date(ctx.db)
+    actor = ctx.db.get(User, ctx.initiator_id)
+    principal = AuthenticatedUser(id=actor.id, username=actor.username, role=actor.role.code,
+                                  permissions=permissions_for(actor.role.code))  # fmt: skip
+    return {"as_of": as_of.isoformat(), **collections.collect(ctx.db, as_of, principal)}
+
+
+class RecordDebtSale(_Strict):
+    loan_number_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+
+
+def _recovery_out(recovery) -> dict[str, Any]:
+    return {"recovery_id": str(recovery.id), "recovery_number": recovery.recovery_number,
+            "kind": recovery.kind, "amount": recovery.amount, "status": recovery.status,
+            "entry_number": recovery.entry_number}  # fmt: skip
+
+
+@_library_handler(
+    "collections.record_debt_sale",
+    "Record the sale of a written-off loan's debt; nothing is posted until the credit "
+    "committee approves.",
+    RecordDebtSale,
+    "{recovery_id, recovery_number, kind, amount, status, entry_number}; more than remains "
+    "written off fails the step.",
+    reads=lambda params: [params.loan_number_path, params.amount_path],
+    effect="writes",
+    fixtures=lambda params: {params.loan_number_path: "written_off_loan.loan_number"},
+    **COLLECTIONS_ACCESS,
+)
+def _record_debt_sale(ctx: StepContext, params: RecordDebtSale) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    loan = _trade_call("loan_not_found", collections.find_loan, ctx.db,
+                       str(_required(ctx, params.loan_number_path)))  # fmt: skip
+    recovery = _trade_call("recovery_refused", collections.record_recovery, ctx.db, loan,
+                           "debt_sale", int(_required(ctx, params.amount_path)),
+                           ctx.initiator_id)  # fmt: skip
+    return _recovery_out(recovery)
+
+
+class RecoveryDecision(_Strict):
+    recovery_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _loan_recovery(ctx: StepContext, path: str):
+    from app.modules.collections import service as collections
+
+    return collections.get_recovery(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "collections.approve_recovery",
+    "Post the debt sale: the proceeds to loan loss recoveries.",
+    RecoveryDecision,
+    "{recovery_id, recovery_number, kind, amount, status, entry_number}",
+    reads=lambda params: [params.recovery_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **COLLECTIONS_ACCESS,
+)
+def _approve_recovery(ctx: StepContext, params: RecoveryDecision) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    recovery = _trade_call("posting_refused", collections.decide_recovery, ctx.db,
+                           _loan_recovery(ctx, params.recovery_id_path), decider,
+                           True)  # fmt: skip
+    return _recovery_out(recovery)
+
+
+@_library_handler(
+    "collections.reject_recovery",
+    "Reject the debt sale; nothing is posted.",
+    RecoveryDecision,
+    "{recovery_id, recovery_number, kind, amount, status, entry_number}",
+    reads=lambda params: [params.recovery_id_path, params.decided_by_path],
+    effect="writes",
+    **COLLECTIONS_ACCESS,
+)
+def _reject_recovery(ctx: StepContext, params: RecoveryDecision) -> dict[str, Any]:
+    from app.modules.collections import service as collections
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    recovery = _trade_call("rejection_refused", collections.decide_recovery, ctx.db,
+                           _loan_recovery(ctx, params.recovery_id_path), decider, False,
+                           params.note)  # fmt: skip
+    return _recovery_out(recovery)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

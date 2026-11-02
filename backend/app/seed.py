@@ -608,10 +608,74 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
     from app.modules.wealth.service import ensure_securities
 
     ensure_securities(db)
+    _seed_collections(db)
     _import_examples(db, report, with_ai_steps=False)
     _register_ai_tools(db, report)
     _import_example_definitions(db, report)
     return report
+
+
+COLLECTIONS_BORROWERS = ("Synthetic Arrears Borrower", "Synthetic Written-Off Borrower")
+
+
+def _seed_collections(db: Session) -> None:
+    """Collections demo (Phase 53), unless already there: a loan disbursed 70 days ago, two
+    instalments in arrears, and one disbursed 150 days ago, more than 90 days past due and
+    written off. Each borrower spends the loan, and the book is serviced to today."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.modules.ledger import service as ledger
+    from app.modules.lending import service as lending
+    from app.modules.lending import servicing
+
+    if db.execute(select(Customer.id).where(Customer.name == COLLECTIONS_BORROWERS[0])).first():
+        return
+    country = db.execute(
+        select(Country).where(Country.iso_country_code == "GB")
+    ).scalar_one_or_none()  # fmt: skip
+    users = {u.username: u for u in db.execute(
+        select(User).where(User.username.in_(["manager", "employee", "regional"]))
+    ).scalars()}  # fmt: skip
+    if country is None or len(users) < 3:
+        return
+
+    def principal(username: str) -> AuthenticatedUser:
+        user = users[username]
+        return AuthenticatedUser(id=user.id, username=user.username, role=user.role.code,
+                                 permissions=permissions_for(user.role.code))  # fmt: skip
+
+    manager, clerk = principal("manager"), users["employee"]
+    today = max(servicing.business_date(db) or datetime.now(UTC).date(),
+                datetime.now(UTC).date())  # fmt: skip
+
+    def borrow(name: str, days_ago: int):
+        customer = create_customer(db, CustomerCreate(
+            customer_type=CustomerType.INDIVIDUAL, name=name,
+            date_of_birth_or_incorporation=date(1984, 3, 9), country_id=country.id,
+        ), actor_id=None)  # fmt: skip
+        review_customer(db, customer, CustomerReview(kyc_status=KycStatus.PENDING), None)
+        review_customer(db, customer, CustomerReview(
+            kyc_status=KycStatus.VERIFIED, risk_rating=RiskRating.LOW), None)  # fmt: skip
+        request = submit_request(db, customer_id=customer.id, account_type=AccountType.CURRENT,
+                                 currency=None, requested_by=clerk.id)  # fmt: skip
+        account = approve_request(db, request.id, manager)
+        disbursed = datetime.combine(today - timedelta(days=days_ago), datetime.min.time(),
+                                     tzinfo=UTC).replace(hour=12)  # fmt: skip
+        loan = lending.originate(
+            db, customer_id=customer.id, account_id=account.id,
+            principal=to_minor_units(5_000, account.currency), annual_rate_bps=1200,
+            term_months=12, purpose="other", requested_by=clerk.id, underwriter=manager,
+            committee=None, now=disbursed,
+        )  # fmt: skip
+        held = ledger.balance(db, ledger.get_ledger_account(db, account.ledger_account_id))
+        withdraw(db, account.id, amount=held, memo="Spent", actor_id=manager.id,
+                 idempotency_key=f"seed-collections-{loan.id}")  # fmt: skip
+        return loan
+
+    borrow(COLLECTIONS_BORROWERS[0], 70)
+    late = borrow(COLLECTIONS_BORROWERS[1], 150)
+    servicing.run(db, today, manager)
+    servicing.write_off(db, late.id, principal("regional"), today)
 
 
 def _uses_ai(document: dict) -> bool:

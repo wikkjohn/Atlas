@@ -16,6 +16,7 @@ from app.modules.analytics.router import router as analytics_router
 from app.modules.audit.router import router as audit_router
 from app.modules.cards.router import router as cards_router
 from app.modules.clearing.router import router as clearing_router
+from app.modules.collections.router import router as collections_router
 from app.modules.commercial.router import router as commercial_router
 from app.modules.compliance.router import router as compliance_router
 from app.modules.countries.router import currencies_router
@@ -83,6 +84,7 @@ for module_router in (
     risk_router,
     finance_router,
     customer_service_router,
+    collections_router,
     loans_router,
     definitions_router,
     authoring_router,

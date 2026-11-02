@@ -572,6 +572,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             known.update(_treasury_fixtures(db, kinds))
         if kinds & FINANCE_KINDS:
             known.update(_finance_fixtures(db, kinds))
+        if kinds & {"arrears_loan.loan_number", "written_off_loan.loan_number"}:
+            known.update(_collections_fixtures(db, kinds))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -583,6 +585,46 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         outsider=_person(db, RoleCode.AUDITOR),
         values=values,
     )
+
+
+def _collections_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
+    """A loan two instalments in arrears and, if asked, one more than 90 days past due and
+    written off (Phase 53): each disbursed in the past to a fixture customer who then spends
+    the money, with the loan book serviced to the business date."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.money import to_minor_units
+    from app.modules.accounts.service import withdraw
+    from app.modules.ledger import service as ledger
+    from app.modules.lending import service as lending
+    from app.modules.lending import servicing
+
+    manager = _person(db, RoleCode.DEPARTMENT_MANAGER)
+    as_of = max(servicing.business_date(db) or datetime.now(UTC).date(), datetime.now(UTC).date())
+
+    def loan_due(days_ago: int):
+        customer, account = _customer_and_account(db, True)
+        principal = to_minor_units(5_000, account.currency)
+        disbursed = datetime.combine(as_of - timedelta(days=days_ago), datetime.min.time(),
+                                     tzinfo=UTC).replace(hour=12)  # fmt: skip
+        loan = lending.originate(
+            db, customer_id=customer.id, account_id=account.id, principal=principal,
+            annual_rate_bps=1200, term_months=12, purpose="other",
+            requested_by=_person(db, RoleCode.BANKING_EMPLOYEE).id, underwriter=manager,
+            committee=None, now=disbursed,
+        )  # fmt: skip
+        held = ledger.balance(db, ledger.get_ledger_account(db, account.ledger_account_id))
+        withdraw(db, account.id, amount=held, memo="Spent", actor_id=manager.id,
+                 idempotency_key=f"wftest-spend-{loan.id}")  # fmt: skip
+        return loan
+
+    out = {"arrears_loan.loan_number": loan_due(70).loan_number}
+    late = loan_due(150) if "written_off_loan.loan_number" in kinds else None
+    servicing.run(db, as_of, manager)
+    if late is not None:
+        servicing.write_off(db, late.id, _person(db, RoleCode.REGIONAL_EXECUTIVE), as_of)
+        out["written_off_loan.loan_number"] = late.loan_number
+    return out
 
 
 FINANCE_KINDS = {"finance.open_period", "finance.closed_period", "finance.allocation_period",

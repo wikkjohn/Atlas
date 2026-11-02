@@ -21,6 +21,7 @@ const OrganizationPage = lazy(() => import("@/features/organizations/Organizatio
 const PaymentsPage = lazy(() => import("@/features/payments/PaymentsPage").then((m) => ({ default: m.PaymentsPage })));
 const TradePage = lazy(() => import("@/features/trade/TradePage").then((m) => ({ default: m.TradePage })));
 const PaymentOpsPage = lazy(() => import("@/features/payment-ops/PaymentOpsPage").then((m) => ({ default: m.PaymentOpsPage })));
+const CollectionsPage = lazy(() => import("@/features/collections/CollectionsPage").then((m) => ({ default: m.CollectionsPage })));
 const CustomerServicePage = lazy(() => import("@/features/customer-service/CustomerServicePage").then((m) => ({ default: m.CustomerServicePage })));
 const FinancePage = lazy(() => import("@/features/finance/FinancePage").then((m) => ({ default: m.FinancePage })));
 const RiskPage = lazy(() => import("@/features/risk/RiskPage").then((m) => ({ default: m.RiskPage })));
@@ -67,6 +68,7 @@ export function AppRoutes() {
         <Route path="risk" element={<RiskPage />} />
         <Route path="finance" element={<FinancePage />} />
         <Route path="customer-service" element={<CustomerServicePage />} />
+        <Route path="collections" element={<CollectionsPage />} />
         <Route path="lending" element={<LoansPage />} />
         <Route path="workflows" element={<WorkflowExplorerPage />} />
         <Route path="simulations" element={<SimulationCenterPage />} />

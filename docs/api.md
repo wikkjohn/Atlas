@@ -424,6 +424,28 @@ See [customer-service.md](customer-service.md). Redress is in minor units of the
 | POST | `/api/v1/customer-service/sweep` | `service:handle` | Marks overdue cases breached and escalates them |
 | GET | `/api/v1/customer-service/summary/counts` | `service:read` | Open, awaiting customer, complaints, breached, due today, redress to approve, average first response |
 
+### Collections and recoveries (Phase 53)
+
+See [collections.md](collections.md). Amounts are in minor units of the loan's currency.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/collections/arrears` | `loans:read` | Active loans in arrears, most days past due first, with any open plan |
+| GET | `/api/v1/collections/plans` | `loans:read` | Newest first, paginated |
+| POST | `/api/v1/collections/plans` | `loans:service` | `{loan_number, interval_days}`: one payment per overdue instalment (rules `not_in_arrears`, `interval_range`); 409 if the loan already has an open plan |
+| POST | `/api/v1/collections/plans/{id}/approve` | `loans:approve` | Not by the proposer (rule `four_eyes`); the plan becomes active |
+| POST | `/api/v1/collections/plans/{id}/reject` | `loans:approve` | `{note?}` |
+| POST | `/api/v1/collections/plans/collect` | `loans:service` | `{as_of?}`: takes plan payments due; counts paid, missed, completed and broken |
+| GET | `/api/v1/collections/written-off` | `loans:read` | Written-off loans with the amount written off and recovered |
+| GET | `/api/v1/collections/recoveries` | `loans:read` | Newest first, paginated |
+| POST | `/api/v1/collections/recoveries` | `loans:service` | `{loan_number, kind, amount, note?}`: written-off loans only (rule `not_written_off`), never more than remains (rule `exceeds_written_off`); a payment or agency remittance posts at once |
+| POST | `/api/v1/collections/recoveries/{id}/approve` | `loans:approve_large` | Debt sales; not by the recorder (rule `four_eyes`); posts the recovery |
+| POST | `/api/v1/collections/recoveries/{id}/reject` | `loans:approve_large` | `{note?}` |
+| GET | `/api/v1/collections/summary/counts` | `loans:read` | Plans proposed, active, broken and completed; debt sales to approve; loans written off |
+
+Loan servicing's write-off (used by WF-0004) refuses a loan on an active payment plan (rule
+`plan_active`).
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

@@ -541,6 +541,20 @@ WF-1038 **v2** (Phase 52) reads the complaint profile (`service.complaint_profil
 redress is proposed and asks the AGB Complaint Review Assistant (`ai.review`, advisory)
 before the approver decides (`complaint-redress`).
 
+### WF-1040, WF-1041 and WF-1042: collections and recoveries (Phase 53)
+
+The collections base processes:
+- **WF-1040** proposes a payment plan for a loan in arrears; someone other than the proposer
+  (`loans:approve`) activates or rejects it.
+- **WF-1041** records a debt sale on a written-off loan; someone other than the recorder
+  (`loans:approve_large`) approves it, and the recovery posts, or rejects it.
+- **WF-1042** takes the payment plans' payments due.
+
+The handlers need `loans:service` to start and `loans:read` to read executions. Fixtures
+provide a loan two instalments in arrears and a written-off loan. **WF-0004** waits on an
+active plan: its case does not escalate to a write-off review until the plan is broken. See
+[collections.md](collections.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

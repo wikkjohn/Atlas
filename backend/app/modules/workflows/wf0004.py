@@ -9,6 +9,9 @@ Each later servicing run, repayment or payoff reports the loan's arrears:
   `loans:approve_large` other than the person who opened the case (four-eyes). Approval
   writes the loan off through the lending service, which re-checks the authority and the
   90-day rule; a decline closes the case and the next servicing run opens a new one.
+- an active payment plan (Phase 53) holds the case: it does not escalate while the borrower
+  keeps to the plan, and a write-off approved before the plan began is not booked. A broken
+  plan lets the next servicing run escalate it.
 
 The lending business date is the case's clock: every step runs at the business date the
 servicing run or repayment reported.
@@ -21,6 +24,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.collections.service import active_plan
 from app.modules.customers.models import Customer, CustomerNotification
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.lending import servicing
@@ -214,6 +218,11 @@ def write_off(ctx: StepContext) -> dict:
     if loan.status != LoanStatus.ACTIVE or state.days_past_due < servicing.WRITE_OFF_DAYS:
         # Paid while the review was open: nothing to write off.
         return {"written_off": False, "days_past_due": state.days_past_due}
+    plan = active_plan(ctx.db, loan.id)
+    if plan is not None:
+        # Put on a payment plan while the review was open: the plan decides.
+        return {"written_off": False, "days_past_due": state.days_past_due,
+                "on_plan": plan.plan_number}  # fmt: skip
     approver = principal(ctx, ctx.get("writeoff_review.actor_id"))
     servicing.write_off(ctx.db, loan.id, approver, on)
     return {"written_off": True, "days_past_due": state.days_past_due}
@@ -281,7 +290,8 @@ def sync_collections(
             now=_at(on),
         )
         waiting = "await_resolution" in case.current_steps
-    if waiting and state.days_past_due >= servicing.WRITE_OFF_DAYS:
+    if (waiting and state.days_past_due >= servicing.WRITE_OFF_DAYS
+            and active_plan(db, loan.id) is None):  # fmt: skip
         engine.signal(
             db,
             case.id,

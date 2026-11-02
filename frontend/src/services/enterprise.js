@@ -1,0 +1,190 @@
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { apiGet, apiPatch, apiPost, query } from "@/services/api";
+// --- Countries ---------------------------------------------------------------------------
+export function useCountries(params = {}) {
+    return useQuery({
+        queryKey: ["countries", params],
+        queryFn: () => apiGet(`/api/v1/countries${query({ limit: 200, ...params })}`),
+    });
+}
+export function useCreateCountry() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => apiPost("/api/v1/countries", body),
+        onSuccess: () => client.invalidateQueries({ queryKey: ["countries"] }),
+    });
+}
+export function useUpdateCountry() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, body }) => apiPatch(`/api/v1/countries/${id}`, body),
+        onSuccess: () => client.invalidateQueries({ queryKey: ["countries"] }),
+    });
+}
+export const useCurrencies = () => useQuery({
+    queryKey: ["currencies"],
+    queryFn: () => apiGet("/api/v1/currencies"),
+    staleTime: Infinity,
+});
+export const useCountryCalendar = (id, year) => useQuery({
+    queryKey: ["countries", "calendar", id, year],
+    queryFn: () => apiGet(`/api/v1/countries/${id}/calendar${query({ year })}`),
+});
+export const useCountrySamples = (id, seed) => useQuery({
+    queryKey: ["countries", "samples", id, seed],
+    queryFn: () => apiGet(`/api/v1/countries/${id}/samples${query({ count: 3, seed })}`),
+});
+export const useCheckCountryValue = (id) => useMutation({
+    mutationFn: (body) => apiPost(`/api/v1/countries/${id}/check`, body),
+});
+export const useCountryRules = (id) => useQuery({
+    queryKey: ["countries", "rules", id],
+    queryFn: () => apiGet(`/api/v1/countries/${id}/rules`),
+});
+export const useSanctionsLists = () => useQuery({
+    queryKey: ["sanctions-lists"],
+    queryFn: () => apiGet("/api/v1/sanctions-lists"),
+    staleTime: Infinity,
+});
+export function useAddRuleVersion(id) {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => apiPost(`/api/v1/countries/${id}/rules`, body),
+        onSuccess: () => client.invalidateQueries({ queryKey: ["countries", "rules", id] }),
+    });
+}
+// --- Organizations -----------------------------------------------------------------------
+export function useOrganizations(params, enabled = true) {
+    return useQuery({
+        queryKey: ["organizations", "list", params],
+        queryFn: () => apiGet(`/api/v1/organizations${query({ limit: 200, ...params })}`),
+        enabled,
+    });
+}
+export function useOrganization(id) {
+    return useQuery({
+        queryKey: ["organizations", "detail", id],
+        queryFn: () => apiGet(`/api/v1/organizations/${id}`),
+        enabled: Boolean(id),
+    });
+}
+export function useAncestors(id) {
+    return useQuery({
+        queryKey: ["organizations", "ancestors", id],
+        queryFn: () => apiGet(`/api/v1/organizations/${id}/ancestors`),
+        enabled: Boolean(id),
+    });
+}
+export function useCreateOrganization() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => apiPost("/api/v1/organizations", body),
+        onSuccess: () => client.invalidateQueries({ queryKey: ["organizations"] }),
+    });
+}
+export function useUpdateOrganization() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, body }) => apiPatch(`/api/v1/organizations/${id}`, body),
+        onSuccess: () => client.invalidateQueries({ queryKey: ["organizations"] }),
+    });
+}
+// --- Employees ---------------------------------------------------------------------------
+export function useSubsidiaryBlueprint() {
+    return useQuery({
+        queryKey: ["organizations", "blueprint"],
+        queryFn: () => apiGet("/api/v1/organizations/blueprint"),
+    });
+}
+export function useGenerateSubsidiaries() {
+    return useMutation({
+        mutationFn: (body) => apiPost("/api/v1/organizations/generate", body),
+    });
+}
+export function useEmployees(params, enabled = true) {
+    return useQuery({
+        queryKey: ["employees", "list", params],
+        queryFn: () => apiGet(`/api/v1/employees${query(params)}`),
+        placeholderData: keepPreviousData,
+        enabled,
+    });
+}
+export function useEmployee(id) {
+    return useQuery({
+        queryKey: ["employees", "detail", id],
+        queryFn: () => apiGet(`/api/v1/employees/${id}`),
+        enabled: Boolean(id),
+    });
+}
+export function useReportingChain(id) {
+    return useQuery({
+        queryKey: ["employees", "chain", id],
+        queryFn: () => apiGet(`/api/v1/employees/${id}/reporting-chain`),
+        enabled: Boolean(id),
+    });
+}
+export function useDirectReports(id) {
+    return useQuery({
+        queryKey: ["employees", "reports", id],
+        queryFn: () => apiGet(`/api/v1/employees/${id}/direct-reports`),
+        enabled: Boolean(id),
+    });
+}
+export function useCreateEmployee() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => apiPost("/api/v1/employees", body),
+        onSuccess: () => {
+            void client.invalidateQueries({ queryKey: ["employees"] });
+            void client.invalidateQueries({ queryKey: ["organizations"] });
+        },
+    });
+}
+export function useUpdateEmployee() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, body }) => apiPatch(`/api/v1/employees/${id}`, body),
+        onSuccess: () => {
+            void client.invalidateQueries({ queryKey: ["employees"] });
+            void client.invalidateQueries({ queryKey: ["organizations"] });
+        },
+    });
+}
+// --- Audit & roles -----------------------------------------------------------------------
+export function useAuditEvents(params) {
+    return useQuery({
+        queryKey: ["audit-events", params],
+        queryFn: () => apiGet(`/api/v1/audit-events${query(params)}`),
+        placeholderData: keepPreviousData,
+    });
+}
+export function useRoles() {
+    return useQuery({
+        queryKey: ["roles"],
+        queryFn: () => apiGet("/api/v1/roles"),
+        staleTime: Infinity,
+    });
+}
+// --- Users (System Settings) ----------------------------------------------------------------
+export function useUsers(params, enabled = true) {
+    return useQuery({
+        queryKey: ["users", params],
+        queryFn: () => apiGet(`/api/v1/users${query(params)}`),
+        placeholderData: keepPreviousData,
+        enabled,
+    });
+}
+export function useCreateUser() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: (body) => apiPost("/api/v1/users", body),
+        onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
+    });
+}
+export function useUpdateUser() {
+    const client = useQueryClient();
+    return useMutation({
+        mutationFn: ({ id, ...body }) => apiPatch(`/api/v1/users/${id}`, body),
+        onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
+    });
+}

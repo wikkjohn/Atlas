@@ -1,0 +1,81 @@
+export const REGION_LABELS = {
+    americas: "Americas",
+    europe: "Europe",
+    middle_east_africa: "Middle East & Africa",
+    asia_pacific: "Asia-Pacific",
+};
+export const ORG_TYPE_LABELS = {
+    global_bank: "Global bank",
+    regional_headquarters: "Regional HQ",
+    country_subsidiary: "Country subsidiary",
+    business_division: "Business division",
+    department: "Department",
+    team: "Team",
+};
+/** The type a child of each organization type must have (mirrors the backend rules). */
+export const CHILD_TYPE = {
+    global_bank: "regional_headquarters",
+    regional_headquarters: "country_subsidiary",
+    country_subsidiary: "business_division",
+    business_division: "department",
+    department: "team",
+    team: null,
+};
+/** Number of decimal places in a currency's minor unit, per the platform's Intl data. */
+export function currencyDigits(currency) {
+    try {
+        return new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+            .maximumFractionDigits ?? 2;
+    }
+    catch {
+        return 2;
+    }
+}
+/** Format an integer amount of minor units (cents, yen, …) as currency. */
+export function formatMoney(minorUnits, currency) {
+    const digits = currencyDigits(currency);
+    const major = minorUnits / 10 ** digits;
+    try {
+        return new Intl.NumberFormat("en", {
+            style: "currency",
+            currency,
+            maximumFractionDigits: 0,
+        }).format(major);
+    }
+    catch {
+        return `${major.toLocaleString()} ${currency}`;
+    }
+}
+/** Exact amount with all of the currency's minor digits (payments and statements). */
+export function formatExactMoney(minorUnits, currency) {
+    const digits = currencyDigits(currency);
+    try {
+        return new Intl.NumberFormat("en", {
+            style: "currency",
+            currency,
+            minimumFractionDigits: digits,
+            maximumFractionDigits: digits,
+        }).format(minorUnits / 10 ** digits);
+    }
+    catch {
+        return `${minorUnits} ${currency}`;
+    }
+}
+/** Convert a whole-number major amount typed by a user into minor units. */
+export function toMinorUnits(major, currency) {
+    return Math.round(major * 10 ** currencyDigits(currency));
+}
+export function humanize(value) {
+    return value.replaceAll("_", " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+/** 1536 → "1.5 KB" (binary units, as storage tools report them). */
+export function formatBytes(bytes) {
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+    }
+    return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}

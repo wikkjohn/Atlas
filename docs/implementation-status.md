@@ -92,8 +92,8 @@ Last updated: Phase 52.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
+| Backend pytest (real PostgreSQL) | 671 passed (new: 3 — the complaint rules and their blind spot; the complaint profile with a fee charged twice, an older fee outside the 90 days and an earlier refunded complaint; baseline and AI-assisted complaint runs with every redress decided by a manager other than its proposer, no control violations, every kind's advice as designed) |
+| Generated workflow tests | 49 workflows, 853 cases, 0 failed (WF-1038 v2: 20 cases, 100 % steps and routes) |
 | Frontend Vitest / typecheck / build | 140 passed / clean / built |
 | Playwright on a fresh database | 56 passed (new: the complaint assistant in the AI Lab console, recommending a refund for a customer refunded four times this year) |
 | Measurement | `complaint-redress`, seed 2030, 300 complaints each: baseline 87.0 % accurate (19 wrongly upheld, 20 wrongly refused, 101.7 manager hours, median cycle 6.3 h); AI assisted 95.0 % (9, 6, 64.1 h, 2.5 h); repeat complainants refunded 8 against 9 of 64; the assistant's own advice 77 % accurate, 22 referred on |

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 58.
+Last updated: Phase 59.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -63,6 +63,67 @@ Last updated: Phase 58.
 | 56 | Departments, step 28: the human resources workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 57 | Departments, step 29: procurement and vendor management ([procurement.md](procurement.md)) | **Complete** |
 | 58 | Departments, step 30: the procurement workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 59 | Departments, step 31: IT operations ([itops.md](itops.md)) | **Complete** |
+
+## Phase 59: what exists
+
+- **IT operations module** (`app/modules/itops/`, migration 0041).
+- **Applications:** a catalogue with an owning department and a tier (1: customers or money
+  stop; 2: a department stops; 3: an inconvenience); the seed registers twelve.
+- **Incidents:**
+  - priority P1 to P4 from impact and urgency, with targets to acknowledge (15 minutes for
+    a P1) and to resolve (4 hours for a P1);
+  - late acknowledgements and resolutions are marked as breaches, also by an SLA sweep;
+  - a P1 is closed only with a post-incident review by someone other than the resolver;
+  - an incident can be attributed to the change that caused it.
+- **Changes:**
+  - risk from the kind (standard, normal, emergency), one level up on a tier-1 application
+    or without a backout plan, one down on a tier-3 one;
+  - standard changes pre-approved when low risk; others approved by someone other than the
+    requester (also a database constraint), by an executive for high risk or tier 1;
+  - no two approved changes to one application overlap;
+  - a month-end freeze (28th to 1st) on tier-1 applications, except for emergency changes,
+    which must answer an open P1 or P2;
+  - a failed change opens an incident against its application, attributed to it.
+- **Permissions:**
+  - `itops:read`: banking employees, managers, executives, auditors;
+  - `itops:manage`: banking employees, department managers;
+  - `itops:approve`: department managers, regional and global executives;
+  - `itops:approve_major`: regional and global executives.
+- **Workflow factory:** six `itops.*` handlers and three workflows:
+  - WF-1049 Incident Report
+  - WF-1050 Change Request
+  - WF-1051 Incident SLA Sweep
+- **IT Operations page** (`/it-operations`): summary, the freeze, incidents, changes and
+  the catalogue.
+- **PR #49 (Phase 58)** had no review comments; CI passed on the first run.
+
+## Phase 59: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 700 passed (new: 4 — priorities and targets, acknowledging late, resolving, a P1 closed only with a review by someone other than the resolver, a P4 without one, the SLA sweep; change risk, standard changes pre-approved only when low risk, four-eyes approval, overlapping windows, executive approval for tier 1, the month-end freeze and emergency changes tied to a P1 or P2; a failed change opening an incident attributed to it; the API with its permissions) |
+| Migration 0041 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 61 workflows, 959 cases, 0 failed (WF-1049: 7 cases, WF-1050: 12, WF-1051: 3; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 152 passed (new: 3 — summary, the freeze, incidents with breaches and causes, changes needing an executive, the catalogue; reporting, acknowledging and closing incidents, raising, approving and failing changes; read-only with `itops:read`) / clean / built |
+| Playwright on a fresh database | 67 passed (new: 2 — a P1 acknowledged, resolved and closed only with a review by someone else; a change approved by someone else that fails and opens an incident) |
+
+Found while building it:
+- **Kept out of the previous PR:** this phase was started while Phase 58's checks ran. Its
+  migration file on disk made one Phase 58 test fail (the system status compares the
+  database with the newest migration on disk); the work was set aside until Phase 58 was
+  merged.
+- **Postgres had stopped** before the first test run; it was restarted. One verification
+  command ran from the wrong directory and did nothing; it was run again.
+
+## Phase 59: known limitations
+
+- **Workflows do not call applications yet:** outages do not delay the processes that
+  depend on them (Milestone E).
+- **Targets run on the clock,** not business hours; there is no on-call rota or problem
+  record.
+- **A change's window is not enforced** when it is implemented.
+- **Not simulated yet:** the change workload and AI tool are Phase 60.
 
 ## Phase 58: what exists
 

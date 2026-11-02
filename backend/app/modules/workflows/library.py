@@ -4842,3 +4842,204 @@ def _ai_review(ctx: StepContext, params: AiReview) -> dict[str, Any]:
         "findings": [f.get("code") for f in out.get("findings", [])],
         "explanation": out.get("explanation"),
     }
+
+
+# --- IT operations (Phase 59) -------------------------------------------------------------------
+
+ITOPS_ACCESS = {"start_permission": "itops:manage", "read_permission": "itops:read"}
+
+
+def _holds(ctx: StepContext, user_id: uuid.UUID, permission: str) -> bool:
+    """Whether the user's role grants the permission."""
+    from app.core.permissions import permissions_for
+    from app.modules.identity.models import User
+
+    user = ctx.db.get(User, user_id)
+    return user is not None and permission in permissions_for(user.role.code)
+
+
+class OpenIncident(_Strict):
+    application_number_path: str = Field(min_length=1, max_length=200)
+    title_path: str = Field(min_length=1, max_length=200)
+    impact_path: str = Field(min_length=1, max_length=200)
+    urgency_path: str = Field(min_length=1, max_length=200)
+
+
+def _incident_out(incident) -> dict[str, Any]:
+    return {"incident_id": str(incident.id), "incident_number": incident.incident_number,
+            "priority": incident.priority, "status": incident.status,
+            "respond_by": incident.respond_by.isoformat(),
+            "resolve_by": incident.resolve_by.isoformat()}  # fmt: skip
+
+
+@_library_handler(
+    "itops.open_incident",
+    "Report an incident against an application: prioritised P1 to P4 from its impact and "
+    "urgency, with targets to respond and to resolve.",
+    OpenIncident,
+    "{incident_id, incident_number, priority, status, respond_by, resolve_by}",
+    reads=lambda params: [
+        params.application_number_path,
+        params.title_path,
+        params.impact_path,
+        params.urgency_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {params.application_number_path: "itops.application_number"},
+    **ITOPS_ACCESS,
+)
+def _open_incident(ctx: StepContext, params: OpenIncident) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    app = _trade_call("application_not_found", itops.find_application, ctx.db,
+                      str(_required(ctx, params.application_number_path)))  # fmt: skip
+    incident = _trade_call(
+        "incident_refused", itops.open_incident, ctx.db, app,
+        str(_required(ctx, params.title_path)), str(_required(ctx, params.impact_path)),
+        str(_required(ctx, params.urgency_path)), ctx.initiator_id, now=ctx.now,
+    )  # fmt: skip
+    return _incident_out(incident)
+
+
+class IncidentRef(_Strict):
+    incident_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "itops.acknowledge_incident",
+    "Acknowledge the incident (the on-call engineer takes it); a late acknowledgement is "
+    "recorded as a response breach.",
+    IncidentRef,
+    "{incident_id, incident_number, priority, status, respond_by, resolve_by}",
+    reads=lambda params: [params.incident_id_path],
+    effect="writes",
+    **ITOPS_ACCESS,
+)
+def _acknowledge_incident(ctx: StepContext, params: IncidentRef) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    incident = itops.get_incident(ctx.db, uuid.UUID(str(_required(ctx, params.incident_id_path))))
+    return _incident_out(_trade_call("acknowledge_refused", itops.acknowledge, ctx.db, incident,
+                                     ctx.initiator_id, ctx.now))  # fmt: skip
+
+
+@_library_handler(
+    "itops.sla_sweep",
+    "Mark incidents past their targets: not acknowledged, or not resolved, in time.",
+    NoParams,
+    "{swept_at, response_breaches, resolution_breaches}",
+    effect="writes",
+    **ITOPS_ACCESS,
+)
+def _itops_sla_sweep(ctx: StepContext, params: NoParams) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    return itops.sla_sweep(ctx.db, ctx.now)
+
+
+class RaiseChange(_Strict):
+    application_number_path: str = Field(min_length=1, max_length=200)
+    title_path: str = Field(min_length=1, max_length=200)
+    kind_path: str = Field(min_length=1, max_length=200)
+    backout_plan_path: str = Field(min_length=1, max_length=200)
+    days_ahead_path: str = Field(min_length=1, max_length=200)
+    hours_path: str = Field(min_length=1, max_length=200)
+
+
+def _change_out(db, change) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    return {"change_id": str(change.id), "change_number": change.change_number,
+            "kind": change.kind, "risk": change.risk, "status": change.status,
+            "pre_approved": change.kind == "standard",
+            "needs_cab": itops.needs_cab(db, change)}  # fmt: skip
+
+
+@_library_handler(
+    "itops.raise_change",
+    "Raise a change to an application, in a window starting at 22:00 UTC some days ahead: "
+    "risk-rated from its kind, the application's tier and the backout plan. A standard "
+    "change is pre-approved; others wait for someone other than the requester. Tier-1 "
+    "applications are frozen from the 28th to the 1st.",
+    RaiseChange,
+    "{change_id, change_number, kind, risk, status, pre_approved, needs_cab}",
+    reads=lambda params: [
+        params.application_number_path,
+        params.title_path,
+        params.kind_path,
+        params.backout_plan_path,
+        params.days_ahead_path,
+        params.hours_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {params.application_number_path: "itops.application_number"},
+    **ITOPS_ACCESS,
+)
+def _raise_change(ctx: StepContext, params: RaiseChange) -> dict[str, Any]:
+    from datetime import timedelta
+
+    from app.modules.itops import service as itops
+
+    app = _trade_call("application_not_found", itops.find_application, ctx.db,
+                      str(_required(ctx, params.application_number_path)))  # fmt: skip
+    start = (ctx.now + timedelta(days=int(_required(ctx, params.days_ahead_path)))).replace(
+        hour=22, minute=0, second=0, microsecond=0)  # fmt: skip
+    change = _trade_call(
+        "change_refused", itops.raise_change, ctx.db, app,
+        title=str(_required(ctx, params.title_path)), kind=str(_required(ctx, params.kind_path)),
+        backout_plan=str(_required(ctx, params.backout_plan_path)), planned_start=start,
+        planned_end=start + timedelta(hours=int(_required(ctx, params.hours_path))),
+        requested_by=ctx.initiator_id, now=ctx.now,
+    )  # fmt: skip
+    return _change_out(ctx.db, change)
+
+
+class ChangeDecision(_Strict):
+    change_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _change_request(ctx: StepContext, path: str):
+    from app.modules.itops import service as itops
+
+    return itops.get_change(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "itops.approve_change",
+    "Approve the change: a high-risk change, or one to a tier-1 application, needs an "
+    "executive; never into a window another approved change holds.",
+    ChangeDecision,
+    "{change_id, change_number, kind, risk, status, pre_approved, needs_cab}",
+    reads=lambda params: [params.change_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **ITOPS_ACCESS,
+)
+def _approve_change(ctx: StepContext, params: ChangeDecision) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    change = _trade_call("approval_refused", itops.decide_change, ctx.db,
+                         _change_request(ctx, params.change_id_path), decider, True,
+                         _holds(ctx, decider, "itops:approve_major"))  # fmt: skip
+    return _change_out(ctx.db, change)
+
+
+@_library_handler(
+    "itops.reject_change",
+    "Reject the change.",
+    ChangeDecision,
+    "{change_id, change_number, kind, risk, status, pre_approved, needs_cab}",
+    reads=lambda params: [params.change_id_path, params.decided_by_path],
+    effect="writes",
+    **ITOPS_ACCESS,
+)
+def _reject_change(ctx: StepContext, params: ChangeDecision) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    change = _trade_call("rejection_refused", itops.decide_change, ctx.db,
+                         _change_request(ctx, params.change_id_path), decider,
+                         False)  # fmt: skip
+    return _change_out(ctx.db, change)

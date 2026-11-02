@@ -29,6 +29,7 @@ from app.modules.finance.router import router as finance_router
 from app.modules.fx.router import router as fx_router
 from app.modules.hr.router import router as hr_router
 from app.modules.identity.router import auth_router, roles_router, users_router
+from app.modules.itops.router import router as itops_router
 from app.modules.ledger.router import router as ledger_router
 from app.modules.lending.router import router as loans_router
 from app.modules.mortgages.router import router as mortgages_router
@@ -89,6 +90,7 @@ for module_router in (
     collections_router,
     hr_router,
     procurement_router,
+    itops_router,
     loans_router,
     definitions_router,
     authoring_router,

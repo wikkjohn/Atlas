@@ -596,6 +596,20 @@ matched invoice is recorded and asks the AGB Invoice Review Assistant (`ai.revie
 advisory) before the manager releases the payment (`invoice-payments`). It also takes the
 date on the vendor's invoice.
 
+### WF-1049, WF-1050 and WF-1051: IT operations (Phase 59)
+
+The IT operations base processes:
+- **WF-1049** reports an incident against an application, prioritised from its impact and
+  urgency; a P1 or P2 pages the on-call engineer (acknowledges it) at once, lower
+  priorities are queued.
+- **WF-1050** raises a change for a window some days ahead, risk-rated; a standard change is
+  pre-approved, others wait for someone other than the requester (`itops:approve`; an
+  executive for high risk or a tier-1 application).
+- **WF-1051** runs the incident SLA sweep.
+
+The handlers need `itops:manage` to start and `itops:read` to read executions. Fixtures
+provide a new tier-2 application. See [itops.md](itops.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

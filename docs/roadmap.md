@@ -207,7 +207,13 @@ for the factory, a simulation workload and at least one AI tool candidate.
       invoices matched within 2 % of what was received, duplicates refused, paid by a second
       person through the ledger; WF-1046–1048; see `procurement.md`. Phase 58: the
       `invoice-payments` workload and the invoice review assistant)
-- [ ] IT operations: incidents and change management (linked to applications)
+- [x] IT operations: incidents and change management (linked to applications)
+      (Phase 59: an application catalogue with owners and tiers; incidents prioritised from
+      impact and urgency with response and resolution targets, P1s closed with a review by a
+      second person; changes risk-rated, approved by a second person (an executive for high
+      risk or tier 1), kept out of each other's windows and of the month-end freeze on tier-1
+      applications, emergency changes tied to a P1 or P2, failed changes opening incidents;
+      WF-1049–1051; see `itops.md`)
 - [ ] Legal, audit, marketing, facilities and the remaining departments (thin modules)
 - [ ] **Exit:** 35+ departments, each with ≥ 3 base processes, a workload and dashboards
 
@@ -312,4 +318,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 56 (D28) | HR, step 2: the `leave-requests` workload on stored WF-1044 v2, decided by department managers, and the AGB Leave Review Assistant | complete |
 | Phase 57 (D29) | Procurement: vendors screened, tiered and approved by a second person, verified bank-detail changes, purchase orders within approval limits, invoices paid on a match with the order and receipt; WF-1046–1048 | complete |
 | Phase 58 (D30) | Procurement, step 2: the `invoice-payments` workload on stored WF-1048 v2, decided by department managers, and the AGB Invoice Review Assistant | complete |
-| Phase 59 (D31, proposed) | IT operations: incidents and change management (linked to applications) | next |
+| Phase 59 (D31) | IT operations: an application catalogue with tiers, incidents with priority-based targets and P1 reviews, change management with risk, approval, conflicts and a month-end freeze; WF-1049–1051 | complete |
+| Phase 60 (D32, proposed) | IT operations, step 2: a change-approval workload on stored WF-1050 v2 and an AI change review assistant | next |

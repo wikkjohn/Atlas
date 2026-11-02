@@ -34,6 +34,7 @@ from app.modules.lending.router import router as loans_router
 from app.modules.mortgages.router import router as mortgages_router
 from app.modules.organizations.router import router as organizations_router
 from app.modules.payments.router import router as payments_router
+from app.modules.procurement.router import router as procurement_router
 from app.modules.retail.router import router as retail_router
 from app.modules.risk.router import router as risk_router
 from app.modules.rules.router import router as rules_router
@@ -87,6 +88,7 @@ for module_router in (
     customer_service_router,
     collections_router,
     hr_router,
+    procurement_router,
     loans_router,
     definitions_router,
     authoring_router,

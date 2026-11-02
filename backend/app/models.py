@@ -23,6 +23,7 @@ from app.modules.lending import models as lending  # noqa: F401
 from app.modules.mortgages import models as mortgages  # noqa: F401
 from app.modules.organizations import models as organizations  # noqa: F401
 from app.modules.payments import models as payments  # noqa: F401
+from app.modules.procurement import models as procurement  # noqa: F401
 from app.modules.retail import models as retail  # noqa: F401
 from app.modules.risk import models as risk  # noqa: F401
 from app.modules.rules import models as rules  # noqa: F401

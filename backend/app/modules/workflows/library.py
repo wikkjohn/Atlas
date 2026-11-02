@@ -4422,6 +4422,305 @@ def _leave_sweep(ctx: StepContext, params: NoParams) -> dict[str, Any]:
     return hr.leave_sweep(ctx.db, ctx.now.date())
 
 
+# --- Procurement and vendor management (Phase 57) ---------------------------------------------
+
+PROCUREMENT_ACCESS = {"start_permission": "procurement:manage",
+                      "read_permission": "procurement:read"}  # fmt: skip
+
+
+def _is_executive(ctx: StepContext, user_id: uuid.UUID) -> bool:
+    """Whether the decider holds procurement:approve_large (high-risk vendors, large orders)."""
+    from app.core.permissions import Permission, permissions_for
+    from app.modules.identity.models import User
+
+    user = ctx.db.get(User, user_id)
+    return user is not None and Permission.PROCUREMENT_APPROVE_LARGE in permissions_for(
+        user.role.code
+    )
+
+
+class RegisterVendor(_Strict):
+    name_path: str = Field(min_length=1, max_length=200)
+    country_path: str = Field(min_length=1, max_length=200)
+    category_path: str = Field(min_length=1, max_length=200)
+    bank_account_path: str = Field(min_length=1, max_length=200)
+
+
+def _vendor_out(vendor) -> dict[str, Any]:
+    return {"vendor_id": str(vendor.id), "vendor_number": vendor.vendor_number,
+            "status": vendor.status, "risk_tier": vendor.risk_tier,
+            "sanctions_hit": bool(vendor.screening.get("hit"))}  # fmt: skip
+
+
+@_library_handler(
+    "procurement.register_vendor",
+    "Register a vendor: screened against every sanctions list and tiered by risk; nothing "
+    "is ordered from it until someone other than the registrant approves it.",
+    RegisterVendor,
+    "{vendor_id, vendor_number, status, risk_tier, sanctions_hit}",
+    reads=lambda params: [
+        params.name_path,
+        params.country_path,
+        params.category_path,
+        params.bank_account_path,
+    ],  # fmt: skip
+    effect="writes",
+    **PROCUREMENT_ACCESS,
+)
+def _register_vendor(ctx: StepContext, params: RegisterVendor) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    vendor = _trade_call(
+        "vendor_refused", procurement.register_vendor, ctx.db,
+        name=str(_required(ctx, params.name_path)),
+        country_code=str(_required(ctx, params.country_path)),
+        category=str(_required(ctx, params.category_path)),
+        bank_account=str(_required(ctx, params.bank_account_path)),
+        registered_by=ctx.initiator_id,
+    )  # fmt: skip
+    return _vendor_out(vendor)
+
+
+class VendorDecision(_Strict):
+    vendor_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _procurement_vendor(ctx: StepContext, path: str):
+    from app.modules.procurement import service as procurement
+
+    return procurement.get_vendor(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "procurement.approve_vendor",
+    "Approve the vendor; a sanctions hit is refused, and a high-risk vendor needs an executive.",
+    VendorDecision,
+    "{vendor_id, vendor_number, status, risk_tier, sanctions_hit}",
+    reads=lambda params: [params.vendor_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **PROCUREMENT_ACCESS,
+)
+def _approve_vendor(ctx: StepContext, params: VendorDecision) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    vendor = _trade_call("approval_refused", procurement.decide_vendor, ctx.db,
+                         _procurement_vendor(ctx, params.vendor_id_path), decider, True,
+                         _is_executive(ctx, decider))  # fmt: skip
+    return _vendor_out(vendor)
+
+
+@_library_handler(
+    "procurement.reject_vendor",
+    "Reject the vendor; nothing is ordered from it.",
+    VendorDecision,
+    "{vendor_id, vendor_number, status, risk_tier, sanctions_hit}",
+    reads=lambda params: [params.vendor_id_path, params.decided_by_path],
+    effect="writes",
+    **PROCUREMENT_ACCESS,
+)
+def _reject_vendor(ctx: StepContext, params: VendorDecision) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    vendor = _trade_call("rejection_refused", procurement.decide_vendor, ctx.db,
+                         _procurement_vendor(ctx, params.vendor_id_path), decider,
+                         False)  # fmt: skip
+    return _vendor_out(vendor)
+
+
+class RaiseOrder(_Strict):
+    vendor_number_path: str = Field(min_length=1, max_length=200)
+    department_id_path: str = Field(min_length=1, max_length=200)
+    description_path: str = Field(min_length=1, max_length=200)
+    quantity_path: str = Field(min_length=1, max_length=200)
+    unit_price_path: str = Field(min_length=1, max_length=200)
+
+
+def _purchase_order_out(db, order) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    return {"order_id": str(order.id), "order_number": order.order_number,
+            "status": order.status, "total": order.total, "currency": order.currency,
+            "total_usd": procurement.total_usd(db, order)}  # fmt: skip
+
+
+@_library_handler(
+    "procurement.raise_order",
+    "Raise a purchase order with one line for an approved vendor, charged to a department; "
+    "nothing is ordered until someone other than the requester approves it.",
+    RaiseOrder,
+    "{order_id, order_number, status, total, currency, total_usd}",
+    reads=lambda params: [
+        params.vendor_number_path,
+        params.department_id_path,
+        params.description_path,
+        params.quantity_path,
+        params.unit_price_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {
+        params.vendor_number_path: "procurement.vendor_number",
+        params.department_id_path: "procurement.department_id",
+    },  # fmt: skip
+    **PROCUREMENT_ACCESS,
+)
+def _raise_order(ctx: StepContext, params: RaiseOrder) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    vendor = _trade_call("vendor_not_found", procurement.find_vendor, ctx.db,
+                         str(_required(ctx, params.vendor_number_path)))  # fmt: skip
+    description = str(_required(ctx, params.description_path))
+    order = _trade_call(
+        "order_refused", procurement.raise_order, ctx.db, vendor,
+        uuid.UUID(str(_required(ctx, params.department_id_path))), description,
+        [{"description": description, "quantity": int(_required(ctx, params.quantity_path)),
+          "unit_price": int(_required(ctx, params.unit_price_path))}], ctx.initiator_id,
+    )  # fmt: skip
+    return _purchase_order_out(ctx.db, order)
+
+
+class PurchaseOrderDecision(_Strict):
+    order_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _purchase_order(ctx: StepContext, path: str):
+    from app.modules.procurement import service as procurement
+
+    return procurement.get_order(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "procurement.approve_order",
+    "Approve the purchase order; above US$50,000 only an executive may.",
+    PurchaseOrderDecision,
+    "{order_id, order_number, status, total, currency, total_usd}",
+    reads=lambda params: [params.order_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **PROCUREMENT_ACCESS,
+)
+def _approve_purchase_order(ctx: StepContext, params: PurchaseOrderDecision) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    order = _trade_call("approval_refused", procurement.decide_order, ctx.db,
+                        _purchase_order(ctx, params.order_id_path), decider, True,
+                        _is_executive(ctx, decider))  # fmt: skip
+    return _purchase_order_out(ctx.db, order)
+
+
+@_library_handler(
+    "procurement.reject_order",
+    "Reject the purchase order.",
+    PurchaseOrderDecision,
+    "{order_id, order_number, status, total, currency, total_usd}",
+    reads=lambda params: [params.order_id_path, params.decided_by_path],
+    effect="writes",
+    **PROCUREMENT_ACCESS,
+)
+def _reject_purchase_order(ctx: StepContext, params: PurchaseOrderDecision) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    order = _trade_call("rejection_refused", procurement.decide_order, ctx.db,
+                        _purchase_order(ctx, params.order_id_path), decider,
+                        False)  # fmt: skip
+    return _purchase_order_out(ctx.db, order)
+
+
+class RecordInvoice(_Strict):
+    order_number_path: str = Field(min_length=1, max_length=200)
+    vendor_reference_path: str = Field(min_length=1, max_length=200)
+    amount_path: str = Field(min_length=1, max_length=200)
+
+
+def _invoice_out(invoice) -> dict[str, Any]:
+    return {"invoice_id": str(invoice.id), "invoice_number": invoice.invoice_number,
+            "status": invoice.status, "amount": invoice.amount, "currency": invoice.currency,
+            "matched": invoice.status == "recorded"}  # fmt: skip
+
+
+@_library_handler(
+    "procurement.record_invoice",
+    "Record a vendor's invoice against a received order: matched when the total invoiced "
+    "stays within 2 % of what was received, otherwise held; a duplicate is refused.",
+    RecordInvoice,
+    "{invoice_id, invoice_number, status, amount, currency, matched}",
+    reads=lambda params: [
+        params.order_number_path,
+        params.vendor_reference_path,
+        params.amount_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {params.order_number_path: "procurement.received_order_number"},
+    **PROCUREMENT_ACCESS,
+)
+def _record_invoice(ctx: StepContext, params: RecordInvoice) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    order = _trade_call("order_not_found", procurement.find_order, ctx.db,
+                        str(_required(ctx, params.order_number_path)))  # fmt: skip
+    invoice = _trade_call(
+        "invoice_refused", procurement.record_invoice, ctx.db, order,
+        str(_required(ctx, params.vendor_reference_path)),
+        int(_required(ctx, params.amount_path)), ctx.now.date(), ctx.initiator_id,
+    )  # fmt: skip
+    return _invoice_out(invoice)
+
+
+class InvoiceDecision(_Strict):
+    invoice_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _vendor_invoice(ctx: StepContext, path: str):
+    from app.modules.procurement import service as procurement
+
+    return procurement.get_invoice(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "procurement.pay_invoice",
+    "Pay the matched invoice to the vendor's verified bank account: debits purchases, "
+    "credits the bank's cash.",
+    InvoiceDecision,
+    "{invoice_id, invoice_number, status, amount, currency, matched}",
+    reads=lambda params: [params.invoice_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **PROCUREMENT_ACCESS,
+)
+def _pay_invoice(ctx: StepContext, params: InvoiceDecision) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    invoice = _trade_call("payment_refused", procurement.pay_invoice, ctx.db,
+                          _vendor_invoice(ctx, params.invoice_id_path), decider)  # fmt: skip
+    return _invoice_out(invoice)
+
+
+@_library_handler(
+    "procurement.reject_invoice",
+    "Reject the invoice; nothing is paid.",
+    InvoiceDecision,
+    "{invoice_id, invoice_number, status, amount, currency, matched}",
+    reads=lambda params: [params.invoice_id_path, params.decided_by_path],
+    effect="writes",
+    **PROCUREMENT_ACCESS,
+)
+def _reject_invoice(ctx: StepContext, params: InvoiceDecision) -> dict[str, Any]:
+    from app.modules.procurement import service as procurement
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    invoice = _trade_call("rejection_refused", procurement.reject_invoice, ctx.db,
+                          _vendor_invoice(ctx, params.invoice_id_path), decider)  # fmt: skip
+    return _invoice_out(invoice)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

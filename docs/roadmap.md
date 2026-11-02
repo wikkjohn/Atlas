@@ -199,7 +199,13 @@ for the factory, a simulation workload and at least one AI tool candidate.
       with leave, double-booking, 48-hour and 11-hour-rest checks; a department's capacity
       on the simulated day can staff a simulation run; WF-1043–1045; see `hr.md`. Phase 56:
       the `leave-requests` workload and the leave review assistant)
-- [ ] Procurement and vendor management
+- [x] Procurement and vendor management
+      (Phase 57: vendors screened against the sanctions lists, tiered by category and
+      country, approved by a second person (high risk by an executive); bank-detail changes
+      verified by a second person, with payments to the vendor blocked meanwhile; purchase
+      orders approved by a second person, above US$50,000 by an executive, and received;
+      invoices matched within 2 % of what was received, duplicates refused, paid by a second
+      person through the ledger; WF-1046–1048; see `procurement.md`)
 - [ ] IT operations: incidents and change management (linked to applications)
 - [ ] Legal, audit, marketing, facilities and the remaining departments (thin modules)
 - [ ] **Exit:** 35+ departments, each with ≥ 3 base processes, a workload and dashboards
@@ -303,4 +309,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 54 (D26) | Collections, step 2: the `payment-plans` workload on stored WF-1040 v2, decided by collections managers, and the AGB Collections Review Assistant | complete |
 | Phase 55 (D27) | HR: four-eyes requisitions, offers within the band and hires with onboarding, leave in country business days, shift rosters, department capacity staffing simulation runs; WF-1043–1045 | complete |
 | Phase 56 (D28) | HR, step 2: the `leave-requests` workload on stored WF-1044 v2, decided by department managers, and the AGB Leave Review Assistant | complete |
-| Phase 57 (D29, proposed) | Procurement and vendor management | next |
+| Phase 57 (D29) | Procurement: vendors screened, tiered and approved by a second person, verified bank-detail changes, purchase orders within approval limits, invoices paid on a match with the order and receipt; WF-1046–1048 | complete |
+| Phase 58 (D30, proposed) | Procurement, step 2: an invoice-payment workload on stored WF-1048 v2 and an AI invoice review assistant | next |

@@ -477,6 +477,32 @@ See [hr.md](hr.md). Salaries are yearly, in minor units of the department's curr
 | POST | `/api/v1/hr/shifts/{id}/unassign` | `hr:manage` | `{employee_number}` |
 | GET | `/api/v1/hr/summary/counts` | `hr:read` | Requisitions to approve and recruiting, offers out, leave to decide, on leave today, overdue onboarding, shifts today |
 
+### Procurement (Phase 57)
+
+See [procurement.md](procurement.md). Amounts are in minor units of the vendor's currency.
+Lists take `?status=` and are newest first, paginated.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/procurement/vendors` | `procurement:read` | |
+| POST | `/api/v1/procurement/vendors` | `procurement:manage` | `{name, country, category, bank_account}`: screened and tiered (rules `category_invalid`, `details_missing`) |
+| POST | `/api/v1/procurement/vendors/{id}/approve` | `procurement:approve` | Not by the registrant (rule `four_eyes`); never a sanctions hit (rule `sanctions_hit`); high risk needs `procurement:approve_large` (rule `needs_executive`) |
+| POST | `/api/v1/procurement/vendors/{id}/reject` | `procurement:approve` | Not by the registrant |
+| POST | `/api/v1/procurement/vendors/{id}/bank-change` | `procurement:manage` | `{bank_account}`: waits for verification (rule `account_invalid`; 409 if one already waits) |
+| POST | `/api/v1/procurement/vendors/{id}/bank-change/verify` | `procurement:approve` | Not by the requester (rule `four_eyes`) |
+| POST | `/api/v1/procurement/vendors/{id}/bank-change/refuse` | `procurement:approve` | Not by the requester |
+| GET | `/api/v1/procurement/departments` | `procurement:read` | Active departments an order can be charged to |
+| GET | `/api/v1/procurement/orders` | `procurement:read` | With the total in US dollars, received and invoiced |
+| POST | `/api/v1/procurement/orders` | `procurement:manage` | `{vendor_number, department_id, description, lines: [{description, quantity, unit_price}]}` (rules `vendor_not_approved`, `lines_invalid`) |
+| POST | `/api/v1/procurement/orders/{id}/approve` | `procurement:approve` | Not by the requester (rule `four_eyes`); above US$50,000 needs `procurement:approve_large` (rule `needs_executive`) |
+| POST | `/api/v1/procurement/orders/{id}/reject` | `procurement:approve` | Not by the requester |
+| POST | `/api/v1/procurement/orders/{id}/receive` | `procurement:manage` | `{amount}` (rules `not_approved`, `over_receipt`) |
+| GET | `/api/v1/procurement/invoices` | `procurement:read` | |
+| POST | `/api/v1/procurement/invoices` | `procurement:manage` | `{order_number, vendor_reference, amount, invoice_date}`: matched within 2 % of what was received, else held (rules `not_received`, `duplicate_invoice`) |
+| POST | `/api/v1/procurement/invoices/{id}/pay` | `procurement:approve` | Not by the recorder (rule `four_eyes`); rules `vendor_not_approved`, `bank_change_pending`; posts purchases against cash |
+| POST | `/api/v1/procurement/invoices/{id}/reject` | `procurement:approve` | Matched or held invoices; not by the recorder |
+| GET | `/api/v1/procurement/summary/counts` | `procurement:read` | Vendors to approve and approved, bank changes to verify, orders to approve and open, invoices to pay and held |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 56.
+Last updated: Phase 57.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -61,6 +61,71 @@ Last updated: Phase 56.
 | 54 | Departments, step 26: the collections workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 55 | Departments, step 27: human resources ([hr.md](hr.md)) | **Complete** |
 | 56 | Departments, step 28: the human resources workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 57 | Departments, step 29: procurement and vendor management ([procurement.md](procurement.md)) | **Complete** |
+
+## Phase 57: what exists
+
+- **Procurement module** (`app/modules/procurement/`, migration 0040).
+- **Vendors:**
+  - screened against every sanctions list and tiered by category, one tier higher outside
+    the bank's active countries;
+  - approved by someone other than the registrant (also a database constraint), high-risk
+    vendors only by an executive; a sanctions hit is never approved.
+- **Bank-detail changes:** verified or refused by a second person (also a database
+  constraint); nothing is paid to the vendor while one waits.
+- **Purchase orders:**
+  - lines in the vendor's currency, charged to an active department;
+  - approved by someone other than the requester (also a database constraint), above
+    US$50,000 only by an executive;
+  - received in one delivery or several, never above the total.
+- **Invoices:**
+  - recorded against a received order; a vendor reference is never recorded twice;
+  - matched within 2 % of what was received, otherwise held with the reason;
+  - paid by someone other than the recorder (also a database constraint): purchases
+    debited, cash credited, the account paid to recorded; the order closes when fully
+    received and paid.
+- **Permissions:**
+  - `procurement:read`: banking employees, managers, executives, auditors;
+  - `procurement:manage`: banking employees, department managers;
+  - `procurement:approve`: department managers, regional and global executives;
+  - `procurement:approve_large`: regional and global executives.
+- **Workflow factory:** nine `procurement.*` handlers and three workflows:
+  - WF-1046 Vendor Onboarding
+  - WF-1047 Purchase Order
+  - WF-1048 Invoice Payment
+- **Procurement page** (`/procurement`): summary, vendors with screening, tier and bank
+  changes, purchase orders with approval and receipts, invoices.
+- **PR #47 (Phase 56)** had no review comments; CI passed on the first run.
+
+## Phase 57: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | Full run: 688 passed, 4 failed. The 4 (`test_ai_lab.py::test_invalid_registrations_are_rejected`) hit a deadlock and a missing `roles` table: a first run, stopped part-way to pick up the fix below, was still tearing down the test database. Re-run on their own with the library tests: 52 passed. New: 6 — vendor screening, tiers, the executive and sanctions rules; orders, the US$50,000 threshold and receipts; invoice matching, holds, duplicates, payment through the ledger and the order closing; bank changes verified by a second person blocking payment meanwhile; the API with its permissions; the library defining each top-level name once |
+| Migration 0040 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 58 workflows, 935 cases, 0 failed (WF-1046: 10 cases, WF-1047: 10, WF-1048: 12; each 100 % steps and routes), after the fix below |
+| Frontend Vitest / typecheck / build | 149 passed (new: 3 — summary, vendors with screening and bank changes, orders and invoices; registering, deciding, verifying, ordering, receiving, recording and paying; read-only with `procurement:read`) / clean / built |
+| Playwright on a fresh database | 64 passed (new: 2 — a vendor approved by someone else, ordered from, received, invoiced (a duplicate refused) and paid, closing the order; a sanctions hit refused and rejected, and a bank change verified by a second person) |
+
+Found while building it:
+- **A wealth workflow broken by a name clash:** the procurement library helpers
+  `_order_out`, `OrderDecision`, `_approve_order` and `_reject_order` reused names already
+  used for wealth orders. The later `_order_out` replaced the earlier one, so every WF-1025
+  order step failed (19 generated cases). They were renamed, and a test now checks that
+  the library defines each name once; ruff does not flag it, as the earlier name is used.
+- **Orders never closed:** paying the last invoice summed what was paid before the payment
+  was flushed. It is flushed first now.
+- **US$50,000.01 needed no executive:** the threshold compared whole dollars. It compares
+  cents now.
+- **Test expectations, not code:** an end-to-end check matched the panel's description
+  as well as the error.
+
+## Phase 57: known limitations
+
+- **One currency per order,** the vendor's; no payment terms, due dates or tax.
+- **Payments post straight to the ledger:** no payment file or clearing.
+- **No budgets,** and vendors are not re-screened after registration.
+- **Not simulated yet:** the invoice workload and AI tool are Phase 58.
 
 ## Phase 56: what exists
 

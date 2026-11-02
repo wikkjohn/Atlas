@@ -378,3 +378,20 @@ def test_set_risk_rating_and_the_handlers_api(client: TestClient, db: Session) -
         "/api/v1/workflow-definitions/validate", headers=auth(staff.admin), json=body
     ).json()
     assert report["effects"]["charge_fee"] == "moves_money"
+
+
+def test_library_defines_each_top_level_name_once() -> None:
+    """A later helper with the same name silently replaces the earlier one for every handler
+    that calls it (Phase 57: procurement's _order_out broke the wealth order handler)."""
+    import ast
+    from collections import Counter
+    from pathlib import Path
+
+    from app.modules.workflows import library as module
+
+    tree = ast.parse(Path(module.__file__).read_text())
+    names = Counter(
+        node.name for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.ClassDef)
+    )  # fmt: skip
+    assert [name for name, count in names.items() if count > 1] == []

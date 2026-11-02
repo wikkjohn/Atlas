@@ -4385,6 +4385,28 @@ def _reject_leave(ctx: StepContext, params: LeaveDecision) -> dict[str, Any]:
     return _leave_out(leave)
 
 
+class LeaveRef(_Strict):
+    leave_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "hr.leave_profile",
+    "Read what a manager weighs before approving leave: its kind, length and notice, the "
+    "annual balance left, the department's cover with the others already away, sick days "
+    "this year and the employee's other requests in 90 days.",
+    LeaveRef,
+    "{kind, days, notice_days, annual_balance_after, department_headcount, others_away, "
+    "coverage_pct, sick_days_365, prior_requests_90d, prior_short_notice_90d}",
+    reads=lambda params: [params.leave_id_path],
+    effect="reads",
+    **HR_ACCESS,
+)
+def _leave_profile(ctx: StepContext, params: LeaveRef) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    return hr.leave_profile(ctx.db, _leave_request(ctx, params.leave_id_path))
+
+
 @_library_handler(
     "hr.leave_sweep",
     "Mark employees on approved leave today as on leave, and those whose leave ended as "

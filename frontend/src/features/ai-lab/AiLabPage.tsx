@@ -337,6 +337,20 @@ const SAMPLE_PLAN = {
     prior_plans_broken: 1,
   },
 };
+const SAMPLE_LEAVE = {
+  profile: {
+    kind: "annual",
+    days: 1,
+    notice_days: 2,
+    annual_balance_after: 19,
+    department_headcount: 5,
+    others_away: 0,
+    coverage_pct: 80,
+    sick_days_365: 0,
+    prior_requests_90d: 4,
+    prior_short_notice_90d: 4,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -353,6 +367,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_journal_review: SAMPLE_JOURNAL,
   rule_based_complaint_review: SAMPLE_COMPLAINT,
   rule_based_plan_review: SAMPLE_PLAN,
+  rule_based_leave_review: SAMPLE_LEAVE,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

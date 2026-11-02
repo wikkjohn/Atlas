@@ -11,6 +11,7 @@ from app.modules.ai_tools.adapters.document_check import DocumentCheckAdapter
 from app.modules.ai_tools.adapters.fault_injection import FaultInjectionAdapter
 from app.modules.ai_tools.adapters.journal_review import JournalReviewAdapter
 from app.modules.ai_tools.adapters.kyc_assistant import KycAssistantAdapter
+from app.modules.ai_tools.adapters.leave_review import LeaveReviewAdapter
 from app.modules.ai_tools.adapters.mortgage_underwriting import MortgageUnderwritingAdapter
 from app.modules.ai_tools.adapters.overdraft_affordability import OverdraftAffordabilityAdapter
 from app.modules.ai_tools.adapters.payment_screening import PaymentScreeningAdapter
@@ -38,6 +39,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         JournalReviewAdapter(),
         ComplaintReviewAdapter(),
         PlanReviewAdapter(),
+        LeaveReviewAdapter(),
         FaultInjectionAdapter(),
     )
 }

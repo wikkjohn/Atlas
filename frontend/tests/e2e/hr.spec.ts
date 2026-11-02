@@ -74,3 +74,16 @@ test("Human Resources: leave is counted in business days and decided by someone 
   await admin.getByRole("button", { name: `Approve ${leave}` }).click();
   await expect(admin.getByRole("table", { name: "Leave requests" }).getByRole("row").filter({ hasText: leave })).toContainText("approved");
 });
+
+test("AI Innovation Lab: the leave assistant would approve another last-minute day off (its blind spot)", async ({ page }) => {
+  // The tool reads HR data (hr:read); the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Leave Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Leave Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

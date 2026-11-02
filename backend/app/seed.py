@@ -976,6 +976,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["loans:read"],
         "compatible_workflows": ["WF-1040"],
     },
+    {
+        "tool_id": "agb-leave-assistant",
+        "tool_name": "AGB Leave Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews a leave request before a department manager decides it: the "
+        "department's cover with the others already away, notice for long annual leave and "
+        "long sickness, with an explanation and an approve, reject or refer recommendation. "
+        "Advisory: it never decides leave (Phase 56).",
+        "adapter": "rule_based_leave_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["hr:read"],
+        "compatible_workflows": ["WF-1044"],
+    },
 ]
 
 

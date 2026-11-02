@@ -545,6 +545,60 @@ def capacity(db: Session, department_id: uuid.UUID, on: date) -> dict[str, Any]:
             "available_by_role": by_role}  # fmt: skip
 
 
+SHORT_NOTICE_DAYS = 7  # leave asked for less than a week ahead
+
+
+def leave_profile(db: Session, leave: LeaveRequest) -> dict[str, Any]:
+    """What a manager weighs before approving leave (Phase 56), as of the day it was asked
+    for: its kind, length and notice; the annual balance left after it; the department's
+    cover on its working days, with the others already away; the employee's sick days this
+    year; and their other leave requests in the 90 days before, and how many came at short
+    notice."""
+    employee = db.get(Employee, leave.employee_id)
+    asked = leave.created_at.date()
+    profile = employee.country.calendar_profile()
+    colleagues = list(db.execute(
+        select(Employee.id).where(Employee.department_id == employee.department_id,
+                                  Employee.employment_status != EmploymentStatus.TERMINATED)
+    ).scalars())  # fmt: skip
+    headcount = len(colleagues)
+    others_away = 0
+    day = leave.start_date
+    while day <= leave.end_date:
+        if calendar.is_business_day(profile, day):
+            away = on_leave_ids(db, day, employee.department_id) - {employee.id}
+            others_away = max(others_away, len(away))
+        day += timedelta(days=1)
+    working = headcount - others_away - 1
+    earlier = list(db.execute(
+        select(LeaveRequest).where(
+            LeaveRequest.employee_id == employee.id, LeaveRequest.id != leave.id,
+            LeaveRequest.created_at < leave.created_at,
+            LeaveRequest.created_at >= leave.created_at - timedelta(days=90))
+    ).scalars())  # fmt: skip
+    sick = db.execute(
+        select(func.coalesce(func.sum(LeaveRequest.days), 0)).where(
+            LeaveRequest.employee_id == employee.id, LeaveRequest.id != leave.id,
+            LeaveRequest.kind == LeaveKind.SICK, LeaveRequest.status == LeaveStatus.APPROVED,
+            LeaveRequest.start_date > asked - timedelta(days=365))
+    ).scalar_one()  # fmt: skip
+    balance = None
+    if leave.kind == LeaveKind.ANNUAL:
+        balance = ANNUAL_ENTITLEMENT_DAYS - leave_used(db, employee.id, leave.start_date.year)
+    return {
+        "kind": leave.kind, "days": leave.days,
+        "notice_days": (leave.start_date - asked).days,
+        "annual_balance_after": balance,
+        "department_headcount": headcount, "others_away": others_away,
+        "coverage_pct": max(working, 0) * 100 // headcount if headcount else 0,
+        "sick_days_365": int(sick),
+        "prior_requests_90d": len(earlier),
+        "prior_short_notice_90d": sum(
+            1 for e in earlier
+            if (e.start_date - e.created_at.date()).days < SHORT_NOTICE_DAYS),
+    }  # fmt: skip
+
+
 def summary(db: Session, on: date | None = None) -> dict[str, Any]:
     on = on or _now().date()
 

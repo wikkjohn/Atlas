@@ -405,6 +405,25 @@ See [finance.md](finance.md). Amounts are minor units of their currency; periods
 | POST | `/api/v1/finance/journals/{id}/reject` | `finance:approve` | `{note?}` |
 | GET | `/api/v1/finance/summary/counts` | `finance:read` | Last closed and next month, closes, reports, allocations and journals awaiting a decision |
 
+### Customer service (Phase 51)
+
+See [customer-service.md](customer-service.md). Redress is in minor units of the account's currency.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/customer-service/cases` | `service:read` | Filters `status` (`unresolved` or a status), `category`, `customer_number`; unresolved first, soonest due first |
+| POST | `/api/v1/customer-service/cases` | `service:handle` | `{customer_number, account_number?, category, channel, topic, priority?, subject, description}`; 201 with the SLA due times |
+| GET | `/api/v1/customer-service/cases/{id}/events` | `service:read` | The case's timeline |
+| POST | `/api/v1/customer-service/cases/{id}/respond` | `service:handle` | `{message}`; the first reply meets the first-response SLA |
+| POST | `/api/v1/customer-service/cases/{id}/await-customer` | `service:handle` | Pauses the clock |
+| POST | `/api/v1/customer-service/cases/{id}/resume` | `service:handle` | The due times move by the pause (not a complaint's final response) |
+| POST | `/api/v1/customer-service/cases/{id}/redress` | `service:handle` | `{amount, account_number}`: complaints only, into the customer's open account |
+| POST | `/api/v1/customer-service/cases/{id}/redress/pay` | `service:approve` | Not by the proposer (rule `four_eyes`); posts the payment |
+| POST | `/api/v1/customer-service/cases/{id}/redress/withdraw` | `service:handle` | |
+| POST | `/api/v1/customer-service/cases/{id}/resolve` | `service:handle` | `{resolution, outcome?}`: a complaint needs an outcome (rule `outcome_required`) and no redress pending (rule `redress_pending`) |
+| POST | `/api/v1/customer-service/sweep` | `service:handle` | Marks overdue cases breached and escalates them |
+| GET | `/api/v1/customer-service/summary/counts` | `service:read` | Open, awaiting customer, complaints, breached, due today, redress to approve, average first response |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

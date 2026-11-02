@@ -20,6 +20,7 @@ from app.modules.commercial.router import router as commercial_router
 from app.modules.compliance.router import router as compliance_router
 from app.modules.countries.router import currencies_router
 from app.modules.countries.router import router as countries_router
+from app.modules.customer_service.router import router as customer_service_router
 from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
 from app.modules.experiments.router import benchmarks_router, experiments_router
@@ -81,6 +82,7 @@ for module_router in (
     compliance_router,
     risk_router,
     finance_router,
+    customer_service_router,
     loans_router,
     definitions_router,
     authoring_router,

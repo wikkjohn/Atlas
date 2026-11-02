@@ -9,6 +9,7 @@ from app.modules.clearing import models as clearing  # noqa: F401
 from app.modules.commercial import models as commercial  # noqa: F401
 from app.modules.compliance import models as compliance  # noqa: F401
 from app.modules.countries import models as countries  # noqa: F401
+from app.modules.customer_service import models as customer_service  # noqa: F401
 from app.modules.customers import models as customers  # noqa: F401
 from app.modules.employees import models as employees  # noqa: F401
 from app.modules.experiments import models as experiments  # noqa: F401

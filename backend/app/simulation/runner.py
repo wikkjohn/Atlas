@@ -107,6 +107,7 @@ def resolve_config(
     tool: AITool | None = None,
     shards: int = 1,
     countries: list[str] | None = None,
+    staffing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The complete configuration of a run; stored with it and hashed to compare runs.
     `countries` limits the dataset to some active countries (Phase 28); staff are then hired
@@ -170,6 +171,10 @@ def resolve_config(
         # The dataset the run draws on: active countries decide where applicants live.
         "dataset": dataset,
     }
+    if staffing is not None:
+        # Sized from HR (Phase 55): the department's capacity on the simulated day, part of
+        # the configuration so a run staffed differently is a different run.
+        config["staffing"] = staffing
     if shards > 1:
         _check_shards(scenario, workload, applications, employees, shards)
         # Part of the configuration (and its hash): each shard has its own staff and
@@ -251,6 +256,7 @@ def create_run(
     batch_id: uuid.UUID | None = None,
     shards: int = 1,
     countries: list[str] | None = None,
+    staffing: dict[str, Any] | None = None,
 ) -> SimulationRun:
     config = resolve_config(
         db,
@@ -262,6 +268,7 @@ def create_run(
         tool=tool if mode != "baseline" else None,
         shards=shards,
         countries=countries,
+        staffing=staffing,
     )
     run = SimulationRun(
         scenario_id=scenario.scenario_id,

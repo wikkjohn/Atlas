@@ -1,0 +1,44 @@
+{
+  "workflow_id": "WF-1045",
+  "name": "Leave Status Sweep",
+  "version": 1,
+  "description": "Employees on approved leave today are marked on leave, and those whose leave has ended are active again; nobody who has left the bank is touched. Stored definition: built only from library handlers (Phase 55).",
+  "business_owner": "Human Resources",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "presentation": {
+    "subject_path": "sweep.swept_on"
+  },
+  "start": "sweep",
+  "steps": [
+    {
+      "id": "sweep",
+      "type": "service_task",
+      "name": "Set who is on leave",
+      "handler": "hr.leave_sweep",
+      "params": {},
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Swept",
+      "outcome": "approved"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

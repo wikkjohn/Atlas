@@ -574,6 +574,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             known.update(_finance_fixtures(db, kinds))
         if kinds & {"arrears_loan.loan_number", "written_off_loan.loan_number"}:
             known.update(_collections_fixtures(db, kinds))
+        if kinds & {"hr.department_id", "hr.employee_number"}:
+            known.update(_hr_fixtures(db))
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -625,6 +627,28 @@ def _collections_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:
         servicing.write_off(db, late.id, _person(db, RoleCode.REGIONAL_EXECUTIVE), as_of)
         out["written_off_loan.loan_number"] = late.loan_number
     return out
+
+
+def _hr_fixtures(db: Session) -> dict[str, str]:
+    """An active department in an active country, and a new employee hired into it with no
+    leave booked (Phase 55)."""
+    from app.modules.countries.models import Country, OperationalStatus
+    from app.modules.employees.schemas import EmployeeCreate
+    from app.modules.employees.service import create_employee
+    from app.modules.organizations.models import Organization, OrganizationType
+
+    dept = db.execute(
+        select(Organization).join(Country, Country.id == Organization.country_id)
+        .where(Organization.organization_type == OrganizationType.DEPARTMENT,
+               Organization.status == "active",
+               Country.operational_status == OperationalStatus.ACTIVE)
+        .order_by(Organization.name).limit(1)
+    ).scalar_one()  # fmt: skip
+    employee = create_employee(db, EmployeeCreate(
+        first_name="Generated", last_name=f"Test{uuid.uuid4().hex[:6]}", organization_id=dept.id,
+        job_title="Generated test employee", annual_compensation=5_000_000,
+    ), None)  # fmt: skip
+    return {"hr.department_id": str(dept.id), "hr.employee_number": employee.employee_number}
 
 
 FINANCE_KINDS = {"finance.open_period", "finance.closed_period", "finance.allocation_period",

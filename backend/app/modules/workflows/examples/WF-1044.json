@@ -1,0 +1,158 @@
+{
+  "workflow_id": "WF-1044",
+  "name": "Leave Request",
+  "version": 1,
+  "description": "Leave for an employee: annual, sick or unpaid, counted in the business days of the employee's country. Annual leave counts against the year's 25-day entitlement, and no request may overlap another. Someone other than the requester (hr:manage) approves it or rejects it; the leave status sweep marks the employee on leave while it runs. Stored definition: built only from library handlers (Phase 55).",
+  "business_owner": "Human Resources",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "employee_number",
+      "kind",
+      "start_date",
+      "end_date"
+    ],
+    "properties": {
+      "employee_number": {
+        "type": "string",
+        "pattern": "^AGB-[0-9]{7,}$"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "annual",
+          "sick",
+          "unpaid"
+        ],
+        "examples": [
+          "annual"
+        ]
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "examples": [
+          "2041-03-05"
+        ]
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date",
+        "examples": [
+          "2041-03-07"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "request.leave_number"
+  },
+  "start": "request",
+  "steps": [
+    {
+      "id": "request",
+      "type": "service_task",
+      "name": "Request the leave",
+      "handler": "hr.request_leave",
+      "params": {
+        "employee_number_path": "input.employee_number",
+        "kind_path": "input.kind",
+        "start_date_path": "input.start_date",
+        "end_date_path": "input.end_date"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the leave",
+      "description": "Someone other than the requester approves the leave.",
+      "approval": {
+        "permissions": [
+          "hr:manage"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "reject"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Approve it",
+      "handler": "hr.approve_leave",
+      "params": {
+        "leave_id_path": "request.leave_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "reject",
+      "type": "service_task",
+      "name": "Reject it",
+      "handler": "hr.reject_leave",
+      "params": {
+        "leave_id_path": "request.leave_id",
+        "decided_by_path": "approval.actor_id",
+        "note": "Leave not approved"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "declined"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Approved",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Rejected",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -1,0 +1,187 @@
+{
+  "workflow_id": "WF-1043",
+  "name": "Job Requisition",
+  "version": 1,
+  "description": "A department asks to hire: a job title, a role, a number of openings and a yearly salary band in the department's currency, with the reason. Someone other than the requester (hr:approve) approves it, and recruiting may start, or cancels it. Candidates are then offered a salary inside the band and hired through the HR page. Stored definition: built only from library handlers (Phase 55).",
+  "business_owner": "Human Resources",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "department_id",
+      "job_title",
+      "role",
+      "openings",
+      "salary_min",
+      "salary_max",
+      "reason"
+    ],
+    "properties": {
+      "department_id": {
+        "type": "string",
+        "pattern": "^[0-9a-f-]{36}$"
+      },
+      "job_title": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 150,
+        "examples": [
+          "Customer Service Adviser"
+        ]
+      },
+      "role": {
+        "type": "string",
+        "enum": [
+          "banking_employee",
+          "department_manager",
+          "compliance_officer"
+        ],
+        "examples": [
+          "banking_employee"
+        ]
+      },
+      "openings": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "examples": [
+          2
+        ]
+      },
+      "salary_min": {
+        "type": "integer",
+        "minimum": 1,
+        "examples": [
+          4000000
+        ]
+      },
+      "salary_max": {
+        "type": "integer",
+        "minimum": 1,
+        "examples": [
+          5500000
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 300,
+        "examples": [
+          "Two advisers left; queues are over target."
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "open.requisition_number"
+  },
+  "start": "open",
+  "steps": [
+    {
+      "id": "open",
+      "type": "service_task",
+      "name": "Open the requisition",
+      "handler": "hr.open_requisition",
+      "params": {
+        "department_id_path": "input.department_id",
+        "job_title_path": "input.job_title",
+        "role_path": "input.role",
+        "openings_path": "input.openings",
+        "salary_min_path": "input.salary_min",
+        "salary_max_path": "input.salary_max",
+        "reason_path": "input.reason"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the requisition",
+      "description": "Someone other than the requester approves the headcount.",
+      "approval": {
+        "permissions": [
+          "hr:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "approve",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "cancel"
+    },
+    {
+      "id": "approve",
+      "type": "service_task",
+      "name": "Approve it",
+      "handler": "hr.approve_requisition",
+      "params": {
+        "requisition_id_path": "open.requisition_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "cancel",
+      "type": "service_task",
+      "name": "Cancel it",
+      "handler": "hr.cancel_requisition",
+      "params": {
+        "requisition_id_path": "open.requisition_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "declined"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Recruiting",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Cancelled",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

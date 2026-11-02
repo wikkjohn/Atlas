@@ -4186,6 +4186,220 @@ def _plan_profile(ctx: StepContext, params: PlanRef) -> dict[str, Any]:
     return collections.plan_profile(ctx.db, _payment_plan(ctx, params.plan_id_path))
 
 
+# --- Human resources (Phase 55) --------------------------------------------------------------
+
+HR_ACCESS = {"start_permission": "hr:manage", "read_permission": "hr:read"}
+
+
+class OpenRequisition(_Strict):
+    department_id_path: str = Field(min_length=1, max_length=200)
+    job_title_path: str = Field(min_length=1, max_length=200)
+    role_path: str = Field(min_length=1, max_length=200)
+    openings_path: str = Field(min_length=1, max_length=200)
+    salary_min_path: str = Field(min_length=1, max_length=200)
+    salary_max_path: str = Field(min_length=1, max_length=200)
+    reason_path: str = Field(min_length=1, max_length=200)
+
+
+def _requisition_out(row) -> dict[str, Any]:
+    return {"requisition_id": str(row.id), "requisition_number": row.requisition_number,
+            "status": row.status, "openings": row.openings, "currency": row.currency}  # fmt: skip
+
+
+@_library_handler(
+    "hr.open_requisition",
+    "Open a job requisition: a role, openings and a salary band in the department's "
+    "currency; nobody is hired until someone other than the requester approves it.",
+    OpenRequisition,
+    "{requisition_id, requisition_number, status, openings, currency}",
+    reads=lambda params: [
+        params.department_id_path,
+        params.job_title_path,
+        params.role_path,
+        params.openings_path,
+        params.salary_min_path,
+        params.salary_max_path,
+        params.reason_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {params.department_id_path: "hr.department_id"},
+    **HR_ACCESS,
+)
+def _open_requisition(ctx: StepContext, params: OpenRequisition) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    dept = _trade_call("department_not_found", hr.department, ctx.db,
+                       uuid.UUID(str(_required(ctx, params.department_id_path))))  # fmt: skip
+    row = _trade_call(
+        "requisition_refused", hr.open_requisition, ctx.db, dept,
+        job_title=str(_required(ctx, params.job_title_path)),
+        role=str(_required(ctx, params.role_path)),
+        openings=int(_required(ctx, params.openings_path)),
+        salary_min=int(_required(ctx, params.salary_min_path)),
+        salary_max=int(_required(ctx, params.salary_max_path)),
+        reason=str(_required(ctx, params.reason_path)), requested_by=ctx.initiator_id,
+    )  # fmt: skip
+    return _requisition_out(row)
+
+
+class RequisitionDecision(_Strict):
+    requisition_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _requisition(ctx: StepContext, path: str):
+    from app.modules.hr import service as hr
+
+    return hr.get_requisition(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "hr.approve_requisition",
+    "Approve the requisition: recruiting for it may start.",
+    RequisitionDecision,
+    "{requisition_id, requisition_number, status, openings, currency}",
+    reads=lambda params: [params.requisition_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **HR_ACCESS,
+)
+def _approve_requisition(ctx: StepContext, params: RequisitionDecision) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    row = _trade_call("approval_refused", hr.decide_requisition, ctx.db,
+                      _requisition(ctx, params.requisition_id_path), decider, True)  # fmt: skip
+    return _requisition_out(row)
+
+
+@_library_handler(
+    "hr.cancel_requisition",
+    "Cancel the requisition; nobody is hired for it.",
+    RequisitionDecision,
+    "{requisition_id, requisition_number, status, openings, currency}",
+    reads=lambda params: [params.requisition_id_path, params.decided_by_path],
+    effect="writes",
+    **HR_ACCESS,
+)
+def _cancel_requisition(ctx: StepContext, params: RequisitionDecision) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    row = _trade_call("cancel_refused", hr.decide_requisition, ctx.db,
+                      _requisition(ctx, params.requisition_id_path), decider, False)  # fmt: skip
+    return _requisition_out(row)
+
+
+class RequestLeave(_Strict):
+    employee_number_path: str = Field(min_length=1, max_length=200)
+    kind_path: str = Field(min_length=1, max_length=200)
+    start_date_path: str = Field(min_length=1, max_length=200)
+    end_date_path: str = Field(min_length=1, max_length=200)
+
+
+def _leave_out(leave) -> dict[str, Any]:
+    return {"leave_id": str(leave.id), "leave_number": leave.leave_number, "kind": leave.kind,
+            "days": leave.days, "status": leave.status}  # fmt: skip
+
+
+@_library_handler(
+    "hr.request_leave",
+    "Request leave for an employee, counted in their country's business days; annual leave "
+    "counts against the year's entitlement, and nothing changes until it is approved.",
+    RequestLeave,
+    "{leave_id, leave_number, kind, days, status}; an overlap, no working days or too few "
+    "days left fails the step.",
+    reads=lambda params: [
+        params.employee_number_path,
+        params.kind_path,
+        params.start_date_path,
+        params.end_date_path,
+    ],  # fmt: skip
+    effect="writes",
+    fixtures=lambda params: {params.employee_number_path: "hr.employee_number"},
+    **HR_ACCESS,
+)
+def _request_leave(ctx: StepContext, params: RequestLeave) -> dict[str, Any]:
+    from datetime import date
+
+    from app.modules.hr import service as hr
+
+    employee = _trade_call("employee_not_found", hr.find_employee, ctx.db,
+                           str(_required(ctx, params.employee_number_path)))  # fmt: skip
+    leave = _trade_call(
+        "leave_refused", hr.request_leave, ctx.db, employee,
+        str(_required(ctx, params.kind_path)),
+        date.fromisoformat(str(_required(ctx, params.start_date_path))),
+        date.fromisoformat(str(_required(ctx, params.end_date_path))), ctx.initiator_id,
+    )  # fmt: skip
+    return _leave_out(leave)
+
+
+class LeaveDecision(_Strict):
+    leave_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+    note: str = Field(default="Not approved", min_length=3, max_length=200)
+
+
+def _leave_request(ctx: StepContext, path: str):
+    from app.modules.hr import service as hr
+
+    return hr.get_leave(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "hr.approve_leave",
+    "Approve the leave; the leave status sweep marks the employee on leave while it runs.",
+    LeaveDecision,
+    "{leave_id, leave_number, kind, days, status}",
+    reads=lambda params: [params.leave_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **HR_ACCESS,
+)
+def _approve_leave(ctx: StepContext, params: LeaveDecision) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    leave = _trade_call("approval_refused", hr.decide_leave, ctx.db,
+                        _leave_request(ctx, params.leave_id_path), decider, True)  # fmt: skip
+    return _leave_out(leave)
+
+
+@_library_handler(
+    "hr.reject_leave",
+    "Reject the leave request.",
+    LeaveDecision,
+    "{leave_id, leave_number, kind, days, status}",
+    reads=lambda params: [params.leave_id_path, params.decided_by_path],
+    effect="writes",
+    **HR_ACCESS,
+)
+def _reject_leave(ctx: StepContext, params: LeaveDecision) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    leave = _trade_call("rejection_refused", hr.decide_leave, ctx.db,
+                        _leave_request(ctx, params.leave_id_path), decider, False,
+                        params.note)  # fmt: skip
+    return _leave_out(leave)
+
+
+@_library_handler(
+    "hr.leave_sweep",
+    "Mark employees on approved leave today as on leave, and those whose leave ended as "
+    "active again.",
+    NoParams,
+    "{swept_on, on_leave, started, ended}",
+    effect="writes",
+    **HR_ACCESS,
+)
+def _leave_sweep(ctx: StepContext, params: NoParams) -> dict[str, Any]:
+    from app.modules.hr import service as hr
+
+    return hr.leave_sweep(ctx.db, ctx.now.date())
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

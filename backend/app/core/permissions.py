@@ -99,6 +99,10 @@ class Permission(StrEnum):
     JOBS_MANAGE = "jobs:manage"  # queue jobs, change schedules
     # Request and job metrics, worker processes, the slow-query log, storage use.
     OBSERVABILITY_READ = "observability:read"
+    # Human resources (Phase 55).
+    HR_READ = "hr:read"  # requisitions, candidates, leave, shifts, onboarding, capacity
+    HR_MANAGE = "hr:manage"  # open requisitions, offer, hire, decide leave, roster shifts
+    HR_APPROVE = "hr:approve"  # approve a requisition (the headcount budget)
 
 
 class RoleCode(StrEnum):
@@ -176,6 +180,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.LEDGER_READ,
         Permission.LOANS_APPROVE_LARGE,
         Permission.TREASURY_LIMITS,
+        Permission.HR_READ,
+        Permission.HR_APPROVE,
     },
     RoleCode.REGIONAL_EXECUTIVE: _BASE
     | {
@@ -186,6 +192,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.EMPLOYEES_READ_COMPENSATION,
         Permission.LOANS_APPROVE_LARGE,
         Permission.TREASURY_LIMITS,
+        Permission.HR_READ,
+        Permission.HR_APPROVE,
     },
     RoleCode.DEPARTMENT_MANAGER: _BASE
     | _FRONT_OFFICE
@@ -211,6 +219,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.FINANCE_CLOSE,
         Permission.SERVICE_APPROVE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
+        Permission.HR_READ,
+        Permission.HR_MANAGE,
     },
     RoleCode.BANKING_EMPLOYEE: _BASE
     | _FRONT_OFFICE
@@ -249,6 +259,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.COMPLIANCE_READ,
         Permission.RISK_READ,
         Permission.FINANCE_READ,
+        Permission.HR_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {

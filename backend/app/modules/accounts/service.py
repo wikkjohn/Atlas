@@ -507,9 +507,11 @@ def charge_fee(
     memo: str | None,
     idempotency_key: str,
     actor_id: uuid.UUID | None,
+    effective_date: date | None = None,
 ) -> tuple[Account, str, bool]:
     """Charge a service fee: debit the customer's deposit account, credit fee income.
-    Within the balance and any arranged overdraft. Returns (account, entry number, replayed)."""
+    Within the balance and any arranged overdraft. Returns (account, entry number, replayed).
+    `effective_date` dates the entry (default today), e.g. for a simulated history."""
     if amount <= 0:
         raise BusinessRuleViolation("A fee must be a positive amount.")
     account = get_account(db, account_id, for_update=True)
@@ -536,6 +538,7 @@ def charge_fee(
         source="fee",
         lines=lines,
         actor_id=actor_id,
+        effective_date=effective_date,
     )
     return account, entry.entry_number, replayed
 

@@ -52,3 +52,16 @@ test("Customer Service: a teller opens a complaint and proposes redress; a manag
   await expect(other.getByRole("table", { name: "Cases" }).getByRole("row").filter({ hasText: caseNumber })).toContainText("Upheld");
   await otherContext.close();
 });
+
+test("AI Innovation Lab: the complaint assistant would refund a customer refunded four times this year (its blind spot)", async ({ page }) => {
+  // The tool reads customer service data (service:read); the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Complaint Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Complaint Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

@@ -2527,6 +2527,159 @@ class JournalReview(Workload):
         return check
 
 
+# --- Complaint redress (WF-1038 v2, Phase 52) ------------------------------------------------
+
+# Whether the manager should pay the redress and uphold the complaint ("approved").
+COMPLAINT_UPHOLD = frozenset({"duplicate_fee", "fee_refund", "small_goodwill",
+                              "moderate_goodwill"})  # fmt: skip
+COMPLAINT_KINDS = COMPLAINT_UPHOLD | {"no_fee_found", "redress_exceeds_loss", "large_goodwill",
+                                      "serial_complainant"}  # fmt: skip
+
+
+class ComplaintRedress(Workload):
+    """Complaints through WF-1038 v2: a service manager approves paying the proposed redress
+    (upholding the complaint) or refuses it, with the AGB Complaint Review Assistant's advice
+    in AI-assisted runs. Each customer's fees, and any earlier complaints, are booked through
+    the real accounts and customer service before the run.
+
+    Ground truth: a refund of a fee charged twice, a refund of a fee actually charged, and a
+    small or moderate goodwill payment for a service failure are paid; a fee complaint with no
+    fee charged, redress far above the fees charged, a large goodwill payment, and a refund for
+    a customer already refunded three or four times this year are refused."""
+
+    key = "complaint_redress"
+    workflow_id = "WF-1038"
+    kinds = COMPLAINT_KINDS
+    reviewer_roles = {"decision": "manager"}
+    job_titles = {"teller": "Customer Service Adviser", "manager": "Complaints Manager"}
+    ai_step = "ai_review"
+    automated_path = None  # a manager always decides
+
+    def _complaint_case(self, sim: "_Simulation", rng, kind: str, today: date, now: datetime,
+                        teller, manager) -> dict:  # fmt: skip
+        from app.modules.accounts.service import charge_fee
+        from app.modules.customer_service import service as cs
+
+        db = sim.db
+        name, born = _person(rng, today)
+        account = _customer_account(sim, name=name, born=born, country_code="US",
+                                    balance=500_000)  # fmt: skip
+        customer = db.get(Customer, account.customer_id)
+        charged = [0]
+
+        def fee(amount: int, days_ago: int) -> None:
+            charged[0] += 1
+            charge_fee(db, account.id, amount=amount, fee_code="MONTHLY",
+                       memo="Monthly account fee", actor_id=teller.id,
+                       idempotency_key=f"sim-cmp-{sim.run_id}-{account.id}-{charged[0]}",
+                       effective_date=today - timedelta(days=days_ago))  # fmt: skip
+
+        monthly = rng.choice((500, 750, 1_000, 1_500))
+        topic, subject, redress = "fees", "Fee charged in error", monthly
+        if kind == "duplicate_fee":
+            day = rng.randint(5, 40)
+            fee(monthly, day)
+            fee(monthly, day)
+            subject = "Monthly fee taken twice"
+        elif kind in ("fee_refund", "serial_complainant"):
+            fee(monthly, rng.randint(5, 40))
+            subject = "Fee charged after I closed the overdraft"
+            if kind == "serial_complainant":
+                for days_ago in (300, 220, 140, 70)[: rng.randint(3, 4)]:
+                    earlier = cs.open_case(
+                        db, customer, category="complaint", channel="phone", topic="fees",
+                        priority="normal", subject="Fee charged in error",
+                        description="Disputes the monthly fee", opened_by=teller.id,
+                        account=account, now=now - timedelta(days=days_ago))  # fmt: skip
+                    cs.propose_redress(db, earlier, monthly, account, teller.id,
+                                       now=now - timedelta(days=days_ago))  # fmt: skip
+                    cs.pay_redress(db, earlier, manager.id, now=now - timedelta(days=days_ago))
+                    cs.resolve(db, earlier, teller.id, "Refunded as a gesture", "upheld",
+                               now=now - timedelta(days=days_ago))  # fmt: skip
+        elif kind == "no_fee_found":
+            subject = "Charged a fee for my card"
+            redress = rng.choice((500, 1_000, 2_500))
+        elif kind == "redress_exceeds_loss":
+            fee(monthly, rng.randint(5, 40))
+            redress = monthly * rng.randint(4, 10)
+        elif kind == "small_goodwill":
+            topic, subject = "digital", "App outage stopped a payment"
+            redress = rng.randint(10, 50) * 100
+        elif kind == "moderate_goodwill":
+            topic, subject = "card", "Card blocked abroad for two days"
+            redress = rng.randint(80, 200) * 100
+        elif kind == "large_goodwill":
+            topic, subject = "digital", "App was slow"
+            redress = rng.randint(400, 1_500) * 100
+        else:
+            raise ValueError(kind)
+        return {"account_number": account.account_number, "channel": rng.choice(
+            ("phone", "email", "chat")), "topic": topic, "subject": subject,
+            "description": f"{subject}. Customer asks for redress.",
+            "redress_amount": redress}  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        now = sim.clock.start
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "complaint")
+            kind = _pick(rng, mix)
+            payload = self._complaint_case(sim, rng, kind, now.date(), now, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in COMPLAINT_UPHOLD else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload=payload,
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every manager's decision against four-eyes (the initiator, who proposed the
+        redress) and authority, and no redress paid without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["decision", "pay"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        approved: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "decision":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    approved.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.SERVICE_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "pay" and execution.id not in approved:
+                check.violations.append(
+                    {"rule": "paid_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -2545,6 +2698,7 @@ WORKLOADS: dict[str, Workload] = {
         AlertTriage(),
         RatingOverrides(),
         JournalReview(),
+        ComplaintRedress(),
     )
 }
 STAFF_ROLES = {

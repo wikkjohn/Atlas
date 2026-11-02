@@ -300,6 +300,24 @@ const SAMPLE_JOURNAL = {
     same_accounts_7d_usd: 172000,
   },
 };
+const SAMPLE_COMPLAINT = {
+  profile: {
+    topic: "fees",
+    channel: "phone",
+    currency: "USD",
+    redress_amount: 750,
+    redress_usd: 7,
+    fees_90d: 1,
+    fees_90d_amount: 750,
+    duplicate_fee: false,
+    redress_to_fees_pct: 100,
+    account_age_days: 420,
+    description_chars: 64,
+    prior_complaints_365d: 4,
+    prior_upheld_365d: 4,
+    prior_redress_paid_365d_usd: 30,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -314,6 +332,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_alert_review: SAMPLE_ALERT,
   rule_based_rating_review: SAMPLE_RATING,
   rule_based_journal_review: SAMPLE_JOURNAL,
+  rule_based_complaint_review: SAMPLE_COMPLAINT,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

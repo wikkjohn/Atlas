@@ -3934,6 +3934,25 @@ def _withdraw_redress(ctx: StepContext, params: RedressDecision) -> dict[str, An
 
 
 @_library_handler(
+    "service.complaint_profile",
+    "Read what an approver weighs before paying a complaint's redress: the redress against "
+    "the fees actually charged in 90 days, its size, the account's age, the description and "
+    "the customer's other complaints this year.",
+    ServiceCaseRef,
+    "{topic, channel, currency, redress_amount, redress_usd, fees_90d, fees_90d_amount, "
+    "duplicate_fee, redress_to_fees_pct, account_age_days, description_chars, "
+    "prior_complaints_365d, prior_upheld_365d, prior_redress_paid_365d_usd}",
+    reads=lambda params: [params.case_id_path],
+    effect="reads",
+    **SERVICE_ACCESS,
+)
+def _complaint_profile(ctx: StepContext, params: ServiceCaseRef) -> dict[str, Any]:
+    from app.modules.customer_service import service as cs
+
+    return cs.complaint_profile(ctx.db, _service_case(ctx, params.case_id_path), ctx.now)
+
+
+@_library_handler(
     "service.sla_sweep",
     "Mark overdue customer service cases breached and escalate them.",
     NoParams,

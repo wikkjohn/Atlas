@@ -537,6 +537,10 @@ The customer service base processes:
 The handlers need `service:handle` to start and `service:read` to read executions. See
 [customer-service.md](customer-service.md).
 
+WF-1038 **v2** (Phase 52) reads the complaint profile (`service.complaint_profile`) after the
+redress is proposed and asks the AGB Complaint Review Assistant (`ai.review`, advisory)
+before the approver decides (`complaint-redress`).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

@@ -56,3 +56,16 @@ test("IT Operations: a change is approved by someone else, fails and opens an in
   await expect(row(engineer, "Changes", change)).toContainText("failed");
   await expect(row(engineer, "Incidents", `Failed change ${change}`)).toContainText(`caused by ${change}`);
 });
+
+test("AI Innovation Lab: the change assistant would approve another change after three failures (its blind spot)", async ({ page }) => {
+  // The tool reads IT operations data (itops:read); the administrator has it.
+  await signIn(page, "admin", "/ai-lab");
+  const registry = page.getByRole("list", { name: "AI tools" });
+  await registry.getByRole("button", { name: /AGB Change Review Assistant/ }).click();
+  const details = page.getByRole("region", { name: "Tool details" });
+  await expect(details.getByRole("heading", { name: "AGB Change Review Assistant" })).toBeVisible();
+  const console = details.getByRole("form", { name: "Test console" });
+  await console.getByLabel("Action").selectOption("recommend_decision");
+  await console.getByRole("button", { name: "Invoke" }).click();
+  await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
+});

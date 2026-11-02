@@ -213,7 +213,8 @@ for the factory, a simulation workload and at least one AI tool candidate.
       second person; changes risk-rated, approved by a second person (an executive for high
       risk or tier 1), kept out of each other's windows and of the month-end freeze on tier-1
       applications, emergency changes tied to a P1 or P2, failed changes opening incidents;
-      WF-1049–1051; see `itops.md`)
+      WF-1049–1051; see `itops.md`. Phase 60: the `change-approvals` workload and the change
+      review assistant)
 - [ ] Legal, audit, marketing, facilities and the remaining departments (thin modules)
 - [ ] **Exit:** 35+ departments, each with ≥ 3 base processes, a workload and dashboards
 
@@ -319,4 +320,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 57 (D29) | Procurement: vendors screened, tiered and approved by a second person, verified bank-detail changes, purchase orders within approval limits, invoices paid on a match with the order and receipt; WF-1046–1048 | complete |
 | Phase 58 (D30) | Procurement, step 2: the `invoice-payments` workload on stored WF-1048 v2, decided by department managers, and the AGB Invoice Review Assistant | complete |
 | Phase 59 (D31) | IT operations: an application catalogue with tiers, incidents with priority-based targets and P1 reviews, change management with risk, approval, conflicts and a month-end freeze; WF-1049–1051 | complete |
-| Phase 60 (D32, proposed) | IT operations, step 2: a change-approval workload on stored WF-1050 v2 and an AI change review assistant | next |
+| Phase 60 (D32) | IT operations, step 2: the `change-approvals` workload on stored WF-1050 v2, decided by department managers, and the AGB Change Review Assistant | complete |
+| Phase 61 (D33, proposed) | Legal, audit, marketing, facilities and the remaining departments (thin modules) | next |

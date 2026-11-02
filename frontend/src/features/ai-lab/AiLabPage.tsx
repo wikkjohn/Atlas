@@ -369,6 +369,23 @@ const SAMPLE_INVOICE = {
     same_amount_invoices_90d: 1,
   },
 };
+const SAMPLE_CHANGE = {
+  profile: {
+    kind: "normal",
+    risk: "medium",
+    tier: 2,
+    has_backout_plan: true,
+    window_hours: 2,
+    start_hour_utc: 22,
+    business_hours: false,
+    lead_hours: 80,
+    in_freeze: false,
+    open_major_incidents: 0,
+    app_failed_changes_90d: 3,
+    app_changes_90d: 3,
+    requester_failed_changes_90d: 3,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -387,6 +404,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_plan_review: SAMPLE_PLAN,
   rule_based_leave_review: SAMPLE_LEAVE,
   rule_based_invoice_review: SAMPLE_INVOICE,
+  rule_based_change_review: SAMPLE_CHANGE,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

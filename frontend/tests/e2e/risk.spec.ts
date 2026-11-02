@@ -7,10 +7,13 @@ const API_URL = process.env.ATLAS_E2E_API_URL ?? "http://localhost:8000";
 test("Risk: a manager rates an obligor below the model and calculates ECL; a regional executive approves and posts", async ({ browser, page, request }) => {
   const login = await request.post(`${API_URL}/api/v1/auth/login`, { data: { username: "manager", password: DEMO_PASSWORD } });
   const { access_token: token } = (await login.json()) as { access_token: string };
-  const loans = await request.get(`${API_URL}/api/v1/loans?status=active&limit=1`, { headers: { Authorization: `Bearer ${token}` } });
-  const { items } = (await loans.json()) as { items: { customer_number: string; loan_number: string }[] };
-  if (items.length === 0) throw new Error("No seeded active loan.");
-  const { customer_number: customer, loan_number: loan } = items[0];
+  // The seeded loan in arrears: no other test repays it (the lending test pays off the newest
+  // active loan, which would leave this test's obligor with no exposure).
+  const arrears = await request.get(`${API_URL}/api/v1/collections/arrears`, { headers: { Authorization: `Bearer ${token}` } });
+  const rows = (await arrears.json()) as { customer_name: string; customer_number: string; loan_number: string }[];
+  const seeded = rows.find((r) => r.customer_name === "Synthetic Arrears Borrower");
+  if (!seeded) throw new Error("No seeded loan in arrears.");
+  const { customer_number: customer, loan_number: loan } = seeded;
 
   await signIn(page, "manager", "/risk");
   await page.getByLabel("Customer number").fill(customer);
@@ -39,6 +42,7 @@ test("Risk: a manager rates an obligor below the model and calculates ECL; a reg
   await other.getByRole("button", { name: "Look up" }).click();
   // Grade 9 carries no limit, so any exposure is a breach.
   await expect(other.getByLabel("Obligor grade")).toContainText("Grade 9 (PD 15.00 %)");
+  await expect(other.getByRole("table", { name: "Exposures" })).toContainText(loan);
   await expect(other.getByRole("table", { name: "Limit breaches" })).toContainText(customer);
   await other.getByRole("button", { name: `Post ${runNumber}` }).click();
   await expect(other.getByRole("table", { name: "Provision runs" }).getByRole("row").filter({ hasText: runNumber })).toContainText("posted");

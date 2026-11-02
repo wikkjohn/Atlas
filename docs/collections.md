@@ -71,6 +71,25 @@ Money recovered on a written-off loan (`REC-`, `loans:service`):
 The handlers need `loans:service` to start and `loans:read` to read executions. Their
 generated tests take a loan in arrears and a written-off loan from fixtures.
 
+## Simulation workload and AI tool (Phase 54)
+
+The `payment_plans` workload drives WF-1040 v2 (scenario `payment-plans`).
+- **Cases:** each case is a borrower with a US-dollar loan disbursed 65 to 110 days before
+  and spent, salary paid in and spent at past dates (or nothing paid in for 90 days), and the
+  loan serviced on its own (`servicing.service_loan`) so its instalments fall into arrears.
+  It touches no other loan and starts no WF-0004 case. Some borrowers first get an earlier
+  plan, proposed, approved and broken (`collect_plan`). The workflow then proposes the new
+  plan, and a collections manager (`loans:approve`) activates or rejects it.
+- **Ground truth:** affordable plans, plans with only two instalments overdue, and stretched
+  plans within means are activated. Plans for borrowers with no income, plans taking most of
+  the income, and plans for borrowers who already broke one are rejected.
+- **`collections.plan_profile`** (also a library handler): the arrears, the monthly
+  commitment against the money paid in over 90 days, how long since the last of it, the
+  loan's age, and the borrower's earlier plans and how many they broke.
+- **AGB Collections Review Assistant** (`agb-collections-assistant`): advisory. It is blind
+  to the borrower's earlier plans; see [ai-testing.md](ai-testing.md) for its rules and the
+  measurement.
+
 ## Demo data
 
 The demo seed adds two synthetic borrowers whose loans were disbursed 70 and 150 days ago
@@ -93,4 +112,5 @@ regional executive. The book is serviced to today.
   by the plan.
 - **No agency placement:** an agency remittance is recorded, but there is no record of
   placing the debt with the agency or its commission.
-- **No collections workload or AI tool yet** (proposed Phase 54).
+- **The payment-plans workload and the collections review assistant** (Phase 54) are
+  described in [ai-testing.md](ai-testing.md).

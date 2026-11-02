@@ -792,3 +792,61 @@ assumptions; one run each):
 
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
+
+## WF-1040 v2 and the collections review assistant (Phase 54)
+
+WF-1040 v2 is a stored workflow. After a payment plan is proposed for a loan in arrears, it
+reads the plan profile (`collections.plan_profile`) and asks the assistant through
+`ai.review`. A collections manager (`loans:approve`, someone other than the proposer) then
+activates or rejects the plan. A manager always decides, so the scenario runs baseline and AI
+assisted only.
+
+Each case's borrower is built through the real services:
+- a US-dollar loan, disbursed 65 to 110 days before and spent;
+- salary paid in and spent at past dates, or nothing paid in for 90 days;
+- the loan serviced on its own, so its instalments fall into arrears without touching any
+  other loan or starting a WF-0004 case;
+- for some borrowers, an earlier plan on the loan, proposed, approved and broken.
+
+The plan itself is proposed by the workflow.
+
+What the assistant (`rule_based_plan_review`) weighs, from the monthly commitment while the
+plan runs (the regular instalment plus the catch-up payments) against the money paid in over
+the 90 days before:
+- **Reject:** nothing paid in for 90 days, or nothing for more than 60 days, or a commitment
+  above 70 % of the monthly income.
+- **Refer on:** a commitment of 45 % to 70 % of the income.
+- **Activate:** anything else, as affordable.
+
+Its **blind spot** is the borrower's history. The profile counts the borrower's earlier
+payment plans and how many they broke, and the assistant never reads them. So a borrower who
+broke a plan before looks like any other affordable plan, and it recommends activating.
+
+What `payment-plans` v1 measured (seed 2030, 300 plans, 12 staff, default assumptions; one
+run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 82.0 % | 92.7 % |
+| Wrongly activated | 32 | 17 |
+| Wrongly rejected | 22 | 5 |
+| Plans for borrowers who broke one before activated (of 61) | 14 | 17 |
+| Manager hours | 98.2 | 64.6 |
+| Median cycle time (hours) | 6.2 | 2.7 |
+| Tool's recommendation accuracy | — | 76 % (45 referred on) |
+
+**Where the assistant helps:**
+- Affordable plans wrongly rejected fall from 17 to 0.
+- Plans for borrowers with no income, or who cannot afford them, are never activated (18 of
+  87 in the baseline).
+- Managers' time falls by about a third.
+
+**Where it does not:**
+- It recommends activating all 61 plans for borrowers who broke one before. The simulated
+  managers, following it, activate 17 rather than 14: here the blind spot makes outcomes
+  worse.
+- A stretched plan is referred on, which leaves managers where the baseline was: 40 of 45
+  activated either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.

@@ -128,44 +128,97 @@ def decide_plan(db: Session, plan: PaymentPlan, actor_id: uuid.UUID, approve: bo
     return plan
 
 
+def collect_plan(db: Session, plan: PaymentPlan, as_of: date, actor: AuthenticatedUser
+                 ) -> dict[str, int]:  # fmt: skip
+    """Take one active plan's payments due by `as_of`: each settles the loan's oldest overdue
+    instalment from the borrower's account. A payment the account cannot cover is missed;
+    two missed, or a schedule run out with one missed, break the plan. One the borrower
+    already settled counts as settled; a plan paid or settled throughout completes."""
+    paid = missed = 0
+    schedule = [dict(p) for p in plan.schedule]
+    for payment in schedule:
+        if payment["status"] != "due" or date.fromisoformat(payment["due"]) > as_of:
+            continue
+        try:
+            key = f"plan:{plan.plan_number}:{payment['n']}"
+            with db.begin_nested():
+                servicing.repay_arrears(db, plan.loan_id, actor, instalments=1, key=key)
+            payment["status"], payment["on"] = "paid", as_of.isoformat()
+            paid += 1
+        except BusinessRuleViolation:
+            payment["status"], payment["on"] = "missed", as_of.isoformat()
+            plan.missed += 1
+            missed += 1
+        except ConflictError:  # nothing overdue any more: the borrower caught up
+            payment["status"], payment["on"] = "settled", as_of.isoformat()
+    plan.schedule = schedule
+    finished = all(p["status"] != "due" for p in schedule)
+    completed = broken = 0
+    if plan.missed >= MISSED_TO_BREAK or (finished and plan.missed):
+        plan.status, broken = PlanStatus.BROKEN.value, 1
+    elif all(p["status"] in ("paid", "settled") for p in schedule):
+        plan.status, completed = PlanStatus.COMPLETED.value, 1
+    db.flush()
+    return {"paid": paid, "missed": missed, "completed": completed, "broken": broken}
+
+
 def collect(db: Session, as_of: date, actor: AuthenticatedUser) -> dict[str, int]:
-    """Take every active plan's payments due by `as_of`: each settles the loan's oldest
-    overdue instalment from the borrower's account. A payment the account cannot cover is
-    missed; two missed, or a schedule run out with one missed, break the plan. One the
-    borrower already settled counts as settled; a plan paid or settled throughout completes."""
+    """Take every active plan's payments due by `as_of` (see `collect_plan`)."""
     plans = db.execute(
         select(PaymentPlan).where(PaymentPlan.status == PlanStatus.ACTIVE)
         .order_by(PaymentPlan.plan_number).with_for_update(skip_locked=True)
     ).scalars().all()  # fmt: skip
-    paid = missed = completed = broken = 0
+    totals = {"plans": len(plans), "paid": 0, "missed": 0, "completed": 0, "broken": 0}
     for plan in plans:
-        schedule = [dict(p) for p in plan.schedule]
-        for payment in schedule:
-            if payment["status"] != "due" or date.fromisoformat(payment["due"]) > as_of:
-                continue
-            try:
-                key = f"plan:{plan.plan_number}:{payment['n']}"
-                with db.begin_nested():
-                    servicing.repay_arrears(db, plan.loan_id, actor, instalments=1, key=key)
-                payment["status"], payment["on"] = "paid", as_of.isoformat()
-                paid += 1
-            except BusinessRuleViolation:
-                payment["status"], payment["on"] = "missed", as_of.isoformat()
-                plan.missed += 1
-                missed += 1
-            except ConflictError:  # nothing overdue any more: the borrower caught up
-                payment["status"], payment["on"] = "settled", as_of.isoformat()
-        plan.schedule = schedule
-        finished = all(p["status"] != "due" for p in schedule)
-        if plan.missed >= MISSED_TO_BREAK or (finished and plan.missed):
-            plan.status = PlanStatus.BROKEN.value
-            broken += 1
-        elif all(p["status"] in ("paid", "settled") for p in schedule):
-            plan.status = PlanStatus.COMPLETED.value
-            completed += 1
-    db.flush()
-    return {"plans": len(plans), "paid": paid, "missed": missed, "completed": completed,
-            "broken": broken}  # fmt: skip
+        for key, value in collect_plan(db, plan, as_of, actor).items():
+            totals[key] += value
+    return totals
+
+
+def plan_profile(db: Session, plan: PaymentPlan) -> dict[str, Any]:
+    """What an approver weighs before activating a payment plan (Phase 54), as of the day it
+    was proposed: the arrears and how late they are; what the borrower would pay a month
+    while the plan runs (the regular instalment plus the catch-up payments) against the money
+    paid into their account in the 90 days before, and how long since the last of it; the
+    loan's age; and the borrower's earlier payment plans and how many they broke."""
+    from app.modules.accounts.models import Account
+    from app.modules.ledger.models import JournalEntry
+    from app.modules.risk import service as risk
+
+    loan = db.get(Loan, plan.loan_id)
+    today = plan.start_date
+    account = db.get(Account, loan.disbursement_account_id)
+    credits = db.execute(
+        select(JournalLine.amount, JournalEntry.effective_date)
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(JournalLine.ledger_account_id == account.ledger_account_id,
+               JournalLine.direction == Direction.CREDIT,
+               JournalEntry.source != "loan_disbursement",
+               JournalEntry.effective_date > today - timedelta(days=90),
+               JournalEntry.effective_date <= today)
+    ).all()  # fmt: skip
+    inflow = sum(int(amount) for amount, _ in credits)
+    monthly_inflow = inflow // 3
+    catch_up = plan.arrears_amount // plan.payments
+    commitment = loan.monthly_payment + catch_up * 30 // plan.interval_days
+    earlier = db.execute(
+        select(PaymentPlan.status).join(Loan, Loan.id == PaymentPlan.loan_id)
+        .where(Loan.customer_id == loan.customer_id, PaymentPlan.id != plan.id)
+    ).scalars().all()  # fmt: skip
+    return {
+        "currency": loan.currency, "arrears_amount": plan.arrears_amount,
+        "arrears_usd": risk._usd(db, plan.arrears_amount, loan.currency, today),
+        "days_past_due": plan.days_past_due, "overdue_instalments": plan.payments,
+        "interval_days": plan.interval_days, "monthly_payment": loan.monthly_payment,
+        "monthly_commitment": commitment, "inflow_90d": inflow, "credits_90d": len(credits),
+        "commitment_to_income_pct": commitment * 100 // monthly_inflow if monthly_inflow
+        else 999,
+        "days_since_last_credit": (today - max(d for _, d in credits)).days if credits
+        else 999,
+        "loan_age_days": (today - loan.disbursed_at.date()).days,
+        "prior_plans": len(earlier),
+        "prior_plans_broken": sum(1 for status in earlier if status == PlanStatus.BROKEN),
+    }  # fmt: skip
 
 
 # --- Recoveries -------------------------------------------------------------------------------

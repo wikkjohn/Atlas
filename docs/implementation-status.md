@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 53.
+Last updated: Phase 54.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -58,6 +58,61 @@ Last updated: Phase 53.
 | 51 | Departments, step 23: customer service ([customer-service.md](customer-service.md)) | **Complete** |
 | 52 | Departments, step 24: the customer service workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 53 | Departments, step 25: collections and recoveries ([collections.md](collections.md)) | **Complete** |
+| 54 | Departments, step 26: the collections workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 54: what exists
+
+- **`collections.plan_profile`:** what a manager weighs before activating a payment plan:
+  - the arrears, how late they are and how many instalments;
+  - the monthly commitment while the plan runs (the instalment plus the catch-up payments)
+    against the money paid into the account in the 90 days before, and how long since the
+    last of it;
+  - the loan's age;
+  - the borrower's earlier plans and how many they broke.
+
+  It is also a library handler.
+- **`collections.collect_plan`:** one plan's payments, split out of the collection run so a
+  simulated history can break a plan without touching any other.
+- **AGB Collections Review Assistant** (`rule_based_plan_review`, `recommend_decision` only,
+  compatible with WF-1040, needs `loans:read`), with a deliberate blind spot: it never reads
+  the borrower's earlier plans. The seed registers it, and the AI Lab console has a sample.
+- **WF-1040 v2:** the plan profile and AI review after the plan is proposed, before the
+  manager decides.
+- **Workload `payment_plans` and scenario `payment-plans` v1:**
+  - borrowers with US-dollar loans, income and arrears built through the real lending and
+    accounts services, each loan serviced on its own (no other loan touched, no WF-0004
+    case started), and earlier plans broken through the real collections service;
+  - six kinds with ground truth, decided by simulated collections managers;
+  - a control check covers four-eyes, `loans:approve`, and no plan activated without the
+    decision.
+- **PR #44 (Phase 53)** had no review comments. Its end-to-end job failed twice in CI on
+  shared test data; see below.
+- **Measured** (300 plans): AI assisted 92.7 % accurate against 82.0 %, managers' hours 65
+  against 98. Plans for borrowers who broke one before rose to 17 activated from 14, the one
+  kind it made worse.
+
+## Phase 54: verified results
+
+PHASE54_RESULTS
+
+Found while building it:
+- **Shared test data, found in PR #44's CI:** the lending and risk end-to-end tests both took
+  "the newest active loan", and the lending test pays it off. With the seeded collections
+  borrowers and a mortgage completed by another test, they could pick the same loan or a loan
+  that cannot be paid off. The seeded borrowers' accounts are now opened before their loans,
+  the lending test pays off an up-to-date personal loan, and the risk test rates the seeded
+  borrower in arrears and checks the exposure is still there.
+- **Earlier plans:** the profile first counted only plans created before this one; plans
+  made in the same transaction share its creation time, so a broken plan could be missed.
+  It now counts all of the borrower's other plans.
+- **The new backend tests** passed on their first run.
+
+## Phase 54: known limitations
+
+- **The assistant is rule-based** and blind to the borrower's earlier plans, by design.
+- **Simulation scope:** only the plan decision is simulated; the collection run and debt
+  sales are not.
+- **US dollars only:** the workload's borrowers all bank in US dollars.
 
 ## Phase 53: what exists
 

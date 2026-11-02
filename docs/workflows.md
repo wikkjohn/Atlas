@@ -555,6 +555,10 @@ provide a loan two instalments in arrears and a written-off loan. **WF-0004** wa
 active plan: its case does not escalate to a write-off review until the plan is broken. See
 [collections.md](collections.md).
 
+WF-1040 **v2** (Phase 54) reads the plan profile (`collections.plan_profile`) after the plan
+is proposed and asks the AGB Collections Review Assistant (`ai.review`, advisory) before the
+approver decides (`payment-plans`).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

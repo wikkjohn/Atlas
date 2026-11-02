@@ -318,6 +318,25 @@ const SAMPLE_COMPLAINT = {
     prior_redress_paid_365d_usd: 30,
   },
 };
+const SAMPLE_PLAN = {
+  profile: {
+    currency: "USD",
+    arrears_amount: 133272,
+    arrears_usd: 1332,
+    days_past_due: 72,
+    overdue_instalments: 3,
+    interval_days: 14,
+    monthly_payment: 44424,
+    monthly_commitment: 139618,
+    inflow_90d: 1675000,
+    credits_90d: 3,
+    commitment_to_income_pct: 25,
+    days_since_last_credit: 15,
+    loan_age_days: 102,
+    prior_plans: 1,
+    prior_plans_broken: 1,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -333,6 +352,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_rating_review: SAMPLE_RATING,
   rule_based_journal_review: SAMPLE_JOURNAL,
   rule_based_complaint_review: SAMPLE_COMPLAINT,
+  rule_based_plan_review: SAMPLE_PLAN,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

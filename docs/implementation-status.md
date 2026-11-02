@@ -90,7 +90,13 @@ Last updated: Phase 56.
 
 ## Phase 56: verified results
 
-PHASE56_RESULTS
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 687 passed (new: 3 — the leave rules and their blind spot; the leave profile with two colleagues away, an earlier short-notice day and a sick spell; baseline and AI-assisted leave runs with every request decided by a manager other than its requester, no control violations, every kind's advice as designed) |
+| Generated workflow tests | 55 workflows, 903 cases, 0 failed (WF-1044 v2: 12 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 146 passed / clean / built |
+| Playwright on a fresh database | 62 passed (new: the leave assistant in the AI Lab console, recommending approval of another last-minute day off) |
+| Measurement | `leave-requests`, seed 2030, 300 requests each: baseline 82.0 % accurate (29 wrongly approved, 25 wrongly rejected, 98.2 manager hours, median cycle 5.7 h); AI assisted 94.7 % (11, 5, 62.0 h, 2.2 h); serial short-notice requests approved 10 against 10 of 51; the assistant's own advice 81 % accurate, 28 referred on |
 
 Found while building it:
 - **Leave across the year end:** the first measurement showed planned two-week leave

@@ -311,6 +311,61 @@ def resolve(db: Session, case: ServiceCase, actor_id: uuid.UUID | None, resoluti
     return case
 
 
+def complaint_profile(db: Session, case: ServiceCase, now: datetime | None = None
+                      ) -> dict[str, Any]:  # fmt: skip
+    """What an approver weighs before paying a complaint's redress (Phase 52): the redress
+    against the fees the account was actually charged in the 90 days before (and whether one
+    was charged twice), its size in US dollars, how long the account has been open, the
+    description, and the customer's other complaints in the last year, how many were upheld
+    and the redress already paid."""
+    from app.modules.accounts.models import Account
+    from app.modules.ledger.models import JournalEntry, JournalLine
+    from app.modules.risk import service as risk
+
+    now = _now(now)
+    today = now.date()
+    account = db.get(Account, case.account_id) if case.account_id else None
+    fees: list[int] = []
+    if account is not None:
+        fees = [int(amount) for amount in db.execute(
+            select(JournalLine.amount)
+            .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+            .where(JournalLine.ledger_account_id == account.ledger_account_id,
+                   JournalLine.direction == Direction.DEBIT, JournalEntry.source == "fee",
+                   JournalEntry.effective_date > today - timedelta(days=90),
+                   JournalEntry.effective_date <= today)
+        ).scalars()]  # fmt: skip
+    currency = account.currency if account else "USD"
+    redress = case.redress_amount or 0
+    fee_total = sum(fees)
+    others = db.execute(
+        select(ServiceCase).where(
+            ServiceCase.customer_id == case.customer_id, ServiceCase.id != case.id,
+            ServiceCase.category == CaseCategory.COMPLAINT,
+            ServiceCase.opened_at > now - timedelta(days=365), ServiceCase.opened_at <= now)
+    ).scalars().all()  # fmt: skip
+    paid = [o for o in others if o.redress_status == RedressStatus.PAID]
+    paid_usd = 0
+    for o in paid:
+        other_account = db.get(Account, o.account_id)
+        paid_usd += risk._usd(db, o.redress_amount, other_account.currency, today)
+    return {
+        "topic": case.topic, "channel": case.channel, "currency": currency,
+        "redress_amount": redress,
+        "redress_usd": risk._usd(db, redress, currency, today) if redress else 0,
+        "fees_90d": len(fees), "fees_90d_amount": fee_total,
+        "duplicate_fee": len(fees) != len(set(fees)),
+        "redress_to_fees_pct": redress * 100 // fee_total if fee_total else 0,
+        "account_age_days": (today - account.opened_at.date()).days
+        if account and account.opened_at else 0,
+        "description_chars": len(case.description),
+        "prior_complaints_365d": len(others),
+        "prior_upheld_365d": sum(1 for o in others if o.outcome in (
+            ComplaintOutcome.UPHELD, ComplaintOutcome.PARTLY_UPHELD)),
+        "prior_redress_paid_365d_usd": paid_usd,
+    }  # fmt: skip
+
+
 def events(db: Session, case: ServiceCase) -> list[CaseEvent]:
     return list(db.execute(
         select(CaseEvent).where(CaseEvent.case_id == case.id)

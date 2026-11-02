@@ -882,6 +882,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["finance:read"],
         "compatible_workflows": ["WF-1036"],
     },
+    {
+        "tool_id": "agb-complaint-assistant",
+        "tool_name": "AGB Complaint Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews the redress proposed for a complaint before a service manager "
+        "approves paying it: the redress against the fees the account was charged, a duplicate "
+        "fee and the size of a goodwill payment, with an explanation and an uphold, not-uphold "
+        "or refer recommendation. Advisory: it never pays anything (Phase 52).",
+        "adapter": "rule_based_complaint_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["service:read"],
+        "compatible_workflows": ["WF-1038"],
+    },
 ]
 
 

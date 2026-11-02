@@ -4,6 +4,7 @@ from app.modules.ai_tools.adapters.alert_review import AlertReviewAdapter
 from app.modules.ai_tools.adapters.back_office_check import BackOfficeCheckAdapter
 from app.modules.ai_tools.adapters.base import AIToolAdapter
 from app.modules.ai_tools.adapters.card_fraud import CardFraudAdapter
+from app.modules.ai_tools.adapters.complaint_review import ComplaintReviewAdapter
 from app.modules.ai_tools.adapters.covenant_review import CovenantReviewAdapter
 from app.modules.ai_tools.adapters.credit_underwriting import CreditUnderwritingAdapter
 from app.modules.ai_tools.adapters.document_check import DocumentCheckAdapter
@@ -34,6 +35,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         AlertReviewAdapter(),
         RatingReviewAdapter(),
         JournalReviewAdapter(),
+        ComplaintReviewAdapter(),
         FaultInjectionAdapter(),
     )
 }

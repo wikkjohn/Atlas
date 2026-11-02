@@ -51,12 +51,42 @@ resolution.
 - Redress can be withdrawn instead. A complaint cannot be resolved while redress awaits
   approval (rule `redress_pending`).
 
+## Simulation workload and AI tool (Phase 52)
+
+The `complaint_redress` workload drives WF-1038 v2 (scenario `complaint-redress`).
+- **Cases:** each case is a customer with a US-dollar account. The fees it needs are charged
+  through the real accounts service, dated in the last 90 days. The earlier complaints it
+  needs are opened, refunded and upheld through the real customer service. The workflow then
+  opens the complaint and proposes the redress, and a complaints manager (`service:approve`)
+  decides every case.
+- **Ground truth, uphold:**
+  - a refund of a monthly fee charged twice;
+  - a refund of a fee actually charged;
+  - a small goodwill payment (US$10–50) for an app outage;
+  - a moderate goodwill payment (US$80–200) for a card blocked abroad.
+- **Ground truth, refuse:**
+  - a fee complaint with no fee charged;
+  - redress of 4–10 times the fee charged;
+  - a large goodwill payment (US$400–1,500) for a slow app;
+  - a refund for a customer already refunded three or four times this year.
+- **Decisions:** in AI-assisted runs the AGB Complaint Review Assistant advises the manager,
+  from the profile `service.complaint_profile` reads. The profile covers:
+  - the redress against the fees charged in 90 days, and a fee charged twice;
+  - the redress in US dollars;
+  - the account's age and the description;
+  - the customer's other complaints this year, how many were upheld and the redress already
+    paid.
+- **Control check:** four-eyes against the initiator (who proposed the redress),
+  `service:approve` on each decision, and no redress paid without it.
+
+What it measured, and the assistant's blind spot, is in [ai-testing.md](ai-testing.md).
+
 ## Workflows
 
 | Workflow | What it does |
 | --- | --- |
 | WF-1037 Service Request | Opens a request on the customer's account and acknowledges it; a colleague fulfils or declines it |
-| WF-1038 Complaint Handling | Opens and acknowledges a complaint and proposes redress; an approver pays it (upheld) or it is withdrawn (not upheld) |
+| WF-1038 Complaint Handling | Opens and acknowledges a complaint and proposes redress; an approver pays it (upheld) or it is withdrawn (not upheld). v2 (Phase 52): the complaint profile and the AGB Complaint Review Assistant's advice first |
 | WF-1039 Service SLA Sweep | Marks overdue cases breached and escalates them |
 
 The customer service handlers need `service:handle` to start a workflow using them and
@@ -77,4 +107,5 @@ The customer service handlers need `service:handle` to start a workflow using th
   routing or workload balancing.
 - **No messages out:** a response is recorded on the timeline; nothing is sent to the
   customer.
-- **No simulation yet:** there is no customer service workload or AI tool yet (Phase 52).
+- **Simulation scope:** only complaint redress is simulated; requests and the SLA sweep are
+  not.

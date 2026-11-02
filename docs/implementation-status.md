@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 51.
+Last updated: Phase 52.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -56,6 +56,59 @@ Last updated: Phase 51.
 | 49 | Departments, step 21: finance ([finance.md](finance.md)) | **Complete** |
 | 50 | Departments, step 22: manual journals, the finance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 51 | Departments, step 23: customer service ([customer-service.md](customer-service.md)) | **Complete** |
+| 52 | Departments, step 24: the customer service workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 52: what exists
+
+- **`service.complaint_profile`:** what a manager weighs before paying a complaint's
+  redress:
+  - the redress against the fees the account was charged in 90 days, and a fee charged
+    twice;
+  - the redress in US dollars;
+  - the account's age and the description;
+  - the customer's other complaints this year, how many were upheld and the redress already
+    paid.
+
+  It is also a library handler.
+- **AGB Complaint Review Assistant** (`rule_based_complaint_review`, `recommend_decision`
+  only, compatible with WF-1038, needs `service:read`), with a deliberate blind spot: it never
+  reads the customer's complaint history. The seed registers it, and the AI Lab console has a
+  sample.
+- **WF-1038 v2:** the complaint profile and AI review after the redress is proposed, before
+  the manager decides.
+- **Workload `complaint_redress` and scenario `complaint-redress` v1:**
+  - customers with US-dollar accounts, fees charged and earlier complaints refunded through
+    the real services;
+  - eight kinds with ground truth, decided by simulated complaints managers;
+  - a control check covers four-eyes, `service:approve`, and no redress paid without the
+    decision.
+- **`charge_fee` accepts an effective date,** as `deposit` and `withdraw` do, so a
+  simulated history can date its fees.
+- **PR #42 (Phase 51)** had no review comments.
+- **Measured** (300 complaints): AI assisted 95.0 % accurate against 87.0 %, managers' hours
+  64 against 102. Repeat complainants refunded rose to 9 from 8, the one kind it made worse.
+
+## Phase 52: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 671 passed (new: 3 — the complaint rules and their blind spot; the complaint profile with a fee charged twice, an older fee outside the 90 days and an earlier refunded complaint; baseline and AI-assisted complaint runs with every redress decided by a manager other than its proposer, no control violations, every kind's advice as designed) |
+| Generated workflow tests | 49 workflows, 853 cases, 0 failed (WF-1038 v2: 20 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 140 passed / clean / built |
+| Playwright on a fresh database | 56 passed (new: the complaint assistant in the AI Lab console, recommending a refund for a customer refunded four times this year) |
+| Measurement | `complaint-redress`, seed 2030, 300 complaints each: baseline 87.0 % accurate (19 wrongly upheld, 20 wrongly refused, 101.7 manager hours, median cycle 6.3 h); AI assisted 95.0 % (9, 6, 64.1 h, 2.5 h); repeat complainants refunded 8 against 9 of 64; the assistant's own advice 77 % accurate, 22 referred on |
+
+Found while building it:
+- **Fee dates:** `charge_fee` dated every fee today, so a simulated customer's fees fell
+  outside the 90 days before the simulated day. It now takes an effective date.
+- **The new backend tests** passed on their first run.
+
+## Phase 52: known limitations
+
+- **The assistant is rule-based** and blind to the customer's complaint history, by design.
+- **Simulation scope:** only complaint redress is simulated; requests and the SLA sweep are
+  not.
+- **US dollars only:** the workload's customers all bank in US dollars.
 
 ## Phase 51: what exists
 

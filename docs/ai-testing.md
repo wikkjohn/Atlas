@@ -737,3 +737,58 @@ one run each):
 
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
+
+## WF-1038 v2 and the complaint review assistant (Phase 52)
+
+WF-1038 v2 is a stored workflow. After a complaint is opened and acknowledged and its
+redress proposed, it reads the complaint profile (`service.complaint_profile`) and asks the
+assistant through `ai.review`. A complaints manager (`service:approve`) then approves paying
+the redress, which upholds the complaint, or refuses it. A manager always decides, so the
+scenario runs baseline and AI assisted only.
+
+Each case's customer has a US-dollar account. Its fees are charged through the real accounts
+service, dated in the last 90 days, and any earlier complaints are opened, refunded and
+upheld through the real customer service.
+
+What the assistant (`rule_based_complaint_review`) weighs:
+- **Fee complaints:**
+  - reject when no fee was charged in 90 days;
+  - reject when the redress is more than 150 % of the fees charged;
+  - otherwise uphold, as a refund (a fee charged twice is called out).
+- **Goodwill:**
+  - uphold up to US$50;
+  - refer on up to US$250;
+  - reject above that.
+
+Its **blind spot** is the customer's history. The profile counts the customer's complaints
+in the last year, how many were upheld and the redress already paid, and the assistant never
+reads them. So a customer who disputes every fee and is refunded every time looks like a fair
+refund, and it recommends paying.
+
+What `complaint-redress` v1 measured (seed 2030, 300 complaints, 12 staff, default
+assumptions; one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 87.0 % | 95.0 % |
+| Wrongly upheld | 19 | 9 |
+| Wrongly refused | 20 | 6 |
+| Repeat complainants refunded (of 64) | 8 | 9 |
+| Manager hours | 101.7 | 64.1 |
+| Median cycle time (hours) | 6.3 | 2.5 |
+| Tool's recommendation accuracy | — | 77 % (22 referred on) |
+
+**Where the assistant helps:**
+- Fair refunds and small goodwill wrongly refused fall from 16 to 2.
+- Complaints with no fee charged, redress far above the loss and large goodwill are never
+  upheld (11 of 89 in the baseline).
+- Managers' time falls by more than a third.
+
+**Where it does not:**
+- It recommends refunding all 64 repeat complainants. The simulated managers, following it,
+  refund 9 rather than 8.
+- A moderate goodwill payment is referred on, which leaves managers where the baseline was:
+  18 of 22 upheld either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.

@@ -797,3 +797,39 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="complaint-redress",
+        version=1,
+        name="Complaint redress (customer service)",
+        description="A working day of complaints through WF-1038 v2: a complaints manager "
+        "approves paying the proposed redress, upholding the complaint, or refuses it. A refund "
+        "of a fee charged twice or of a fee actually charged, and a small or moderate goodwill "
+        "payment for a service failure are paid; a fee complaint with no fee charged, redress "
+        "far above the fees, a large goodwill payment and a refund for a customer already "
+        "refunded three or four times this year are refused. In AI-assisted runs the AGB "
+        "Complaint Review Assistant advises the manager (Phase 52).",
+        workload="complaint_redress",
+        workflow_id="WF-1038",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "duplicate_fee": 0.14,
+                "fee_refund": 0.16,
+                "small_goodwill": 0.12,
+                "moderate_goodwill": 0.10,
+                "no_fee_found": 0.10,
+                "redress_exceeds_loss": 0.10,
+                "large_goodwill": 0.12,
+                "serial_complainant": 0.16,
+            },
+            reviewers={"decision": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.6, "manager": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

@@ -110,6 +110,13 @@ class Permission(StrEnum):
     PROCUREMENT_APPROVE = "procurement:approve"
     # High-risk vendors and orders above US$50,000.
     PROCUREMENT_APPROVE_LARGE = "procurement:approve_large"
+    # IT operations (Phase 59).
+    ITOPS_READ = "itops:read"  # applications, incidents, changes
+    ITOPS_MANAGE = "itops:manage"  # report and work incidents, raise and implement changes
+    # Approve changes (never one's own) and close incidents.
+    ITOPS_APPROVE = "itops:approve"
+    # High-risk changes and changes to tier-1 applications; register applications.
+    ITOPS_APPROVE_MAJOR = "itops:approve_major"
 
 
 class RoleCode(StrEnum):
@@ -192,6 +199,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_APPROVE,
         Permission.PROCUREMENT_APPROVE_LARGE,
+        Permission.ITOPS_READ,
+        Permission.ITOPS_APPROVE,
+        Permission.ITOPS_APPROVE_MAJOR,
     },
     RoleCode.REGIONAL_EXECUTIVE: _BASE
     | {
@@ -207,6 +217,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_APPROVE,
         Permission.PROCUREMENT_APPROVE_LARGE,
+        Permission.ITOPS_READ,
+        Permission.ITOPS_APPROVE,
+        Permission.ITOPS_APPROVE_MAJOR,
     },
     RoleCode.DEPARTMENT_MANAGER: _BASE
     | _FRONT_OFFICE
@@ -237,6 +250,9 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_MANAGE,
         Permission.PROCUREMENT_APPROVE,
+        Permission.ITOPS_READ,
+        Permission.ITOPS_MANAGE,
+        Permission.ITOPS_APPROVE,
     },
     RoleCode.BANKING_EMPLOYEE: _BASE
     | _FRONT_OFFICE
@@ -245,6 +261,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.WEALTH_ADVISE,
         Permission.PROCUREMENT_READ,
         Permission.PROCUREMENT_MANAGE,
+        Permission.ITOPS_READ,
+        Permission.ITOPS_MANAGE,
     },
     RoleCode.COMPLIANCE_OFFICER: _BASE
     | {
@@ -282,6 +300,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.FINANCE_READ,
         Permission.HR_READ,
         Permission.PROCUREMENT_READ,
+        Permission.ITOPS_READ,
     },
     RoleCode.AUTOMATED_POLICY: frozenset(
         {

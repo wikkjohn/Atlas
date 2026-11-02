@@ -1,0 +1,44 @@
+{
+  "workflow_id": "WF-1051",
+  "name": "Incident SLA Sweep",
+  "version": 1,
+  "description": "Incidents past their targets are marked: those not acknowledged in time as response breaches, those not resolved in time as resolution breaches. Stored definition: built only from library handlers (Phase 59).",
+  "business_owner": "IT Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "presentation": {
+    "subject_path": "sweep.swept_at"
+  },
+  "start": "sweep",
+  "steps": [
+    {
+      "id": "sweep",
+      "type": "service_task",
+      "name": "Mark breached incidents",
+      "handler": "itops.sla_sweep",
+      "params": {},
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Swept",
+      "outcome": "approved"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

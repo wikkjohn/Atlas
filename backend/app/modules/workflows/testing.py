@@ -578,6 +578,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             known.update(_hr_fixtures(db))
         if kinds & PROCUREMENT_KINDS:
             known.update(_procurement_fixtures(db))
+        if "itops.application_number" in kinds:
+            known["itops.application_number"] = _itops_application(db)
         if "payee.account_number" in kinds:
             # A second customer's account, for handlers that need two (Phase 29).
             _, payee = _customer_and_account(db, True)
@@ -688,6 +690,25 @@ def _procurement_fixtures(db: Session) -> dict[str, str]:
     return {"procurement.vendor_number": vendor.vendor_number,
             "procurement.department_id": str(dept.id),
             "procurement.received_order_number": order.order_number}  # fmt: skip
+
+
+def _itops_application(db: Session) -> str:
+    """A new tier-2 application in an active US department (Phase 59): never frozen at
+    month end, and with no changes or incidents of its own yet."""
+    from app.modules.countries.models import Country
+    from app.modules.itops import service as itops
+    from app.modules.organizations.models import Organization, OrganizationType
+
+    dept = db.execute(
+        select(Organization).join(Country, Country.id == Organization.country_id)
+        .where(Organization.organization_type == OrganizationType.DEPARTMENT,
+               Organization.status == "active", Country.iso_country_code == "US")
+        .order_by(Organization.name).limit(1)
+    ).scalar_one()  # fmt: skip
+    app = itops.register_application(db, name=f"Generated Test App {uuid.uuid4().hex[:8]}",
+                                     description="Generated workflow tests",
+                                     department_id=dept.id, tier=2, actor_id=None)  # fmt: skip
+    return app.application_number
 
 
 FINANCE_KINDS = {"finance.open_period", "finance.closed_period", "finance.allocation_period",

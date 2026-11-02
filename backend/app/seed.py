@@ -608,6 +608,10 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
     from app.modules.wealth.service import ensure_securities
 
     ensure_securities(db)
+    # The application catalogue for IT operations (Phase 59); idempotent.
+    from app.modules.itops.service import ensure_applications
+
+    ensure_applications(db)
     _seed_collections(db)
     _import_examples(db, report, with_ai_steps=False)
     _register_ai_tools(db, report)

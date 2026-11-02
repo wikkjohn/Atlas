@@ -1,0 +1,134 @@
+{
+  "workflow_id": "WF-1049",
+  "name": "Incident Report",
+  "version": 1,
+  "description": "An incident is reported against an application: prioritised P1 to P4 from its impact and urgency, with targets to respond (15 minutes for a P1) and to resolve (4 hours for a P1). A P1 or P2 is taken by the on-call engineer at once; lower priorities wait in the queue for the IT Operations page. Stored definition: built only from library handlers (Phase 59).",
+  "business_owner": "IT Operations",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "application_number",
+      "title",
+      "impact",
+      "urgency"
+    ],
+    "properties": {
+      "application_number": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20
+      },
+      "title": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 200,
+        "examples": [
+          "Payments are timing out for some customers"
+        ]
+      },
+      "impact": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "examples": [
+          "medium"
+        ]
+      },
+      "urgency": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "examples": [
+          "high"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "open.incident_number"
+  },
+  "start": "open",
+  "steps": [
+    {
+      "id": "open",
+      "type": "service_task",
+      "name": "Report the incident",
+      "handler": "itops.open_incident",
+      "params": {
+        "application_number_path": "input.application_number",
+        "title_path": "input.title",
+        "impact_path": "input.impact",
+        "urgency_path": "input.urgency"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_priority"
+    },
+    {
+      "id": "route_priority",
+      "type": "decision",
+      "name": "P1 or P2?",
+      "transitions": [
+        {
+          "to": "acknowledge",
+          "when": {
+            "path": "open.priority",
+            "op": "lte",
+            "value": 2
+          }
+        }
+      ],
+      "next": "queued"
+    },
+    {
+      "id": "acknowledge",
+      "type": "service_task",
+      "name": "Page the on-call engineer",
+      "handler": "itops.acknowledge_incident",
+      "params": {
+        "incident_id_path": "open.incident_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "paged"
+    },
+    {
+      "id": "paged",
+      "type": "completion",
+      "name": "On-call engineer engaged",
+      "outcome": "approved"
+    },
+    {
+      "id": "queued",
+      "type": "completion",
+      "name": "Queued for the service desk",
+      "outcome": "approved"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

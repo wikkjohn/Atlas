@@ -36,6 +36,9 @@ test("Risk: a manager rates an obligor below the model and calculates ECL; a reg
   const otherContext = await browser.newContext();
   const other = await otherContext.newPage();
   await signIn(other, "regional", "/risk");
+  // Let the breach list load once first: a query still on its first fetch is not refetched
+  // when the approval invalidates it, so it would keep the answer from before the approval.
+  await expect(other.getByRole("table", { name: "Limit breaches" }).getByRole("row")).not.toHaveCount(0);
   await other.getByRole("button", { name: `Approve ${ratingNumber}` }).click();
   await expect(other.getByRole("table", { name: "Ratings" }).getByRole("row").filter({ hasText: ratingNumber })).toContainText("approved");
   await other.getByLabel("Customer number").fill(customer);

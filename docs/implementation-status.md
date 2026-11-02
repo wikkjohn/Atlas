@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 50.
+Last updated: Phase 51.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -55,6 +55,71 @@ Last updated: Phase 50.
 | 48 | Departments, step 20: the risk workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 49 | Departments, step 21: finance ([finance.md](finance.md)) | **Complete** |
 | 50 | Departments, step 22: manual journals, the finance workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 51 | Departments, step 23: customer service ([customer-service.md](customer-service.md)) | **Complete** |
+
+## Phase 51: what exists
+
+- **Customer service module** (`app/modules/customer_service/`, migration 0037).
+- **Cases:**
+  - enquiries, requests and complaints from phone, email, chat, branch or letter;
+  - a topic and a priority;
+  - optionally one of the customer's accounts;
+  - a timeline of every step.
+- **SLA timers:**
+  - first response and resolution due by priority (urgent 1 h / 8 h, high 4 h / 24 h, normal
+    8 h / 72 h, low 24 h / 120 h);
+  - complaints acknowledged in 48 hours and given a final response in 8 weeks;
+  - waiting on the customer pauses the clock, except for a complaint's final response.
+- **The sweep:**
+  - marks overdue cases breached;
+  - a missed first response escalates the case one priority, a missed resolution flags it
+    escalated;
+  - runs from the page, as WF-1039, and as the background job `customer_service.sla_sweep`.
+- **Complaints and redress:**
+  - a complaint is resolved with an outcome;
+  - redress is proposed into the customer's open account and paid by someone other than the
+    proposer (also a database constraint), debiting complaint redress expense;
+  - redress can be withdrawn, and a complaint cannot be resolved while redress awaits
+    approval.
+- **Permissions:**
+  - `service:read`: every role;
+  - `service:handle`: the front office and the scheduler;
+  - `service:approve`: department managers.
+- **Workflow factory:** eight `service.*` handlers and three workflows:
+  - WF-1037 Service Request
+  - WF-1038 Complaint Handling
+  - WF-1039 Service SLA Sweep
+- **Customer Service page:** summary, an open-case form, cases with their SLA timers and
+  actions (respond, await customer, resume, redress, pay, resolve with an outcome), and the
+  sweep.
+- **PR #41 (Phase 50)** had no review comments.
+
+## Phase 51: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Migration 0037 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 49 workflows, 851 cases, 0 failed (WF-1037: 12 cases, WF-1038: 18, WF-1039: 3; each 100 % steps and routes); WF-1037–1039 re-run after the presentation fix below: 33 cases, 0 failed |
+| Frontend Vitest / typecheck / build | 140 passed (new: 3 — cases with their SLA timers and breaches; opening a case, responding, proposing redress and resolving with an outcome; read-only with `service:read`) / clean / built |
+| Playwright on a fresh database | 55 passed (new: a teller opens a complaint, responds and proposes redress; a manager pays it and resolves the complaint as upheld) |
+
+Found while building it:
+- **Self-review:** resuming a complaint paused before its acknowledgement left the
+  acknowledgement due time unmoved, so it could breach as soon as the clock restarted. Only
+  a complaint's final response now ignores pauses; a new test covers it.
+- **Full backend run, first time:** one failure. The example workflows must validate with no
+  warnings, and WF-1039 had no presentation (a sweep has no case number). The sweep now
+  returns `swept_at`, which WF-1039 shows as its subject. The suite was re-run after the fix.
+- **Postgres had stopped** while the migration was being generated; it was restarted and the
+  migration generated again.
+
+## Phase 51: known limitations
+
+- **Wall-clock SLAs,** not business hours by the country's calendar.
+- **No routing:** a case is assigned to whoever opens it.
+- **No messages out:** responses are recorded, not sent.
+- **No simulation yet:** there is no customer service workload or AI tool yet (Phase 52).
 
 ## Phase 50: what exists
 

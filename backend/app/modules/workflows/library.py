@@ -3937,7 +3937,7 @@ def _withdraw_redress(ctx: StepContext, params: RedressDecision) -> dict[str, An
     "service.sla_sweep",
     "Mark overdue customer service cases breached and escalate them.",
     NoParams,
-    "{checked, response_breached, resolution_breached}",
+    "{checked, response_breached, resolution_breached, swept_at}",
     effect="writes",
     **SERVICE_ACCESS,
 )

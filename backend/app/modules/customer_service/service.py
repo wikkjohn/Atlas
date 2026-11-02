@@ -207,7 +207,7 @@ def sweep(db: Session, actor_id: uuid.UUID | None, now: datetime | None = None
             resolution += 1
     db.flush()
     return {"checked": len(rows), "response_breached": response,
-            "resolution_breached": resolution}  # fmt: skip
+            "resolution_breached": resolution, "swept_at": now.isoformat()}  # fmt: skip
 
 
 def redress_account(db: Session, currency: str) -> LedgerAccount:

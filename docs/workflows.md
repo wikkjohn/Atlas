@@ -591,6 +591,11 @@ The handlers need `procurement:manage` to start and `procurement:read` to read e
 Fixtures provide an approved vendor, an active US department and a received order. See
 [procurement.md](procurement.md).
 
+WF-1048 **v2** (Phase 58) reads the invoice profile (`procurement.invoice_profile`) after a
+matched invoice is recorded and asks the AGB Invoice Review Assistant (`ai.review`,
+advisory) before the manager releases the payment (`invoice-payments`). It also takes the
+date on the vendor's invoice.
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

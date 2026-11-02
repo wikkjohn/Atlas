@@ -351,6 +351,24 @@ const SAMPLE_LEAVE = {
     prior_short_notice_90d: 4,
   },
 };
+const SAMPLE_INVOICE = {
+  profile: {
+    amount: 1_250_000,
+    currency: "USD",
+    amount_usd: 12_500,
+    vendor_category: "facilities",
+    vendor_risk_tier: "low",
+    vendor_age_days: 640,
+    bank_changed_days_ago: null,
+    paid_since_bank_change: null,
+    invoice_before_order: false,
+    invoice_age_days: 2,
+    partial_delivery: false,
+    over_received_bps: 0,
+    vendor_invoices_90d: 2,
+    same_amount_invoices_90d: 1,
+  },
+};
 const SAMPLES: Record<string, unknown> = {
   rule_based_payment_screening: SAMPLE_PAYMENT,
   rule_based_credit_underwriting: SAMPLE_LOAN,
@@ -368,6 +386,7 @@ const SAMPLES: Record<string, unknown> = {
   rule_based_complaint_review: SAMPLE_COMPLAINT,
   rule_based_plan_review: SAMPLE_PLAN,
   rule_based_leave_review: SAMPLE_LEAVE,
+  rule_based_invoice_review: SAMPLE_INVOICE,
 };
 const CONSOLE_ACTIONS = [
   "analyze_application",

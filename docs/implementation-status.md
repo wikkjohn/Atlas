@@ -93,7 +93,24 @@ Last updated: Phase 53.
 
 ## Phase 53: verified results
 
-Verification in progress; results are added when the full runs finish.
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 676 passed (new: 5 — plans with one payment per overdue instalment, four-eyes activation, no write-off while active, a missed payment and a broken plan; a kept plan completing; WF-0004 waiting on an active plan past 90 days and escalating once it breaks; recoveries never above the write-off, a debt sale posted only after a second approval; the API with its permissions) |
+| Migration 0038 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 52 workflows, 876 cases, 0 failed (WF-1040: 10 cases, WF-1041: 10, WF-1042: 3; each 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 143 passed (new: 3 — arrears, plans and written-off loans; proposing and approving a plan, taking payments, recording and approving a recovery; read-only with `loans:read`) / clean / built |
+| Playwright on a fresh database | 58 passed (new: 2 — a manager proposes a plan, cannot approve it, and an admin activates it; a manager records a debt sale and a regional executive approves it) |
+
+Found while building it:
+- **WF-0004 and plans:** refusing to write off a loan on an active plan would have failed
+  WF-0004's write-off step outright. WF-0004 now waits on the plan instead; a new test
+  covers it.
+- **Demo data:** the seed had no loan in arrears, so the page and its end-to-end tests had
+  nothing to work on. The seed now adds one, and a written-off loan.
+- **Build output committed by mistake:** a `tsc -b` run emitted `.js` files next to the
+  TypeScript sources, and the first Phase 53 commit picked them up. Playwright then ran
+  every spec twice against one database, and six failed on each other's data. The files
+  were removed and the suite re-run on a fresh database: 58 passed.
 
 ## Phase 53: known limitations
 

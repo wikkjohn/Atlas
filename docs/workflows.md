@@ -575,6 +575,22 @@ WF-1044 **v2** (Phase 56) reads the leave profile (`hr.leave_profile`) after the
 requested and asks the AGB Leave Review Assistant (`ai.review`, advisory) before the manager
 decides (`leave-requests`).
 
+### WF-1046, WF-1047 and WF-1048: procurement (Phase 57)
+
+The procurement base processes:
+- **WF-1046** registers a vendor, screened and tiered; someone other than the registrant
+  (`procurement:approve`) approves it, a high-risk one only an executive, or rejects it. A
+  sanctions hit is never approved.
+- **WF-1047** raises a purchase order from an approved vendor for a department; someone
+  other than the requester approves it, above US$50,000 only an executive, or rejects it.
+- **WF-1048** records a vendor's invoice against a received order. A held invoice (more than
+  2 % over what was received) ends there; a matched one is paid by someone other than the
+  recorder, debiting purchases and crediting cash, or rejected.
+
+The handlers need `procurement:manage` to start and `procurement:read` to read executions.
+Fixtures provide an approved vendor, an active US department and a received order. See
+[procurement.md](procurement.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

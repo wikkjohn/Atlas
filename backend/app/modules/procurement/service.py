@@ -214,7 +214,14 @@ def raise_order(db: Session, vendor: Vendor, department_id: uuid.UUID, descripti
 
 
 def total_usd(db: Session, order: PurchaseOrder) -> int:
+    """The order's total in whole US dollars, for display."""
     return _usd(db, order.total, order.currency)
+
+
+def _over_large_threshold(db: Session, order: PurchaseOrder) -> bool:
+    from app.modules.risk import service as risk
+
+    return risk._usd_cents(db, order.total, order.currency, _now().date()) > LARGE_ORDER_USD * 100
 
 
 def decide_order(db: Session, order: PurchaseOrder, actor_id: uuid.UUID, approve: bool,
@@ -223,7 +230,7 @@ def decide_order(db: Session, order: PurchaseOrder, actor_id: uuid.UUID, approve
     if order.status != OrderStatus.REQUESTED:
         raise ConflictError(f"{order.order_number} is {order.status}.")
     _four_eyes(order.requested_by, actor_id, "requested")
-    if approve and total_usd(db, order) > LARGE_ORDER_USD and not executive:
+    if approve and _over_large_threshold(db, order) and not executive:
         raise BusinessRuleViolation(
             f"Orders above US${LARGE_ORDER_USD:,} are approved by an executive.",
             {"rule": "needs_executive"})  # fmt: skip
@@ -346,6 +353,7 @@ def pay_invoice(db: Session, invoice: VendorInvoice, actor_id: uuid.UUID) -> Ven
     invoice.status, invoice.paid_by = InvoiceStatus.PAID.value, actor_id
     invoice.paid_to, invoice.entry_number = vendor.bank_account, entry.entry_number
     invoice.decided_at = _now()
+    db.flush()
     paid = db.execute(
         select(func.coalesce(func.sum(VendorInvoice.amount), 0)).where(
             VendorInvoice.order_id == order.id, VendorInvoice.status == InvoiceStatus.PAID)

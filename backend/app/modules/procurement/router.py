@@ -271,6 +271,13 @@ def reject_invoice(invoice_id: uuid.UUID, db: DbSession, user: Authorized(APPROV
                                                    user.id))  # fmt: skip
 
 
+@router.get("/departments", summary="Active departments an order can be charged to")
+def departments(db: DbSession, _: Authorized(READ)) -> list[dict]:
+    from app.modules.hr import service as hr
+
+    return hr.departments(db)
+
+
 @router.get("/summary/counts", summary="Counts for the procurement page")
 def summary(db: DbSession, _: Authorized(READ)) -> dict:
     return service.summary(db)

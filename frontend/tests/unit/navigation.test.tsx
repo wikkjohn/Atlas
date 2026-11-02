@@ -32,6 +32,7 @@ describe("Application shell", () => {
       "Compliance",
       "Risk",
       "Finance",
+      "Procurement",
       "Customer Service",
       "Foreign Exchange",
       "Lending",

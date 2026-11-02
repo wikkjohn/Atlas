@@ -4539,7 +4539,7 @@ class RaiseOrder(_Strict):
     unit_price_path: str = Field(min_length=1, max_length=200)
 
 
-def _order_out(db, order) -> dict[str, Any]:
+def _purchase_order_out(db, order) -> dict[str, Any]:
     from app.modules.procurement import service as procurement
 
     return {"order_id": str(order.id), "order_number": order.order_number,
@@ -4579,10 +4579,10 @@ def _raise_order(ctx: StepContext, params: RaiseOrder) -> dict[str, Any]:
         [{"description": description, "quantity": int(_required(ctx, params.quantity_path)),
           "unit_price": int(_required(ctx, params.unit_price_path))}], ctx.initiator_id,
     )  # fmt: skip
-    return _order_out(ctx.db, order)
+    return _purchase_order_out(ctx.db, order)
 
 
-class OrderDecision(_Strict):
+class PurchaseOrderDecision(_Strict):
     order_id_path: str = Field(min_length=1, max_length=200)
     decided_by_path: str = Field(min_length=1, max_length=200)
 
@@ -4596,40 +4596,40 @@ def _purchase_order(ctx: StepContext, path: str):
 @_library_handler(
     "procurement.approve_order",
     "Approve the purchase order; above US$50,000 only an executive may.",
-    OrderDecision,
+    PurchaseOrderDecision,
     "{order_id, order_number, status, total, currency, total_usd}",
     reads=lambda params: [params.order_id_path, params.decided_by_path],
     effect="writes",
     requires_approval=True,
     **PROCUREMENT_ACCESS,
 )
-def _approve_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
+def _approve_purchase_order(ctx: StepContext, params: PurchaseOrderDecision) -> dict[str, Any]:
     from app.modules.procurement import service as procurement
 
     decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
     order = _trade_call("approval_refused", procurement.decide_order, ctx.db,
                         _purchase_order(ctx, params.order_id_path), decider, True,
                         _is_executive(ctx, decider))  # fmt: skip
-    return _order_out(ctx.db, order)
+    return _purchase_order_out(ctx.db, order)
 
 
 @_library_handler(
     "procurement.reject_order",
     "Reject the purchase order.",
-    OrderDecision,
+    PurchaseOrderDecision,
     "{order_id, order_number, status, total, currency, total_usd}",
     reads=lambda params: [params.order_id_path, params.decided_by_path],
     effect="writes",
     **PROCUREMENT_ACCESS,
 )
-def _reject_order(ctx: StepContext, params: OrderDecision) -> dict[str, Any]:
+def _reject_purchase_order(ctx: StepContext, params: PurchaseOrderDecision) -> dict[str, Any]:
     from app.modules.procurement import service as procurement
 
     decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
     order = _trade_call("rejection_refused", procurement.decide_order, ctx.db,
                         _purchase_order(ctx, params.order_id_path), decider,
                         False)  # fmt: skip
-    return _order_out(ctx.db, order)
+    return _purchase_order_out(ctx.db, order)
 
 
 class RecordInvoice(_Strict):

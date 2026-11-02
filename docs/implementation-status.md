@@ -95,7 +95,16 @@ Last updated: Phase 58.
 
 ## Phase 58: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | Full run: 695 passed, 1 failed. The failure (`test_system.py::test_system_status_is_operational_after_migrations`, "needs_migration") came from the next phase's migration file, written into the working tree while the run was going: the test compares the database with the newest migration on disk. With that work set aside and the test database recreated, `test_system.py` and `test_invoice_review.py` passed (8). New: 3 — the invoice rules and their blind spot; the invoice profile (a bank change with nothing paid since, an invoice dated before its order, a partial delivery invoiced 1 % over, an earlier invoice from the vendor); baseline and AI-assisted invoice runs with every invoice decided by a manager other than its recorder, no control violations, every kind's advice as designed |
+| Generated workflow tests | 58 workflows, 937 cases, 0 failed (WF-1048 v2: 14 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 149 passed / clean / built |
+| Playwright on a fresh database | 65 passed (new: the invoice assistant in the AI Lab console, recommending payment of a bill sent again) |
+| Measurement | `invoice-payments`, seed 2030, 300 invoices each: baseline 82.0 % accurate (23 wrongly paid, 31 wrongly rejected, 73.6 manager hours, median cycle 3.8 h); AI assisted 95.0 % (11, 4, 47.6 h, 1.1 h); near-duplicates paid 11 against 10 of 48; the assistant's own advice 82 % accurate, 32 referred on |
+
+Found while building it: nothing failed in the new tests or the measurement on their first
+runs.
 
 ## Phase 58: known limitations
 

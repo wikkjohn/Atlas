@@ -903,3 +903,39 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="invoice-payments",
+        version=1,
+        name="Invoice payments (procurement)",
+        description="A working day of matched vendor invoices through WF-1048 v2: a department "
+        "manager releases or rejects each payment. Routine invoices, partial deliveries, "
+        "invoices within the 2 % tolerance, vendors whose bank details changed long ago and "
+        "small first invoices from new vendors are paid; an invoice to a bank account changed "
+        "in the last fortnight with nothing paid to it yet, an invoice dated before its order "
+        "and the same bill sent again under a new reference are rejected. In AI-assisted runs "
+        "the AGB Invoice Review Assistant advises the manager (Phase 58).",
+        workload="invoice_payments",
+        workflow_id="WF-1048",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "routine": 0.24,
+                "partial_delivery": 0.08,
+                "within_tolerance": 0.10,
+                "old_bank_change": 0.08,
+                "new_vendor_small": 0.08,
+                "recent_bank_change": 0.12,
+                "backdated": 0.12,
+                "near_duplicate": 0.18,
+            },
+            reviewers={"approval": ReviewerModel(mean_minutes=15, accuracy=0.85)},
+            staff_mix={"teller": 0.6, "manager": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

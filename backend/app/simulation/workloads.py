@@ -3014,6 +3014,190 @@ class LeaveRequests(Workload):
         return check
 
 
+# --- Invoice payments (WF-1048 v2, Phase 58) --------------------------------------------------
+
+# Whether the approver should pay the invoice ("approved").
+INVOICE_PAY = frozenset({"routine", "partial_delivery", "within_tolerance", "old_bank_change",
+                         "new_vendor_small"})  # fmt: skip
+INVOICE_KINDS = INVOICE_PAY | {"recent_bank_change", "backdated", "near_duplicate"}
+VENDOR_WORDS = ("Harbour", "Meridian", "Quay", "Northgate", "Linden", "Orchard", "Beacon",
+                "Summit", "Riverside", "Copperfield", "Elmwood", "Granite", "Bluewater",
+                "Ashford", "Kestrel", "Juniper")  # fmt: skip
+VENDOR_TRADES = (("facilities", "Facilities"), ("facilities", "Office Supplies"),
+                 ("marketing", "Print and Design"), ("it", "IT Services"),
+                 ("professional_services", "Consulting"))  # fmt: skip
+
+
+def _backdate(row, when: datetime, *columns: str) -> None:
+    for column in columns:
+        setattr(row, column, when)
+
+
+class InvoicePayments(Workload):
+    """Matched vendor invoices through WF-1048 v2: a department manager releases or rejects
+    each payment, with the AGB Invoice Review Assistant's advice in AI-assisted runs. Every
+    case has its own approved US vendor and a received purchase order, with whatever history
+    it needs (bank-detail changes, earlier invoices) booked through the real procurement
+    service before the run.
+
+    Ground truth: routine invoices, partial deliveries, invoices within the 2 % tolerance,
+    vendors whose bank details changed long ago and small first invoices from new vendors
+    are paid; an invoice to a bank account changed in the last fortnight with nothing paid
+    to it yet, an invoice dated before its order, and the same bill sent again under a new
+    reference are rejected."""
+
+    key = "invoice_payments"
+    workflow_id = "WF-1048"
+    kinds = INVOICE_KINDS
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "Accounts Payable Clerk", "manager": "Department Manager"}
+    ai_step = "ai_review"
+    automated_path = None  # a manager always releases the payment
+
+    def _department(self, sim: "_Simulation"):
+        from app.modules.organizations.models import Organization, OrganizationType
+
+        found = getattr(sim, "_invoice_department", None)
+        if found is None:
+            found = sim.db.execute(
+                select(Organization).join(Country, Country.id == Organization.country_id)
+                .where(Organization.organization_type == OrganizationType.DEPARTMENT,
+                       Organization.status == "active", Country.iso_country_code == "US")
+                .order_by(Organization.name).limit(1)
+            ).scalar_one()  # fmt: skip
+            sim._invoice_department = found
+        return found
+
+    def _invoice_case(self, sim: "_Simulation", rng, index: int, kind: str, now: datetime,
+                      teller, manager) -> dict:  # fmt: skip
+        from app.modules.procurement import service as procurement
+
+        db = sim.db
+        dept = self._department(sim)
+        category, trade = VENDOR_TRADES[rng.randrange(len(VENDOR_TRADES))]
+        name = (f"{VENDOR_WORDS[rng.randrange(len(VENDOR_WORDS))]} {trade} "
+                f"{sim.run_id.hex[:4].upper()}{index}")  # fmt: skip
+        vendor = procurement.register_vendor(
+            db, name=name, country_code="US", category=category,
+            bank_account=f"US{rng.randrange(10**11, 10**12)}", registered_by=teller.id)  # fmt: skip
+        procurement.decide_vendor(db, vendor, manager.id, True)
+        age = rng.randint(3, 10) if kind == "new_vendor_small" else rng.randint(200, 900)
+        _backdate(vendor, now - timedelta(days=age), "created_at")
+
+        def order(amount: int, days_ago: int, received: int | None = None):
+            row = procurement.raise_order(
+                db, vendor, dept.id, f"{trade} for {dept.name}",
+                [{"description": trade, "quantity": 1, "unit_price": amount}],
+                teller.id)  # fmt: skip
+            procurement.decide_order(db, row, manager.id, True)
+            procurement.receive(db, row, received or amount, teller.id)
+            _backdate(row, now - timedelta(days=days_ago), "created_at")
+            return row
+
+        def paid_invoice(amount: int, days_ago: int) -> None:
+            earlier = order(amount, days_ago + 10)
+            invoice = procurement.record_invoice(
+                db, earlier, f"{rng.randrange(10**5, 10**6)}", amount,
+                (now - timedelta(days=days_ago + 2)).date(), teller.id)  # fmt: skip
+            procurement.pay_invoice(db, invoice, manager.id)
+            _backdate(invoice, now - timedelta(days=days_ago), "created_at", "decided_at")
+
+        def bank_change(days_ago: int) -> None:
+            procurement.request_bank_change(db, vendor, f"US{rng.randrange(10**11, 10**12)}",
+                                            teller.id)  # fmt: skip
+            procurement.verify_bank_change(db, vendor, manager.id, True)
+            vendor.bank_changed_at = now - timedelta(days=days_ago)
+
+        amount = rng.randint(5, 400) * 5_000  # US$250 to US$20,000
+        if kind == "new_vendor_small":
+            amount = rng.randint(5, 80) * 5_000  # under US$5,000
+        received = amount
+        if kind == "near_duplicate":
+            paid_invoice(amount, rng.randint(15, 60))
+        elif kind == "recent_bank_change":
+            paid_invoice(rng.randint(5, 400) * 5_000, rng.randint(40, 80))
+            bank_change(rng.randint(2, 12))
+        elif kind == "old_bank_change":
+            bank_change(rng.randint(120, 300))
+            paid_invoice(rng.randint(5, 400) * 5_000, rng.randint(20, 100))
+        elif kind == "routine" and rng.random() < 0.5:
+            paid_invoice(rng.randint(5, 400) * 5_000, rng.randint(20, 80))
+        if kind == "partial_delivery":
+            received = amount * rng.randint(40, 70) // 100
+        current = order(amount, rng.randint(15, 40), received)
+        invoice_amount = received
+        if kind == "within_tolerance":
+            invoice_amount = received + received * rng.randint(5, 19) // 1000
+        dated = now.date() - timedelta(days=rng.randint(0, 5))
+        if kind == "backdated":
+            dated = current.created_at.date() - timedelta(days=rng.randint(5, 30))
+        db.flush()
+        return {"order_number": current.order_number,
+                "vendor_reference": f"{vendor.vendor_number[-4:]}-{rng.randrange(10**5, 10**6)}",
+                "amount": invoice_amount, "invoice_date": dated.isoformat()}  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        now = datetime.now(UTC)
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "invoice")
+            kind = _pick(rng, mix)
+            payload = self._invoice_case(sim, rng, index, kind, now, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in INVOICE_PAY else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload=payload,
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every payment decision against four-eyes (the initiator, who recorded the
+        invoice) and authority, and nothing paid without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "pay"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        decided: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    decided.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.PROCUREMENT_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "pay" and execution.id not in decided:
+                check.violations.append(
+                    {"rule": "paid_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -3035,6 +3219,7 @@ WORKLOADS: dict[str, Workload] = {
         ComplaintRedress(),
         PaymentPlans(),
         LeaveRequests(),
+        InvoicePayments(),
     )
 }
 STAFF_ROLES = {

@@ -990,6 +990,20 @@ DEMO_AI_TOOLS = [
         "permissions": ["hr:read"],
         "compatible_workflows": ["WF-1044"],
     },
+    {
+        "tool_id": "agb-invoice-assistant",
+        "tool_name": "AGB Invoice Review Assistant",
+        "tool_version": "1.0.0",
+        "provider": "ATLAS Global Bank (in-house, rule-based proof of concept)",
+        "description": "Reviews a matched vendor invoice before its payment is released: "
+        "recent bank-detail changes, invoices dated before their order, invoicing over what "
+        "was received, large first invoices and high-risk vendors, with an explanation and a "
+        "pay, reject or refer recommendation. Advisory: it never pays anything (Phase 58).",
+        "adapter": "rule_based_invoice_review",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["procurement:read"],
+        "compatible_workflows": ["WF-1048"],
+    },
 ]
 
 

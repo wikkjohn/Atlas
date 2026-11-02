@@ -2,7 +2,7 @@
 orders, receipts and invoices paid on a three-way match."""
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -375,6 +375,51 @@ def reject_invoice(db: Session, invoice: VendorInvoice, actor_id: uuid.UUID) -> 
     _audit(db, actor_id, "procurement.invoice_rejected", "vendor_invoice", invoice.id,
            invoice_number=invoice.invoice_number)  # fmt: skip
     return invoice
+
+
+def invoice_profile(db: Session, invoice: VendorInvoice) -> dict[str, Any]:
+    """What an approver weighs before paying an invoice (Phase 58), as of the day it was
+    recorded: its amount; the vendor's age, tier and any bank-detail change, and whether
+    anything has been paid to the new account since; whether the invoice is dated before
+    the order was raised; how far the invoiced total runs over what was received; and the
+    vendor's other invoices in the 90 days before, and how many were for the same amount."""
+    order = get_order(db, invoice.order_id)
+    vendor = get_vendor(db, order.vendor_id)
+    asked = invoice.created_at
+    others = list(db.execute(
+        select(VendorInvoice).join(PurchaseOrder, PurchaseOrder.id == VendorInvoice.order_id)
+        .where(PurchaseOrder.vendor_id == vendor.id, VendorInvoice.id != invoice.id,
+               VendorInvoice.status != InvoiceStatus.REJECTED,
+               VendorInvoice.created_at < asked,
+               VendorInvoice.created_at >= asked - timedelta(days=90))
+    ).scalars())  # fmt: skip
+    changed = vendor.bank_changed_at
+    paid_since = None
+    if changed is not None:
+        paid_since = db.execute(
+            select(func.count()).select_from(VendorInvoice)
+            .join(PurchaseOrder, PurchaseOrder.id == VendorInvoice.order_id)
+            .where(PurchaseOrder.vendor_id == vendor.id, VendorInvoice.id != invoice.id,
+                   VendorInvoice.status == InvoiceStatus.PAID,
+                   VendorInvoice.decided_at >= changed)
+        ).scalar_one()  # fmt: skip
+    invoiced_total = invoiced(db, order, exclude=invoice.id) + invoice.amount
+    over = invoiced_total - order.received_amount
+    return {
+        "amount": invoice.amount, "currency": invoice.currency,
+        "amount_usd": _usd(db, invoice.amount, invoice.currency),
+        "vendor_category": vendor.category, "vendor_risk_tier": vendor.risk_tier,
+        "vendor_age_days": (asked.date() - vendor.created_at.date()).days,
+        "bank_changed_days_ago": (asked.date() - changed.date()).days if changed else None,
+        "paid_since_bank_change": paid_since,
+        "invoice_before_order": invoice.invoice_date < order.created_at.date(),
+        "invoice_age_days": (asked.date() - invoice.invoice_date).days,
+        "partial_delivery": order.received_amount < order.total,
+        "over_received_bps": max(over, 0) * 10_000 // order.received_amount
+        if order.received_amount else 0,
+        "vendor_invoices_90d": len(others),
+        "same_amount_invoices_90d": sum(1 for o in others if o.amount == invoice.amount),
+    }  # fmt: skip
 
 
 def summary(db: Session) -> dict[str, Any]:

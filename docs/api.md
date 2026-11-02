@@ -503,6 +503,29 @@ Lists take `?status=` and are newest first, paginated.
 | POST | `/api/v1/procurement/invoices/{id}/reject` | `procurement:approve` | Matched or held invoices; not by the recorder |
 | GET | `/api/v1/procurement/summary/counts` | `procurement:read` | Vendors to approve and approved, bank changes to verify, orders to approve and open, invoices to pay and held |
 
+### IT operations (Phase 59)
+
+See [itops.md](itops.md). Lists of incidents and changes take `?status=` and are newest
+first, paginated.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/itops/applications` | `itops:read` | The catalogue, most critical first, with open incidents |
+| POST | `/api/v1/itops/applications` | `itops:approve_major` | `{name, description?, department_id, tier}` (rule `tier_invalid`; 409 for a name in use) |
+| GET | `/api/v1/itops/incidents` | `itops:read` | With priority, targets, breaches and the change that caused it |
+| POST | `/api/v1/itops/incidents` | `itops:manage` | `{application_number, title, impact, urgency}`: priority P1 to P4 and targets (rules `title_required`, `application_retired`) |
+| POST | `/api/v1/itops/incidents/{id}/acknowledge` | `itops:manage` | Late: a response breach |
+| POST | `/api/v1/itops/incidents/{id}/resolve` | `itops:manage` | `{resolution, change_number?}` (rules `resolution_required`, `other_application`); late: a resolution breach |
+| POST | `/api/v1/itops/incidents/{id}/close` | `itops:approve` | `{review?}`: a P1 needs a review (rule `review_required`) by someone other than the resolver (rule `four_eyes`) |
+| POST | `/api/v1/itops/incidents/sweep` | `itops:manage` | Marks incidents past their targets |
+| GET | `/api/v1/itops/changes` | `itops:read` | With risk and whether an executive must approve |
+| POST | `/api/v1/itops/changes` | `itops:manage` | `{application_number, title, kind, backout_plan, planned_start, planned_end, incident_number?}` (rules `kind_invalid`, `window_invalid`, `not_standard`, `change_freeze`, `emergency_needs_incident`, `window_conflict`) |
+| POST | `/api/v1/itops/changes/{id}/approve` | `itops:approve` | Not by the requester (rule `four_eyes`); high risk or tier 1 needs `itops:approve_major` (rule `needs_cab`); rule `window_conflict` |
+| POST | `/api/v1/itops/changes/{id}/reject` | `itops:approve` | Not by the requester |
+| POST | `/api/v1/itops/changes/{id}/implement` | `itops:manage` | `{success}`: a failure opens an incident against the application |
+| GET | `/api/v1/itops/departments` | `itops:read` | Active departments an application can belong to |
+| GET | `/api/v1/itops/summary/counts` | `itops:read` | Applications, open incidents and P1s, past resolution target, to close; changes to approve, scheduled, failed in 30 days; whether the freeze is on |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

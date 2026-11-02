@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 58.
+Last updated: Phase 59.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -63,6 +63,53 @@ Last updated: Phase 58.
 | 56 | Departments, step 28: the human resources workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 57 | Departments, step 29: procurement and vendor management ([procurement.md](procurement.md)) | **Complete** |
 | 58 | Departments, step 30: the procurement workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 59 | Departments, step 31: IT operations ([itops.md](itops.md)) | **Complete** |
+
+## Phase 59: what exists
+
+- **IT operations module** (`app/modules/itops/`, migration 0041).
+- **Applications:** a catalogue with an owning department and a tier (1: customers or money
+  stop; 2: a department stops; 3: an inconvenience); the seed registers twelve.
+- **Incidents:**
+  - priority P1 to P4 from impact and urgency, with targets to acknowledge (15 minutes for
+    a P1) and to resolve (4 hours for a P1);
+  - late acknowledgements and resolutions are marked as breaches, also by an SLA sweep;
+  - a P1 is closed only with a post-incident review by someone other than the resolver;
+  - an incident can be attributed to the change that caused it.
+- **Changes:**
+  - risk from the kind (standard, normal, emergency), one level up on a tier-1 application
+    or without a backout plan, one down on a tier-3 one;
+  - standard changes pre-approved when low risk; others approved by someone other than the
+    requester (also a database constraint), by an executive for high risk or tier 1;
+  - no two approved changes to one application overlap;
+  - a month-end freeze (28th to 1st) on tier-1 applications, except for emergency changes,
+    which must answer an open P1 or P2;
+  - a failed change opens an incident against its application, attributed to it.
+- **Permissions:**
+  - `itops:read`: banking employees, managers, executives, auditors;
+  - `itops:manage`: banking employees, department managers;
+  - `itops:approve`: department managers, regional and global executives;
+  - `itops:approve_major`: regional and global executives.
+- **Workflow factory:** six `itops.*` handlers and three workflows:
+  - WF-1049 Incident Report
+  - WF-1050 Change Request
+  - WF-1051 Incident SLA Sweep
+- **IT Operations page** (`/it-operations`): summary, the freeze, incidents, changes and
+  the catalogue.
+- **PR #49 (Phase 58)** had no review comments; CI passed on the first run.
+
+## Phase 59: verified results
+
+RESULTS_PLACEHOLDER
+
+## Phase 59: known limitations
+
+- **Workflows do not call applications yet:** outages do not delay the processes that
+  depend on them (Milestone E).
+- **Targets run on the clock,** not business hours; there is no on-call rota or problem
+  record.
+- **A change's window is not enforced** when it is implemented.
+- **Not simulated yet:** the change workload and AI tool are Phase 60.
 
 ## Phase 58: what exists
 

@@ -2828,6 +2828,186 @@ class PaymentPlans(Workload):
         return check
 
 
+# --- Leave requests (WF-1044 v2, Phase 56) ----------------------------------------------------
+
+# Whether the manager should approve the leave ("approved").
+LEAVE_APPROVE = frozenset({"routine_annual", "planned_long", "short_sick", "short_notice_short",
+                           "tight_cover"})  # fmt: skip
+LEAVE_KINDS = LEAVE_APPROVE | {"understaffed", "short_notice_long", "serial_short_notice"}
+LEAVE_TEAM = 5  # each case's department
+
+
+def _weekday_on_or_after(day: date) -> date:
+    while day.weekday() >= 5:
+        day += timedelta(days=1)
+    return day
+
+
+def _after_weekdays(start: date, count: int) -> date:
+    """The last of `count` weekdays from `start` (itself a weekday)."""
+    day, left = start, count - 1
+    while left:
+        day += timedelta(days=1)
+        if day.weekday() < 5:
+            left -= 1
+    return day
+
+
+class LeaveRequests(Workload):
+    """Leave requests through WF-1044 v2: a department manager approves or rejects each, with
+    the AGB Leave Review Assistant's advice in AI-assisted runs. Every case has its own
+    five-person department, and the colleagues' leave and the employee's earlier requests
+    it needs are booked through the real HR service before the run.
+
+    Ground truth: routine annual leave, two weeks planned well ahead, short sickness, a day
+    or two at short notice and leave that leaves the department tightly but sufficiently
+    covered are approved; leave that would leave the department under-covered, a week or
+    more asked for at short notice, and another day or two at short notice from someone who
+    keeps asking at the last minute are rejected."""
+
+    key = "leave_requests"
+    workflow_id = "WF-1044"
+    kinds = LEAVE_KINDS
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "HR Administrator", "manager": "Department Manager"}
+    ai_step = "ai_review"
+    automated_path = None  # a manager always decides
+
+    def _division(self, sim: "_Simulation"):
+        from app.modules.organizations.models import Organization, OrganizationType
+
+        found = getattr(sim, "_leave_division", None)
+        if found is None:
+            found = sim.db.execute(
+                select(Organization).join(Country, Country.id == Organization.country_id)
+                .where(Organization.organization_type == OrganizationType.BUSINESS_DIVISION,
+                       Organization.status == "active", Country.iso_country_code == "US")
+                .order_by(Organization.name).limit(1)
+            ).scalar_one()  # fmt: skip
+            sim._leave_division = found
+        return found
+
+    def _leave_case(self, sim: "_Simulation", rng, index: int, kind: str, today: date,
+                    teller, manager) -> dict:  # fmt: skip
+        from app.modules.employees.schemas import EmployeeCreate
+        from app.modules.employees.service import create_employee
+        from app.modules.hr import service as hr
+        from app.modules.organizations.models import OrganizationType
+        from app.modules.organizations.schemas import OrganizationCreate
+        from app.modules.organizations.service import create_organization
+
+        db = sim.db
+        dept = create_organization(db, OrganizationCreate(
+            name=f"Simulated Team {sim.run_id.hex[:6]}-{index}",
+            organization_type=OrganizationType.DEPARTMENT,
+            parent_organization_id=self._division(sim).id), None)  # fmt: skip
+        team = []
+        for _ in range(LEAVE_TEAM):
+            name, _born = _person(rng, today)
+            first, last = name.split(" ", 1)
+            team.append(create_employee(db, EmployeeCreate(
+                first_name=first, last_name=last, organization_id=dept.id,
+                job_title="Analyst", annual_compensation=rng.randint(40, 90) * 100_000,
+            ), None))  # fmt: skip
+        employee = team[0]
+
+        def approved(person, start: date, end: date, kind_: str = "annual", asked=None):
+            leave = hr.request_leave(db, person, kind_, start, end, teller.id)
+            hr.decide_leave(db, leave, manager.id, approve=True)
+            if asked is not None:  # a request from the employee's history
+                leave.created_at = datetime.combine(asked, datetime.min.time(), tzinfo=UTC)
+            db.flush()
+
+        leave_kind, notice, days = "annual", rng.randint(20, 40), rng.randint(2, 4)
+        others = 0
+        if kind == "planned_long":
+            notice, days = rng.randint(30, 60), 10
+        elif kind == "short_sick":
+            leave_kind, notice, days = "sick", rng.randint(0, 1), rng.randint(1, 3)
+        elif kind in ("short_notice_short", "serial_short_notice"):
+            notice, days = rng.randint(2, 4), rng.randint(1, 2)
+        elif kind == "tight_cover":
+            notice, days, others = rng.randint(14, 30), 3, 1
+        elif kind == "understaffed":
+            notice, days, others = rng.randint(14, 30), 3, 2
+        elif kind == "short_notice_long":
+            # At most 4 days ahead, so moving past a weekend still leaves under a week; 6 to
+            # 8 weekdays, so a holiday still leaves 5 or more.
+            notice, days = rng.randint(2, 4), rng.randint(6, 8)
+        start = _weekday_on_or_after(today + timedelta(days=notice))
+        end = _after_weekdays(start, days)
+        for colleague in team[1 : 1 + others]:
+            approved(colleague, start, end)
+        if kind == "serial_short_notice":
+            # Three or four days off at a day or two's notice in the last 90 days.
+            for back in (80, 60, 40, 20)[: rng.randint(3, 4)]:
+                day = _weekday_on_or_after(today - timedelta(days=back))
+                approved(employee, day, day, asked=day - timedelta(days=rng.randint(1, 2)))
+        return {"employee_number": employee.employee_number, "kind": leave_kind,
+                "start_date": start.isoformat(), "end_date": end.isoformat()}  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        db = sim.db
+        mix = normalized(sim.config.mix)
+        today = datetime.now(UTC).date()
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "leave")
+            kind = _pick(rng, mix)
+            payload = self._leave_case(sim, rng, index, kind, today, teller, manager)
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in LEAVE_APPROVE else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload=payload,
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every manager's decision against four-eyes (the initiator, who requested the
+        leave) and authority, and no leave approved without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "approve"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        decided: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    decided.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.HR_MANAGE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "approve" and execution.id not in decided:
+                check.violations.append(
+                    {"rule": "approved_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -2848,6 +3028,7 @@ WORKLOADS: dict[str, Workload] = {
         JournalReview(),
         ComplaintRedress(),
         PaymentPlans(),
+        LeaveRequests(),
     )
 }
 STAFF_ROLES = {

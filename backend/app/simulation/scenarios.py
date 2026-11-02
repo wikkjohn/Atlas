@@ -867,3 +867,39 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="leave-requests",
+        version=1,
+        name="Leave requests (human resources)",
+        description="A working day of leave requests through WF-1044 v2: a department manager "
+        "approves or rejects each. Routine annual leave, two weeks planned well ahead, short "
+        "sickness, a day or two at short notice and leave that leaves the department tightly "
+        "but sufficiently covered are approved; leave that would leave the department under-"
+        "covered, a week or more asked for at short notice and another day or two at short "
+        "notice from someone who keeps asking at the last minute are rejected. In AI-assisted "
+        "runs the AGB Leave Review Assistant advises the manager (Phase 56).",
+        workload="leave_requests",
+        workflow_id="WF-1044",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "routine_annual": 0.18,
+                "planned_long": 0.08,
+                "short_sick": 0.12,
+                "short_notice_short": 0.12,
+                "tight_cover": 0.10,
+                "understaffed": 0.12,
+                "short_notice_long": 0.10,
+                "serial_short_notice": 0.18,
+            },
+            reviewers={"approval": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.6, "manager": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

@@ -329,3 +329,18 @@ def retail_month_end(ctx: JobContext) -> dict:
             }
     except DomainError as exc:
         raise PermanentJobError(exc.message) from exc
+
+
+@job_kind(
+    "customer_service.sla_sweep",
+    description="Mark overdue customer service cases breached and escalate them (Phase 51)",
+    max_attempts=2,
+)
+def customer_service_sla_sweep(ctx: JobContext) -> dict:
+    from app.modules.customer_service import service as customer_service
+
+    principal = _principal(ctx)
+    if not principal.can(Permission.SERVICE_HANDLE):
+        raise PermanentJobError("The job's principal may not handle customer service cases.")
+    with ctx.factory() as db, db.begin():
+        return customer_service.sweep(db, principal.id)

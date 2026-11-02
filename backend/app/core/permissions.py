@@ -63,6 +63,9 @@ class Permission(StrEnum):
     FINANCE_READ = "finance:read"
     FINANCE_CLOSE = "finance:close"  # prepare closes and reports, record and allocate costs
     FINANCE_APPROVE = "finance:approve"  # approve closes and allocations, submit reports
+    SERVICE_READ = "service:read"  # customer service cases and complaints (Phase 51)
+    SERVICE_HANDLE = "service:handle"  # open, respond to and resolve cases
+    SERVICE_APPROVE = "service:approve"  # approve complaint redress
     WORKFLOWS_READ = "workflows:read"
     WORKFLOWS_START = "workflows:start"  # start executions, deliver signals (e.g. documents)
     WORKFLOWS_MANAGE = "workflows:manage"  # resume or cancel executions
@@ -146,6 +149,7 @@ _BASE = frozenset(
         Permission.ANALYTICS_READ,
         Permission.PAYMENTS_READ,
         Permission.LOANS_READ,
+        Permission.SERVICE_READ,
     }
 )
 _FRONT_OFFICE = frozenset(
@@ -155,6 +159,7 @@ _FRONT_OFFICE = frozenset(
         Permission.ACCOUNTS_TRANSACT,
         Permission.WORKFLOWS_START,
         Permission.LOANS_REPAY,
+        Permission.SERVICE_HANDLE,
     }
 )
 
@@ -204,6 +209,7 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
         Permission.RISK_RATE,
         Permission.FINANCE_READ,
         Permission.FINANCE_CLOSE,
+        Permission.SERVICE_APPROVE,
         Permission.WORKFLOWS_DEFINE,  # author and review their department's workflows
     },
     RoleCode.BANKING_EMPLOYEE: _BASE
@@ -265,6 +271,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.WORKFLOWS_READ,
             Permission.SIMULATIONS_READ,
             Permission.SIMULATIONS_MANAGE,
+            Permission.SERVICE_READ,
+            Permission.SERVICE_HANDLE,  # the SLA sweep (Phase 51)
         }
     ),
 }

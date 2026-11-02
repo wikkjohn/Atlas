@@ -524,6 +524,19 @@ approves. **v2** reads the journal profile (`finance.journal_profile`) and asks 
 Journal Review Assistant (`ai.review`, advisory) before the approver decides
 (`journal-review`). Its generated tests propose a journal through a fixture.
 
+### WF-1037, WF-1038 and WF-1039: customer service (Phase 51)
+
+The customer service base processes:
+- **WF-1037** opens a service request on the customer's account, acknowledges it, and a
+  colleague (`service:handle`) fulfils or declines it.
+- **WF-1038** opens and acknowledges a complaint and proposes redress. Someone other than the
+  handler (`service:approve`) approves it, and the redress is paid and the complaint upheld;
+  or refuses it, and the redress is withdrawn and the complaint not upheld.
+- **WF-1039** runs the SLA sweep.
+
+The handlers need `service:handle` to start and `service:read` to read executions. See
+[customer-service.md](customer-service.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

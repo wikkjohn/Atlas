@@ -446,6 +446,37 @@ See [collections.md](collections.md). Amounts are in minor units of the loan's c
 Loan servicing's write-off (used by WF-0004) refuses a loan on an active payment plan (rule
 `plan_active`).
 
+### Human resources (Phase 55)
+
+See [hr.md](hr.md). Salaries are yearly, in minor units of the department's currency.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/hr/departments` | `hr:read` | Active departments with headcount, country and currency |
+| GET | `/api/v1/hr/capacity?department_id=&on=` | `hr:read` | Headcount, on leave, shifts, rostered, available (and by simulated role) |
+| GET | `/api/v1/hr/requisitions` | `hr:read` | Newest first, paginated |
+| POST | `/api/v1/hr/requisitions` | `hr:manage` | `{department_id, job_title, role?, openings?, salary_min, salary_max, reason}` (rules `role_invalid`, `band_invalid`, `reason_required`) |
+| POST | `/api/v1/hr/requisitions/{id}/approve` | `hr:approve` | Not by the requester (rule `four_eyes`) |
+| POST | `/api/v1/hr/requisitions/{id}/cancel` | `hr:approve` | Not by the requester |
+| GET | `/api/v1/hr/candidates?requisition_id=` | `hr:read` | |
+| POST | `/api/v1/hr/requisitions/{id}/candidates` | `hr:manage` | `{first_name, last_name}`; approved requisitions only (rule `not_recruiting`) |
+| POST | `/api/v1/hr/candidates/{id}/offer` | `hr:manage` | `{salary, start_date}` (rules `offer_outside_band`, `start_in_past`) |
+| POST | `/api/v1/hr/candidates/{id}/hire` | `hr:manage` | Creates the employee and the onboarding checklist (rule `no_opening`) |
+| POST | `/api/v1/hr/candidates/{id}/decline?by_candidate=` | `hr:manage` | Declined by the candidate, or turned down |
+| GET | `/api/v1/hr/onboarding?open_only=` | `hr:read` | Tasks soonest due first |
+| POST | `/api/v1/hr/onboarding/{id}/complete` | `hr:manage` | |
+| GET | `/api/v1/hr/leave?status=` | `hr:read` | Newest first, paginated |
+| POST | `/api/v1/hr/leave` | `hr:manage` | `{employee_number, kind, start_date, end_date, note?}`; business days of the employee's country (rules `no_working_days`, `overlap`, `insufficient_balance`, `spans_years`) |
+| POST | `/api/v1/hr/leave/{id}/approve` | `hr:manage` | Not by the requester (rule `four_eyes`) |
+| POST | `/api/v1/hr/leave/{id}/reject` | `hr:manage` | `{note?}` |
+| POST | `/api/v1/hr/leave/{id}/cancel` | `hr:manage` | |
+| POST | `/api/v1/hr/leave/sweep` | `hr:manage` | Sets who is on leave today |
+| GET | `/api/v1/hr/shifts?on=&department_id=` | `hr:read` | Shifts on a day with who is rostered |
+| POST | `/api/v1/hr/shifts` | `hr:manage` | `{department_id, on, start_hour, hours, required}` |
+| POST | `/api/v1/hr/shifts/{id}/assign` | `hr:manage` | `{employee_number}` (rules `other_department`, `terminated`, `on_leave`, `shift_full`, `weekly_hours`, `double_booked`, `rest_period`) |
+| POST | `/api/v1/hr/shifts/{id}/unassign` | `hr:manage` | `{employee_number}` |
+| GET | `/api/v1/hr/summary/counts` | `hr:read` | Requisitions to approve and recruiting, offers out, leave to decide, on leave today, overdue onboarding, shifts today |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).
@@ -575,6 +606,11 @@ out of the task inbox, the metrics and the `run_due` timer sweep; each carries i
 | GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
 | POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202); idempotent |
 | POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`); idempotent |
+
+`POST /api/v1/simulations` also takes `staffing_department_id` (Phase 55; custom profile,
+instead of `employees`): the run hires as many staff as that department has available on
+the scenario's simulated day, by HR's leave and rosters; the capacity is stored in the
+run's configuration as `staffing`. See [hr.md](hr.md).
 
 `POST /api/v1/simulations` takes `shards` (1–8, default 1; Phase 16): the run is split
 into that many slices, each simulated by a worker process with its own share of every

@@ -251,6 +251,15 @@ and bulk paths in the workflow engine.
   `cd backend && .venv/bin/python -m app.cli simulate --profile custom --applications 500 --employees 40 --seed 7`
   runs to completion in the foreground and prints the results.
 
+## Staff from HR (Phase 55)
+
+A custom run can take its staff from a department instead of an employee count: send
+`staffing_department_id` with `POST /api/v1/simulations`. The run hires as many simulated
+staff as the department has available on the scenario's simulated day. That is its staff
+not on approved leave and, when shifts are rostered that day, only the rostered ones. The
+capacity is stored in the run's configuration (`staffing`), so it is part of the run's hash.
+The role mix still comes from the scenario. See [hr.md](hr.md).
+
 ## Parallel shards (Phase 16)
 
 A run can be split into up to 8 **shards** (`shards` in the API, *Parallel shards* in the

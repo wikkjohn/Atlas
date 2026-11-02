@@ -89,7 +89,10 @@ def departments(db: Session) -> list[dict[str, Any]]:
                                    Organization.status == "active")
         .order_by(Organization.name)
     ).scalars()  # fmt: skip
-    return [{"id": d.id, "name": d.name, "headcount": counts.get(d.id, 0)} for d in rows]
+    return [{"id": d.id, "name": d.name, "headcount": counts.get(d.id, 0),
+             "country": d.country.iso_country_code if d.country else None,
+             "currency": d.country.default_currency if d.country else None}
+            for d in rows]  # fmt: skip
 
 
 def find_employee(db: Session, number: str) -> Employee:

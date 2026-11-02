@@ -28,6 +28,7 @@ import {
   Settings,
   UserRound,
   Users,
+  UserPlus,
   Workflow,
 } from "lucide-react";
 
@@ -44,7 +45,7 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 53;
+export const IMPLEMENTED_PHASE = 55;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
@@ -57,6 +58,7 @@ export const NAV_ITEMS: NavItem[] = [
   },
   { label: "Countries", path: "/countries", icon: Globe2, phase: 2, permission: "countries:read" },
   { label: "Employees", path: "/employees", icon: Users, phase: 2, permission: "employees:read" },
+  { label: "Human Resources", path: "/hr", icon: UserPlus, phase: 55, permission: "hr:read" },
   { label: "Customers", path: "/customers", icon: UserRound, phase: 3, permission: "customers:read" },
   { label: "Accounts", path: "/accounts", icon: Banknote, phase: 3, permission: "accounts:read" },
   { label: "Retail Banking", path: "/retail", icon: PiggyBank, phase: 29, permission: "accounts:read" },

@@ -559,6 +559,18 @@ WF-1040 **v2** (Phase 54) reads the plan profile (`collections.plan_profile`) af
 is proposed and asks the AGB Collections Review Assistant (`ai.review`, advisory) before the
 approver decides (`payment-plans`).
 
+### WF-1043, WF-1044 and WF-1045: human resources (Phase 55)
+
+The human resources base processes:
+- **WF-1043** opens a job requisition with a salary band; someone other than the requester
+  (`hr:approve`) approves it, and recruiting may start, or cancels it.
+- **WF-1044** requests leave for an employee, counted in their country's business days;
+  someone other than the requester (`hr:manage`) approves or rejects it.
+- **WF-1045** runs the leave status sweep.
+
+The handlers need `hr:manage` to start and `hr:read` to read executions. Fixtures provide an
+active department and a new employee hired into it. See [hr.md](hr.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

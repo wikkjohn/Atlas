@@ -99,7 +99,26 @@ Last updated: Phase 57.
 
 ## Phase 57: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | Full run: 688 passed, 4 failed. The 4 (`test_ai_lab.py::test_invalid_registrations_are_rejected`) hit a deadlock and a missing `roles` table: a first run, stopped part-way to pick up the fix below, was still tearing down the test database. Re-run on their own with the library tests: 52 passed. New: 6 — vendor screening, tiers, the executive and sanctions rules; orders, the US$50,000 threshold and receipts; invoice matching, holds, duplicates, payment through the ledger and the order closing; bank changes verified by a second person blocking payment meanwhile; the API with its permissions; the library defining each top-level name once |
+| Migration 0040 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 58 workflows, 935 cases, 0 failed (WF-1046: 10 cases, WF-1047: 10, WF-1048: 12; each 100 % steps and routes), after the fix below |
+| Frontend Vitest / typecheck / build | 149 passed (new: 3 — summary, vendors with screening and bank changes, orders and invoices; registering, deciding, verifying, ordering, receiving, recording and paying; read-only with `procurement:read`) / clean / built |
+| Playwright on a fresh database | 64 passed (new: 2 — a vendor approved by someone else, ordered from, received, invoiced (a duplicate refused) and paid, closing the order; a sanctions hit refused and rejected, and a bank change verified by a second person) |
+
+Found while building it:
+- **A wealth workflow broken by a name clash:** the procurement library helpers
+  `_order_out`, `OrderDecision`, `_approve_order` and `_reject_order` reused names already
+  used for wealth orders. The later `_order_out` replaced the earlier one, so every WF-1025
+  order step failed (19 generated cases). They were renamed, and a test now checks that
+  the library defines each name once; ruff does not flag it, as the earlier name is used.
+- **Orders never closed:** paying the last invoice summed what was paid before the payment
+  was flushed. It is flushed first now.
+- **US$50,000.01 needed no executive:** the threshold compared whole dollars. It compares
+  cents now.
+- **Test expectations, not code:** an end-to-end check matched the panel's description
+  as well as the error.
 
 ## Phase 57: known limitations
 

@@ -97,7 +97,23 @@ Last updated: Phase 60.
 
 ## Phase 60: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 703 passed (new: 3 — the change rules and their blind spot; the change profile (two earlier changes, one failed with its P2 still open, a business-hours window at 3 hours' notice with no backout plan); baseline and AI-assisted change runs with every change decided by a manager other than its requester, no control violations, every kind's advice as designed) |
+| Generated workflow tests | 61 workflows, 961 cases, 0 failed (WF-1050 v2: 14 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 152 passed / clean / built |
+| Playwright on a fresh database | First full run: 59 passed, 1 failed, 8 not run. The failure was `simulations.spec.ts`, "start a seeded run…": after Start run, no run appeared and no error showed. The file is serial, so its other 8 tests did not run. The file then passed on its own (9 of 9), and a second full run on a fresh database passed (68 of 68). The cause was not established. New: the change assistant in the AI Lab console, recommending approval of another change after three failures |
+| Measurement | `change-approvals`, seed 2030, 300 changes each: baseline 82.0 % accurate (24 wrongly approved, 30 wrongly rejected, 98.2 manager hours, median cycle 5.7 h); AI assisted 93.3 % (9, 11, 62.7 h, 2.0 h); changes after repeated failures approved 9 against 9 of 56; the assistant's own advice 80 % accurate, 26 referred on |
+
+Found while building it:
+- **A change with no backout plan never reached the manager:** the Phase 59 handler read
+  the backout plan as a required value and refused an empty one, so 5 of 40 cases in the
+  first workload test ended "refused". The service allows an empty plan and rates the
+  change one level riskier; the handler now passes it on.
+- **Simulated history on two clocks:** changes took their creation time from the database,
+  while the simulation runs on the scenario's day, so a change's lead time and 90-day
+  history would not have lined up. Changes are now dated from the time passed in, as
+  incidents already were.
 
 ## Phase 60: known limitations
 

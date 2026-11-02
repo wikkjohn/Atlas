@@ -98,7 +98,7 @@ Last updated: Phase 51.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Backend pytest (real PostgreSQL) | 668 passed, after the fix below (new: 5 — SLA due times by priority and for complaints, breaches and escalation by the sweep; waiting on the customer pausing the clock and moving the due times; complaints needing an outcome, redress on complaints only, four-eyes payment into the account and no resolution while redress waits; a complaint's final response running while paused; the API with its permissions and the case timeline) |
 | Migration 0037 | upgrade, `alembic check` clean, downgrade and upgrade again |
 | Generated workflow tests | 49 workflows, 851 cases, 0 failed (WF-1037: 12 cases, WF-1038: 18, WF-1039: 3; each 100 % steps and routes); WF-1037–1039 re-run after the presentation fix below: 33 cases, 0 failed |
 | Frontend Vitest / typecheck / build | 140 passed (new: 3 — cases with their SLA timers and breaches; opening a case, responding, proposing redress and resolving with an outcome; read-only with `service:read`) / clean / built |

@@ -3734,6 +3734,219 @@ def _reject_journal(ctx: StepContext, params: JournalDecision) -> dict[str, Any]
     return _journal_out(journal)
 
 
+# --- Customer service (Phase 51) ----------------------------------------------------------------
+
+SERVICE_ACCESS = {"start_permission": "service:handle", "read_permission": "service:read"}
+
+
+class OpenServiceCase(_Strict):
+    account_number_path: str = Field(min_length=1, max_length=200)
+    category: Literal["enquiry", "request", "complaint"]
+    channel_path: str = Field(min_length=1, max_length=200)
+    topic_path: str = Field(min_length=1, max_length=200)
+    priority_path: str | None = Field(default=None, max_length=200)
+    subject_path: str = Field(min_length=1, max_length=200)
+    description_path: str = Field(min_length=1, max_length=200)
+
+
+def _service_case_out(case) -> dict[str, Any]:
+    return {"case_id": str(case.id), "case_number": case.case_number,
+            "category": case.category, "priority": case.priority, "status": case.status,
+            "responded": case.first_responded_at is not None,
+            "redress_status": case.redress_status, "outcome": case.outcome}  # fmt: skip
+
+
+@_library_handler(
+    "service.open_case",
+    "Open a customer service case on the customer's account; its first response and "
+    "resolution fall due by its priority (a complaint's by the complaint rules).",
+    OpenServiceCase,
+    "{case_id, case_number, category, priority, status, responded, redress_status, outcome}",
+    reads=lambda params: [
+        p
+        for p in (
+            params.account_number_path,
+            params.channel_path,
+            params.topic_path,
+            params.priority_path,
+            params.subject_path,
+            params.description_path,
+        )
+        if p
+    ],
+    effect="writes",
+    fixtures=lambda params: {params.account_number_path: "account.account_number"},
+    **SERVICE_ACCESS,
+)
+def _open_service_case(ctx: StepContext, params: OpenServiceCase) -> dict[str, Any]:
+    from app.modules.accounts.service import find_account
+    from app.modules.customer_service import service as cs
+    from app.modules.customers.models import Customer
+
+    account = find_account(ctx.db, str(_required(ctx, params.account_number_path)))
+    if account is None:
+        raise StepError("account_not_found", "No such account.")
+    priority = str(ctx.get(params.priority_path) or "normal") if params.priority_path else "normal"
+    case = _trade_call(
+        "case_refused", cs.open_case, ctx.db, ctx.db.get(Customer, account.customer_id),
+        category=params.category, channel=str(_required(ctx, params.channel_path)),
+        topic=str(_required(ctx, params.topic_path)), priority=priority,
+        subject=str(_required(ctx, params.subject_path)),
+        description=str(_required(ctx, params.description_path)),
+        opened_by=ctx.initiator_id, account=account, now=ctx.now,
+    )  # fmt: skip
+    return _service_case_out(case)
+
+
+class ServiceCaseRef(_Strict):
+    case_id_path: str = Field(min_length=1, max_length=200)
+
+
+class RespondToCase(ServiceCaseRef):
+    message: str = Field(min_length=3, max_length=500)
+
+
+def _service_case(ctx: StepContext, path: str):
+    from app.modules.customer_service import service as cs
+
+    return cs.get_case(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "service.respond",
+    "Reply to the customer; the first reply meets the first-response SLA (a complaint's "
+    "acknowledgement).",
+    RespondToCase,
+    "{case_id, case_number, category, priority, status, responded, redress_status, outcome}",
+    reads=lambda params: [params.case_id_path],
+    effect="writes",
+    **SERVICE_ACCESS,
+)
+def _respond_to_case(ctx: StepContext, params: RespondToCase) -> dict[str, Any]:
+    from app.modules.customer_service import service as cs
+
+    case = _trade_call("response_refused", cs.respond, ctx.db,
+                       _service_case(ctx, params.case_id_path), ctx.initiator_id,
+                       params.message, now=ctx.now)  # fmt: skip
+    return _service_case_out(case)
+
+
+class ResolveCase(ServiceCaseRef):
+    resolution: str = Field(min_length=3, max_length=1000)
+    outcome: Literal["upheld", "partly_upheld", "not_upheld"] | None = None
+    resolved_by_path: str | None = Field(default=None, max_length=200)
+
+
+@_library_handler(
+    "service.resolve",
+    "Resolve the case (a complaint with its outcome).",
+    ResolveCase,
+    "{case_id, case_number, category, priority, status, responded, redress_status, outcome}; "
+    "a complaint with redress still awaiting approval fails the step.",
+    reads=lambda params: (
+        [params.case_id_path] + ([params.resolved_by_path] if params.resolved_by_path else [])
+    ),
+    effect="writes",
+    **SERVICE_ACCESS,
+)
+def _resolve_case(ctx: StepContext, params: ResolveCase) -> dict[str, Any]:
+    from app.modules.customer_service import service as cs
+
+    actor = (uuid.UUID(str(_required(ctx, params.resolved_by_path)))
+             if params.resolved_by_path else ctx.initiator_id)  # fmt: skip
+    case = _trade_call("resolution_refused", cs.resolve, ctx.db,
+                       _service_case(ctx, params.case_id_path), actor, params.resolution,
+                       params.outcome, now=ctx.now)  # fmt: skip
+    return _service_case_out(case)
+
+
+class ProposeRedress(ServiceCaseRef):
+    amount_path: str = Field(min_length=1, max_length=200)
+    account_number_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "service.propose_redress",
+    "Propose redress for a complaint, to be paid into the customer's account once someone "
+    "else approves it.",
+    ProposeRedress,
+    "{case_id, case_number, category, priority, status, responded, redress_status, outcome}",
+    reads=lambda params: [params.case_id_path, params.amount_path, params.account_number_path],
+    effect="writes",
+    **SERVICE_ACCESS,
+)
+def _propose_redress(ctx: StepContext, params: ProposeRedress) -> dict[str, Any]:
+    from app.modules.accounts.service import find_account
+    from app.modules.customer_service import service as cs
+
+    account = find_account(ctx.db, str(_required(ctx, params.account_number_path)))
+    if account is None:
+        raise StepError("account_not_found", "No such account.")
+    case = _trade_call("redress_refused", cs.propose_redress, ctx.db,
+                       _service_case(ctx, params.case_id_path),
+                       int(_required(ctx, params.amount_path)), account, ctx.initiator_id,
+                       now=ctx.now)  # fmt: skip
+    return _service_case_out(case)
+
+
+class RedressDecision(ServiceCaseRef):
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "service.pay_redress",
+    "Pay the proposed redress into the customer's account.",
+    RedressDecision,
+    "{case_id, case_number, category, priority, status, responded, redress_status, outcome}; "
+    "the proposer deciding fails the step.",
+    reads=lambda params: [params.case_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **SERVICE_ACCESS,
+)
+def _pay_redress(ctx: StepContext, params: RedressDecision) -> dict[str, Any]:
+    from app.modules.customer_service import service as cs
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    case = _trade_call("payment_refused", cs.pay_redress, ctx.db,
+                       _service_case(ctx, params.case_id_path), decider,
+                       now=ctx.now)  # fmt: skip
+    return _service_case_out(case)
+
+
+@_library_handler(
+    "service.withdraw_redress",
+    "Withdraw the proposed redress; nothing is paid.",
+    RedressDecision,
+    "{case_id, case_number, category, priority, status, responded, redress_status, outcome}",
+    reads=lambda params: [params.case_id_path, params.decided_by_path],
+    effect="writes",
+    **SERVICE_ACCESS,
+)
+def _withdraw_redress(ctx: StepContext, params: RedressDecision) -> dict[str, Any]:
+    from app.modules.customer_service import service as cs
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    case = _trade_call("withdrawal_refused", cs.withdraw_redress, ctx.db,
+                       _service_case(ctx, params.case_id_path), decider,
+                       now=ctx.now)  # fmt: skip
+    return _service_case_out(case)
+
+
+@_library_handler(
+    "service.sla_sweep",
+    "Mark overdue customer service cases breached and escalate them.",
+    NoParams,
+    "{checked, response_breached, resolution_breached}",
+    effect="writes",
+    **SERVICE_ACCESS,
+)
+def _sla_sweep(ctx: StepContext, params: NoParams) -> dict[str, Any]:
+    from app.modules.customer_service import service as cs
+
+    return cs.sweep(ctx.db, ctx.initiator_id, now=ctx.now)
+
+
 ADVISORY_ACTIONS = ("analyze_application", "analyze_payment", "analyze_credit_application",
                     "recommend_decision")  # fmt: skip
 

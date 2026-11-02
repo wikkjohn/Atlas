@@ -179,7 +179,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       costs split across departments by headcount; WF-1033–1035; see `finance.md`.
       Phase 50: manual journals, the `journal-review` workload and the journal review
       assistant)
-- [ ] Customer service: contact-centre cases, complaints, SLA timers
+- [x] Customer service: contact-centre cases, complaints, SLA timers
+      (Phase 51: cases from every channel with first-response and resolution SLAs by
+      priority, paused while waiting on the customer, a sweep that marks breaches and
+      escalates; complaints acknowledged in two days and answered in eight weeks, with
+      redress paid by a second person; WF-1037–1039; see `customer-service.md`)
 - [ ] Collections and recoveries: payment plans, recoveries (extends WF-0004)
 - [ ] HR: hiring, onboarding, leave and shifts (feeds simulation staffing)
 - [ ] Procurement and vendor management
@@ -280,4 +284,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 48 (D20) | Risk, step 2: the `rating-overrides` workload on stored WF-1030 v2, decided by regional executives, and the AGB Rating Review Assistant | complete |
 | Phase 49 (D21) | Finance: month-end close with four-eyes approval, regulatory reporting extracts, cost allocation by headcount; WF-1033–1035 | complete |
 | Phase 50 (D22) | Finance, step 2: manual journals with four-eyes posting, the `journal-review` workload on stored WF-1036 v2, decided by regional executives, and the AGB Journal Review Assistant (a month-end close workload was not simulable in volume: a month closes once, in order) | complete |
-| Phase 51 (D23, proposed) | Customer service: contact-centre cases, complaints, SLA timers | next |
+| Phase 51 (D23) | Customer service: cases with SLA timers and escalation, complaints with four-eyes redress; WF-1037–1039 | complete |
+| Phase 52 (D24, proposed) | Customer service, step 2: a `complaint-redress` workload on stored WF-1038 v2, decided by service managers, and an AGB Complaint Review Assistant | next |

@@ -1,0 +1,41 @@
+{
+  "workflow_id": "WF-1039",
+  "name": "Service SLA Sweep",
+  "version": 1,
+  "description": "Every open customer service case is checked against its SLA: a missed first response escalates the case one priority, a missed resolution escalates it to the manager's queue. Waiting on the customer pauses the clock, except for a complaint's final response. Also runs as the background job customer_service.sla_sweep. Stored definition: built only from library handlers (Phase 51).",
+  "business_owner": "Customer Service",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "start": "sweep",
+  "steps": [
+    {
+      "id": "sweep",
+      "type": "service_task",
+      "name": "Check the SLAs",
+      "handler": "service.sla_sweep",
+      "params": {},
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Swept",
+      "outcome": "approved"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

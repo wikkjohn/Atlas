@@ -1,0 +1,210 @@
+{
+  "workflow_id": "WF-1037",
+  "name": "Service Request",
+  "version": 1,
+  "description": "A customer's service request (a replacement card, a statement copy, a change of details) is opened as a case on their account, acknowledged at once, which meets the first-response SLA, and handled by a colleague (service:handle) who fulfils it or declines it, resolving the case either way; its resolution falls due by its priority. Stored definition: built only from library handlers (Phase 51).",
+  "business_owner": "Customer Service",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "account_number",
+      "channel",
+      "topic",
+      "subject",
+      "description"
+    ],
+    "properties": {
+      "account_number": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}[0-9A-Z]{8,32}$"
+      },
+      "channel": {
+        "type": "string",
+        "enum": [
+          "phone",
+          "email",
+          "chat",
+          "branch",
+          "letter"
+        ],
+        "examples": [
+          "phone"
+        ]
+      },
+      "topic": {
+        "type": "string",
+        "enum": [
+          "account",
+          "card",
+          "payments",
+          "lending",
+          "fees",
+          "digital",
+          "other"
+        ],
+        "examples": [
+          "card"
+        ]
+      },
+      "priority": {
+        "type": "string",
+        "enum": [
+          "low",
+          "normal",
+          "high",
+          "urgent"
+        ],
+        "examples": [
+          "normal"
+        ]
+      },
+      "subject": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "examples": [
+          "Replacement card"
+        ]
+      },
+      "description": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000,
+        "examples": [
+          "The card's chip no longer works"
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "open.case_number"
+  },
+  "start": "open",
+  "steps": [
+    {
+      "id": "open",
+      "type": "service_task",
+      "name": "Open the case",
+      "handler": "service.open_case",
+      "params": {
+        "account_number_path": "input.account_number",
+        "category": "request",
+        "channel_path": "input.channel",
+        "topic_path": "input.topic",
+        "priority_path": "input.priority",
+        "subject_path": "input.subject",
+        "description_path": "input.description"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "acknowledge"
+    },
+    {
+      "id": "acknowledge",
+      "type": "service_task",
+      "name": "Acknowledge",
+      "handler": "service.respond",
+      "params": {
+        "case_id_path": "open.case_id",
+        "message": "We have received your request and will be in touch."
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "handle"
+    },
+    {
+      "id": "handle",
+      "type": "approval",
+      "name": "Handle the request",
+      "description": "A colleague fulfils the request, or declines it.",
+      "approval": {
+        "permissions": [
+          "service:handle"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "fulfil",
+          "when": {
+            "path": "handle.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "decline"
+    },
+    {
+      "id": "fulfil",
+      "type": "service_task",
+      "name": "Resolve as fulfilled",
+      "handler": "service.resolve",
+      "params": {
+        "case_id_path": "open.case_id",
+        "resolution": "Request fulfilled",
+        "resolved_by_path": "handle.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "fulfilled"
+    },
+    {
+      "id": "decline",
+      "type": "service_task",
+      "name": "Resolve as declined",
+      "handler": "service.resolve",
+      "params": {
+        "case_id_path": "open.case_id",
+        "resolution": "Request declined",
+        "resolved_by_path": "handle.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "declined"
+    },
+    {
+      "id": "fulfilled",
+      "type": "completion",
+      "name": "Fulfilled",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

@@ -92,7 +92,13 @@ Last updated: Phase 70.
 
 ## Phase 70: verified results
 
-RESULTS70_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 736 passed. New: 4 tests covering: shifts in New York time, the Martin Luther King Jr. Day holiday, a review carried over a weekend, Tokyo's offset; seeded absences; the schedule's validation and unchanged older configurations; a shifts run against its around-the-clock baseline, and its repeatability |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (281.3 s on the development database) |
+| `retail-onboarding` against `retail-onboarding-shifts` (300 cases, seed 2030, development database) | The baseline digest is unchanged (`bc59d6a0…`). With shifts: cycle time p50 0.41 → 5.56 h, average 3.78 → 10.41 h; review queue wait 0.58 → 7.31 h on average; overdue tasks 0 → 2; 53.39 h waiting off shift, 7 reviews carried over, 3 reviewer-days absent. Digest `ebeb4c86…`, the same on a second run |
+| Frontend Vitest / typecheck / build | 162 passed (new: the working-time section, and none without a schedule) / clean / built |
+| Playwright on a fresh database | 73 passed |
 
 ## Phase 70: known limitations
 

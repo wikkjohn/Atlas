@@ -179,6 +179,7 @@ class _Driver:
     # explicit `now` (tests, the simulation clock) time stands still within one advance.
     live: bool = False
     _pending_audit: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    _gateway: Any = None  # the application gateway (Phase 66), made on first use
 
     # Events and bookkeeping
 
@@ -272,7 +273,11 @@ class _Driver:
     # Run state changes
 
     def complete_run(
-        self, run: WorkflowStepRun, output: dict[str, Any], actor_id: uuid.UUID | None = None
+        self,
+        run: WorkflowStepRun,
+        output: dict[str, Any],
+        actor_id: uuid.UUID | None = None,
+        calls: Any = None,
     ) -> None:
         if self.live:
             self.now = utc_now()
@@ -282,9 +287,14 @@ class _Driver:
         run.actor_id = actor_id
         run.completed_at = self.now
         run.duration_ms = int(((self.now - (run.started_at or self.now)).total_seconds()) * 1000)
+        data: dict[str, Any] = {"step": run.step_id, "attempt": run.attempt}
+        if calls is not None:  # Phase 66: the applications it called, and how long they took
+            run.duration_ms += int(calls.latency_ms)
+            data["applications"] = calls.calls
+            data["application_ms"] = calls.latency_ms
         self.execution.context[run.step_id] = output
         self.touch()
-        self.event("step.completed", run, actor_id, {"step": run.step_id, "attempt": run.attempt})
+        self.event("step.completed", run, actor_id, data)
 
     def fail_run(
         self, run: WorkflowStepRun, step: StepDefinition, error: dict, retryable: bool
@@ -407,6 +417,16 @@ class _Driver:
         if handler is None:
             self.fail_run(run, step, {"code": "handler_missing", "message": step.handler}, False)
             return
+        calls = self._call_applications(run, step)
+        if calls is not None and calls.failure is not None:
+            failure = calls.failure
+            self.fail_run(run, step, _error(
+                "application_unavailable",
+                f"{failure['name']} is unavailable ({failure['error']}"
+                + (f", because {failure['cause']} is down" if failure["cause"]
+                   and failure["cause"] != failure["application"] else "") + ").",
+                {**failure, "calls": calls.calls}), retryable=True)  # fmt: skip
+            return
         context = StepContext(self.db, self.execution, run, step, self.now)
         try:
             # The handler's writes and nothing else are undone if it raises.
@@ -427,8 +447,20 @@ class _Driver:
                 retryable=True,
             )
         else:
-            self.complete_run(run, output)
+            self.complete_run(run, output, calls=calls)
             self.route(step, run)
+
+    def _call_applications(self, run: WorkflowStepRun, step: StepDefinition):
+        """The step's application calls (Phase 66), made before its handler runs; None when
+        it calls none."""
+        from app.modules.itops import gateway
+
+        if self._gateway is None:
+            self._gateway = gateway.Gateway(self.db)
+        report = self._gateway.call(
+            workflow_id=self.execution.workflow_id, step_id=step.id, handler=step.handler or "",
+            execution_id=self.execution.id, attempt=run.attempt, at=self.now)  # fmt: skip
+        return report if report.calls else None
 
     def advance(self, max_steps: int = MAX_STEPS_PER_ADVANCE) -> int:
         ran = 0

@@ -216,6 +216,56 @@ before it (Phase 63), so the most recently generated ones are wired only when a 
 them directly. Wiring the rest is for step 4, where workflows call applications as they
 run.
 
+## Workflows call their applications (Phase 66)
+
+Phase 66 (roadmap Milestone E, step 4) makes the links real. Code:
+`backend/app/modules/itops/gateway.py`, called by the workflow engine before each service or
+AI step's handler.
+
+**Calls.** A step calls the applications the dependency graph gives it (Phase 65): its
+core systems, then its estate application. Each call goes through the generic simulated
+application (Phase 64):
+- it is made at the step's time, the simulation clock or the real one;
+- it is a write when the handler's action is one (open, post, approve, release…),
+  otherwise a read;
+- calls run one after another.
+
+**When a call fails.**
+- An application that is down fails the step as `application_unavailable`. So does one
+  that waits synchronously on an application that is down.
+- The error names the application, the cause and the chain from one to the other.
+- The step is retried under its own retry policy: by default three attempts, 30 s then
+  60 s apart. A short outage therefore delays the workflow, and a longer one fails it or
+  sends it down its `on_failure` route.
+- The handler does not run, so nothing is written.
+
+**When the calls succeed.**
+- Their latencies are added to the step's recorded duration. A degraded application is
+  four times slower.
+- The `step.completed` event lists each call and the total time.
+- `core.*` steps, decisions and human tasks call nothing.
+
+**Determinism.** By default only outages fail calls: each application's own error rate
+and timeout are not applied, so a workflow without outages repeats exactly.
+`gateway.realistic()` applies them too. Each call's random draw comes from the execution,
+the step and the attempt.
+
+**Outages are on the simulation's timeline.** A simulation dated in the past sees the
+outages of that time. An outage declared from 2000 and ended today covers every simulated
+date before today.
+
+Measured with `retail-onboarding` (WF-0001: every step calls the ledger and Sanctions
+Screening), 300 applications, 12 employees, seed 2030, on the development database:
+
+| Run | Completed | Failed (`application_unavailable`) | Wall time |
+| --- | --- | --- | --- |
+| No outage | 300 | 0 | 101.1 s (94.2 s before Phase 66: about 7 % for the calls); result digest identical |
+| Sanctions Screening down all day | 0 | 300, at their first step, after three attempts | 61.8 s |
+| Down 12:00 to 14:00, and 15:00 to 15:01 | 222 | 78 (arrivals in the two-hour window are about a quarter of the day's) | 91.3 s |
+
+In the last run, 2 executions that met the one-minute outage completed on a retry, a
+minute or two late.
+
 ## Incidents
 
 An incident (`INC-`, `itops:manage`) names an application, what is wrong, its impact and its
@@ -337,7 +387,11 @@ before Phase 60 the handler refused one as a missing value.
 
 - **Links come from handler namespaces,** not from what a step does with its parameters:
   every `accounts.*` step calls the ledger, whatever it reads.
-- **A link does not make a step fail yet:** the impact is computed, not observed (step 4).
+- **Every step of a namespace calls all its core systems:** each WF-0001 step calls both
+  the ledger and Sanctions Screening, so a screening outage stops the workflow at its first
+  step, not at its screening step.
+- **A retried step waits at least 30 s;** a step with `max_attempts: 1` (most stored
+  workflows' lookups) goes straight to `on_failure`.
 - **Retries and circuit breakers are not modelled:** a caller sees each failure.
 - **Latency does not grow with load:** an application answers as fast at 10,000 calls a
   second as at one.

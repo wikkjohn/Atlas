@@ -28,7 +28,11 @@ test("Compliance: structuring is detected, investigated, escalated and filed by 
   const accountNumber = await structure(request);
   await signIn(page, "compliance", "/compliance");
   const run = page.getByRole("form", { name: "Run monitoring" });
+  // Monitoring scans every account's activity: under a full parallel run it can take longer
+  // than an assertion's timeout, so wait for the run itself before looking for the alert.
+  const monitored = page.waitForResponse((r) => r.url().includes("/api/v1/compliance/runs") && r.request().method() === "POST");
   await run.getByRole("button", { name: "Run monitoring" }).click();
+  expect((await monitored).status()).toBe(201);
   await page.getByLabel("Alerts for account").fill(accountNumber);
   const row = page.getByRole("table", { name: "Alerts" }).getByRole("row").filter({ hasText: accountNumber }).filter({ hasText: "Structuring" });
   await expect(row).toBeVisible();

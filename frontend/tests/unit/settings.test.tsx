@@ -284,4 +284,38 @@ describe("System Settings users and roles", () => {
     expect(within(matrix).getByLabelText("Automated Policy Engine: accounts:approve_low_risk")).toBeInTheDocument();
     expect(screen.queryByRole("table", { name: "Users" })).not.toBeInTheDocument();
   });
+
+  it("shows the event pipeline and retries a dead delivery (Phase 74)", async () => {
+    const summary = {
+      events: 42,
+      topics: { "hr.employee_hired": 3 },
+      subscribers: [
+        { topic: "hr.employee_hired", name: "information_security.request_access", department: "information_security", deliveries: { delivered: 2, dead: 1 } },
+        { topic: "lending.arrears_changed", name: "collections.sync", department: "collections", deliveries: { delivered: 39, failed: 1 } },
+      ],
+      waiting: 2,
+      dead: 1,
+      oldest_waiting_seconds: 600,
+    };
+    const dead = {
+      id: "ev-1", seq: 7, topic: "hr.employee_hired", key: "emp-9", publisher: "hr", payload: {}, occurred_at: "2026-11-03T10:00:00Z",
+      deliveries: [{ id: "dl-1", subscriber: "information_security.request_access", status: "dead", attempts: 8, next_attempt_at: "2026-11-03T12:00:00Z", last_error: "LookupError: Employee emp-9 does not exist.", delivered_at: null }],
+    };
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/events/summary": () => jsonResponse(summary),
+      "GET /api/v1/events": (r: { search: URLSearchParams }) => jsonResponse(r.search.get("status") === "dead" ? [dead] : []),
+      "POST /api/v1/events/deliveries/dl-1/retry": () => jsonResponse({ ...dead.deliveries[0], status: "pending", attempts: 0 }),
+    });
+    renderApp("/settings");
+
+    const table = await screen.findByRole("table", { name: "Subscribers" });
+    const row = within(table).getByText("collections.sync").closest("tr") as HTMLElement;
+    expect(row).toHaveTextContent("lending.arrears_changedcollections.syncCollections3910");
+    expect(screen.getByText("42 events · 2 waiting · 1 dead · oldest waiting 10 min")).toBeInTheDocument();
+    const stuck = await screen.findByRole("list", { name: "Undelivered events" });
+    expect(stuck).toHaveTextContent("hr.employee_hired → information_security.request_access · dead, 8 attempts · LookupError: Employee emp-9 does not exist.");
+    await userEvent.click(within(stuck).getByRole("button", { name: /Retry/ }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST" && r.path.endsWith("/dl-1/retry"))).toBe(true));
+  });
 });

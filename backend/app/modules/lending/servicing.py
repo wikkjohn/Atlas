@@ -21,7 +21,6 @@ are no late fees.
 """
 
 import uuid
-from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -180,20 +179,32 @@ def arrears(db: Session, loan: Loan, on: date) -> Arrears:
     return Arrears(days, sum(i.amount for i in due), len(due), bucket_for(days), oldest)
 
 
-# (db, loan, arrears, business date, actor) -> None. The collections workflow listens.
-ArrearsListener = Callable[[Session, Loan, Arrears, date, AuthenticatedUser], None]
-_LISTENERS: list[ArrearsListener] = []
+# Lending reports a loan's arrears through the outbox (Phase 74); collections subscribes
+# (WF-0004). Before Phase 74 this was an in-process listener: a failing collections step
+# broke the servicing run, and nothing recorded what collections had been told.
+ARREARS_TOPIC = "lending.arrears_changed"
 
 
-def on_arrears_change(listener: ArrearsListener) -> ArrearsListener:
-    _LISTENERS.append(listener)
-    return listener
+def publish_arrears(db: Session, loan: Loan, state: Arrears, on: date,
+                    actor: AuthenticatedUser) -> None:  # fmt: skip
+    """Publish the loan's arrears when it is behind, and once more when it is no longer
+    (cured, repaid or paid off); a loan that stays current publishes nothing."""
+    from app.modules.events import outbox
+
+    key = str(loan.id)
+    if state.days_past_due == 0 and state.instalments == 0:
+        last = outbox.last_event(db, ARREARS_TOPIC, key)
+        if last is None or (last.payload.get("days_past_due", 0) == 0
+                            and not last.payload.get("instalments")):  # fmt: skip
+            return
+    outbox.publish(db, ARREARS_TOPIC, key,
+                   {"loan_id": key, "loan_number": loan.loan_number, "loan_status": loan.status,
+                    "business_date": on.isoformat(), **state.as_dict()},
+                   publisher="lending", actor_id=actor.id)  # fmt: skip
 
 
 def _notify(db: Session, loan: Loan, on: date, actor: AuthenticatedUser) -> None:
-    state = arrears(db, loan, on)
-    for listener in _LISTENERS:
-        listener(db, loan, state, on, actor)
+    publish_arrears(db, loan, arrears(db, loan, on), on, actor)
 
 
 # --- Postings ------------------------------------------------------------------------------
@@ -435,8 +446,7 @@ def run(db: Session, as_of: date, actor: AuthenticatedUser) -> LoanServicingRun:
                 summary["arrears_amount"].get(loan.currency, 0) + state.amount
             )
         summary["buckets"][state.bucket] = summary["buckets"].get(state.bucket, 0) + 1
-        for listener in _LISTENERS:
-            listener(db, loan, state, as_of, actor)
+        publish_arrears(db, loan, state, as_of, actor)
     record = LoanServicingRun(as_of=as_of, started_by=actor.id, summary=summary)
     db.add(record)
     db.flush()

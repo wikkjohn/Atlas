@@ -255,6 +255,15 @@ def hire(db: Session, candidate: Candidate, actor_id: uuid.UUID) -> Employee:
            candidate_number=candidate.candidate_number,
            employee_number=employee.employee_number,
            requisition_number=row.requisition_number)  # fmt: skip
+    # Other departments hear of the joiner through the outbox (Phase 74): Information
+    # Security requests their systems access.
+    from app.modules.events import outbox
+
+    outbox.publish(db, "hr.employee_hired", str(employee.id),
+                   {"employee_id": str(employee.id), "employee_number": employee.employee_number,
+                    "department_id": str(dept.id), "role": row.role,
+                    "start_date": start.isoformat()},
+                   publisher="hr", actor_id=actor_id)  # fmt: skip
     return employee
 
 

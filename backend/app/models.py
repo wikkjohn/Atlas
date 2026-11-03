@@ -2,6 +2,7 @@
 
 from app.core import audit, idempotency, system  # noqa: F401
 from app.jobs import models as jobs  # noqa: F401
+from app.modules.access import models as access  # noqa: F401
 from app.modules.accounts import models as accounts  # noqa: F401
 from app.modules.ai_tools import models as ai_tools  # noqa: F401
 from app.modules.backoffice import models as backoffice  # noqa: F401
@@ -14,6 +15,7 @@ from app.modules.countries import models as countries  # noqa: F401
 from app.modules.customer_service import models as customer_service  # noqa: F401
 from app.modules.customers import models as customers  # noqa: F401
 from app.modules.employees import models as employees  # noqa: F401
+from app.modules.events import models as events  # noqa: F401
 from app.modules.experiments import models as experiments  # noqa: F401
 from app.modules.finance import models as finance  # noqa: F401
 from app.modules.fx import models as fx  # noqa: F401

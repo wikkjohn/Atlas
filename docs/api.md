@@ -632,6 +632,11 @@ unchanged.
 | GET | `/api/v1/workflow-tasks?mine=true` | signed in | Only the tasks assigned to the caller by name (Phase 71); every task carries `assignee_username`, `delegated_from_username` and `assigned_to_me` |
 | GET | `/api/v1/workflow-tasks/{run_id}/candidates` | signed in | Who could take the task: qualified people with their open assigned tasks, least loaded first |
 | POST | `/api/v1/workflow-tasks/{run_id}/delegate` | the assignee, or `workflows:manage` | `{delegate_id, note?}`: hand the task to another qualified person (422, rule `delegate_not_qualified`, otherwise) |
+| GET | `/api/v1/events?topic=&status=` | `jobs:read` | Recent outbox events with their deliveries (Phase 74) |
+| GET | `/api/v1/events/summary` | `jobs:read` | Deliveries by subscriber and status; waiting and dead; how long the oldest has waited |
+| POST | `/api/v1/events/deliveries/{id}/retry` | `jobs:manage` | Make a failed or dead delivery due now |
+| GET | `/api/v1/access/grants?status=` | `employees:read` | Information Security's access grants, requested when HR hires |
+| POST | `/api/v1/access/grants/{id}/grant` | `users:manage` | Grant requested access; publishes `access.granted` (HR closes the joiner's task) |
 | POST | `/api/v1/customers/population/generate` | `customers:manage` | `{count ≤ 50,000, seed, history_months ≤ 24}`: synthetic customers with segments, products and history (Phase 72); not in staging or production |
 | GET | `/api/v1/customers/population/summary` | `customers:read` | Customers by segment, country and risk; accounts by product and per customer; history by category |
 | GET | `/api/v1/workflow-tasks/people?q=` | signed in | Active people (not service accounts) to delegate to |

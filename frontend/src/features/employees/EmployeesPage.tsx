@@ -1,3 +1,4 @@
+import { AccessPanel } from "@/features/employees/AccessPanel";
 import { Search, UserPlus } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -484,6 +485,7 @@ export function EmployeesPage() {
         }
       />
       <WorkforcePanel />
+      {can("employees:read") && <AccessPanel />}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <form
           role="search"

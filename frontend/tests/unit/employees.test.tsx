@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { analyst, manager } from "./enterprise-fixtures";
@@ -90,5 +90,21 @@ describe("Employees page", () => {
 
     await screen.findByText("Ren Ito");
     expect(api.requests.some((r) => r.path === "/api/v1/employees" && r.search.get("q") === "tanaka")).toBe(true);
+  });
+
+  it("lists access requests raised by hires and grants one (Phase 74)", async () => {
+    const requested = { id: "ag-1", grant_number: "AG-0000001", employee_id: "emp-9", employee_number: "AGB-0000009", employee_name: "Rina Okafor", profile: "role:banking_employee", status: "requested", requested_at: "2026-11-03T10:00:00Z", granted_at: null, revoked_at: null, revoke_reason: null };
+    const api = mockApi({
+      ...routes(),
+      "GET /api/v1/access/grants": (r: { search: URLSearchParams }) => jsonResponse(r.search.get("status") === "requested" ? [requested] : []),
+      "POST /api/v1/access/grants/ag-1/grant": () => jsonResponse({ ...requested, status: "granted", granted_at: "2026-11-03T11:00:00Z" }),
+    });
+    renderApp("/employees");
+    const panel = await screen.findByRole("region", { name: "Systems access" });
+    expect(await within(panel).findByText(/AG-0000001 · Rina Okafor \(AGB-0000009\) · role:banking_employee · requested/)).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Grant access" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST" && r.path.endsWith("/ag-1/grant"))).toBe(true));
+    await userEvent.selectOptions(within(panel).getByLabelText("Access status"), "revoked");
+    expect(await within(panel).findByText("No revoked access grants.")).toBeInTheDocument();
   });
 });

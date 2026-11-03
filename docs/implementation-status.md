@@ -78,6 +78,44 @@ Last updated: Phase 70.
 | 71 | Workforce and customers, step 3: task routing — named assignment, delegation, escalation ([workflows.md](workflows.md)) | **Complete** |
 | 72 | Workforce and customers, step 4: the customer generator ([customer-base.md](customer-base.md)) | **Complete** |
 | 73 | Workforce and customers, step 5: arrival patterns ([simulation.md](simulation.md)) | **Complete** |
+| 74 | Workforce and customers, step 6: the event pipeline ([events.md](events.md)) | **Complete** |
+
+## Phase 74: what exists
+
+- **The outbox** (`app/modules/events`, migration 0049):
+  - events and one delivery per subscriber, written in the publisher's transaction;
+  - delivered inline, each subscriber in a savepoint, so a subscriber's failure never undoes
+    the publisher's change;
+  - retried by the `events.dispatch` job (every minute) with back-off, batches claimed with
+    `FOR UPDATE SKIP LOCKED`; dead after 8 attempts until retried.
+- **Lending → collections** moved from an in-process listener onto it; only loans in
+  arrears, and their cures, publish.
+- **HR ↔ Information Security:** a hire requests the joiner's access (`access_grants`);
+  granting it closes HR's onboarding task; a leaver's access is revoked.
+- **API, CLI and pages:** events, summary, retry, access grants; `events dispatch|summary`;
+  the Event pipeline panel on Settings and Systems access on Employees.
+- **PR #64 (Phase 73)** had no review comments; CI passed on the first run.
+
+## Phase 74: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 758 passed. New: 6 tests covering: a delivered event, and a failing subscriber whose work alone is rolled back, retried with back-off and then delivered; out of attempts a delivery is dead until retried; the dispatcher delivers what was not delivered inline, once; lending tells collections through the outbox (none while current, the case opened in arrears, closed on the cure); a joiner and a leaver across HR and Information Security (access requested, granted through the API, HR's task closed, revoked on leaving; a redelivery asks for nothing more); the API, its permissions, the job kind and its schedule |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (208.2 s on the development database) |
+| The dispatcher (20,000 events, scratch database) | 1 worker 353 deliveries a second, 4 workers 1,656 (5,000 each); every event handled exactly once, on its first attempt. See [events.md](events.md) |
+| Frontend Vitest / typecheck / build | 169 passed (new: the Event pipeline panel and retrying a dead delivery; the Systems access panel and granting access) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Found while building it: the first dispatcher committed one delivery at a time (152 a
+second with one worker); claiming batches of 100 made it 2.3 times faster.
+
+## Phase 74: known limitations
+
+- **One database, no external broker.**
+- **No ordering between deliveries;** today's subscribers read the latest state or are
+  order-free.
+- **No retention for delivered events** yet.
+- **Simulations do not publish** (the simulated servicing path never notified listeners).
 
 ## Phase 73: what exists
 

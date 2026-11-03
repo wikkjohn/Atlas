@@ -152,6 +152,51 @@ own random stream, so v1 runs are unchanged and still reproduce.
 | `personal-loans` baseline, seed 42 | 100 / 25 | 17.2 s | 93 % correct (7 false declines, 0 false approvals); 91 manual reviews |
 | `personal-loans` v2, seed 11, baseline / assisted / automated (Phase 11) | 300 / 40 | 32–35 s each | 94.3 % / 99.3 % / 99.7 % correct; 264 / 266 / 168 manual reviews; 98 loans underwritten by the policy engine |
 
+## Reviewers' working time (Phase 70)
+
+Without a staff schedule, simulated reviewers work around the clock: the model of every
+scenario before Phase 70, whose results and digests are unchanged.
+
+A scenario with `ScenarioConfig.staff_schedule` gives its reviewers working time
+(`app/simulation/staffing.py`):
+- **Shifts** in a country's time zone, e.g. 08:00 to 16:00 and 12:00 to 20:00 local time,
+  given out to reviewers in turn.
+- **Working days:** the country's business days, from the reference calendars (Phase 26):
+  no weekends, no public holidays.
+- **Absences:** on each working day a reviewer is away with the schedule's absence rate,
+  decided by the run's seed, the review step, the reviewer and the day.
+
+A review goes to the reviewer who can start it first: free, and at work. One that does not
+finish by the end of the shift carries on at that reviewer's next shift. The work takes as
+long as before, and the decisions are the same: only the waiting changes.
+
+The run's results gain a `staffing` section:
+- the schedule and the number of reviewers;
+- the reviewer-days lost to absence;
+- the hours cases waited for a reviewer to be at work;
+- the reviews carried into a next shift.
+
+The Simulation Center shows it under the run's metrics.
+
+`retail-onboarding-shifts` v1 is `retail-onboarding` v1 with its reviewers in New York:
+- shifts 08:00 to 16:00 and 12:00 to 20:00;
+- US business days;
+- 5 % absent.
+
+Applications arrive from 09:00 UTC, which is 04:00 in New York.
+
+Measured on the development database (300 cases, 12 employees, seed 2030):
+
+| Measure | Around the clock | New York shifts |
+| --- | --- | --- |
+| Cycle time, median / average / p95 | 0.41 h / 3.78 h / 23.5 h | 5.56 h / 10.41 h / 27.8 h |
+| Review queue wait, average / p95 | 0.58 h / 3.69 h | 7.31 h / 25.1 h |
+| Overdue tasks | 0 | 2 |
+| Decision accuracy, review labour | 96.7 %, 71.6 h | the same |
+| Waiting for a reviewer at work | — | 53.4 h, 7 reviewers |
+| Reviews carried into the next shift; reviewer-days absent | — | 7; 3 |
+| Result digest | `bc59d6a0…`, as before Phase 70 | `ebeb4c86…` |
+
 ## Application outages (Phase 67)
 
 A scenario can declare **application outages on its own timeline**
@@ -390,6 +435,9 @@ removing postings would rewrite the books; only workflow history is lifecycle-ma
   process when no worker is configured, otherwise in `python -m app.cli worker`
   processes. A run whose process stops is reported as interrupted and must be started
   again; the job is not retried.
+- Staff schedules (Phase 70) model reviewers only: tellers and the steps without a review
+  start at once. A sharded run follows the schedule, but its results carry no `staffing`
+  section. One time zone per scenario: no follow-the-sun teams yet.
 - Outage scenarios (Phase 67): `retail-onboarding-outage` v1 and
   `domestic-payments-outage` v1, besides the scenarios below. An outage's cost is counted in
   failed and delayed executions, not in money or in customers' patience.

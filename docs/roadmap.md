@@ -264,7 +264,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 69: weighted by department kind, a head, team leads and staff in each,
       grades and pay in local currency, skills and languages; 150,000 in 37 s; see
       `workforce.md`)
-- [ ] Shifts, holidays, absences and time zones in the reviewer model
+- [x] Shifts, holidays, absences and time zones in the reviewer model
+      (Phase 70: shifts in a country's time zone, its business days and holidays, seeded
+      absences; reviews wait for a reviewer at work and carry over between shifts;
+      `retail-onboarding-shifts`; see `simulation.md`)
 - [ ] Named task assignment, delegation and escalation routing
 - [ ] Customer generator: millions of customers, segments, products, transaction history
 - [ ] Realistic arrival patterns: daily and weekly peaks, seasonality, events
@@ -364,4 +367,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 67 (E5) | Milestone E, step 5: outage scenarios — a scenario's outages on its own timeline, scoped to its run, their cost in failed and delayed executions; two outage scenarios | complete |
 | Phase 68 (E6) | Milestone E exit: the Enterprise Data Warehouse fed by every application nothing relies on, all 2,526 applications wired, an outage's cost measured, the exit check — Milestone E complete | complete |
 | Phase 69 (F1) | Milestone F, step 1: the employee generator — staff by department and country with a hierarchy, roles, grades, local pay, skills and languages; 150,000 in 37 s | complete |
-| Phase 70 (F2, proposed) | Milestone F, step 2: shifts, holidays, absences and time zones in the reviewer model | next |
+| Phase 70 (F2) | Milestone F, step 2: reviewers' shifts in a country's time zone, its business days and holidays, seeded absences, reviews carried across shifts; `retail-onboarding-shifts` | complete |
+| Phase 71 (F3, proposed) | Milestone F, step 3: named task assignment, delegation and escalation routing | next |

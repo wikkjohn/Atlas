@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 69.
+Last updated: Phase 70.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -74,6 +74,32 @@ Last updated: Phase 69.
 | 67 | Enterprise applications, step 5: outage scenarios ([simulation.md](simulation.md)) | **Complete** |
 | 68 | Enterprise applications, step 6: the Milestone E exit ([itops.md](itops.md)) — roadmap Milestone E complete | **Complete** |
 | 69 | Workforce and customers, step 1: the employee generator ([workforce.md](workforce.md)) | **Complete** |
+| 70 | Workforce and customers, step 2: reviewers' working time ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 70: what exists
+
+- **Reviewers' working time** (`app/simulation/staffing.py`, `ScenarioConfig.staff_schedule`):
+  - shifts in a country's time zone, given out in turn;
+  - the country's business days and holidays;
+  - seeded absences;
+  - a review goes to the reviewer who can start first, and carries over between shifts.
+  Scenarios without a schedule are unchanged, digests included.
+- **Its cost in the results** (`staffing`): waiting for a reviewer at work, reviews carried
+  over, reviewer-days absent. The Simulation Center shows it.
+- **`retail-onboarding-shifts`:** New York shifts for a day of arrivals starting at 04:00
+  there.
+- **PR #60 (Phase 69)** had no review comments; CI passed on the first run.
+
+## Phase 70: verified results
+
+RESULTS70_PLACEHOLDER
+
+## Phase 70: known limitations
+
+- **Reviewers only:** tellers and steps without a review start at once.
+- **One time zone per scenario;** no follow-the-sun teams.
+- **Sharded runs** follow the schedule but report no `staffing` section.
+- **Absences are single days,** not periods of leave; they are not HR leave records.
 
 ## Phase 69: what exists
 

@@ -232,11 +232,27 @@ describe("Simulation Center", () => {
     expect(section).toHaveTextContent("78 executions failed on an unavailable application · 1 completed late after a retry · 157 retries");
   });
 
+  it("reports the reviewers' working time when the scenario has a staff schedule", async () => {
+    const shifts = {
+      ...completed,
+      results: {
+        ...completed.results!,
+        staffing: { schedule: { country: "US", shifts: [[8, 8], [12, 8]] as [number, number][], absence_rate: 0.05 }, reviewers: 7, staff_days_absent: 3, off_shift_wait_hours: 53.39, reviews_carried_over: 7 },
+      },
+    };
+    mockApi({ ...baseRoutes, "GET /api/v1/simulations/run-1": () => jsonResponse(shifts) });
+    renderApp("/simulations?run=run-1");
+    const section = await screen.findByRole("region", { name: "Reviewers' working time" });
+    expect(section).toHaveTextContent("7 reviewers on US business days, shifts 08:00–16:00 and 12:00–20:00 local time, 5 % absence");
+    expect(section).toHaveTextContent("53.39 hours waiting for a reviewer at work · 7 reviews carried into the next shift · 3 reviewer-days absent");
+  });
+
   it("shows no outage section for a run without outages", async () => {
     mockApi(baseRoutes);
     renderApp("/simulations?run=run-1");
     expect(await screen.findByRole("heading", { name: "Run #7" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Application outages" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Reviewers' working time" })).not.toBeInTheDocument();
   });
 
   it("reports why a run failed", async () => {

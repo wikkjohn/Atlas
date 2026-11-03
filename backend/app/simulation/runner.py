@@ -391,6 +391,11 @@ class _Simulation:
         self.case_rows: list[tuple] = []
         self.pending_results: list[SimulationCaseResult] = []
         self.positions: dict[str, int] = {}  # members of each role enlisted so far
+        # Reviewers' working time (Phase 70): one calendar per review step, when the
+        # scenario has a staff schedule; otherwise reviewers work around the clock.
+        self.calendars: dict[str, Any] = {}
+        self.shift_wait_seconds = 0  # waiting for a reviewer to be at work
+        self.carried_over = 0  # reviews that ran into the reviewer's next shift
 
     # Time ---------------------------------------------------------------------------------
 
@@ -512,9 +517,31 @@ class _Simulation:
                 self.reviewers.setdefault(step, []).append(person)
 
     def open_pools(self) -> None:
+        schedule = self.config.staff_schedule
         for step, people in self.reviewers.items():
             self.pools[step] = [(0, i) for i in range(len(people))]
             heapq.heapify(self.pools[step])
+            if schedule is not None:
+                from app.simulation.staffing import StaffCalendar
+
+                self.calendars[step] = StaffCalendar(
+                    self.clock.start, schedule.country, list(schedule.shifts),
+                    schedule.absence_rate, f"{self.seed}:{step}")  # fmt: skip
+
+    def staffing(self) -> dict[str, Any] | None:
+        """What the staff schedule cost the run (Phase 70); None without one."""
+        schedule = self.config.staff_schedule
+        if schedule is None:
+            return None
+        until = self.seconds(self.clock.now)
+        return {
+            "schedule": schedule.model_dump(mode="json"),
+            "reviewers": sum(len(p) for p in self.reviewers.values()),
+            "staff_days_absent": sum(c.staff_days_absent(len(self.reviewers[s]), until)
+                                     for s, c in self.calendars.items()),
+            "off_shift_wait_hours": round(self.shift_wait_seconds / 3600, 2),
+            "reviews_carried_over": self.carried_over,
+        }  # fmt: skip
 
     def load_staff(self) -> None:
         """A shard's staff: hired once for the whole run, before the shards started."""
@@ -660,8 +687,17 @@ class _Simulation:
             )
         case.visits += 1
         rng = case_random(self.seed, case.app.index, f"review:{run.step_id}:{case.visits}")
-        free_at, staff_index = heapq.heappop(pool)
-        begin = max(at, free_at)
+        calendar = self.calendars.get(run.step_id)
+        if calendar is None:
+            free_at, staff_index = heapq.heappop(pool)
+            begin = max(at, free_at)
+        else:  # the reviewer who can start first, being free and at work
+            free_at, staff_index, begin = min(
+                ((f, i, calendar.next_window(i, max(at, f))[0]) for f, i in pool),
+                key=lambda c: (c[2], c[1]))  # fmt: skip
+            pool.remove((free_at, staff_index))
+            heapq.heapify(pool)
+            self.shift_wait_seconds += begin - max(at, free_at)
         truth = "approve" if case.app.expected_outcome == "approved" else "reject"
         wrong = "reject" if truth == "approve" else "approve"
         # With an AI recommendation in front of them, reviewers work faster and follow it
@@ -680,14 +716,16 @@ class _Simulation:
             )
         mu = math.log(model.mean_minutes * 60) - model.sigma**2 / 2  # mean = mean_minutes
         service = max(60, round(rng.lognormvariate(mu, model.sigma) * time_factor))
-        heapq.heappush(pool, (begin + service, staff_index))
+        done = begin + service
+        if calendar is not None:
+            begin, done = calendar.work(staff_index, begin, service)
+            self.carried_over += done - begin > service
+        heapq.heappush(pool, (done, staff_index))
         decision = truth if rng.random() < accuracy else wrong
         case.reviews += 1
         case.review_seconds += service
         case.queue_wait_seconds += begin - at
-        self.push(
-            begin + service, "review", case.app.index, (run.id, staff_index, decision, run.step_id)
-        )
+        self.push(done, "review", case.app.index, (run.id, staff_index, decision, run.step_id))
 
     def finish(self, case: _Case, execution: WorkflowExecution) -> None:
         if case.done:
@@ -1116,6 +1154,9 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
         assert run is not None
         run.results = summarize(rows, sim.totals(), wall_ms)
         _outage_effects(db, run, scenario)
+        staffing = sim.staffing()
+        if staffing is not None:  # absent otherwise, so other runs' results are unchanged
+            run.results = {**run.results, "staffing": staffing}
         run.result_digest = digest(rows)
         run.simulated_end = sim.clock.now
         run.wall_ms = wall_ms

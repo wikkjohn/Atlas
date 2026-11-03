@@ -100,7 +100,16 @@ Last updated: Phase 61.
 
 ## Phase 61: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 707 passed (new: 4 — the registry and its 48 generated workflows, all valid and classified; the request lifecycle (amount rules, four-eyes, the executive threshold, a breach, a process without approval, the dashboard counts); the API with its permissions; a department's simulation run with no control violations) |
+| Migration 0042 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 109 workflows, 1,425 cases, 0 failed (each of WF-1100 to WF-1147 at 100 % steps and routes: 12 cases with approval, 5 without) |
+| Department runs | every `dept-*` scenario, seed 2030, 60 requests, 6 staff, baseline: 60 completed each, 83.3 % accurate, 13.9 manager hours — the same for all sixteen, as they share the mix, the seed and the reviewer model |
+| Frontend Vitest / typecheck / build | 155 passed (new: 3 — the department grid, processes and requests; submitting with an amount, rejecting and completing; read-only with `departments:read`) / clean / built |
+| Playwright on a fresh database | 70 passed (new: 2 — a marketing campaign above the executive threshold refused to a manager, approved by an executive and completed; a legal hold needing no approval, completed by its requester) |
+
+Found while building it: nothing failed in the new tests on their first runs.
 
 ## Phase 61: known limitations
 

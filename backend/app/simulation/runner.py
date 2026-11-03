@@ -63,6 +63,7 @@ from app.simulation.generators import (
     digest,
 )
 from app.simulation.models import (
+    HistoryState,
     SimulationCaseResult,
     SimulationRun,
     SimulationShard,
@@ -78,6 +79,9 @@ BATCH_EVENTS = 250  # events per transaction (progress and heartbeat are updated
 # the employee and identity services, one by one, as before.
 BULK_HIRE_ABOVE = 2_000
 BULK_HIRE_BATCH = 5_000
+# The enterprise profile archives the history of every 5,000 finished cases while it runs
+# (per shard), so the database holds only the cases in flight (Phase 75).
+ENTERPRISE_ROLLING_ARCHIVE = 5_000
 STAFF_DIVISION = "Retail Banking"
 STAFF_DEPARTMENT = "Simulated Operations"
 # Synthetic annual pay in whole units of the country's currency, by role.
@@ -261,7 +265,20 @@ def create_run(
     shards: int = 1,
     countries: list[str] | None = None,
     staffing: dict[str, Any] | None = None,
+    rolling_archive: int | None = None,
 ) -> SimulationRun:
+    """Record a queued run. `rolling_archive`: archive the history of every that many
+    finished cases while the run goes on (the enterprise profile does by default)."""
+    if rolling_archive is None and profile == "enterprise":
+        rolling_archive = ENTERPRISE_ROLLING_ARCHIVE
+    if rolling_archive is not None:
+        if rolling_archive < 1:
+            raise SimulationSetupError("A rolling archive needs at least one case per segment.")
+        if scenario.config.outages:
+            raise SimulationSetupError(
+                "Outage scenarios measure their effects from the run's history at the end; "
+                "run them without a rolling archive."
+            )
     config = resolve_config(
         db,
         scenario,
@@ -274,6 +291,10 @@ def create_run(
         countries=countries,
         staffing=staffing,
     )
+    if rolling_archive is not None:
+        # Where the history goes, not what is simulated: left out of the hash, so a run with
+        # a rolling archive still reproduces (and is compared with) one without.
+        config["history"] = {"rolling_archive": rolling_archive}
     run = SimulationRun(
         scenario_id=scenario.scenario_id,
         scenario_version=scenario.version,
@@ -282,7 +303,7 @@ def create_run(
         profile=profile,
         seed=seed,
         config=config,
-        config_hash=_hash(config),
+        config_hash=_hash({k: v for k, v in config.items() if k != "history"}),
         software_version=software_version(),
         status=SimulationStatus.QUEUED.value,
         created_by=created_by,
@@ -394,6 +415,10 @@ class _Simulation:
         self.completed = 0
         self.case_rows: list[tuple] = []
         self.pending_results: list[SimulationCaseResult] = []
+        # Rolling archive (Phase 75): finished cases' executions not yet archived.
+        self.rolling = run.config.get("history", {}).get("rolling_archive")
+        self.to_archive: list[uuid.UUID] = []
+        self.segments = 0
         self.positions: dict[str, int] = {}  # members of each role enlisted so far
         # Reviewers' working time (Phase 70): one calendar per review step, when the
         # scenario has a staff schedule; otherwise reviewers work around the clock.
@@ -889,6 +914,8 @@ class _Simulation:
         )
         self.pending_results.append(result)
         self.case_rows.append(_row(result))
+        if self.rolling:
+            self.to_archive.append(execution.id)
 
     # Loop ---------------------------------------------------------------------------------
 
@@ -919,6 +946,16 @@ class _Simulation:
         db.commit()
         # Keep the session small: nothing loaded so far is needed again.
         db.expunge_all()
+        if self.rolling and len(self.to_archive) >= self.rolling:
+            from app.simulation import history
+
+            history.archive_segment(
+                db, self.run_id, self.run_number, self.shard, self.segments, self.to_archive
+            )
+            db.commit()
+            db.expunge_all()
+            self.segments += 1
+            self.to_archive = []
 
     def shard_checkpoint(self, wall_start: float) -> None:
         """Record this shard's progress, and the run's across all its shards."""
@@ -1299,7 +1336,28 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
         mark_failed(session_factory, run_id, reason, wall_start)
     finally:
         db.close()
+    finish_rolling_archive(session_factory, run_id)
     return []
+
+
+def finish_rolling_archive(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> None:
+    """A finished run with a rolling archive: the rest of its history joins its segments as
+    one archive. A failure here leaves the history where it is (archive it later)."""
+    from app.simulation import history
+
+    with session_factory() as db:
+        run = db.get(SimulationRun, run_id)
+        if (
+            run is None
+            or not run.config.get("history", {}).get("rolling_archive")
+            or run.status not in (SimulationStatus.COMPLETED, SimulationStatus.FAILED)
+            or run.history_state != HistoryState.PRESENT
+        ):
+            return
+    try:
+        history.archive_run(session_factory, run_id, None)
+    except Exception:  # the run's outcome stands; its history can be archived later
+        logger.exception("rolling archive not finished", extra={"run_id": str(run_id)})
 
 
 # --- Sharded runs -----------------------------------------------------------------------------
@@ -1479,6 +1537,7 @@ def merge_shards(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> b
         else:
             run.status = SimulationStatus.COMPLETED.value
     logger.info("sharded simulation run merged", extra={"run_id": str(run_id), "wall_ms": wall_ms})
+    finish_rolling_archive(session_factory, run_id)
     return True
 
 

@@ -148,6 +148,7 @@ def _simulate(args: argparse.Namespace) -> int:
             applications=args.applications,
             employees=args.employees,
             shards=args.shards,
+            rolling_archive=args.rolling_archive,
         )
         with factory() as db, db.begin():
             actor = db.execute(
@@ -912,6 +913,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     simulate.add_argument(
         "--processes", type=int, help="Worker processes for the shards (default: one per shard)"
+    )
+    simulate.add_argument(
+        "--rolling-archive",
+        type=int,
+        metavar="CASES",
+        help="Archive the history of every CASES finished cases while the run goes on",
     )
     simulate.set_defaults(handler=_simulate)
 

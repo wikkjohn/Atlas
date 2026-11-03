@@ -423,6 +423,26 @@ payments and simulated staff created by simulated cases. The ledger is append-on
 removing postings would rewrite the books; only workflow history is lifecycle-managed.
 `docker compose down -v` still resets everything.
 
+### Rolling archive (Phase 75)
+
+A long run can archive its history *while it runs*, so the database holds only the cases
+in flight rather than every case the run has finished (about 38 KB of history per case:
+a million cases would need about 38 GB).
+
+- `create_run(..., rolling_archive=N)`, `"rolling_archive": N` on
+  `POST /api/v1/simulations`, or `simulate --rolling-archive N`: every shard archives
+  the history of each N cases it has finished, at its next checkpoint, as a *segment*
+  (its own COPY files and row counts, in `simulation_archive_segments`, migration 0050).
+  The `enterprise` profile does this every 5,000 cases by default.
+- When the run ends, the rest of its history becomes a last segment and the segments
+  become one archive (manifest format 2, listing every segment). The run is `archived`;
+  *Restore* brings every segment back and works as for any archive.
+- Where the history goes changes nothing that is simulated: the option is stored under
+  `config.history` and left out of the configuration hash, and the digest is the same
+  with or without it (tested, single-process and sharded).
+- Not for outage scenarios: their effects are measured from the run's history at the
+  end, so they refuse a rolling archive.
+
 ## Arrival patterns (Phase 73)
 
 Without a pattern, a workload spreads its cases evenly over the scenario's arrival window.

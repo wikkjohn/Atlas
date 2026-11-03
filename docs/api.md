@@ -526,6 +526,19 @@ first, paginated.
 | GET | `/api/v1/itops/departments` | `itops:read` | Active departments an application can belong to |
 | GET | `/api/v1/itops/summary/counts` | `itops:read` | Applications, open incidents and P1s, past resolution target, to close; changes to approve, scheduled, failed in 30 days; whether the freeze is on |
 
+### Thin departments (Phase 61)
+
+See [departments.md](departments.md). Amounts are US cents.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/backoffice/departments` | `departments:read` | The sixteen departments with their processes (approval, target, budget, executive threshold, workflow) and their requests' counts |
+| GET | `/api/v1/backoffice/requests?department=&status=` | `departments:read` | Newest first, paginated; each with whether it is over budget or needs an executive |
+| POST | `/api/v1/backoffice/requests` | `departments:request` | `{department, process, title, details?, amount?}` (rules `title_required`, `amount_required`, `amount_not_expected`; 404 for an unknown process) |
+| POST | `/api/v1/backoffice/requests/{id}/approve` | `departments:approve` | `{note?}`; not by the requester (rule `four_eyes`); above the threshold needs `departments:approve_major` (rule `needs_executive`) |
+| POST | `/api/v1/backoffice/requests/{id}/reject` | `departments:approve` | `{note?}`; not by the requester |
+| POST | `/api/v1/backoffice/requests/{id}/complete` | `departments:request` | Approved requests (or ones needing none); late: a breach |
+
 ### Country rules (Phase 25)
 
 See [country-rules.md](country-rules.md).

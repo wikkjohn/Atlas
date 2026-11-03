@@ -215,7 +215,14 @@ for the factory, a simulation workload and at least one AI tool candidate.
       applications, emergency changes tied to a P1 or P2, failed changes opening incidents;
       WF-1049–1051; see `itops.md`. Phase 60: the `change-approvals` workload and the change
       review assistant)
-- [ ] Legal, audit, marketing, facilities and the remaining departments (thin modules)
+- [x] Legal, audit, marketing, facilities and the remaining departments (thin modules)
+      (Phase 61: sixteen departments from one registry — legal, internal audit, marketing,
+      facilities, information security, data office, business continuity, communications,
+      investor relations, strategy, tax, company secretariat, model risk, operational
+      risk, regulatory affairs, sustainability — three processes each, one request
+      lifecycle with budgets, executive thresholds, targets and four-eyes decisions; 48
+      generated workflows WF-1100–1147; one workload with a scenario per department; see
+      `departments.md`)
 - [ ] **Exit:** 35+ departments, each with ≥ 3 base processes, a workload and dashboards
 
 ## Milestone E — 2,500 simulated enterprise applications
@@ -321,4 +328,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 58 (D30) | Procurement, step 2: the `invoice-payments` workload on stored WF-1048 v2, decided by department managers, and the AGB Invoice Review Assistant | complete |
 | Phase 59 (D31) | IT operations: an application catalogue with tiers, incidents with priority-based targets and P1 reviews, change management with risk, approval, conflicts and a month-end freeze; WF-1049–1051 | complete |
 | Phase 60 (D32) | IT operations, step 2: the `change-approvals` workload on stored WF-1050 v2, decided by department managers, and the AGB Change Review Assistant | complete |
-| Phase 61 (D33, proposed) | Legal, audit, marketing, facilities and the remaining departments (thin modules) | next |
+| Phase 61 (D33) | Thin departments: sixteen support departments from one registry, three processes each, 48 generated workflows WF-1100–1147, one workload with a scenario per department | complete |
+| Phase 62 (D34, proposed) | Milestone D exit check: every department's base processes, workload and dashboard, with what is missing filled in | next |

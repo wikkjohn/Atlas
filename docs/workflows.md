@@ -614,6 +614,14 @@ WF-1050 **v2** (Phase 60) reads the change profile (`itops.change_profile`) afte
 change is raised and asks the AGB Change Review Assistant (`ai.review`, advisory) before the
 manager decides (`change-approvals`). It also takes the window's start hour.
 
+### WF-1100 to WF-1147: thin departments (Phase 61)
+
+One workflow per process of the sixteen thin departments, generated from the registry
+(`app/modules/backoffice/workflows.py`) rather than stored as files; `examples.documents()`
+includes them. With approval: submit → approval (`departments:approve`) → approve and
+complete, or reject. Without: submit → complete. They need no fixtures. See
+[departments.md](departments.md).
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

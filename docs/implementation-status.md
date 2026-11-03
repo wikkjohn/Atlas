@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 64.
+Last updated: Phase 65.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -69,6 +69,51 @@ Last updated: Phase 64.
 | 62 | Departments, step 34: the Milestone D exit check ([departments.md](departments.md)) | **Complete** |
 | 63 | Enterprise applications, step 1: the application registry ([itops.md](itops.md)) | **Complete** |
 | 64 | Enterprise applications, step 2: the generic simulated application and outages ([itops.md](itops.md)) | **Complete** |
+| 65 | Enterprise applications, step 3: the application ↔ workflow dependency graph ([itops.md](itops.md)) | **Complete** |
+
+## Phase 65: what exists
+
+- **The application ↔ workflow graph** (`app/modules/itops/links.py`):
+  - read from the latest active version of every workflow;
+  - each step linked to the core systems its handler's namespace uses;
+  - where the estate exists, also to one critical estate application from its domain,
+    chosen deterministically.
+- **Thirteen new core systems,** one for each department whose workflows had none, with
+  technology, hosting and dependencies (25 core systems in all).
+- **Impact on workflows:** the workflows and steps an application's outage stops, by
+  department, and through which failing applications.
+- **Wiring:** how much of the estate the workflows depend on.
+- **API, CLI and page:**
+  - API: an application's workflows and outage impact, a workflow's applications, wiring;
+  - CLI: `estate wiring` and `estate impact`;
+  - page: the selected application's calling workflows and what its outage stops, and the
+    wiring line in the registry.
+- **PR #55 (Phase 64)** had no review comments; CI passed on the first run.
+
+## Phase 65: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 718 passed. New: 4 tests covering: steps linked to the core systems of their handlers, with only the latest active version counting; an outage stopping the workflows that call what fails, synchronously only; deterministic estate wiring; the API |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed |
+| Development database (119 workflows, 2,525 applications) | 119 workflows linked, 1,105 applications wired; the Core Banking Ledger down stops 117 workflows. See [itops.md](itops.md) |
+| Frontend Vitest / typecheck / build | 157 passed (the registry test now also covers an application's workflows and the wiring line) / clean / built |
+| Playwright on a fresh database | 73 passed (new: the Core Banking Ledger's calling workflows and what its outage stops) |
+
+Found while building it:
+- **A small estate leaves domains without critical applications:** with 120 generated
+  applications, one domain had none at tier 1 or 2, so its steps call only their core
+  system. The test uses 400; the rule is documented.
+
+## Phase 65: known limitations
+
+- **Links come from handler namespaces,** not from what each step does.
+- **The impact is computed, not observed:** workflows do not call applications as they run
+  yet (step 4).
+- **44 % of the development estate is wired;** recently generated applications are wired
+  only when a step calls them.
+- **The graph is recomputed on each request** (0.2 to 0.4 s with 119 workflows); thousands
+  of workflows would need it cached.
 
 ## Phase 64: what exists
 

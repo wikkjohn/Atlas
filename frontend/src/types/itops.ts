@@ -152,3 +152,38 @@ export interface Outage {
   incident_number: string | null;
   failing: number;
 }
+
+/** Phase 65: which workflows call an application, and what its outage stops. */
+export interface WorkflowLink {
+  workflow_id: string;
+  name: string;
+  department: string;
+  steps: string[];
+  via?: string[];
+}
+
+export interface OutageWorkflowImpact {
+  applications_failing: number;
+  workflows_stopped: number;
+  workflows_linked: number;
+  steps_stopped: number;
+  by_department: Record<string, number>;
+  workflows: WorkflowLink[];
+}
+
+export interface ApplicationWorkflows {
+  calls: number;
+  workflows: WorkflowLink[];
+  outage: OutageWorkflowImpact;
+}
+
+export interface EstateWiring {
+  workflows_linked: number;
+  workflows: number;
+  steps_linked: number;
+  links: number;
+  applications: number;
+  called_directly: number;
+  wired: number;
+  unwired: number;
+}

@@ -28,6 +28,8 @@ describe("Authentication", () => {
     const login = api.requests.find((r) => r.path === "/api/v1/auth/login");
     expect(login?.body).toEqual({ username: "admin", password: "atlas-demo-password" });
     expect(login?.headers.Authorization).toBeUndefined();
+    // The heading can render before the page's first request is made: wait for it.
+    await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/countries")).toBe(true));
     const countries = api.requests.find((r) => r.path === "/api/v1/countries");
     expect(countries?.headers.Authorization).toBe("Bearer fresh-token");
     expect(JSON.parse(sessionStorage.getItem("atlas.session") ?? "{}").token).toBe("fresh-token");

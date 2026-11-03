@@ -108,3 +108,17 @@ test("IT Operations: an outage of Sanctions Screening takes down the Payments Ga
   await sim.getByRole("button", { name: "Test 100 calls" }).click();
   await expect(sim.getByRole("status")).not.toContainText("outage");
 });
+
+test("IT Operations: the Core Banking Ledger's workflows, and the workflows its outage would stop", async ({ page }) => {
+  await signIn(page, "manager", "/it-operations");
+  await expect(page.getByLabel("Wiring")).toContainText("workflows call");
+  await page.getByLabel("Search applications").fill("Core Banking Ledger");
+  const table = page.getByRole("table", { name: "Applications" });
+  await expect(table.getByRole("row")).toHaveCount(1);
+  await table.getByRole("button", { name: /^Show APP-/ }).click();
+  const flows = page.getByRole("region", { name: "Workflows" });
+  // The seeded stored workflows look up accounts on the ledger (WF-1002 among them).
+  await expect(flows.getByRole("list", { name: "Calling workflows" })).toContainText("WF-1002");
+  await expect(flows.getByLabel("If it goes down")).toContainText("workflows stop");
+  await expect(flows.getByRole("list", { name: "Stopped workflows" })).not.toBeEmpty();
+});

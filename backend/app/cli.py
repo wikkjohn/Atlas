@@ -681,11 +681,32 @@ def _reference(args: argparse.Namespace) -> int:
 
 
 def _estate(args: argparse.Namespace) -> int:
-    """The simulated application estate (Phase 63): generate it, or show it in numbers."""
-    from app.modules.itops import estate
+    """The simulated application estate (Phase 63): generate it, or show it in numbers; how
+    the workflows depend on it, and what an outage stops (Phase 65)."""
+    import time
+
+    from sqlalchemy import or_, select
+
+    from app.modules.itops import estate, links
+    from app.modules.itops.models import Application
 
     factory = get_sessionmaker()
     with factory() as db:
+        if args.action in ("wiring", "impact"):
+            started = time.perf_counter()
+            if args.action == "wiring":
+                result = links.summary(db)
+            else:
+                app = db.execute(select(Application).where(or_(
+                    Application.application_number == args.application,
+                    Application.name == args.application))).scalar_one_or_none()  # fmt: skip
+                if app is None:
+                    print(f"No application {args.application}.")
+                    return 1
+                result = links.outage_impact(db, app, limit=10)
+            print(json.dumps({**result, "seconds": round(time.perf_counter() - started, 2)},
+                             indent=2))  # fmt: skip
+            return 0
         if args.action == "generate":
             result = estate.generate_estate(db, args.count, args.seed)
             db.commit()
@@ -970,6 +991,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     estate_actions = estate_parser.add_subparsers(dest="action", required=True)
     estate_actions.add_parser("summary", help="Applications by tier, technology and hosting")
+    estate_actions.add_parser(
+        "wiring", help="How much of the estate the workflows depend on (Phase 65)"
+    )
+    estate_impact = estate_actions.add_parser(
+        "impact", help="The workflows an application's outage stops (Phase 65)"
+    )
+    estate_impact.add_argument("application", help="An application number or name")
     estate_generate = estate_actions.add_parser(
         "generate", help="Generate applications and their dependencies (seeded, idempotent)"
     )

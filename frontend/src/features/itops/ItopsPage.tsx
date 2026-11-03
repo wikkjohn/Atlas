@@ -10,6 +10,7 @@ import { humanize } from "@/services/format";
 import {
   useAcknowledge,
   useApplicationDetail,
+  useApplicationWorkflows,
   useApplications,
   useChanges,
   useCloseIncident,
@@ -18,6 +19,7 @@ import {
   useDeclareOutage,
   useEndOutage,
   useEstateSummary,
+  useEstateWiring,
   useGenerateEstate,
   useImplement,
   useIncidents,
@@ -57,6 +59,44 @@ function ApplicationSelect({ value, onChange, label }: { value: string; onChange
 
 const STATE_TONE: Record<AppState["status"], Tone> = { up: "good", degraded: "warn", down: "bad" };
 const OUTAGE_TONE: Record<Outage["status"], Tone> = { scheduled: "neutral", in_force: "bad", ended: "good" };
+
+/** Phase 65: the workflows that call the application, and what its outage stops. */
+function WorkflowsPanel({ id }: { id: string }) {
+  const result = useApplicationWorkflows(id);
+  const w = result.data;
+  return (
+    <div aria-label="Workflows" role="region" className="mb-2 rounded-md bg-slate-50 p-2">
+      <ErrorMessage error={result.error} />
+      {w && (
+        <>
+          <p className="mb-1 font-semibold">Called by {w.calls} workflows</p>
+          <ul aria-label="Calling workflows" className="mb-2">
+            {w.workflows.slice(0, 10).map((x) => (
+              <li key={x.workflow_id}>
+                {x.workflow_id} {x.name} · {x.department} · {x.steps.join(", ")}
+              </li>
+            ))}
+          </ul>
+          <p aria-label="If it goes down" className="font-semibold text-rose-800">
+            If it goes down: {w.outage.workflows_stopped} of {w.outage.workflows_linked} workflows stop ({w.outage.steps_stopped} steps, {w.outage.applications_failing} applications failing)
+            {Object.keys(w.outage.by_department).length > 0 &&
+              ` · most in ${Object.entries(w.outage.by_department)
+                .slice(0, 3)
+                .map(([d, n]) => `${d} (${n})`)
+                .join(", ")}`}
+          </p>
+          <ul aria-label="Stopped workflows">
+            {w.outage.workflows.slice(0, 10).map((x) => (
+              <li key={x.workflow_id}>
+                {x.workflow_id} {x.name} · {x.steps.length} {x.steps.length === 1 ? "step" : "steps"} · through {x.via?.join(", ")}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
 
 /** Phase 64: how the simulated application answers calls, whether it is up, and a test. */
 function ContractPanel({ id }: { id: string }) {
@@ -182,6 +222,7 @@ function ApplicationDetailPanel({ id }: { id: string }) {
             {d.application.vendor && ` (${d.application.vendor})`} · owner {d.application.owner ?? "none"}
           </p>
           <ContractPanel id={id} />
+          <WorkflowsPanel id={id} />
           <p aria-label="If it stops" className="mb-2 font-semibold text-rose-800">
             If it stops: {d.impact.affected} applications affected ({d.impact.direct} directly, up to {d.impact.depth} steps away; tier 1: {d.impact.by_tier["1"] ?? 0}, tier 2: {d.impact.by_tier["2"] ?? 0}, tier 3:{" "}
             {d.impact.by_tier["3"] ?? 0}) across {d.impact.departments} departments
@@ -221,6 +262,7 @@ function ApplicationsPanel() {
   const [estate, setEstate] = useState({ count: "2500", seed: "2030" });
   const apps = useRegistry(filters);
   const summary = useEstateSummary();
+  const wiring = useEstateWiring();
   const generate = useGenerateEstate();
   const page = apps.data;
   return (
@@ -229,6 +271,12 @@ function ApplicationsPanel() {
         <p aria-label="Estate summary" className="mb-2 text-xs text-slate-600">
           {summary.data.applications} applications ({summary.data.generated} generated) · {summary.data.dependencies} dependencies · tier 1: {summary.data.by_tier["1"] ?? 0}, tier 2:{" "}
           {summary.data.by_tier["2"] ?? 0}, tier 3: {summary.data.by_tier["3"] ?? 0}
+        </p>
+      )}
+      {wiring.data && (
+        <p aria-label="Wiring" className="mb-2 text-xs text-slate-600">
+          {wiring.data.workflows_linked} workflows call {wiring.data.called_directly} applications directly in {wiring.data.steps_linked} steps; {wiring.data.wired} of {wiring.data.applications} applications are
+          wired (called, or relied on by what is called)
         </p>
       )}
       <div className="mb-2 flex flex-wrap items-end gap-2 text-xs">

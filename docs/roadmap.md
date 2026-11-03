@@ -241,7 +241,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 64: read and write calls with log-normal latency by technology and hosting,
       errors by tier, timeouts, down and degraded outages that fail or slow every caller
       through API and authentication links, with incidents; see `itops.md`)
-- [ ] Application ↔ workflow dependency graph with impact analysis
+- [x] Application ↔ workflow dependency graph with impact analysis
+      (Phase 65: steps linked to core systems by handler and to estate applications by
+      domain; the workflows an outage stops, by department; wiring measured; see
+      `itops.md`)
 - [ ] Workflows call applications through the step library, so outages cause real delays
 - [ ] Outage scenarios in the simulation engine
 - [ ] **Exit:** 2,500 applications generated and wired; one outage's impact measured
@@ -344,4 +347,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 62 (D34) | Milestone D exit: 35 departments each with three or more processes, a workload and a dashboard (coverage check and test); Customer Onboarding and Retail Lending completed (WF-1052–1054), Branch Network added (WF-1148–1150) — Milestone D complete | complete |
 | Phase 63 (E1) | Milestone E, step 1: the application registry — owner, technology, hosting, vendor, dependencies without cycles, impact analysis, a deterministic 2,500-application estate generator | complete |
 | Phase 64 (E2) | Milestone E, step 2: the generic simulated-application adapter — read and write calls, latency by technology and hosting, errors by tier, timeouts, down and degraded outages spreading through synchronous links, with incidents | complete |
-| Phase 65 (E3, proposed) | Milestone E, step 3: the application ↔ workflow dependency graph — which workflow steps call which applications — with impact analysis on workflows | next |
+| Phase 65 (E3) | Milestone E, step 3: the application ↔ workflow dependency graph — steps linked to core systems by handler and to estate applications by domain, thirteen new core systems, the workflows an outage stops, wiring measured | complete |
+| Phase 66 (E4, proposed) | Milestone E, step 4: workflow steps call their applications as they run, through the step library, so an outage fails or delays real executions | next |

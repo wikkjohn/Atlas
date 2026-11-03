@@ -516,6 +516,11 @@ first, paginated.
 | POST | `/api/v1/itops/applications/{id}/dependencies` | `itops:approve_major` | Phase 63: `{depends_on, kind}` (an `APP-` number; rules `kind_invalid`, `not_self`, `application_retired`, `cycle`; 409 if it exists) |
 | DELETE | `/api/v1/itops/applications/{id}/dependencies/{dependency_id}` | `itops:approve_major` | Phase 63 |
 | POST | `/api/v1/itops/estate/generate` | `itops:approve_major` | Phase 63: `{count, seed}`: deterministic, idempotent per seed (rule `count_invalid`, 1 to 10,000); `{created, existing, dependencies_added, seconds}` |
+| GET | `/api/v1/itops/applications/{id}/contract` | `itops:read` | Phase 64: `{median_ms, p95_ms, error_rate, timeout_ms, sync_dependencies, operations, state, blast_radius}`; state is `{status: up/degraded/down, cause, path}` |
+| POST | `/api/v1/itops/applications/{id}/calls` | `itops:manage` | Phase 64: `{operation, count, seed}` (rules `operation_invalid`, `count_invalid`): simulated calls summarised, `{ok, failed, errors, p50_ms, p95_ms, max_ms, state}`; nothing is stored |
+| GET | `/api/v1/itops/outages` | `itops:read` | Phase 64: newest first, paginated; `?active=true` for those in force; each with its status (scheduled, in force, ended), incident and how many applications fail |
+| POST | `/api/v1/itops/outages` | `itops:manage` | Phase 64: `{application_number, kind, reason, starts_at?, ends_at?}` (rules `kind_invalid`, `reason_required`, `application_retired`, `window_invalid`, `outage_overlap`); one that has started opens an incident |
+| POST | `/api/v1/itops/outages/{id}/end` | `itops:manage` | Phase 64: restores service now (rule `outage_not_active`) |
 | GET | `/api/v1/itops/estate/summary` | `itops:read` | Phase 63: applications, generated, dependencies, unconnected; by tier, technology and hosting |
 | POST | `/api/v1/itops/applications` | `itops:approve_major` | `{name, description?, department_id, tier}` (rule `tier_invalid`; 409 for a name in use) |
 | GET | `/api/v1/itops/incidents` | `itops:read` | With priority, targets, breaches and the change that caused it |

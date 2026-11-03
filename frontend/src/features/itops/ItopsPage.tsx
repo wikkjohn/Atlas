@@ -13,19 +13,24 @@ import {
   useApplications,
   useChanges,
   useCloseIncident,
+  useContract,
   useDecideChange,
+  useDeclareOutage,
+  useEndOutage,
   useEstateSummary,
   useGenerateEstate,
   useImplement,
   useIncidents,
   useItopsSummary,
   useOpenIncident,
+  useOutages,
   useRaiseChange,
   useRegistry,
   useResolve,
+  useSampleCalls,
   useSweep,
 } from "@/services/itops";
-import type { ChangeRequest, Incident } from "@/types/itops";
+import type { AppState, ChangeRequest, Incident, Outage } from "@/types/itops";
 
 const INPUT = "rounded-md border border-slate-200 px-2 py-1";
 const LEVELS = ["high", "medium", "low"];
@@ -50,6 +55,115 @@ function ApplicationSelect({ value, onChange, label }: { value: string; onChange
   );
 }
 
+const STATE_TONE: Record<AppState["status"], Tone> = { up: "good", degraded: "warn", down: "bad" };
+const OUTAGE_TONE: Record<Outage["status"], Tone> = { scheduled: "neutral", in_force: "bad", ended: "good" };
+
+/** Phase 64: how the simulated application answers calls, whether it is up, and a test. */
+function ContractPanel({ id }: { id: string }) {
+  const { can } = useAuth();
+  const contract = useContract(id);
+  const calls = useSampleCalls();
+  const c = contract.data;
+  return (
+    <div aria-label="Simulated application" role="region" className="mb-2 rounded-md bg-slate-50 p-2">
+      <ErrorMessage error={contract.error ?? calls.error} />
+      {c && (
+        <>
+          <p className="mb-1">
+            <StatusPill compact tone={STATE_TONE[c.state.status]} label={c.state.status} />
+            {c.state.cause && c.state.cause !== c.application_number && ` because ${c.state.cause} is ${c.state.status} (${c.state.path.join(" → ")})`}
+          </p>
+          <p aria-label="Contract">
+            Read {c.median_ms.read} ms median, {c.p95_ms.read} ms p95 · write {c.median_ms.write} ms median · {(c.error_rate * 100).toFixed(2)} % errors · timeout {c.timeout_ms} ms ·{" "}
+            {c.sync_dependencies} synchronous dependencies · {c.blast_radius} applications fail if it goes down
+          </p>
+          {can("itops:manage") && (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={() => calls.mutate({ id, operation: "read", count: 100, seed: 2030 })}>
+                Test 100 calls
+              </Button>
+              {calls.data && (
+                <span role="status">
+                  {calls.data.ok} ok, {calls.data.failed} failed
+                  {Object.entries(calls.data.errors).map(([k, v]) => ` (${v} ${k})`)} · p50 {calls.data.p50_ms} ms, p95 {calls.data.p95_ms} ms
+                </span>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function OutagesPanel() {
+  const { can } = useAuth();
+  const outages = useOutages();
+  const declare = useDeclareOutage();
+  const end = useEndOutage();
+  const [form, setForm] = useState({ application_number: "", kind: "down", reason: "" });
+  return (
+    <Panel title="Outages" subtitle="Take a simulated application down or degrade it. A down application fails every call, and so does everything that calls it, directly or through others (data and batch feeds aside). An outage opens an incident.">
+      {can("itops:manage") && (
+        <form
+          aria-label="Declare outage"
+          className="mb-3 flex flex-wrap items-end gap-2 text-xs"
+          onSubmit={(e) => {
+            e.preventDefault();
+            declare.mutate(form);
+          }}
+        >
+          <ApplicationSelect label="Outage application" value={form.application_number} onChange={(v) => setForm({ ...form, application_number: v })} />
+          <select aria-label="Outage kind" className={INPUT} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+            <option value="down">Down</option>
+            <option value="degraded">Degraded</option>
+          </select>
+          <input aria-label="Outage reason" placeholder="Why" className={`w-56 ${INPUT}`} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+          <Button size="sm" type="submit" disabled={!form.application_number || form.reason.trim().length < 5}>
+            Declare outage
+          </Button>
+          {declare.data && (
+            <span role="status">
+              {declare.data.outage_number} {declare.data.kind}: {declare.data.failing} applications fail · {declare.data.incident_number}
+            </span>
+          )}
+        </form>
+      )}
+      <ErrorMessage error={outages.error ?? declare.error ?? end.error} />
+      <table aria-label="Outages" className="min-w-full text-sm">
+        <tbody className="divide-y divide-slate-100">
+          {outages.data?.items.map((o) => (
+            <tr key={o.id}>
+              <td className="px-2 py-1.5 font-mono text-xs">{o.outage_number}</td>
+              <td className="px-2 py-1.5 text-xs text-slate-600">
+                {o.application} (tier {o.tier}) · {o.kind} · {o.reason} · from {when(o.starts_at)}
+                {o.ends_at && ` to ${when(o.ends_at)}`}
+                {o.kind === "down" && ` · ${o.failing} applications fail`}
+                {o.incident_number && ` · ${o.incident_number}`}
+              </td>
+              <td className="px-2 py-1.5">
+                <StatusPill compact tone={OUTAGE_TONE[o.status]} label={humanize(o.status)} />
+              </td>
+              <td className="px-2 py-1.5 text-right">
+                {o.status === "in_force" && can("itops:manage") && (
+                  <Button size="sm" variant="secondary" aria-label={`End ${o.outage_number}`} onClick={() => end.mutate(o.id)}>
+                    End
+                  </Button>
+                )}
+              </td>
+            </tr>
+          ))}
+          {outages.data && outages.data.items.length === 0 && (
+            <tr>
+              <td className="px-2 py-3 text-center text-xs text-slate-500">No outages.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </Panel>
+  );
+}
+
 const TIER_TONE = (tier: number): Tone => (tier === 1 ? "bad" : tier === 2 ? "warn" : "neutral");
 
 function ApplicationDetailPanel({ id }: { id: string }) {
@@ -67,6 +181,7 @@ function ApplicationDetailPanel({ id }: { id: string }) {
             {d.application.department} · tier {d.application.tier} · {d.application.technology} on {d.application.hosting.replace("_", " ")}
             {d.application.vendor && ` (${d.application.vendor})`} · owner {d.application.owner ?? "none"}
           </p>
+          <ContractPanel id={id} />
           <p aria-label="If it stops" className="mb-2 font-semibold text-rose-800">
             If it stops: {d.impact.affected} applications affected ({d.impact.direct} directly, up to {d.impact.depth} steps away; tier 1: {d.impact.by_tier["1"] ?? 0}, tier 2: {d.impact.by_tier["2"] ?? 0}, tier 3:{" "}
             {d.impact.by_tier["3"] ?? 0}) across {d.impact.departments} departments
@@ -450,6 +565,7 @@ export function ItopsPage() {
         <IncidentsPanel />
         <ChangesPanel />
         <ApplicationsPanel />
+        <OutagesPanel />
       </div>
     </>
   );

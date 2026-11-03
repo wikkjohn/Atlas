@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 63.
+Last updated: Phase 64.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -68,6 +68,38 @@ Last updated: Phase 63.
 | 61 | Departments, step 33: thin departments ([departments.md](departments.md)) | **Complete** |
 | 62 | Departments, step 34: the Milestone D exit check ([departments.md](departments.md)) | **Complete** |
 | 63 | Enterprise applications, step 1: the application registry ([itops.md](itops.md)) | **Complete** |
+| 64 | Enterprise applications, step 2: the generic simulated application and outages ([itops.md](itops.md)) | **Complete** |
+
+## Phase 64: what exists
+
+- **The generic simulated application** (`app/modules/itops/simulated.py`):
+  - every application in the registry answers reads and writes;
+  - latency is log-normal by technology and hosting, plus each synchronous dependency;
+  - errors by tier and technology, and a five-second timeout;
+  - deterministic per seed.
+- **Outages** (migration 0044):
+  - down or degraded, for a window or until ended;
+  - a down application fails the calls of everything that waits on it through API or
+    authentication links, directly or through others, naming the cause and the chain;
+  - a degraded one slows them;
+  - one that has started opens an incident.
+- **API:** an application's contract and state, sampled test calls, and declaring,
+  listing and ending outages.
+- **Page:** the selected application's state, contract and test calls; an Outages panel.
+
+## Phase 64: verified results
+
+RESULTS64_PLACEHOLDER
+
+## Phase 64: known limitations
+
+- **Workflows do not call applications yet** (Milestone E steps 3 and 4): an outage fails
+  test calls, not processes.
+- **No retries or circuit breakers, and latency does not grow with load.**
+- **A caller's latency does not add up its dependencies' sampled latencies;** it adds a
+  fixed 20 ms per synchronous dependency.
+- **Outages are declared by people only;** simulation scenarios do not raise them yet
+  (Milestone E step 5).
 
 ## Phase 63: what exists
 

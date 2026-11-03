@@ -83,3 +83,28 @@ test("IT Operations: the registry shows what the Core Banking Ledger relies on a
   await expect(detail.getByRole("list", { name: "Relied on by" })).toContainText("Payments Gateway · api");
   await expect(detail.getByLabel("If it stops")).toContainText("applications affected");
 });
+
+test("IT Operations: an outage of Sanctions Screening takes down the Payments Gateway that calls it, until it ends", async ({ page }) => {
+  await signIn(page, "employee", "/it-operations");
+  const form = page.getByRole("form", { name: "Declare outage" });
+  await form.getByLabel("Outage application").selectOption({ label: "Sanctions Screening (tier 1)" });
+  await form.getByLabel("Outage reason").fill("Screening service not responding");
+  await form.getByRole("button", { name: "Declare outage" }).click();
+  await expect(form.getByRole("status")).toContainText("down");
+  const outage = (await form.getByRole("status").innerText()).split(" ")[0];
+  await expect(row(page, "Outages", outage)).toContainText("In force");
+
+  await page.getByLabel("Search applications").fill("Payments Gateway");
+  const table = page.getByRole("table", { name: "Applications" });
+  await expect(table.getByRole("row")).toHaveCount(1);
+  await table.getByRole("button", { name: /^Show APP-/ }).click();
+  const sim = page.getByRole("region", { name: "Simulated application" });
+  await expect(sim).toContainText("because");
+  await sim.getByRole("button", { name: "Test 100 calls" }).click();
+  await expect(sim.getByRole("status")).toContainText("0 ok, 100 failed (100 outage)");
+
+  await page.getByRole("button", { name: `End ${outage}` }).click();
+  await expect(row(page, "Outages", outage)).toContainText("Ended");
+  await sim.getByRole("button", { name: "Test 100 calls" }).click();
+  await expect(sim.getByRole("status")).not.toContainText("outage");
+});

@@ -90,6 +90,65 @@ Measured on a development database with seed 2030 (2,500 applications):
 The registry panel lists applications 25 at a time. It searches by name or number and
 filters by tier.
 
+## Simulated applications and outages (Phase 64)
+
+Phase 64 (roadmap Milestone E, step 2) makes every application in the registry answer calls
+through one generic contract. Code: `backend/app/modules/itops/simulated.py`, migration
+0044.
+
+**The contract.** An application offers two operations, `read` and `write`.
+
+| Part | Model |
+| --- | --- |
+| Latency | log-normal (spread 0.5) around a median read time set by the technology: COBOL mainframe 40 ms, Go 50, Node 70, Java 80, .NET 90, Python 110, Oracle PL/SQL 120, low-code 200, SAP 250, SaaS 300 (unknown 100) |
+| Hosting | the median times 1.0 on premise, 1.1 private cloud, 1.3 public cloud, 1.5 SaaS |
+| Calls it waits on | 20 ms more for each API or authentication dependency |
+| Writes | 1.5 times a read |
+| Errors | 0.1 % of calls for tier 1, 0.5 % for tier 2, 1 % for tier 3; twice that for low-code, 1.5 times for SaaS, half for a mainframe |
+| Timeout | a call slower than 5 seconds fails as a timeout |
+
+The 95th percentile is the median times about 2.28.
+
+**Outages.** An outage (`OUT-`) takes an application **down** or **degrades** it from a start,
+to an end or until it is ended:
+- A **down** application fails every call. So does every application that waits on it through
+  an API or authentication dependency, directly or through others. Data and batch
+  dependencies do not fail a call: the data is late, not missing.
+- A **degraded** application is four times slower and fails 10 % more calls. So is every
+  application that waits on it the same way.
+- A failed call names the cause: the nearest application that is down, and the chain of
+  calls that reaches it.
+- **An outage that has started opens an incident** against the application: high urgency,
+  impact by tier (a tier-1 outage is a P1). A planned outage opens none.
+- The rules:
+  - `kind_invalid`: down or degraded;
+  - `reason_required`;
+  - `application_retired`;
+  - `window_invalid`: the end comes after the start;
+  - `outage_overlap`: one outage at a time per application;
+  - `outage_not_active`: only an outage in force is ended.
+
+Calls are deterministic for a seed, so a simulation repeats exactly. Nothing about a call is
+stored.
+
+**The page.** The selected application shows:
+- whether it is up, degraded or down, and why;
+- its contract;
+- how many applications fail if it goes down;
+- a **Test 100 calls** button (`itops:manage`).
+
+The **Outages** panel declares outages (`itops:manage`), lists them and ends them.
+
+Measured on the development estate (2,512 applications, 6,025 dependencies, seed 2030):
+
+| Measure | Result |
+| --- | --- |
+| 10,048 calls, four to every application, no outage | 2.7 s, including loading each contract |
+| Core Banking Ledger, 10,000 reads | p50 39.9 ms, p95 90.4 ms (model: 91 ms), 7 errors (0.07 %; model 0.05 %) |
+| Core Banking Ledger down | 1,239 applications down (itself and the 1,238 that wait on it), found in 0.13 s; their 4,956 calls all failed as outages |
+| Longest chain from a failing application to the ledger | 11 applications |
+| The registry's impact of the same outage | 2,255 applications: data and batch feeds count there, but they do not fail calls |
+
 ## Incidents
 
 An incident (`INC-`, `itops:manage`) names an application, what is wrong, its impact and its
@@ -203,12 +262,15 @@ before Phase 60 the handler refused one as a missing value.
 | Permission | Roles | What it allows |
 | --- | --- | --- |
 | `itops:read` | banking employees, department managers, regional and global executives, auditors | the page and the lists |
-| `itops:manage` | banking employees, department managers | report, acknowledge and resolve incidents; raise changes and record them implemented or failed; the SLA sweep |
+| `itops:manage` | banking employees, department managers | report, acknowledge and resolve incidents; raise changes and record them implemented or failed; the SLA sweep; declare and end outages, test calls |
 | `itops:approve` | department managers, regional and global executives | approve or reject changes, close incidents |
 | `itops:approve_major` | regional and global executives | high-risk changes, changes to tier-1 applications, registering applications, their profiles and dependencies, generating the estate |
 
 ## Known limitations
 
+- **Retries and circuit breakers are not modelled:** a caller sees each failure.
+- **Latency does not grow with load:** an application answers as fast at 10,000 calls a
+  second as at one.
 - **Workflows do not call applications yet:** an outage does not delay the processes that
   depend on the application (Milestone E). The impact analysis counts applications, not
   workflows.

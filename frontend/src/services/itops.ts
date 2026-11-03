@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
 import type { Page } from "@/types/enterprise";
-import type { Application, ApplicationDetail, ChangeRequest, EstateSummary, Incident, ItopsSummary } from "@/types/itops";
+import type { AppContract, Application, ApplicationDetail, CallSample, ChangeRequest, EstateSummary, Incident, ItopsSummary, Outage } from "@/types/itops";
 
 const BASE = "/api/v1/itops";
 
@@ -49,4 +49,11 @@ export const useDecideChange = () =>
 export const useImplement = () => useAction(({ id, success }: { id: string; success: boolean }) => apiPost<ChangeRequest>(`${BASE}/changes/${id}/implement`, { success }));
 export const useGenerateEstate = () =>
   useAction((body: { count: number; seed: number }) => apiPost<{ created: number; existing: number; dependencies_added: number; seconds: number }>(`${BASE}/estate/generate`, body));
-
+export const useContract = (id: string) =>
+  useQuery({ queryKey: ["itops", "contract", id], queryFn: () => apiGet<AppContract>(`${BASE}/applications/${id}/contract`), enabled: id.length > 0 });
+export const useSampleCalls = () =>
+  useMutation({ mutationFn: ({ id, ...body }: { id: string; operation: string; count: number; seed: number }) => apiPost<CallSample>(`${BASE}/applications/${id}/calls`, body) });
+export const useOutages = () => useQuery({ queryKey: ["itops", "outages"], queryFn: () => apiGet<Page<Outage>>(`${BASE}/outages${query({ limit: 25 })}`) });
+export const useDeclareOutage = () =>
+  useAction((body: { application_number: string; kind: string; reason: string }) => apiPost<Outage>(`${BASE}/outages`, body));
+export const useEndOutage = () => useAction((id: string) => apiPost<Outage>(`${BASE}/outages/${id}/end`, {}));

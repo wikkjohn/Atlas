@@ -401,3 +401,114 @@ def departments(db: DbSession, _: Authorized(READ)) -> list[dict]:
 @router.get("/summary/counts", summary="Counts for the IT operations page")
 def summary(db: DbSession, _: Authorized(READ)) -> dict:
     return service.summary(db)
+
+
+# --- Simulated applications and outages (Phase 64) ---------------------------------------
+
+
+class CallsIn(BaseModel):
+    operation: str = Field(default="read", max_length=10)
+    count: int = Field(default=100, ge=1, le=10_000)
+    seed: int = Field(default=2030, ge=0)
+
+
+class OutageIn(BaseModel):
+    application_number: str = Field(min_length=1, max_length=20)
+    kind: str = Field(default="down", max_length=10)
+    reason: str = Field(max_length=300)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+
+class OutageOut(BaseModel):
+    id: uuid.UUID
+    outage_number: str
+    application_number: str
+    application: str
+    tier: int
+    kind: str
+    reason: str
+    starts_at: datetime
+    ends_at: datetime | None
+    status: str  # scheduled, in_force or ended
+    incident_number: str | None
+    failing: int  # applications whose calls fail while it is down
+
+
+def _outage_out(db, o, now: datetime | None = None) -> OutageOut:
+    from app.modules.itops import simulated
+
+    now = now or simulated._now()
+    app = db.get(Application, o.application_id)
+    incident = db.get(Incident, o.incident_id) if o.incident_id else None
+    ended = o.ends_at is not None and o.ends_at <= now
+    state = "scheduled" if o.starts_at > now else "ended" if ended else "in_force"
+    return OutageOut(
+        id=o.id, outage_number=o.outage_number, application_number=app.application_number,
+        application=app.name, tier=app.tier, kind=o.kind, reason=o.reason,
+        starts_at=o.starts_at, ends_at=o.ends_at, status=state,
+        incident_number=incident.incident_number if incident else None,
+        failing=simulated.blast_radius(db, app)["failing"] if o.kind == "down" else 0,
+    )  # fmt: skip
+
+
+@router.get("/applications/{application_id}/contract",
+            summary="How the application answers: latency, failures, its state")  # fmt: skip
+def application_contract(application_id: uuid.UUID, db: DbSession, _: Authorized(READ)) -> dict:
+    from dataclasses import asdict
+
+    from app.modules.itops import simulated
+
+    app = service.get_application(db, application_id)
+    view = simulated.Estate(db)
+    state = view.state(app)
+    return {**asdict(view.contract(app)),
+            "state": {"status": state.status, "cause": state.cause, "path": list(state.path)},
+            "blast_radius": simulated.blast_radius(db, app)["failing"]}  # fmt: skip
+
+
+@router.post("/applications/{application_id}/calls",
+             summary="Make simulated calls and summarise them (nothing is stored)")  # fmt: skip
+def sample_calls(application_id: uuid.UUID, body: CallsIn, db: DbSession,
+                 _: Authorized(MANAGE)) -> dict:  # fmt: skip
+    from app.modules.itops import simulated
+
+    app = service.get_application(db, application_id)
+    return simulated.sample(db, app, body.operation, body.count, body.seed)
+
+
+@router.get("/outages", response_model=Page[OutageOut])
+def list_outages(db: DbSession, page: PageParamsDep, _: Authorized(READ),
+                 active: bool = False):  # fmt: skip
+    from sqlalchemy import or_
+
+    from app.modules.itops import simulated
+    from app.modules.itops.models import ApplicationOutage
+
+    query = select(ApplicationOutage).order_by(ApplicationOutage.starts_at.desc(),
+                                               ApplicationOutage.outage_number.desc())  # fmt: skip
+    if active:
+        now = simulated._now()
+        query = query.where(ApplicationOutage.starts_at <= now, or_(
+            ApplicationOutage.ends_at.is_(None), ApplicationOutage.ends_at > now))  # fmt: skip
+    return _page(db, query, page, _outage_out)
+
+
+@router.post("/outages", response_model=OutageOut, status_code=status.HTTP_201_CREATED,
+             summary="Take an application down or degrade it")  # fmt: skip
+def declare_outage(body: OutageIn, db: DbSession, user: Authorized(MANAGE)):
+    from app.modules.itops import simulated
+
+    app = service.find_application(db, body.application_number)
+    outage = simulated.declare_outage(db, app, body.kind, body.reason, user.id,
+                                      starts_at=body.starts_at, ends_at=body.ends_at)  # fmt: skip
+    return _outage_out(db, outage)
+
+
+@router.post("/outages/{outage_id}/end", response_model=OutageOut,
+             summary="Restore service now")  # fmt: skip
+def end_outage(outage_id: uuid.UUID, db: DbSession, user: Authorized(MANAGE)):
+    from app.modules.itops import simulated
+
+    outage = simulated.end_outage(db, simulated.get_outage(db, outage_id), user.id)
+    return _outage_out(db, outage)

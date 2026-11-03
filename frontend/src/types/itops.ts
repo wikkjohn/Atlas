@@ -104,3 +104,51 @@ export interface ItopsSummary {
   changes_failed_30d: number;
   frozen_now: boolean;
 }
+
+/** The simulated application (Phase 64): how it answers calls, and whether it is up. */
+export interface AppState {
+  status: "up" | "degraded" | "down";
+  cause: string | null;
+  path: string[];
+}
+
+export interface AppContract {
+  application_number: string;
+  median_ms: { read: number; write: number };
+  p95_ms: { read: number; write: number };
+  error_rate: number;
+  timeout_ms: number;
+  sync_dependencies: number;
+  operations: string[];
+  state: AppState;
+  blast_radius: number;
+}
+
+export interface CallSample {
+  application_number: string;
+  operation: string;
+  calls: number;
+  seed: number;
+  ok: number;
+  failed: number;
+  errors: Record<string, number>;
+  p50_ms: number;
+  p95_ms: number;
+  max_ms: number;
+  state: AppState;
+}
+
+export interface Outage {
+  id: string;
+  outage_number: string;
+  application_number: string;
+  application: string;
+  tier: number;
+  kind: "down" | "degraded";
+  reason: string;
+  starts_at: string;
+  ends_at: string | null;
+  status: "scheduled" | "in_force" | "ended";
+  incident_number: string | null;
+  failing: number;
+}

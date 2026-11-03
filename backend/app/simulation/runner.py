@@ -74,6 +74,10 @@ from app.simulation.workloads import STAFF_ROLES, SyntheticCase, history_time, w
 logger = logging.getLogger("atlas.simulation")
 
 BATCH_EVENTS = 250  # events per transaction (progress and heartbeat are updated per batch)
+# Above this many staff a run hires them in batched inserts (Phase 75); below it, through
+# the employee and identity services, one by one, as before.
+BULK_HIRE_ABOVE = 2_000
+BULK_HIRE_BATCH = 5_000
 STAFF_DIVISION = "Retail Banking"
 STAFF_DEPARTMENT = "Simulated Operations"
 # Synthetic annual pay in whole units of the country's currency, by role.
@@ -461,7 +465,12 @@ class _Simulation:
         assert country is not None
         low, high = PAY_BAND.get(country.default_currency, DEFAULT_PAY_BAND)
 
-        for member in self.staff_members():
+        members = self.staff_members()
+        if len(members) > BULK_HIRE_ABOVE:
+            self._bulk_hire(members, team, department, country, low, high)
+            self.open_pools()
+            return team.id
+        for member in members:
             role = STAFF_ROLES[member.role]
             pay = int(low + (high - low) * PAY[member.role]) // 1000 * 1000
             employee = create_employee(
@@ -489,6 +498,89 @@ class _Simulation:
             self.enlist(member, user.id, user.username)
         self.open_pools()
         return team.id
+
+    def _bulk_hire(
+        self,
+        members: list[SyntheticStaffMember],
+        team: Organization,
+        department: Organization,
+        country: Country,
+        low: int,
+        high: int,
+    ) -> None:
+        """Hire many simulated staff in batched inserts (Phase 75): the same employees and
+        service accounts the services would create, without their per-row checks, flushes
+        and audit records (one audit record for the whole hire). Hiring 150,000 one at a
+        time through the services did not finish in a quarter of an hour."""
+        from sqlalchemy import insert
+
+        from app.core.audit import record_audit_event
+        from app.core.security import UNUSABLE_PASSWORD_HASH
+        from app.modules.employees.models import Employee, EmploymentStatus
+        from app.modules.identity.models import User
+        from app.modules.identity.service import get_role
+
+        db = self.db
+        roles = {r: get_role(db, r).id for r in set(STAFF_ROLES.values())}
+        for start in range(0, len(members), BULK_HIRE_BATCH):
+            chunk = members[start : start + BULK_HIRE_BATCH]
+            numbers = (
+                db.execute(
+                    text("SELECT nextval('employee_number_seq') FROM generate_series(1, :n)"),
+                    {"n": len(chunk)},
+                )
+                .scalars()
+                .all()
+            )
+            employees, users = [], []
+            for member, number in zip(chunk, numbers, strict=True):
+                role = STAFF_ROLES[member.role]
+                pay = int(low + (high - low) * PAY[member.role]) // 1000 * 1000
+                employee_id, user_id = uuid.uuid4(), uuid.uuid4()
+                employees.append(
+                    {
+                        "id": employee_id,
+                        "employee_number": f"AGB-{number:07d}",
+                        "first_name": member.first_name,
+                        "last_name": member.last_name,
+                        "email": f"sim{self.run_number}.{member.index}@atlasbank.example",
+                        "organization_id": team.id,
+                        "department_id": department.id,
+                        "manager_id": None,
+                        "job_title": member.job_title,
+                        "role_id": roles[role],
+                        "country_id": country.id,
+                        "employment_status": EmploymentStatus.ACTIVE.value,
+                        "annual_compensation": to_minor_units(pay, country.default_currency),
+                        "compensation_currency": country.default_currency,
+                    }
+                )
+                username = f"sim{self.run_number}-{member.index:05d}"
+                users.append(
+                    {
+                        "id": user_id,
+                        "username": username,
+                        "email": f"sim{self.run_number}.{member.index}@users.atlasbank.example",
+                        "display_name": f"{member.first_name} {member.last_name} (simulated)",
+                        "password_hash": UNUSABLE_PASSWORD_HASH,
+                        "role_id": roles[role],
+                        "employee_id": employee_id,
+                        "is_active": True,
+                    }
+                )
+                self.enlist(member, user_id, username)
+            db.execute(insert(Employee), employees)
+            db.execute(insert(User), users)
+        record_audit_event(
+            db,
+            actor_id=None,
+            action="simulation.staff_hired",
+            entity_type="organization",
+            entity_id=team.id,
+            metadata={"run_number": self.run_number, "staff": len(members)},
+        )
+        db.execute(text("ANALYZE employees"))
+        db.execute(text("ANALYZE users"))
 
     def staff_members(self) -> list[SyntheticStaffMember]:
         return StaffGenerator(self.seed, self.config.staff_mix, self.workload.job_titles).generate(
@@ -549,9 +641,10 @@ class _Simulation:
         names = {f"sim{self.run_number}-{m.index:05d}": m for m in members}
         users = dict(
             self.db.execute(
-                select(User.username, User.id).where(User.username.in_(list(names)))
+                select(User.username, User.id).where(User.username.like(f"sim{self.run_number}-%"))
             ).all()
         )
+        users = {n: users[n] for n in names if n in users}
         if len(users) != len(names):
             raise SimulationSetupError(
                 f"Run {self.run_number}'s simulated staff are missing ({len(users)} of "

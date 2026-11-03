@@ -614,7 +614,20 @@ WF-1050 **v2** (Phase 60) reads the change profile (`itops.change_profile`) afte
 change is raised and asks the AGB Change Review Assistant (`ai.review`, advisory) before the
 manager decides (`change-approvals`). It also takes the window's start hour.
 
-### WF-1100 to WF-1147: thin departments (Phase 61)
+### WF-1052, WF-1053 and WF-1054: onboarding and lending (Phase 62)
+
+- **WF-1052 Customer Risk Re-rating** (Customer Onboarding): look up the customer → a
+  compliance officer's approval (`customers:review`) → record the rating → write to the
+  customer; or keep the rating.
+- **WF-1053 Loan Early Payoff** (Retail Lending): read the loan (`lending.loan_profile`) →
+  approval (`loans:approve`) → `lending.pay_off`.
+- **WF-1054 Loan Arrears Repayment** (Retail Lending): read the loan → in arrears? →
+  approval (`loans:approve`) → `lending.repay_arrears`; a loan not in arrears ends there.
+
+The lending handlers need `loans:repay` to start and `loans:read` to read executions; their
+fixture is a loan in arrears whose borrower has since paid in enough to settle it.
+
+### WF-1100 to WF-1150: thin departments (Phase 61)
 
 One workflow per process of the sixteen thin departments, generated from the registry
 (`app/modules/backoffice/workflows.py`) rather than stored as files; `examples.documents()`

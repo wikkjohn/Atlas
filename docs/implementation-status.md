@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 61.
+Last updated: Phase 62.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -66,6 +66,38 @@ Last updated: Phase 61.
 | 59 | Departments, step 31: IT operations ([itops.md](itops.md)) | **Complete** |
 | 60 | Departments, step 32: the IT operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 61 | Departments, step 33: thin departments ([departments.md](departments.md)) | **Complete** |
+| 62 | Departments, step 34: the Milestone D exit check ([departments.md](departments.md)) | **Complete** |
+
+## Phase 62: what exists
+
+- **Milestone D coverage** (`app/modules/backoffice/coverage.py`, `GET
+  /backoffice/coverage`, a panel on the Departments page): every department with its base
+  processes, scenarios and dashboard. Older owner names map onto one department each.
+- **35 departments, all complete:** three or more processes, at least one scenario, and a
+  dashboard the navigation links to. A test checks it; **Milestone D is complete.**
+- **What was missing, now added:**
+  - Customer Onboarding had two processes: **WF-1052 Customer Risk Re-rating** (a
+    compliance officer approves the new rating; the customer is written to);
+  - Retail Lending had one: **WF-1053 Loan Early Payoff** and **WF-1054 Loan Arrears
+    Repayment**, with three new handlers (`lending.loan_profile`, `lending.pay_off`,
+    `lending.repay_arrears`; money moves only after an approval by someone other than
+    whoever started it) and a funded-loan fixture;
+  - **Branch Network**, a seventeenth thin department (WF-1148 to WF-1150,
+    `dept-branch-network`), bringing the count to 35.
+- **PR #52 (Phase 61)** had no review comments; CI passed on the first run.
+
+## Phase 62: verified results
+
+RESULTS_PLACEHOLDER
+
+## Phase 62: known limitations
+
+- **AI tools:** the 18 departments with their own modules have AI tool candidates; the 17
+  thin departments have none.
+- **Coverage counts workflows, not depth:** a thin department's three processes share one
+  request model.
+- **The new retail lending and onboarding workflows have no workload of their own;** their
+  departments' existing scenarios (`personal-loans`, `retail-onboarding`) count.
 
 ## Phase 61: what exists
 

@@ -538,6 +538,7 @@ See [departments.md](departments.md). Amounts are US cents.
 | POST | `/api/v1/backoffice/requests/{id}/approve` | `departments:approve` | `{note?}`; not by the requester (rule `four_eyes`); above the threshold needs `departments:approve_major` (rule `needs_executive`) |
 | POST | `/api/v1/backoffice/requests/{id}/reject` | `departments:approve` | `{note?}`; not by the requester |
 | POST | `/api/v1/backoffice/requests/{id}/complete` | `departments:request` | Approved requests (or ones needing none); late: a breach |
+| GET | `/api/v1/backoffice/coverage` | `departments:read` | Milestone D (Phase 62): every department's workflows, scenarios, dashboard and whether it is complete; `{departments, total, complete, min_processes}` |
 
 ### Country rules (Phase 25)
 

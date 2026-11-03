@@ -106,9 +106,15 @@ def contract(db: Session, app: Application) -> Contract:
                     round(rate, 4), TIMEOUT_MS, sync)  # fmt: skip
 
 
-def _active(db: Session, at: datetime) -> list[ApplicationOutage]:
+def _active(db: Session, at: datetime,
+            run_id: uuid.UUID | None = None) -> list[ApplicationOutage]:  # fmt: skip
+    """The outages in force at `at`: the bank's own, and a simulation run's (Phase 67) only
+    for that run."""
+    scope = ApplicationOutage.simulation_run_id.is_(None)
+    if run_id is not None:
+        scope = or_(scope, ApplicationOutage.simulation_run_id == run_id)
     return list(db.execute(select(ApplicationOutage).where(
-        ApplicationOutage.starts_at <= at,
+        scope, ApplicationOutage.starts_at <= at,
         or_(ApplicationOutage.ends_at.is_(None),
             ApplicationOutage.ends_at > at))).scalars())  # fmt: skip
 
@@ -117,10 +123,11 @@ class Estate:
     """The outages in force at one moment and the synchronous dependency graph, loaded once,
     so a simulation can make many calls cheaply."""
 
-    def __init__(self, db: Session, at: datetime | None = None):
+    def __init__(self, db: Session, at: datetime | None = None,
+                 run_id: uuid.UUID | None = None):  # fmt: skip
         self.db = db
         self.at = at or _now()
-        outages = _active(db, self.at)
+        outages = _active(db, self.at, run_id)
         self.kind: dict[uuid.UUID, str] = {}
         for o in outages:  # down outranks degraded
             if self.kind.get(o.application_id) != "down":
@@ -234,7 +241,8 @@ def sample(db: Session, app: Application, operation: str, count: int, seed: int,
 def declare_outage(db: Session, app: Application, kind: str, reason: str,
                    actor_id: uuid.UUID | None, *, starts_at: datetime | None = None,
                    ends_at: datetime | None = None, now: datetime | None = None,
-                   open_incident: bool = True) -> ApplicationOutage:  # fmt: skip
+                   open_incident: bool = True,
+                   simulation_run_id: uuid.UUID | None = None) -> ApplicationOutage:  # fmt: skip
     """Take an application down, or degrade it, for a window (open-ended without an end). An
     outage that has started opens an incident against the application, high urgency, its
     impact set by the tier."""
@@ -252,6 +260,8 @@ def declare_outage(db: Session, app: Application, kind: str, reason: str,
         raise _rule("An outage ends after it starts.", "window_invalid")
     overlap = db.execute(select(ApplicationOutage).where(
         ApplicationOutage.application_id == app.id,
+        ApplicationOutage.simulation_run_id.is_(None) if simulation_run_id is None
+        else ApplicationOutage.simulation_run_id == simulation_run_id,
         or_(ApplicationOutage.ends_at.is_(None), ApplicationOutage.ends_at > starts_at),
         *([ApplicationOutage.starts_at < ends_at] if ends_at else [])
     )).scalars().first()  # fmt: skip
@@ -268,6 +278,7 @@ def declare_outage(db: Session, app: Application, kind: str, reason: str,
         outage_number=f"OUT-{number:07d}", application_id=app.id, kind=kind,
         reason=reason.strip(), starts_at=starts_at, ends_at=ends_at,
         incident_id=incident.id if incident else None, declared_by=actor_id, created_at=now,
+        simulation_run_id=simulation_run_id,
     )  # fmt: skip
     db.add(outage)
     db.flush()

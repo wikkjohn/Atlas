@@ -37,6 +37,7 @@ from app.modules.itops import links, simulated
 from app.modules.itops.models import Application
 
 REALISTIC: ContextVar[bool] = ContextVar("application_errors", default=False)
+SESSION_KEY = "itops.gateway"  # Session.info key for what the gateway keeps per session
 
 
 @contextmanager
@@ -58,13 +59,23 @@ class Report:
 
 @dataclass
 class Gateway:
-    """One per engine advance: the estate's outages at each moment and the applications each
-    namespace and domain resolve to are loaded once."""
+    """One per engine advance. What does not change while a session lasts, the applications
+    each namespace and domain resolve to and their contracts, is kept on the session, so
+    many short advances (generated tests) load it once; the outages in force are read for
+    each moment, so an outage declared since is always seen."""
 
     db: Session
-    _views: dict[datetime, simulated.Estate] = field(default_factory=dict)
+    _views: dict[tuple, simulated.Estate] = field(default_factory=dict)
     _core: dict[str, Application] | None = None
     _estate: dict[str, list[Application]] = field(default_factory=dict)
+    _contracts: dict[uuid.UUID, simulated.Contract] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        shared = self.db.info.setdefault(SESSION_KEY, {})
+        self._estate = shared.setdefault("estate", self._estate)
+        self._contracts = shared.setdefault("contracts", self._contracts)
+        self._core = shared.get("core")
+        self._shared = shared
 
     def _core_apps(self) -> dict[str, Application]:
         if self._core is None:
@@ -72,6 +83,7 @@ class Gateway:
             self._core = {a.name: a for a in self.db.execute(select(Application).where(
                 Application.name.in_(names),
                 Application.status == "active")).scalars()}  # fmt: skip
+            self._shared["core"] = self._core
         return self._core
 
     def _domain(self, domain: str) -> list[Application]:
@@ -94,23 +106,25 @@ class Gateway:
             apps.append(links._pick(candidates, workflow_id, step_id))
         return apps
 
-    def _view(self, at: datetime) -> simulated.Estate:
-        if at not in self._views:
-            view = simulated.Estate(self.db, at)  # the outages in force at that moment
-            for previous in self._views.values():  # contracts and the graph do not change
-                view._contracts = previous._contracts
+    def _view(self, at: datetime, run_id: uuid.UUID | None = None) -> simulated.Estate:
+        key = (at, run_id)
+        if key not in self._views:
+            view = simulated.Estate(self.db, at, run_id)  # the outages in force then
+            view._contracts = self._contracts  # contracts do not change
+            for previous in self._views.values():  # nor does the graph, within an advance
                 view._edges = previous._edges
-            self._views = {at: view}
-        return self._views[at]
+            self._views = {key: view}
+        return self._views[key]
 
     def call(self, *, workflow_id: str, step_id: str, handler: str, execution_id: uuid.UUID,
-             attempt: int, at: datetime) -> Report:  # fmt: skip
+             attempt: int, at: datetime,
+             run_id: uuid.UUID | None = None) -> Report:  # fmt: skip
         """Make the step's calls in turn; stop at the first that fails."""
         report = Report()
         apps = self.applications(workflow_id, step_id, handler)
         if not apps:
             return report
-        view = self._view(at)
+        view = self._view(at, run_id)
         seed = hashlib.sha256(f"{execution_id}:{step_id}:{attempt}".encode()).digest()
         rng = random.Random(int.from_bytes(seed[:8], "big"))
         realistic_ = REALISTIC.get()

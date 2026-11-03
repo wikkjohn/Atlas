@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import event, func, select, update
+from sqlalchemy import event, func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import __version__
@@ -1012,6 +1012,70 @@ def _ai_summary(rows: list[tuple], ai_mode: str | None) -> dict[str, Any] | None
 # --- Entry point ------------------------------------------------------------------------------
 
 
+def _declare_outages(db: Session, run: SimulationRun, scenario: Scenario) -> None:
+    """A scenario's outages (Phase 67), on the run's simulated timeline and for its own
+    executions only; no incident is opened for them."""
+    from app.modules.itops import simulated
+    from app.modules.itops.models import Application
+
+    for spec in scenario.config.outages or []:
+        app = db.execute(select(Application).where(Application.name == spec.application,
+                                                   Application.status == "active")
+                         ).scalar_one_or_none()  # fmt: skip
+        if app is None:
+            raise SimulationSetupError(f"The outage's application {spec.application} is not "
+                                       "registered; it comes with the seed.")  # fmt: skip
+        starts = run.simulated_start + timedelta(hours=spec.start_hours)
+        simulated.declare_outage(
+            db, app, spec.kind, f"Scenario {scenario.scenario_id} outage", run.created_by,
+            starts_at=starts, ends_at=starts + timedelta(minutes=spec.minutes),
+            now=starts, open_incident=False, simulation_run_id=run.id)  # fmt: skip
+
+
+def outage_effects(db: Session, run_id: uuid.UUID) -> dict[str, Any]:
+    """What a run's application outages cost it: executions failed by an unavailable
+    application, executions that completed after retrying one, and the retries."""
+    from app.modules.itops.models import Application, ApplicationOutage
+
+    outages = db.execute(select(ApplicationOutage, Application)
+                         .join(Application, Application.id == ApplicationOutage.application_id)
+                         .where(ApplicationOutage.simulation_run_id == run_id)
+                         .order_by(ApplicationOutage.starts_at)).all()  # fmt: skip
+    failed = db.execute(text(
+        "SELECT count(*) FROM workflow_executions WHERE simulation_run_id = :run "
+        "AND status = 'failed' AND error->>'code' = 'application_unavailable'"),
+        {"run": run_id}).scalar_one()  # fmt: skip
+    retries = db.execute(text(
+        "SELECT e.status, count(DISTINCT e.id), count(*) FROM workflow_events ev "
+        "JOIN workflow_executions e ON e.id = ev.execution_id "
+        "WHERE e.simulation_run_id = :run AND ev.realm = 'simulation' "
+        "AND ev.event_type = 'step.retry_scheduled' "
+        "AND ev.data->'error'->>'code' = 'application_unavailable' GROUP BY e.status"),
+        {"run": run_id}).all()  # fmt: skip
+    return {
+        "outages": [
+            {
+                "application": a.name,
+                "application_number": a.application_number,
+                "kind": o.kind,
+                "from": o.starts_at.isoformat(),
+                "to": o.ends_at.isoformat() if o.ends_at else None,
+            }
+            for o, a in outages
+        ],  # fmt: skip
+        "executions_failed": failed,
+        "executions_delayed": sum(n for status, n, _ in retries if status != "failed"),
+        "retries": sum(r for _, _, r in retries),
+    }
+
+
+def _outage_effects(db: Session, run: SimulationRun, scenario: Scenario) -> None:
+    if scenario.config.outages:  # absent otherwise, so other runs' results are unchanged
+        db.flush()  # the executions' last states, for the queries
+        # A new dict: JSONB changes made in place after a flush are not tracked.
+        run.results = {**run.results, "applications": outage_effects(db, run.id)}
+
+
 def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> list[uuid.UUID]:
     """Run a queued simulation to completion. Failures are recorded on the run, not raised.
 
@@ -1035,6 +1099,7 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
             )
         run.status = SimulationStatus.RUNNING.value
         run.started_at = run.heartbeat_at = datetime.now(UTC)
+        _declare_outages(db, run, scenario)
         db.commit()
         if run.config.get("shards", 1) > 1:
             return _prepare_shards(db, run, scenario)
@@ -1050,6 +1115,7 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
         run = db.get(SimulationRun, run_id)
         assert run is not None
         run.results = summarize(rows, sim.totals(), wall_ms)
+        _outage_effects(db, run, scenario)
         run.result_digest = digest(rows)
         run.simulated_end = sim.clock.now
         run.wall_ms = wall_ms
@@ -1232,6 +1298,7 @@ def merge_shards(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> b
         now = datetime.now(UTC)
         wall_ms = round((now - (run.started_at or now)).total_seconds() * 1000)
         run.results = summarize(rows, totals, wall_ms)
+        _outage_effects(db, run, scenario)
         run.results["execution"]["shards"] = [
             {"shard": s.shard, "cases": s.cases_total, "wall_ms": s.wall_ms, "worker": s.worker}
             for s in sorted(shards, key=lambda s: s.shard)

@@ -259,7 +259,7 @@ Screening), 300 applications, 12 employees, seed 2030, on the development databa
 
 | Run | Completed | Failed (`application_unavailable`) | Wall time |
 | --- | --- | --- | --- |
-| No outage | 300 | 0 | 101.1 s (94.2 s before Phase 66: about 7 % for the calls); result digest identical |
+| No outage | 300 | 0 | 101.1 s (94.2 s before Phase 66; 97.6 s once Phase 67 kept the gateway's lookups per session); result digest identical |
 | Sanctions Screening down all day | 0 | 300, at their first step, after three attempts | 61.8 s |
 | Down 12:00 to 14:00, and 15:00 to 15:01 | 222 | 78 (arrivals in the two-hour window are about a quarter of the day's) | 91.3 s |
 

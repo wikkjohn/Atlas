@@ -459,7 +459,8 @@ class _Driver:
             self._gateway = gateway.Gateway(self.db)
         report = self._gateway.call(
             workflow_id=self.execution.workflow_id, step_id=step.id, handler=step.handler or "",
-            execution_id=self.execution.id, attempt=run.attempt, at=self.now)  # fmt: skip
+            execution_id=self.execution.id, attempt=run.attempt, at=self.now,
+            run_id=self.execution.simulation_run_id)  # fmt: skip
         return report if report.calls else None
 
     def advance(self, max_steps: int = MAX_STEPS_PER_ADVANCE) -> int:

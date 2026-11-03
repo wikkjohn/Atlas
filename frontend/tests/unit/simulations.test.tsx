@@ -212,6 +212,33 @@ describe("Simulation Center", () => {
     expect(within(cases).getByLabelText("Differs from ground truth")).toBeInTheDocument();
   });
 
+  it("reports a run's application outages and their cost", async () => {
+    const outage = {
+      ...completed,
+      results: {
+        ...completed.results!,
+        applications: {
+          outages: [{ application: "Sanctions Screening", application_number: "APP-00007", kind: "down" as const, from: "2026-01-05T12:00:00+00:00", to: "2026-01-05T14:00:00+00:00" }],
+          executions_failed: 78,
+          executions_delayed: 1,
+          retries: 157,
+        },
+      },
+    };
+    mockApi({ ...baseRoutes, "GET /api/v1/simulations/run-1": () => jsonResponse(outage) });
+    renderApp("/simulations?run=run-1");
+    const section = await screen.findByRole("region", { name: "Application outages" });
+    expect(section).toHaveTextContent("Sanctions Screening down from 12:00 to 14:00 (simulated 2026-01-05)");
+    expect(section).toHaveTextContent("78 executions failed on an unavailable application · 1 completed late after a retry · 157 retries");
+  });
+
+  it("shows no outage section for a run without outages", async () => {
+    mockApi(baseRoutes);
+    renderApp("/simulations?run=run-1");
+    expect(await screen.findByRole("heading", { name: "Run #7" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Application outages" })).not.toBeInTheDocument();
+  });
+
   it("reports why a run failed", async () => {
     const failed = { ...completed, status: "failed", results: null, failure_reason: "No active 'Retail Banking' division exists." };
     mockApi({ ...baseRoutes, "GET /api/v1/simulations/run-1": () => jsonResponse(failed) });

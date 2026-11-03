@@ -15,6 +15,11 @@ const app: Application = {
   tier: 1,
   status: "active",
   open_incidents: 1,
+  owner: "Ada Okafor",
+  technology: "Java",
+  hosting: "on_premise",
+  vendor: null,
+  generated_from: null,
 };
 const desk: Application = { ...app, id: "app-2", application_number: "APP-00005", name: "Loan Origination", tier: 2, open_incidents: 0 };
 const incident: Incident = {
@@ -62,7 +67,16 @@ const routes = {
   ...healthyRoutes,
   "GET /api/v1/itops/summary/counts": () =>
     jsonResponse({ applications: 12, incidents_open: 1, p1_open: 1, incidents_breached: 0, incidents_to_close: 1, changes_to_approve: 1, changes_scheduled: 1, changes_failed_30d: 0, frozen_now: true }),
-  "GET /api/v1/itops/applications": () => jsonResponse([app, desk]),
+  "GET /api/v1/itops/applications": () => jsonResponse(page([app, desk])),
+  "GET /api/v1/itops/estate/summary": () =>
+    jsonResponse({ applications: 2512, dependencies: 6015, unconnected: 78, generated: 2500, by_tier: { "1": 243, "2": 913, "3": 1356 }, by_technology: {}, by_hosting: {} }),
+  "GET /api/v1/itops/applications/app-1": () =>
+    jsonResponse({
+      application: app,
+      dependencies: [],
+      dependents: [{ id: "dep-1", kind: "api", application_number: "APP-00005", name: "Loan Origination", tier: 2, application_id: "app-2" }],
+      impact: { affected: 2255, direct: 39, depth: 7, by_tier: { "1": 200, "2": 800, "3": 1255 }, departments: 21, top_departments: [], sample: [] },
+    }),
   "GET /api/v1/itops/incidents": () => jsonResponse(page([incident, resolved])),
   "GET /api/v1/itops/changes": () => jsonResponse(page([change, scheduled])),
 };
@@ -122,6 +136,32 @@ describe("IT Operations page", () => {
     expect(bodies["POST /api/v1/itops/changes/chg-2/implement"]).toMatchObject({ success: false });
   });
 
+  it("shows the registry: the estate, an application's links and what stops if it stops", async () => {
+    const api = mockApi({
+      ...routes,
+      "POST /api/v1/itops/estate/generate": () => jsonResponse({ created: 2500, existing: 0, dependencies_added: 6015, seconds: 2.2 }),
+    });
+    renderApp("/it-operations");
+    expect(await screen.findByLabelText("Estate summary")).toHaveTextContent("2512 applications (2500 generated) · 6015 dependencies");
+    await userEvent.click(await screen.findByRole("button", { name: "Show APP-00001" }));
+    const detail = await screen.findByRole("region", { name: "Application detail" });
+    expect(await within(detail).findByLabelText("If it stops")).toHaveTextContent("2255 applications affected (39 directly, up to 7 steps away");
+    expect(within(detail).getByLabelText("If it stops")).toHaveTextContent("across 21 departments");
+    expect(within(detail).getByRole("list", { name: "Relied on by" })).toHaveTextContent("APP-00005 Loan Origination · api · tier 2");
+    expect(detail).toHaveTextContent("Java on on premise");
+
+    await userEvent.type(screen.getByLabelText("Search applications"), "Ledger");
+    await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/itops/applications" && r.search.get("q") === "Ledger")).toBe(true));
+    const generate = screen.getByRole("form", { name: "Generate estate" });
+    await userEvent.click(within(generate).getByRole("button", { name: "Generate estate" }));
+    expect(await within(generate).findByRole("status")).toHaveTextContent("2500 created, 6015 dependencies in 2.2 s");
+    const body = api.requests.find((r) => r.method === "POST")?.body;
+    expect(body).toEqual({ count: 2500, seed: 2030 });
+    // The forms list the bank's own applications, within the API's page limit of 200.
+    const choices = api.requests.find((r) => r.path === "/api/v1/itops/applications" && r.search.get("generated") === "false");
+    expect(Number(choices?.search.get("limit"))).toBeLessThanOrEqual(200);
+  });
+
   it("is read-only with only itops:read", async () => {
     mockApi({ ...routes, ...authRoutes({ ...employeeUser, permissions: ["itops:read"] }) });
     renderApp("/it-operations");
@@ -130,5 +170,6 @@ describe("IT Operations page", () => {
     expect(screen.queryByRole("form", { name: "Raise change" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Acknowledge INC-0000001" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve CHG-0000001" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Generate estate" })).not.toBeInTheDocument();
   });
 });

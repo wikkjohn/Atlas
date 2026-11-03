@@ -77,10 +77,42 @@ def _us_department(db: Session, name: str) -> Organization | None:
     return named or db.execute(query.order_by(Organization.name).limit(1)).scalar_one_or_none()
 
 
+# What the core systems run on and where (Phase 63), and what they rely on.
+CORE_PROFILES = {
+    "Core Banking Ledger": ("cobol-mainframe", "on_premise"),
+    "Payments Gateway": ("java-spring", "private_cloud"),
+    "Card Authorisation": ("java-spring", "on_premise"),
+    "Online Banking": ("node", "public_cloud"),
+    "Loan Origination": ("java-spring", "private_cloud"),
+    "AML Monitoring": ("python", "private_cloud"),
+    "Sanctions Screening": ("java-spring", "private_cloud"),
+    "Branch Teller": ("dotnet", "on_premise"),
+    "Workflow Factory": ("python", "private_cloud"),
+    "AI Innovation Lab Console": ("python", "public_cloud"),
+    "Document Archive": ("oracle-plsql", "on_premise"),
+    "Staff Intranet": ("saas", "saas"),
+}
+CORE_DEPENDENCIES = (
+    ("Payments Gateway", "Core Banking Ledger", "api"),
+    ("Payments Gateway", "Sanctions Screening", "api"),
+    ("Card Authorisation", "Core Banking Ledger", "api"),
+    ("Online Banking", "Payments Gateway", "api"),
+    ("Online Banking", "Core Banking Ledger", "api"),
+    ("Loan Origination", "Core Banking Ledger", "api"),
+    ("Branch Teller", "Core Banking Ledger", "api"),
+    ("AML Monitoring", "Payments Gateway", "data"),
+    ("Workflow Factory", "Core Banking Ledger", "api"),
+    ("Document Archive", "Core Banking Ledger", "batch"),
+)
+
+
 def ensure_applications(db: Session) -> int:
-    """Create the default catalogue's missing applications (none without departments);
-    returns how many were added."""
-    existing = set(db.execute(select(Application.name)).scalars())
+    """Create the default catalogue's missing applications (none without departments), give
+    the core systems their technology and hosting where still unknown, and record their
+    dependencies; returns how many applications were added."""
+    from app.modules.itops.models import ApplicationDependency
+
+    existing = {a.name: a for a in db.execute(select(Application)).scalars()}
     added = 0
     for name, description, department, tier in CATALOGUE:
         if name in existing:
@@ -88,9 +120,22 @@ def ensure_applications(db: Session) -> int:
         dept = _us_department(db, department)
         if dept is None:
             return added
-        register_application(db, name=name, description=description, department_id=dept.id,
-                             tier=tier, actor_id=None)  # fmt: skip
+        existing[name] = register_application(db, name=name, description=description,
+                                              department_id=dept.id, tier=tier,
+                                              actor_id=None)  # fmt: skip
         added += 1
+    for name, (technology, hosting) in CORE_PROFILES.items():
+        app = existing.get(name)
+        if app is not None and app.technology == "unknown":
+            app.technology, app.hosting = technology, hosting
+    edges = set(db.execute(select(ApplicationDependency.application_id,
+                                  ApplicationDependency.depends_on_id)).tuples())  # fmt: skip
+    for name, target, kind in CORE_DEPENDENCIES:
+        app, depends_on = existing.get(name), existing.get(target)
+        if app and depends_on and (app.id, depends_on.id) not in edges:
+            db.add(ApplicationDependency(application_id=app.id, depends_on_id=depends_on.id,
+                                         kind=kind))  # fmt: skip
+    db.flush()
     return added
 
 

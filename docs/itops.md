@@ -21,8 +21,74 @@ An application (`APP-`) has a name, a description, an owning department and a ti
 | 3 | An inconvenience |
 
 The seed registers twelve applications, from the Core Banking Ledger (tier 1) to the Staff
-Intranet (tier 3). Executives (`itops:approve_major`) register more. Milestone E will
-generate the 2,500-application estate on this catalogue and wire workflows to it.
+Intranet (tier 3). Executives (`itops:approve_major`) register more.
+
+## The application registry (Phase 63)
+
+Phase 63 (roadmap Milestone E, step 1) turns the catalogue into a registry. Code:
+`backend/app/modules/itops/estate.py`, migration 0043.
+
+**Each application also has:**
+- an **owner**: a named user, or none;
+- a **technology**, such as Java or COBOL;
+- **hosting**: on premise, private cloud, public cloud or SaaS (a database check);
+- a **vendor**, for bought-in and SaaS applications;
+- **generated from**: the generator's tag (`estate-v1:<seed>`) on a generated application.
+
+An executive sets these (`PUT /itops/applications/{id}/profile`).
+
+**Dependencies.** An application relies on another for data, an API, a batch feed or
+authentication (`application_dependencies`). An executive adds or removes them. The rules:
+- **`kind_invalid`**: the kind is one of the four above.
+- **`not_self`**: an application does not rely on itself; this is also a database check.
+- **`application_retired`**: nothing new relies on a retired application.
+- **No cycles**: a dependency is refused if the other application already relies on this
+  one, directly or through others.
+- **No duplicates**: the same dependency twice is a conflict (409).
+
+The twelve core applications come with their dependencies: the Payments Gateway, Card
+Authorisation, Online Banking, Loan Origination, the Branch Teller, the Workflow Factory and
+the Document Archive all rely on the Core Banking Ledger.
+
+**Impact: what stops if it stops.** Starting from an application, the registry walks back
+through everything that relies on it, directly or through others. It reports:
+- how many applications are affected, how many directly, and the longest chain;
+- the affected applications by tier;
+- the departments that own them (a department in each country counts once per country);
+- a sample of the affected applications.
+
+The page shows this for the selected application, beside what it relies on and what relies
+on it.
+
+**The estate generator** (`POST /itops/estate/generate`, `itops:approve_major`; `python -m
+app.cli estate generate --count 2500 --seed 2030`) adds synthetic applications:
+- **Deterministic:** the same seed gives the same estate.
+- **Idempotent:** a second run with the seed adds nothing.
+- **Names** combine a domain and a function with a number, e.g. "Payments Gateway 0001".
+- **Tiers:** 10 % tier 1, 35 % tier 2, 55 % tier 3.
+- **Technology and hosting** are paired (a SaaS application has a vendor).
+- **Owning departments** are spread across the existing departments.
+- **Dependencies:** each application relies only on applications created before it, so the
+  graph has no cycles. Critical applications are relied on more often: tier 1 six times and
+  tier 2 three times as often as tier 3.
+
+`GET /itops/estate/summary` (and `python -m app.cli estate summary`) counts the estate:
+- applications, generated applications and dependencies;
+- applications with no dependencies either way;
+- applications by tier, technology and hosting.
+
+Measured on a development database with seed 2030 (2,500 applications):
+
+| Measure | Result |
+| --- | --- |
+| Generated | 2,500 applications and 6,015 dependencies in 2.2 s |
+| Estate summary | 2,512 applications (2,500 generated and the twelve core), 6,025 dependencies; 243 tier 1, 913 tier 2, 1,356 tier 3 |
+| Re-run with the same seed | 0 created, 0.7 s |
+| Unconnected applications | 78 |
+| Impact of the Core Banking Ledger | 2,255 applications affected, 39 directly, up to 7 steps away, in about 0.1 s |
+
+The registry panel lists applications 25 at a time. It searches by name or number and
+filters by tier.
 
 ## Incidents
 
@@ -139,12 +205,16 @@ before Phase 60 the handler refused one as a missing value.
 | `itops:read` | banking employees, department managers, regional and global executives, auditors | the page and the lists |
 | `itops:manage` | banking employees, department managers | report, acknowledge and resolve incidents; raise changes and record them implemented or failed; the SLA sweep |
 | `itops:approve` | department managers, regional and global executives | approve or reject changes, close incidents |
-| `itops:approve_major` | regional and global executives | high-risk changes, changes to tier-1 applications, registering applications |
+| `itops:approve_major` | regional and global executives | high-risk changes, changes to tier-1 applications, registering applications, their profiles and dependencies, generating the estate |
 
 ## Known limitations
 
 - **Workflows do not call applications yet:** an outage does not delay the processes that
-  depend on the application (Milestone E).
+  depend on the application (Milestone E). The impact analysis counts applications, not
+  workflows.
+- **Generated applications have no owner;** the twelve core ones do not either until one is
+  set.
+- **The cycle check loads every dependency:** fine at 6,000, not tuned for far more.
 - **No on-call rota:** acknowledging an incident stands for paging the engineer.
 - **Targets run on the clock,** not on business hours, and are not paused while waiting on
   a third party.

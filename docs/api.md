@@ -510,7 +510,13 @@ first, paginated.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/itops/applications` | `itops:read` | The catalogue, most critical first, with open incidents |
+| GET | `/api/v1/itops/applications` | `itops:read` | The registry, most critical first, paginated (Phase 63): `?q=` (name or number), `?tier=`, `?technology=`, `?generated=`; with owner, technology, hosting, vendor and open incidents |
+| GET | `/api/v1/itops/applications/{id}` | `itops:read` | Phase 63: `{application, dependencies, dependents, impact}`; impact counts what relies on it, directly or not, by tier and department |
+| PUT | `/api/v1/itops/applications/{id}/profile` | `itops:approve_major` | Phase 63: `{owner_username?, technology, hosting, vendor?}` (rules `hosting_invalid`, `technology_required`) |
+| POST | `/api/v1/itops/applications/{id}/dependencies` | `itops:approve_major` | Phase 63: `{depends_on, kind}` (an `APP-` number; rules `kind_invalid`, `not_self`, `application_retired`, `cycle`; 409 if it exists) |
+| DELETE | `/api/v1/itops/applications/{id}/dependencies/{dependency_id}` | `itops:approve_major` | Phase 63 |
+| POST | `/api/v1/itops/estate/generate` | `itops:approve_major` | Phase 63: `{count, seed}`: deterministic, idempotent per seed (rule `count_invalid`, 1 to 10,000); `{created, existing, dependencies_added, seconds}` |
+| GET | `/api/v1/itops/estate/summary` | `itops:read` | Phase 63: applications, generated, dependencies, unconnected; by tier, technology and hosting |
 | POST | `/api/v1/itops/applications` | `itops:approve_major` | `{name, description?, department_id, tier}` (rule `tier_invalid`; 409 for a name in use) |
 | GET | `/api/v1/itops/incidents` | `itops:read` | With priority, targets, breaches and the change that caused it |
 | POST | `/api/v1/itops/incidents` | `itops:manage` | `{application_number, title, impact, urgency}`: priority P1 to P4 and targets (rules `title_required`, `application_retired`) |

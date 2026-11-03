@@ -9,6 +9,48 @@ export interface Application {
   tier: 1 | 2 | 3;
   status: "active" | "retired";
   open_incidents: number;
+  owner: string | null;
+  technology: string;
+  hosting: "on_premise" | "private_cloud" | "public_cloud" | "saas";
+  vendor: string | null;
+  generated_from: string | null;
+}
+
+/** The registry (Phase 63): one application's links and what stops if it stops. */
+export interface DependencyLink {
+  id: string;
+  kind: "data" | "api" | "batch" | "auth";
+  application_number: string;
+  name: string;
+  tier: number;
+  application_id: string;
+}
+
+export interface Impact {
+  affected: number;
+  direct: number;
+  depth: number;
+  by_tier: Record<string, number>;
+  departments: number;
+  top_departments: { department: string; applications: number }[];
+  sample: { application_number: string; name: string; tier: number; depth: number; department: string }[];
+}
+
+export interface ApplicationDetail {
+  application: Application;
+  dependencies: DependencyLink[];
+  dependents: DependencyLink[];
+  impact: Impact;
+}
+
+export interface EstateSummary {
+  applications: number;
+  dependencies: number;
+  unconnected: number;
+  generated: number;
+  by_tier: Record<string, number>;
+  by_technology: Record<string, number>;
+  by_hosting: Record<string, number>;
 }
 
 export interface Incident {

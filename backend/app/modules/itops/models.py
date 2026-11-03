@@ -22,6 +22,7 @@ from sqlalchemy import (
     Sequence,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
 )
@@ -57,6 +58,10 @@ class Application(UUIDPrimaryKey, Base):
     __table_args__ = (
         CheckConstraint("tier BETWEEN 1 AND 3", name="tier_valid"),
         CheckConstraint("status IN ('active', 'retired')", name="status_valid"),
+        CheckConstraint(
+            "hosting IN ('on_premise', 'private_cloud', 'public_cloud', 'saas')",
+            name="hosting_valid",
+        ),
     )
 
     application_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
@@ -68,6 +73,38 @@ class Application(UUIDPrimaryKey, Base):
     # 1: customers or money stop when it stops; 2: a department stops; 3: an inconvenience.
     tier: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    # The registry (Phase 63): who answers for it, what it is built on, where it runs.
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    technology: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
+    hosting: Mapped[str] = mapped_column(String(20), nullable=False, default="on_premise")
+    vendor: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The generator run that made it ("estate-v1:<seed>"), or None for one registered by hand.
+    generated_from: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ApplicationDependency(UUIDPrimaryKey, Base):
+    """One application relying on another (Phase 63): when the second stops, the first is
+    affected."""
+
+    __tablename__ = "application_dependencies"
+    __table_args__ = (
+        CheckConstraint("application_id <> depends_on_id", name="not_self"),
+        CheckConstraint("kind IN ('data', 'api', 'batch', 'auth')", name="kind_valid"),
+        UniqueConstraint("application_id", "depends_on_id", name="uq_application_dependency"),
+    )
+
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    depends_on_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("applications.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

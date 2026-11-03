@@ -247,12 +247,30 @@ describe("Simulation Center", () => {
     expect(section).toHaveTextContent("53.39 hours waiting for a reviewer at work · 7 reviews carried into the next shift · 3 reviewer-days absent");
   });
 
+  it("shows when the cases arrived when the scenario has an arrival pattern (Phase 73)", async () => {
+    const hours = Array.from({ length: 24 }, (_, h) => (h === 12 ? 90 : h < 6 ? 1 : 30));
+    const week = {
+      ...completed,
+      results: {
+        ...completed.results!,
+        arrivals: { country: "US", by_local_hour: hours, by_weekday: [220, 180, 260, 170, 150, 60, 20], peak_hour_cases: 41, mean_hour_cases: 6.1, peak_to_mean: 6.72, events: { campaign: 160 } },
+      },
+    };
+    mockApi({ ...baseRoutes, "GET /api/v1/simulations/run-1": () => jsonResponse(week) });
+    renderApp("/simulations?run=run-1");
+    const section = await screen.findByRole("region", { name: "Arrivals" });
+    expect(within(section).getByRole("img", { name: "Cases by local hour in US" }).children).toHaveLength(24);
+    expect(section).toHaveTextContent("Mon 220 · Tue 180 · Wed 260 · Thu 170 · Fri 150 · Sat 60 · Sun 20");
+    expect(section).toHaveTextContent("Busiest hour 41 cases against 6.1 on average (6.72×) · campaign: 160 cases");
+  });
+
   it("shows no outage section for a run without outages", async () => {
     mockApi(baseRoutes);
     renderApp("/simulations?run=run-1");
     expect(await screen.findByRole("heading", { name: "Run #7" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Application outages" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Reviewers' working time" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Arrivals" })).not.toBeInTheDocument();
   });
 
   it("reports why a run failed", async () => {

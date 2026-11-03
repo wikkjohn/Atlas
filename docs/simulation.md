@@ -423,6 +423,53 @@ payments and simulated staff created by simulated cases. The ledger is append-on
 removing postings would rewrite the books; only workflow history is lifecycle-managed.
 `docker compose down -v` still resets everything.
 
+## Arrival patterns (Phase 73)
+
+Without a pattern, a workload spreads its cases evenly over the scenario's arrival window.
+`ScenarioConfig.arrival_pattern` (`app/simulation/arrivals.py`) gives that demand a real
+shape, in a country's local time:
+
+| Part | Default (a retail bank) |
+| --- | --- |
+| `hourly`: 24 weights | quiet nights (0.1), a morning rise, lunchtime (1.8) and after-work (1.7) peaks |
+| `weekdays`: Monday to Sunday | 1.3, 1.1, 1.0, 1.0, 1.15, 0.55, 0.2 |
+| `months`: 12 weights | flat |
+| `events` | none; each has a name, a start (hours after the simulated start), a length and a multiplier |
+
+The workload still draws each case's offset evenly; the pattern moves it along the window
+by the inverse of its cumulative demand, hour by hour. Cases keep their order and every
+other draw, and a run repeats exactly. While nothing queues, only arrival times change. Once
+peaks build queues, reviewers take cases in a different order, so who reviews a case (and
+a reviewer's occasional mistake) can change too. A business calendar, if set, still moves
+arrivals that fall on a weekend or holiday. A pattern that leaves no demand in the window
+fails the run at setup.
+
+Results gain an `arrivals` section:
+- cases by local hour and by weekday;
+- the busiest clock hour against the average hour (`peak_to_mean`);
+- the cases inside each event.
+
+The Simulation Center shows it as an hour-by-hour strip with weekday counts.
+
+**`retail-onboarding-week`** is a week of retail applications from Monday 04:00 in New York,
+shaped by the default pattern, with a campaign on Wednesday from 12:00 to 18:00 local time
+that triples demand. Reviewers work around the clock, so its queues come from the peaks
+alone.
+
+Measured on the development database: 1,000 cases, seed 2030, 12 staff, against the same
+week with an even spread.
+
+| | Even week | Week of real demand |
+| --- | --- | --- |
+| Review queue wait, average / p95 | 0.003 h / 0 h | 0.098 h / 0.259 h |
+| Cycle time, p50 / average | 0.198 h / 3.03 h | 0.214 h / 3.12 h |
+| Busiest hour against the average hour | about 1× | 35 cases against 6.0 (5.84×) |
+| Cases by weekday, Monday to Sunday | even | 193, 144, 245 (campaign), 148, 161, 81, 28 |
+| Campaign (6 hours) | — | 168 cases |
+| Result digest | `61e758dc…` | `25ce5c8b…` (the queues changed who reviewed some cases) |
+
+Older scenarios have no pattern, so their configurations, hashes and digests are unchanged.
+
 ## Limitations
 
 - Runs write into the same synthetic bank as everything else: simulated customers,

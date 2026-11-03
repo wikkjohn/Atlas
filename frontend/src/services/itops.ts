@@ -7,9 +7,12 @@ import type { Application, ApplicationDetail, ChangeRequest, EstateSummary, Inci
 const BASE = "/api/v1/itops";
 
 export const useItopsSummary = () => useQuery({ queryKey: ["itops", "summary"], queryFn: () => apiGet<ItopsSummary>(`${BASE}/summary/counts`) });
-/** Applications for the incident and change forms: the most critical 500. */
+/** Applications for the forms: the bank's own catalogue, not the generated estate (an API page holds at most 200). */
 export const useApplications = () =>
-  useQuery({ queryKey: ["itops", "applications", "choices"], queryFn: () => apiGet<Page<Application>>(`${BASE}/applications${query({ limit: 500 })}`) });
+  useQuery({
+    queryKey: ["itops", "applications", "choices"],
+    queryFn: () => apiGet<Page<Application>>(`${BASE}/applications${query({ generated: false, limit: 200 })}`),
+  });
 export const useRegistry = (filters: { q: string; tier: string; offset: number }) =>
   useQuery({
     queryKey: ["itops", "registry", filters],

@@ -89,7 +89,21 @@ Last updated: Phase 63.
 
 ## Phase 63: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 711 passed (new: 3 — profiles, dependencies and cycles; impact and the estate generator, deterministic and idempotent; the registry API and its permissions) |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed |
+| Estate generator, seed 2030 | 2,500 applications and 6,015 dependencies in 2.2 s; a re-run created none in 0.7 s; Core Banking Ledger impact 2,255 applications in about 0.1 s |
+| Frontend Vitest / typecheck / build | 156 passed (the IT operations test now also covers the registry) / clean / built |
+| Playwright on a fresh database | 71 passed (new: the registry shows what relies on the Core Banking Ledger and its impact) |
+
+Found while building it:
+- **The forms' application list asked for 500 a page;** the API allows 200, so the first
+  Playwright run had the incident and change forms empty and two existing tests failed. The
+  unit tests mock the API and passed. The forms now list the bank's own (not generated)
+  applications, 200 a page, and the unit test checks the limit; the second run passed.
+- **Impact counted departments by name:** names repeat across countries, so the Core
+  Banking Ledger reached "5 departments". Each is now counted with its country (21).
 
 ## Phase 63: known limitations
 
@@ -100,6 +114,8 @@ RESULTS_PLACEHOLDER
   6,000 dependencies; not tuned for far larger graphs.
 - **The page shows the first 25 applications that rely on the selected one;** the impact
   counts all of them.
+- **The incident, change and outage forms list only the bank's own applications,** not the
+  generated estate; a generated application is found through the registry search.
 
 ## Phase 62: what exists
 

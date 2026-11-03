@@ -157,6 +157,9 @@ describe("IT Operations page", () => {
     expect(await within(generate).findByRole("status")).toHaveTextContent("2500 created, 6015 dependencies in 2.2 s");
     const body = api.requests.find((r) => r.method === "POST")?.body;
     expect(body).toEqual({ count: 2500, seed: 2030 });
+    // The forms list the bank's own applications, within the API's page limit of 200.
+    const choices = api.requests.find((r) => r.path === "/api/v1/itops/applications" && r.search.get("generated") === "false");
+    expect(Number(choices?.search.get("limit"))).toBeLessThanOrEqual(200);
   });
 
   it("is read-only with only itops:read", async () => {

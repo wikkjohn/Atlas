@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 59.
+Last updated: Phase 60.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -64,6 +64,62 @@ Last updated: Phase 59.
 | 57 | Departments, step 29: procurement and vendor management ([procurement.md](procurement.md)) | **Complete** |
 | 58 | Departments, step 30: the procurement workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 59 | Departments, step 31: IT operations ([itops.md](itops.md)) | **Complete** |
+| 60 | Departments, step 32: the IT operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 60: what exists
+
+- **`itops.change_profile`:** what an approver weighs before approving a change:
+  - its kind, risk and the application's tier, and whether there is a backout plan;
+  - the window's length, start hour and lead time, business hours and the freeze;
+  - the application's open P1 and P2 incidents;
+  - the changes to the application in the 90 days before and how many failed, and the
+    requester's failed changes.
+
+  It is also a library handler. `itops.raise_change` now takes the window's start hour.
+- **Fixed:** `itops.raise_change` refused a change with an empty backout plan as a missing
+  value; the service allows one and rates the change riskier, and now so does the handler.
+  Changes are also dated from the time passed in, as incidents already were, so simulated
+  history lines up with the simulated day.
+- **AGB Change Review Assistant** (`rule_based_change_review`, `recommend_decision` only,
+  compatible with WF-1050, needs `itops:read`), with a deliberate blind spot: it never
+  reads failure history. The seed registers it, and the AI Lab console has a sample.
+- **WF-1050 v2:** the change profile and AI review after a normal change is raised, before
+  the manager decides.
+- **Workload `change_approvals` and scenario `change-approvals` v1:**
+  - a tier-2 or tier-3 application per case, with earlier changes and incidents booked
+    through the real IT operations service;
+  - seven kinds with ground truth, decided by simulated department managers;
+  - a control check covers four-eyes, `itops:approve`, and no change approved without the
+    decision.
+- **PR #50 (Phase 59)** had no review comments; CI passed on the first run.
+- **Measured** (300 changes): AI assisted 93.3 % accurate against 82.0 %, managers' hours
+  62.7 against 98.2. Changes after repeated failures approved: 9 of 56 either way.
+
+## Phase 60: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 703 passed (new: 3 — the change rules and their blind spot; the change profile (two earlier changes, one failed with its P2 still open, a business-hours window at 3 hours' notice with no backout plan); baseline and AI-assisted change runs with every change decided by a manager other than its requester, no control violations, every kind's advice as designed) |
+| Generated workflow tests | 61 workflows, 961 cases, 0 failed (WF-1050 v2: 14 cases, 100 % steps and routes) |
+| Frontend Vitest / typecheck / build | 152 passed / clean / built |
+| Playwright on a fresh database | First full run: 59 passed, 1 failed, 8 not run. The failure was `simulations.spec.ts`, "start a seeded run…": after Start run, no run appeared and no error showed. The file is serial, so its other 8 tests did not run. The file then passed on its own (9 of 9), and a second full run on a fresh database passed (68 of 68). The cause was not established. New: the change assistant in the AI Lab console, recommending approval of another change after three failures |
+| Measurement | `change-approvals`, seed 2030, 300 changes each: baseline 82.0 % accurate (24 wrongly approved, 30 wrongly rejected, 98.2 manager hours, median cycle 5.7 h); AI assisted 93.3 % (9, 11, 62.7 h, 2.0 h); changes after repeated failures approved 9 against 9 of 56; the assistant's own advice 80 % accurate, 26 referred on |
+
+Found while building it:
+- **A change with no backout plan never reached the manager:** the Phase 59 handler read
+  the backout plan as a required value and refused an empty one, so 5 of 40 cases in the
+  first workload test ended "refused". The service allows an empty plan and rates the
+  change one level riskier; the handler now passes it on.
+- **Simulated history on two clocks:** changes took their creation time from the database,
+  while the simulation runs on the scenario's day, so a change's lead time and 90-day
+  history would not have lined up. Changes are now dated from the time passed in, as
+  incidents already were.
+
+## Phase 60: known limitations
+
+- **The assistant is rule-based** and blind to failure history, by design.
+- **Only change approvals are simulated;** incidents are not.
+- **Business hours are UTC,** not the application's or its users' time zone.
 
 ## Phase 59: what exists
 

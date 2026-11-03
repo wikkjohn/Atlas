@@ -963,3 +963,60 @@ assumptions; one run each):
 These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
 measured behaviour.
 
+## WF-1050 v2 and the change review assistant (Phase 60)
+
+WF-1050 v2 is a stored workflow. After a normal change is raised, it reads the change
+profile (`itops.change_profile`) and asks the assistant through `ai.review`. A department
+manager (`itops:approve`, someone other than the requester) then approves or rejects the
+change. Standard changes are pre-approved and skip the review. A manager always decides,
+so the scenario runs baseline and AI assisted only.
+
+Each case has its own tier-2 or tier-3 application. The history the case needs is booked
+through the real IT operations service, dated against the scenario's simulated day:
+- earlier changes, some of which failed, with the incidents they opened resolved and
+  closed;
+- an incident still open.
+
+What the assistant (`rule_based_change_review`) weighs:
+- **Reject:**
+  - no backout plan;
+  - a P1 or P2 still open on the application;
+  - a window in business hours (08:00 to 18:00 UTC on a weekday) on a tier-1 or tier-2
+    application.
+- **Refer on:** a change raised less than a day ahead, or a window over 8 hours.
+- **Approve:** anything else, as routine.
+
+Its **blind spot** is history. The profile counts the failed changes to the application, and
+by the requester, in the 90 days before, and the assistant never reads them. So another
+change to an application whose last changes kept failing looks like any routine change, and
+it recommends approving.
+
+What `change-approvals` v1 measured (seed 2030, 300 changes, 12 staff, default assumptions;
+one run each):
+
+| | Baseline | AI assisted |
+| --- | ---: | ---: |
+| Accuracy | 82.0 % | 93.3 % |
+| Wrongly approved | 24 | 9 |
+| Wrongly rejected | 30 | 11 |
+| Changes after repeated failures approved (of 56) | 9 | 9 |
+| Manager hours | 98.2 | 62.7 |
+| Median cycle time (hours) | 5.7 | 2.0 |
+| Tool's recommendation accuracy | — | 80 % (26 referred on) |
+
+**Where the assistant helps:**
+- Routine out-of-hours changes and daytime changes to tier-3 applications wrongly rejected
+  fall from 21 to 2.
+- Changes with no backout plan, during an open P2 or in business hours on a tier-2
+  application are approved 0 times in 113 (15 times in the baseline).
+- Managers' time falls by more than a third.
+
+**Where it does not:**
+- It recommends approving all 56 changes after repeated failures. The simulated managers
+  approved 9 either way: the blind spot made outcomes no worse, but no better.
+- Short-notice changes are referred on, which leaves managers where the baseline was: 17 of
+  26 approved either way.
+
+These results rest on the scenario's stated reviewer and AI-assistance assumptions, not on
+measured behaviour.
+

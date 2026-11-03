@@ -610,6 +610,10 @@ The IT operations base processes:
 The handlers need `itops:manage` to start and `itops:read` to read executions. Fixtures
 provide a new tier-2 application. See [itops.md](itops.md).
 
+WF-1050 **v2** (Phase 60) reads the change profile (`itops.change_profile`) after a normal
+change is raised and asks the AGB Change Review Assistant (`ai.review`, advisory) before the
+manager decides (`change-approvals`). It also takes the window's start hour.
+
 ### Authoring
 
 - **UI** — Workflow Explorer → Catalogue: stored workflows are badged *Stored* (and

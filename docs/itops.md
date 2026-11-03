@@ -105,6 +105,33 @@ the page.
 The handlers need `itops:manage` to start and `itops:read` to read executions. Their
 generated tests take a new tier-2 application from a fixture, so the freeze never applies.
 
+## Simulation workload and AI tool (Phase 60)
+
+The `change_approvals` workload drives WF-1050 v2 (scenario `change-approvals`).
+- **Cases:** each case has its own tier-2 or tier-3 application. The history the case needs
+  is booked through the real IT operations service, dated against the scenario's
+  simulated day: earlier changes (failed ones with their incidents resolved and closed), or
+  an incident still open. The workflow then raises a normal change, with the window's start
+  hour, and a department manager (`itops:approve`) approves or rejects it.
+- **Ground truth:**
+  - approved: routine changes out of hours, daytime changes to tier-3 applications, and
+    changes raised at short notice for the small hours;
+  - rejected: a change with no backout plan, a change to an application with a P2 still
+    open, a business-hours window on a tier-2 application, and another change to an
+    application whose last changes kept failing.
+- **`itops.change_profile`** (also a library handler) reads:
+  - the kind, risk and the application's tier, and whether there is a backout plan;
+  - the window's length, start hour and lead time, business hours and the freeze;
+  - the application's open P1 and P2 incidents;
+  - the changes to the application in the 90 days before and how many failed, and the
+    requester's failed changes.
+- **AGB Change Review Assistant** (`agb-change-assistant`): advisory. It is blind to failure
+  history; see [ai-testing.md](ai-testing.md) for its rules and the measurement.
+
+`itops.raise_change` takes an optional start hour (`start_hour_path`, 22:00 UTC when not
+given). It also accepts an empty backout plan, which the service rates one level riskier;
+before Phase 60 the handler refused one as a missing value.
+
 ## Permissions
 
 | Permission | Roles | What it allows |
@@ -123,4 +150,4 @@ generated tests take a new tier-2 application from a fixture, so the freeze neve
   a third party.
 - **No problem records:** a P1's review is free text; recurring incidents are not linked.
 - **A change's window is not enforced** when it is implemented.
-- **Not simulated yet:** no workload drives these workflows.
+- **Only change approvals are simulated** (Phase 60); incidents are not.

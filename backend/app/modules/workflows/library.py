@@ -4944,6 +4944,8 @@ class RaiseChange(_Strict):
     backout_plan_path: str = Field(min_length=1, max_length=200)
     days_ahead_path: str = Field(min_length=1, max_length=200)
     hours_path: str = Field(min_length=1, max_length=200)
+    # The window's start hour (UTC); 22:00 when not given (Phase 60).
+    start_hour_path: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 def _change_out(db, change) -> dict[str, Any]:
@@ -4970,6 +4972,7 @@ def _change_out(db, change) -> dict[str, Any]:
         params.backout_plan_path,
         params.days_ahead_path,
         params.hours_path,
+        *([params.start_hour_path] if params.start_hour_path else []),
     ],  # fmt: skip
     effect="writes",
     fixtures=lambda params: {params.application_number_path: "itops.application_number"},
@@ -4982,12 +4985,17 @@ def _raise_change(ctx: StepContext, params: RaiseChange) -> dict[str, Any]:
 
     app = _trade_call("application_not_found", itops.find_application, ctx.db,
                       str(_required(ctx, params.application_number_path)))  # fmt: skip
+    hour = ctx.get(params.start_hour_path, None) if params.start_hour_path else None
+    hour = 22 if hour is None else int(hour)
+    if not 0 <= hour <= 23:
+        raise StepError("invalid_value", "The start hour is 0 to 23.",
+                        {"path": params.start_hour_path})  # fmt: skip
     start = (ctx.now + timedelta(days=int(_required(ctx, params.days_ahead_path)))).replace(
-        hour=22, minute=0, second=0, microsecond=0)  # fmt: skip
+        hour=hour, minute=0, second=0, microsecond=0)  # fmt: skip
     change = _trade_call(
         "change_refused", itops.raise_change, ctx.db, app,
         title=str(_required(ctx, params.title_path)), kind=str(_required(ctx, params.kind_path)),
-        backout_plan=str(_required(ctx, params.backout_plan_path)), planned_start=start,
+        backout_plan=str(ctx.get(params.backout_plan_path, None) or ""), planned_start=start,
         planned_end=start + timedelta(hours=int(_required(ctx, params.hours_path))),
         requested_by=ctx.initiator_id, now=ctx.now,
     )  # fmt: skip
@@ -5043,3 +5051,26 @@ def _reject_change(ctx: StepContext, params: ChangeDecision) -> dict[str, Any]:
                          _change_request(ctx, params.change_id_path), decider,
                          False)  # fmt: skip
     return _change_out(ctx.db, change)
+
+
+class ChangeRef(_Strict):
+    change_id_path: str = Field(min_length=1, max_length=200)
+
+
+@_library_handler(
+    "itops.change_profile",
+    "Read what an approver weighs before approving a change: kind, risk and tier, the "
+    "backout plan, the window's length, start hour and lead time, business hours and the "
+    "freeze, the application's open P1 and P2 incidents, and failed changes in 90 days.",
+    ChangeRef,
+    "{kind, risk, tier, has_backout_plan, window_hours, start_hour_utc, business_hours, "
+    "lead_hours, in_freeze, open_major_incidents, app_failed_changes_90d, app_changes_90d, "
+    "requester_failed_changes_90d}",
+    reads=lambda params: [params.change_id_path],
+    effect="reads",
+    **ITOPS_ACCESS,
+)
+def _change_profile(ctx: StepContext, params: ChangeRef) -> dict[str, Any]:
+    from app.modules.itops import service as itops
+
+    return itops.change_profile(ctx.db, _change_request(ctx, params.change_id_path))

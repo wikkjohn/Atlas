@@ -939,3 +939,38 @@ register_scenario(
         ),
     )
 )
+
+register_scenario(
+    Scenario(
+        scenario_id="change-approvals",
+        version=1,
+        name="Change approvals (IT operations)",
+        description="A working day of normal change requests through WF-1050 v2: a department "
+        "manager approves or rejects each. Routine changes out of hours, daytime changes to "
+        "tier-3 applications and changes raised at short notice for the small hours are "
+        "approved; a change with no backout plan, a change to an application with a P2 still "
+        "open, a business-hours window on a tier-2 application and another change to an "
+        "application whose last changes kept failing are rejected. In AI-assisted runs the "
+        "AGB Change Review Assistant advises the manager (Phase 60).",
+        workload="change_approvals",
+        workflow_id="WF-1050",
+        workflow_version=2,
+        simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+        config=ScenarioConfig(
+            arrival_window_hours=8.0,
+            document_delay_hours=None,
+            mix={
+                "routine": 0.24,
+                "tier3_daytime": 0.10,
+                "short_notice": 0.10,
+                "no_backout": 0.12,
+                "during_incident": 0.12,
+                "business_hours": 0.14,
+                "serial_failures": 0.18,
+            },
+            reviewers={"approval": ReviewerModel(mean_minutes=20, accuracy=0.85)},
+            staff_mix={"teller": 0.6, "manager": 0.4},
+            ai_assistance=AIAssistanceModel(),
+        ),
+    )
+)

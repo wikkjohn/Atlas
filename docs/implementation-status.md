@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 65.
+Last updated: Phase 66.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -70,6 +70,36 @@ Last updated: Phase 65.
 | 63 | Enterprise applications, step 1: the application registry ([itops.md](itops.md)) | **Complete** |
 | 64 | Enterprise applications, step 2: the generic simulated application and outages ([itops.md](itops.md)) | **Complete** |
 | 65 | Enterprise applications, step 3: the application ↔ workflow dependency graph ([itops.md](itops.md)) | **Complete** |
+| 66 | Enterprise applications, step 4: workflow steps call their applications ([itops.md](itops.md)) | **Complete** |
+
+## Phase 66: what exists
+
+- **The application gateway** (`app/modules/itops/gateway.py`):
+  - before each service or AI step's handler, the engine makes the step's application calls
+    (the Phase 65 links) through the simulated application, at the step's time;
+  - an application down, or one waiting synchronously on it, fails the step as
+    `application_unavailable`; the step is retried under its policy, so it is delayed, or
+    it fails or takes `on_failure`;
+  - otherwise the calls' latencies are added to the step's duration and listed on its
+    `step.completed` event.
+- **Deterministic by default:** only outages fail calls; `gateway.realistic()` adds each
+  application's error rate and timeouts.
+- **PR #56 (Phase 65):** no review comments. The Frontend check failed once on a race in
+  the sign-in redirect test, which this PR does not touch: the heading could render before
+  the page's request. Fixed by waiting for the request; CI then passed.
+
+## Phase 66: verified results
+
+RESULTS66_PLACEHOLDER
+
+## Phase 66: known limitations
+
+- **Coarse calls:** every step of a namespace calls all its core systems.
+- **No page change:** a failed step shows its `application_unavailable` error where any
+  step error shows; the calls are on the step's event, not displayed.
+- **Outages are declared by people** (or by scripts); a scenario cannot declare its own yet
+  (step 5).
+- **About 7 % slower simulations** for the calls (one outage query per step's moment).
 
 ## Phase 65: what exists
 

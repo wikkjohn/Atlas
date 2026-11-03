@@ -245,7 +245,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 65: steps linked to core systems by handler and to estate applications by
       domain; the workflows an outage stops, by department; wiring measured; see
       `itops.md`)
-- [ ] Workflows call applications through the step library, so outages cause real delays
+- [x] Workflows call applications through the step library, so outages cause real delays
+      (Phase 66: the engine makes each step's application calls before its handler; an
+      outage fails the step, which is retried and so delayed, or fails; latencies add to
+      step durations; see `itops.md`)
 - [ ] Outage scenarios in the simulation engine
 - [ ] **Exit:** 2,500 applications generated and wired; one outage's impact measured
 
@@ -348,4 +351,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 63 (E1) | Milestone E, step 1: the application registry — owner, technology, hosting, vendor, dependencies without cycles, impact analysis, a deterministic 2,500-application estate generator | complete |
 | Phase 64 (E2) | Milestone E, step 2: the generic simulated-application adapter — read and write calls, latency by technology and hosting, errors by tier, timeouts, down and degraded outages spreading through synchronous links, with incidents | complete |
 | Phase 65 (E3) | Milestone E, step 3: the application ↔ workflow dependency graph — steps linked to core systems by handler and to estate applications by domain, thirteen new core systems, the workflows an outage stops, wiring measured | complete |
-| Phase 66 (E4, proposed) | Milestone E, step 4: workflow steps call their applications as they run, through the step library, so an outage fails or delays real executions | next |
+| Phase 66 (E4) | Milestone E, step 4: workflow steps call their applications as they run — an outage fails the step, retried and so delayed, or failed; latencies added to step durations | complete |
+| Phase 67 (E5, proposed) | Milestone E, step 5: outage scenarios in the simulation engine — outages declared by a scenario on its own timeline, and their cost measured | next |

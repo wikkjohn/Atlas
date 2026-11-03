@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 67.
+Last updated: Phase 68.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -72,6 +72,31 @@ Last updated: Phase 67.
 | 65 | Enterprise applications, step 3: the application ↔ workflow dependency graph ([itops.md](itops.md)) | **Complete** |
 | 66 | Enterprise applications, step 4: workflow steps call their applications ([itops.md](itops.md)) | **Complete** |
 | 67 | Enterprise applications, step 5: outage scenarios ([simulation.md](simulation.md)) | **Complete** |
+| 68 | Enterprise applications, step 6: the Milestone E exit ([itops.md](itops.md)) — roadmap Milestone E complete | **Complete** |
+
+## Phase 68: what exists
+
+- **The Enterprise Data Warehouse,** the 26th core system. It is fed in batch by every
+  application nothing else relies on (`estate.wire`), and called by finance steps, so all
+  2,526 applications on the development database are wired. The feeds change no outage's
+  impact, because batch feeds fail no call.
+- **The exit check** (`GET /itops/estate/exit`, `estate exit`, a line on the registry panel):
+  2,500 generated, none unwired, an outage's cost measured. **It passes: Milestone E is
+  complete.**
+- **PR #58 (Phase 67)** had no review comments; CI passed on the first run.
+
+## Phase 68: verified results
+
+RESULTS68_PLACEHOLDER
+
+## Phase 68: known limitations
+
+- **The warehouse is a modelling device:** a bank's warehouse is fed by most of its
+  systems, but here it is fed only by those nothing else relies on, to wire the estate.
+- **Wiring through a batch feed is weak:** an outage of one of those applications fails no
+  workflow; it would only make the warehouse's data late, which is not modelled.
+- **The exit's outage check takes any completed run with an outage's cost;** it does not
+  check that the outage stopped anything.
 
 ## Phase 67: what exists
 
@@ -117,7 +142,8 @@ Found while building it:
 - **The cases that fail are not re-run** after the outage: nothing resubmits them.
 - **An outage scenario copies its base scenario's day;** outages cannot be set when a run
   is started, only in a scenario.
-- **Wiring is still 44 %:** the Milestone E exit (2,500 applications wired) is next.
+- **Wiring is still 44 %:** the Milestone E exit (2,500 applications wired) is next
+  (Phase 68 wired all of them).
 
 ## Phase 66: what exists
 

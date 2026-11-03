@@ -17,7 +17,7 @@ import uuid
 from collections import Counter, defaultdict, deque
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, true
 from sqlalchemy.orm import Session
 
 from app.core.audit import record_audit_event
@@ -242,9 +242,11 @@ def generate_estate(db: Session, count: int, seed: int,
     existing = {a.name: a for a in db.execute(
         select(Application).where(Application.generated_from == tag)).scalars()}  # fmt: skip
     # The hand-registered catalogue (the seeded core systems) can be relied on as well.
+    # The warehouse (Phase 68) is fed by the estate, never relied on by it: no cycle.
     pool: list[tuple[uuid.UUID, int]] = [(a.id, a.tier) for a in db.execute(
         select(Application).where(Application.generated_from.is_(None),
-                                  Application.status == "active")
+                                  Application.status == "active",
+                                  Application.name != WAREHOUSE)
         .order_by(Application.application_number)).scalars()]  # fmt: skip
     techs = [t for t, _, _ in TECHNOLOGIES]
     tech_weights = [w for _, w, _ in TECHNOLOGIES]
@@ -309,6 +311,7 @@ def generate_estate(db: Session, count: int, seed: int,
         pool.append((app.id, tier))
     db.add_all(new_edges)
     db.flush()
+    feeds = wire(db, actor_id)["feeds_added"] if _warehouse(db) else 0
     seconds = round(time.perf_counter() - started, 2)
     record_audit_event(db, actor_id=actor_id, action="itops.estate_generated",
                        entity_type="application", entity_id=None,
@@ -316,7 +319,7 @@ def generate_estate(db: Session, count: int, seed: int,
                                  "dependencies": added, "seconds": seconds})  # fmt: skip
     return {"generator": tag, "requested": count, "created": len(created),
             "existing": count - len(created), "dependencies_added": added,
-            "seconds": seconds}  # fmt: skip
+            "warehouse_feeds_added": feeds, "seconds": seconds}  # fmt: skip
 
 
 def summary(db: Session) -> dict[str, Any]:
@@ -343,3 +346,40 @@ def summary(db: Session) -> dict[str, Any]:
         "by_tier": grouped(Application.tier), "by_technology": grouped(Application.technology),
         "by_hosting": grouped(Application.hosting),
     }  # fmt: skip
+
+
+# --- Wiring (Phase 68, the Milestone E exit) ------------------------------------------------
+
+WAREHOUSE = "Enterprise Data Warehouse"
+
+
+def _warehouse(db: Session) -> Application | None:
+    return db.execute(select(Application).where(Application.name == WAREHOUSE,
+                                                Application.status == "active")
+                      ).scalar_one_or_none()  # fmt: skip
+
+
+def wire(db: Session, actor_id: uuid.UUID | None = None) -> dict[str, Any]:
+    """Feed the Enterprise Data Warehouse from every application nothing else relies on.
+
+    A generated application relies only on ones generated before it, so the last ones are
+    relied on by nothing, and no workflow reaches them unless a step happens to call them.
+    The warehouse takes a nightly batch feed from each: every application is then either
+    such a top or relied on, directly or not, by one, so a workflow that calls the warehouse
+    depends on the whole estate. Batch feeds do not fail calls (Phase 64), so an outage of
+    one of these applications stops nothing through the warehouse. Idempotent."""
+    warehouse = _warehouse(db)
+    if warehouse is None:
+        raise NotFoundError(f"No {WAREHOUSE}; it comes with the seeded catalogue.")
+    relied_on = {d for _, d in _edges(db)}
+    tops = list(db.execute(select(Application).where(
+        Application.status == "active", Application.id != warehouse.id,
+        Application.id.not_in(relied_on) if relied_on else true())
+        .order_by(Application.application_number)).scalars())  # fmt: skip
+    for app in tops:
+        db.add(ApplicationDependency(application_id=warehouse.id, depends_on_id=app.id,
+                                     kind="batch"))  # fmt: skip
+    db.flush()
+    if tops:
+        _audit(db, actor_id, "itops.estate_wired", warehouse, feeds_added=len(tops))
+    return {"warehouse": warehouse.application_number, "feeds_added": len(tops)}

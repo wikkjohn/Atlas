@@ -187,3 +187,13 @@ export interface EstateWiring {
   wired: number;
   unwired: number;
 }
+
+/** Phase 68: roadmap Milestone E's exit. */
+export interface MilestoneExit {
+  passed: boolean;
+  checks: { generated: boolean; wired: boolean; outage_measured: boolean };
+  target: number;
+  generated: number;
+  wiring: EstateWiring;
+  outage: { run_number: number; scenario_id: string; cases: number; outages: string[]; executions_failed: number; executions_delayed: number } | null;
+}

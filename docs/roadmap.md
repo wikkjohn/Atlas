@@ -253,7 +253,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 67: a scenario's outages on its own timeline, scoped to its run, and their
       cost in failed and delayed executions; `retail-onboarding-outage` and
       `domestic-payments-outage`; see `simulation.md`)
-- [ ] **Exit:** 2,500 applications generated and wired; one outage's impact measured
+- [x] **Exit:** 2,500 applications generated and wired; one outage's impact measured
+      (Phase 68: the Enterprise Data Warehouse fed by every application nothing relies on,
+      so all 2,526 are wired; an outage scenario's cost measured; the exit check passes —
+      **Milestone E complete**)
 
 ## Milestone F — Workforce and customers at full scale
 
@@ -356,4 +359,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 65 (E3) | Milestone E, step 3: the application ↔ workflow dependency graph — steps linked to core systems by handler and to estate applications by domain, thirteen new core systems, the workflows an outage stops, wiring measured | complete |
 | Phase 66 (E4) | Milestone E, step 4: workflow steps call their applications as they run — an outage fails the step, retried and so delayed, or failed; latencies added to step durations | complete |
 | Phase 67 (E5) | Milestone E, step 5: outage scenarios — a scenario's outages on its own timeline, scoped to its run, their cost in failed and delayed executions; two outage scenarios | complete |
-| Phase 68 (E6, proposed) | Milestone E exit: 2,500 applications generated and wired (from 44 % wired today), one outage's impact measured end to end | next |
+| Phase 68 (E6) | Milestone E exit: the Enterprise Data Warehouse fed by every application nothing relies on, all 2,526 applications wired, an outage's cost measured, the exit check — Milestone E complete | complete |
+| Phase 69 (F1, proposed) | Milestone F, step 1: the employee generator — 150,000 staff by department and country, roles, grades and skills | next |

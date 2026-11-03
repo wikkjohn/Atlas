@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
 import type { Page } from "@/types/enterprise";
-import type { AppContract, Application, ApplicationDetail, ApplicationWorkflows, CallSample, EstateWiring, ChangeRequest, EstateSummary, Incident, ItopsSummary, Outage } from "@/types/itops";
+import type { AppContract, Application, ApplicationDetail, ApplicationWorkflows, CallSample, EstateWiring, MilestoneExit, ChangeRequest, EstateSummary, Incident, ItopsSummary, Outage } from "@/types/itops";
 
 const BASE = "/api/v1/itops";
 
@@ -60,3 +60,4 @@ export const useEndOutage = () => useAction((id: string) => apiPost<Outage>(`${B
 export const useApplicationWorkflows = (id: string) =>
   useQuery({ queryKey: ["itops", "workflows", id], queryFn: () => apiGet<ApplicationWorkflows>(`${BASE}/applications/${id}/workflows`), enabled: id.length > 0 });
 export const useEstateWiring = () => useQuery({ queryKey: ["itops", "wiring"], queryFn: () => apiGet<EstateWiring>(`${BASE}/estate/wiring`) });
+export const useMilestoneExit = () => useQuery({ queryKey: ["itops", "exit"], queryFn: () => apiGet<MilestoneExit>(`${BASE}/estate/exit`) });

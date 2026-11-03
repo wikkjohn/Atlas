@@ -66,6 +66,9 @@ CATALOGUE = (
     ("Procurement Suite", "Vendors, purchase orders and invoices", "Procurement", 3),
     ("IT Service Management", "Incidents, changes and the application registry",
      "IT Operations", 2),
+    # Phase 68: fed nightly by every application nothing else relies on (estate.wire).
+    ("Enterprise Data Warehouse", "Nightly feeds from across the estate, for reporting and "
+     "finance", "Finance", 2),
 )  # fmt: skip
 
 
@@ -123,6 +126,7 @@ CORE_PROFILES = {
     "HR System": ("saas", "saas"),
     "Procurement Suite": ("saas", "saas"),
     "IT Service Management": ("saas", "saas"),
+    "Enterprise Data Warehouse": ("oracle-plsql", "private_cloud"),
 }
 CORE_DEPENDENCIES = (
     ("Payments Gateway", "Core Banking Ledger", "api"),
@@ -187,6 +191,10 @@ def ensure_applications(db: Session) -> int:
             db.add(ApplicationDependency(application_id=app.id, depends_on_id=depends_on.id,
                                          kind=kind))  # fmt: skip
     db.flush()
+    from app.modules.itops import estate
+
+    if estate.WAREHOUSE in existing:  # Phase 68: fed by every application nothing relies on
+        estate.wire(db)
     return added
 
 

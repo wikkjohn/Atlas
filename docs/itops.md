@@ -169,7 +169,7 @@ names the core systems it uses:
 | `retail.*` | Retail Banking Platform, Core Banking Ledger | Channels |
 | `mortgages.*`, `commercial.*` | Mortgage Platform, Commercial Lending Platform | Lending |
 | `trade.*`, `treasury.*`, `wealth.*`, `risk.*` | Trade Finance System, Treasury Dealing System, Wealth Platform, Risk Engine | Trade, Treasury, Wealth, Risk |
-| `finance.*` | Core Banking Ledger, Regulatory Reporting | Finance |
+| `finance.*` | Core Banking Ledger, Regulatory Reporting, Enterprise Data Warehouse (Phase 68) | Finance |
 | `service.*`, `collections.*` | Service Desk CRM, Collections System | Customer, Collections |
 | `hr.*`, `procurement.*`, `itops.*` | HR System, Procurement Suite, IT Service Management | HR, Procurement, Data |
 | `backoffice.*`, `ai.*` | Workflow Factory, AI Innovation Lab Console | Reporting, Data |
@@ -213,8 +213,45 @@ thirteen new core systems, so 2,525.
 
 **Why only 44 % is wired.** A generated application relies only on applications generated
 before it (Phase 63), so the most recently generated ones are wired only when a step calls
-them directly. Wiring the rest is for step 4, where workflows call applications as they
-run.
+them directly. Phase 68 wires the rest (below).
+
+## The Milestone E exit (Phase 68)
+
+**The Enterprise Data Warehouse.**
+- A core system (Finance, tier 2), the 26th.
+- It takes a nightly **batch feed** from every application nothing else relies on: the most
+  recently generated applications, and core systems such as Online Banking.
+- Every application is then either fed to the warehouse or relied on, directly or not, by
+  one that is.
+- Finance steps (`finance.*`) call the warehouse, so the bank's workflows depend on the whole
+  estate.
+
+`estate.wire` adds the feeds:
+- the seeded catalogue (`ensure_applications`) and the estate generator call it, and so do
+  `POST /itops/estate/wire` and `python -m app.cli estate wire`;
+- it is idempotent: a second run adds nothing.
+
+The warehouse is never relied on, so the feeds make no cycle: the generator leaves it out
+of the applications it may depend on.
+
+**Batch feeds fail no call** (Phase 64), so the warehouse changes nobody's outage impact.
+The Core Banking Ledger down still fails 1,248 applications and stops 117 workflows.
+
+**The exit check** (`GET /itops/estate/exit`, `python -m app.cli estate exit`, and the line
+on the registry panel) passes when:
+- **generated:** at least 2,500 applications are generated;
+- **wired:** none is unwired;
+- **outage measured:** a completed simulation run carries an outage's cost (Phase 67).
+
+Measured on the development database:
+
+| Measure | Result |
+| --- | --- |
+| Warehouse feeds added | 947, all batch, in 4.4 s (adding the warehouse and wiring together) |
+| Applications | 2,526 (2,500 generated and 26 core systems) |
+| Wired | 2,526 of 2,526; 341 called directly by 544 steps of 119 workflows |
+| Outage measured | run #10, `domestic-payments-outage`: 19 of 300 executions failed |
+| **Exit check** | **passed** |
 
 ## Workflows call their applications (Phase 66)
 

@@ -523,6 +523,8 @@ first, paginated.
 | POST | `/api/v1/itops/outages/{id}/end` | `itops:manage` | Phase 64: restores service now (rule `outage_not_active`) |
 | GET | `/api/v1/itops/applications/{id}/workflows` | `itops:read` | Phase 65: `{calls, workflows, outage}`: the workflows that call it with their steps, and what its outage stops (`applications_failing`, `workflows_stopped`, `workflows_linked`, `steps_stopped`, `by_department`, each workflow with the applications it fails through) |
 | GET | `/api/v1/itops/workflows/{workflow_id}/applications` | `itops:read` | Phase 65: the applications the latest active version's steps call, core or estate; 404 when none |
+| GET | `/api/v1/itops/estate/exit` | `itops:read` | Phase 68: the Milestone E exit, `{passed, checks: {generated, wired, outage_measured}, target, generated, wiring, outage}` |
+| POST | `/api/v1/itops/estate/wire` | `itops:approve_major` | Phase 68: feeds the Enterprise Data Warehouse from every application nothing relies on; idempotent; `{warehouse, feeds_added}` |
 | GET | `/api/v1/itops/estate/wiring` | `itops:read` | Phase 65: workflows and steps linked, applications called directly, wired and not |
 | GET | `/api/v1/itops/estate/summary` | `itops:read` | Phase 63: applications, generated, dependencies, unconnected; by tier, technology and hosting |
 | POST | `/api/v1/itops/applications` | `itops:approve_major` | `{name, description?, department_id, tier}` (rule `tier_invalid`; 409 for a name in use) |

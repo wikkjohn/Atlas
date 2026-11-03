@@ -233,7 +233,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
 
 ## Milestone E — 2,500 simulated enterprise applications
 
-- [ ] Application registry: department, owner, criticality, technology, dependencies
+- [x] Application registry: department, owner, criticality, technology, dependencies
+      (Phase 63: owner, technology, hosting and vendor on each application, dependencies
+      without cycles, impact analysis, and a deterministic 2,500-application estate
+      generator; see `itops.md`)
 - [ ] Generic simulated-application adapter: contract, latency model, failure and outages
 - [ ] Application ↔ workflow dependency graph with impact analysis
 - [ ] Workflows call applications through the step library, so outages cause real delays
@@ -336,4 +339,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 60 (D32) | IT operations, step 2: the `change-approvals` workload on stored WF-1050 v2, decided by department managers, and the AGB Change Review Assistant | complete |
 | Phase 61 (D33) | Thin departments: sixteen support departments from one registry, three processes each, 48 generated workflows WF-1100–1147, one workload with a scenario per department | complete |
 | Phase 62 (D34) | Milestone D exit: 35 departments each with three or more processes, a workload and a dashboard (coverage check and test); Customer Onboarding and Retail Lending completed (WF-1052–1054), Branch Network added (WF-1148–1150) — Milestone D complete | complete |
-| Phase 63 (E1, proposed) | Milestone E, step 1: the application registry (department, owner, criticality, technology, dependencies) built on the IT operations catalogue | next |
+| Phase 63 (E1) | Milestone E, step 1: the application registry — owner, technology, hosting, vendor, dependencies without cycles, impact analysis, a deterministic 2,500-application estate generator | complete |
+| Phase 64 (E2, proposed) | Milestone E, step 2: the generic simulated-application adapter — a contract, a latency model, failures and outages | next |

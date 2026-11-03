@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
+from pydantic import BaseModel, Field
 
 from app.core.dependencies import DbSession
 from app.core.idempotency import IdempotencyKey, run_idempotent
@@ -68,6 +69,26 @@ def create_employee(
         status_code=status.HTTP_201_CREATED,
         operation=lambda: out(service.create_employee(db, body, actor.id)),
     )
+
+
+class WorkforceIn(BaseModel):
+    count: int = Field(default=150_000, ge=1, le=250_000)
+    seed: int = Field(default=2030, ge=0)
+
+
+@router.post("/workforce/generate", summary="Generate the bank's workforce (seeded, idempotent)")
+def generate_workforce(body: WorkforceIn, db: DbSession,
+                       actor: Authorized(Permission.EMPLOYEES_MANAGE)) -> dict:  # fmt: skip
+    from app.modules.employees import workforce
+
+    return workforce.generate_workforce(db, body.count, body.seed, actor.id)
+
+
+@router.get("/workforce/summary", summary="The workforce by country, department, grade, role")
+def workforce_summary(db: DbSession, _: Authorized(Permission.EMPLOYEES_READ)) -> dict:
+    from app.modules.employees import workforce
+
+    return workforce.summary(db)
 
 
 @router.get("/{employee_id}", response_model=EmployeeOut, summary="Get an employee")

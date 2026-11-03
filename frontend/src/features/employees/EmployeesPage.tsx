@@ -21,6 +21,8 @@ import {
   useReportingChain,
   useRoles,
   useUpdateEmployee,
+  useGenerateWorkforce,
+  useWorkforce,
 } from "@/services/enterprise";
 import type { Employee, EmploymentStatus, Organization } from "@/types/enterprise";
 
@@ -380,6 +382,64 @@ function EmployeeProfile({ id, onClose, onOpen }: { id: string; onClose: () => v
   );
 }
 
+const top = (counts: Record<string, number>, n: number) =>
+  Object.entries(counts)
+    .slice(0, n)
+    .map(([k, v]) => `${humanize(k)} ${v.toLocaleString("en-US")}`)
+    .join(" · ");
+
+/** Phase 69: the workforce in numbers, and the generator for those who manage staff. */
+function WorkforcePanel() {
+  const { can } = useAuth();
+  const summary = useWorkforce();
+  const generate = useGenerateWorkforce();
+  const [form, setForm] = useState({ count: "150000", seed: "2030" });
+  const s = summary.data;
+  return (
+    <section aria-label="Workforce" className="mb-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm">
+      <ErrorMessage error={summary.error ?? generate.error} />
+      {s && (
+        <>
+          <p className="mb-1 text-sm font-semibold text-slate-900">
+            {s.employees.toLocaleString("en-US")} employees ({s.generated.toLocaleString("en-US")} generated)
+          </p>
+          <p>Countries: {top(s.countries, 8)}</p>
+          <p>Departments: {top(s.departments, 6)}</p>
+          <p aria-label="Grades">
+            Grades:{" "}
+            {Object.entries(s.grades)
+              .map(([g, n]) => `${g}: ${n.toLocaleString("en-US")}`)
+              .join(" · ")}
+          </p>
+          <p>Roles: {top(s.roles, 5)}</p>
+          <p>Top skills: {top(s.top_skills, 6)}</p>
+        </>
+      )}
+      {can("employees:manage") && (
+        <form
+          aria-label="Generate workforce"
+          className="mt-2 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            generate.mutate({ count: Number(form.count), seed: Number(form.seed) });
+          }}
+        >
+          <input aria-label="Employees to generate" type="number" min={1} max={250000} className="w-24 rounded-md border border-slate-200 px-2 py-1" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} />
+          <input aria-label="Workforce seed" type="number" min={0} className="w-20 rounded-md border border-slate-200 px-2 py-1" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })} />
+          <Button size="sm" variant="secondary" type="submit" disabled={generate.isPending}>
+            Generate workforce
+          </Button>
+          {generate.data && (
+            <span role="status">
+              {generate.data.created.toLocaleString("en-US")} created ({generate.data.existing.toLocaleString("en-US")} already there) in {generate.data.seconds} s
+            </span>
+          )}
+        </form>
+      )}
+    </section>
+  );
+}
+
 export function EmployeesPage() {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -423,6 +483,7 @@ export function EmployeesPage() {
           )
         }
       />
+      <WorkforcePanel />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <form
           role="search"

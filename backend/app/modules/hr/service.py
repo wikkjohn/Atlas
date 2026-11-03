@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.audit import record_audit_event
@@ -396,16 +396,20 @@ def leave_sweep(db: Session, on: date | None = None) -> dict[str, Any]:
     """Employees on approved leave today are on leave; those whose leave has ended are
     active again. Nobody terminated is touched."""
     on = on or _now().date()
-    away = on_leave_ids(db, on)
-    started = ended = 0
-    for employee in db.execute(
-        select(Employee).where(Employee.employment_status != EmploymentStatus.TERMINATED)
-    ).scalars():  # fmt: skip
-        if employee.id in away and employee.employment_status != EmploymentStatus.ON_LEAVE:
-            employee.employment_status, started = EmploymentStatus.ON_LEAVE.value, started + 1
-        elif employee.id not in away and employee.employment_status == EmploymentStatus.ON_LEAVE:
-            employee.employment_status, ended = EmploymentStatus.ACTIVE.value, ended + 1
     db.flush()
+    # Set-based (Phase 69): with 150,000 employees, loading each one took minutes.
+    away = (select(LeaveRequest.employee_id).where(
+        LeaveRequest.status == LeaveStatus.APPROVED,
+        LeaveRequest.start_date <= on, LeaveRequest.end_date >= on))  # fmt: skip
+    started = db.execute(update(Employee).where(
+        Employee.employment_status == EmploymentStatus.ACTIVE, Employee.id.in_(away))
+        .values(employment_status=EmploymentStatus.ON_LEAVE.value)
+        .execution_options(synchronize_session="fetch")).rowcount  # fmt: skip
+    ended = db.execute(update(Employee).where(
+        Employee.employment_status == EmploymentStatus.ON_LEAVE, Employee.id.not_in(away))
+        .values(employment_status=EmploymentStatus.ACTIVE.value)
+        .execution_options(synchronize_session="fetch")).rowcount  # fmt: skip
+    away = on_leave_ids(db, on)
     return {"swept_on": on.isoformat(), "on_leave": len(away), "started": started,
             "ended": ended}  # fmt: skip
 

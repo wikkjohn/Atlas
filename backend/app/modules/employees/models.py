@@ -1,7 +1,17 @@
 import uuid
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Sequence, String, Uuid
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Sequence,
+    SmallInteger,
+    String,
+    Uuid,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -31,6 +41,7 @@ class Employee(UUIDPrimaryKey, Timestamps, Base):
         CheckConstraint("annual_compensation >= 0", name="compensation_non_negative"),
         CheckConstraint("manager_id IS NULL OR manager_id <> id", name="not_own_manager"),
         CheckConstraint("compensation_currency ~ '^[A-Z]{3}$'", name="currency_format"),
+        CheckConstraint("grade IS NULL OR grade BETWEEN 1 AND 10", name="grade_valid"),
     )
 
     employee_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
@@ -60,6 +71,11 @@ class Employee(UUIDPrimaryKey, Timestamps, Base):
     # Integer minor units (e.g. cents) of compensation_currency. Never floating point.
     annual_compensation: Mapped[int] = mapped_column(BigInteger, nullable=False)
     compensation_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    # The workforce (Phase 69): a grade from 1 (entry) to 10, skills, and the generator run.
+    grade: Mapped[int | None] = mapped_column(SmallInteger, nullable=True, index=True)
+    skills: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list,
+                                              server_default=text("'[]'::jsonb"))  # fmt: skip
+    generated_from: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
 
     organization: Mapped[Organization] = relationship(foreign_keys=[organization_id], lazy="joined")
     department: Mapped[Organization] = relationship(foreign_keys=[department_id], lazy="joined")

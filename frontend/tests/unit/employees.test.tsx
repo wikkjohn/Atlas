@@ -16,10 +16,42 @@ function routes(list = [manager, analyst]) {
     "GET /api/v1/employees/emp-2/direct-reports": () => jsonResponse([]),
     "GET /api/v1/organizations": () => jsonResponse(page([])),
     "GET /api/v1/roles": () => jsonResponse([]),
+    "GET /api/v1/employees/workforce/summary": () => jsonResponse(workforce),
   };
 }
 
+const workforce = {
+  employees: 150246,
+  generated: 150000,
+  countries: { DE: 31163, JP: 29771 },
+  departments: { "Branch Network": 94945, "Customer Onboarding": 31695 },
+  grades: { "1": 40907, "2": 40953, "9": 21 },
+  roles: { banking_employee: 127989, department_manager: 89 },
+  statuses: { active: 147238, on_leave: 3008 },
+  top_skills: { "account-opening": 47266, "cash-handling": 35850 },
+};
+
 describe("Employees page", () => {
+  it("shows the workforce in numbers and generates it for those who manage staff", async () => {
+    const api = mockApi({ ...routes(), "POST /api/v1/employees/workforce/generate": () => jsonResponse({ created: 150000, existing: 0, seconds: 37 }) });
+    renderApp("/employees");
+    const panel = await screen.findByRole("region", { name: "Workforce" });
+    expect(await within(panel).findByText("150,246 employees (150,000 generated)")).toBeInTheDocument();
+    expect(within(panel).getByLabelText("Grades")).toHaveTextContent("Grades: 1: 40,907 · 2: 40,953 · 9: 21");
+    expect(panel).toHaveTextContent("Departments: Branch Network 94,945");
+    const form = within(panel).getByRole("form", { name: "Generate workforce" });
+    await userEvent.click(within(form).getByRole("button", { name: "Generate workforce" }));
+    expect(await within(form).findByRole("status")).toHaveTextContent("150,000 created (0 already there) in 37 s");
+    expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({ count: 150000, seed: 2030 });
+  });
+
+  it("does not offer to generate the workforce without employees:manage", async () => {
+    mockApi({ ...routes(), ...authRoutes({ ...employeeUser, permissions: ["employees:read"] }) });
+    renderApp("/employees");
+    expect(await screen.findByRole("region", { name: "Workforce" })).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Generate workforce" })).not.toBeInTheDocument();
+  });
+
   it("formats compensation in the employee's currency", async () => {
     mockApi(routes());
     renderApp("/employees");

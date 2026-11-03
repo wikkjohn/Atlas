@@ -66,6 +66,8 @@ def to_out(employee: Employee, *, include_compensation: bool) -> EmployeeOut:
         employment_status=employee.employment_status,
         annual_compensation=employee.annual_compensation if include_compensation else None,
         compensation_currency=employee.compensation_currency if include_compensation else None,
+        grade=employee.grade,
+        skills=employee.skills or [],
         created_at=employee.created_at,
         updated_at=employee.updated_at,
     )

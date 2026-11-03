@@ -5074,3 +5074,136 @@ def _change_profile(ctx: StepContext, params: ChangeRef) -> dict[str, Any]:
     from app.modules.itops import service as itops
 
     return itops.change_profile(ctx.db, _change_request(ctx, params.change_id_path))
+
+
+# --- Thin departments (Phase 61) ---------------------------------------------------------------
+
+BACKOFFICE_ACCESS = {"start_permission": "departments:request",
+                     "read_permission": "departments:read"}  # fmt: skip
+
+
+class SubmitRequest(_Strict):
+    department: str = Field(min_length=1, max_length=40)
+    process: str = Field(min_length=1, max_length=40)
+    title_path: str = Field(min_length=1, max_length=200)
+    details_path: str | None = Field(default=None, min_length=1, max_length=200)
+    amount_path: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+def _department_request_out(request) -> dict[str, Any]:
+    from app.modules.backoffice import service as backoffice
+
+    return {"request_id": str(request.id), "request_number": request.request_number,
+            "status": request.status, "amount": request.amount,
+            "needs_approval": request.status == "submitted",
+            "over_budget": backoffice.over_budget(request),
+            "needs_executive": backoffice.needs_executive(request),
+            "due_at": request.due_at.isoformat()}  # fmt: skip
+
+
+@_library_handler(
+    "backoffice.submit_request",
+    "Submit a request to one of a thin department's processes: it waits for approval by "
+    "someone other than the requester, or is ready to complete when the process needs none.",
+    SubmitRequest,
+    "{request_id, request_number, status, amount, needs_approval, over_budget, "
+    "needs_executive, due_at}",
+    reads=lambda params: [
+        params.title_path,
+        *[p for p in (params.details_path, params.amount_path) if p],
+    ],
+    effect="writes",
+    **BACKOFFICE_ACCESS,
+)
+def _submit_department_request(ctx: StepContext, params: SubmitRequest) -> dict[str, Any]:
+    from app.modules.backoffice import service as backoffice
+
+    amount = _required(ctx, params.amount_path) if params.amount_path else None
+    details = ctx.get(params.details_path, None) if params.details_path else None
+    request = _trade_call(
+        "request_refused", backoffice.submit, ctx.db, params.department, params.process,
+        title=str(_required(ctx, params.title_path)), details=str(details or ""),
+        amount=int(amount) if amount is not None else None, requested_by=ctx.initiator_id,
+        now=ctx.now,
+    )  # fmt: skip
+    return _department_request_out(request)
+
+
+class DepartmentRequestRef(_Strict):
+    request_id_path: str = Field(min_length=1, max_length=200)
+
+
+class DepartmentRequestDecision(_Strict):
+    request_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _department_request(ctx: StepContext, path: str):
+    from app.modules.backoffice import service as backoffice
+
+    return backoffice.get(ctx.db, uuid.UUID(str(_required(ctx, path))))
+
+
+@_library_handler(
+    "backoffice.approve_request",
+    "Approve the request; above the process's executive threshold only an executive may.",
+    DepartmentRequestDecision,
+    "{request_id, request_number, status, amount, needs_approval, over_budget, "
+    "needs_executive, due_at}",
+    reads=lambda params: [params.request_id_path, params.decided_by_path],
+    effect="writes",
+    requires_approval=True,
+    **BACKOFFICE_ACCESS,
+)
+def _approve_department_request(ctx: StepContext,
+                                params: DepartmentRequestDecision) -> dict[str, Any]:  # fmt: skip
+    from app.modules.backoffice import service as backoffice
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    request = _trade_call("approval_refused", backoffice.decide, ctx.db,
+                          _department_request(ctx, params.request_id_path), decider, True,
+                          _holds(ctx, decider, "departments:approve_major"),
+                          now=ctx.now)  # fmt: skip
+    return _department_request_out(request)
+
+
+@_library_handler(
+    "backoffice.reject_request",
+    "Reject the request.",
+    DepartmentRequestDecision,
+    "{request_id, request_number, status, amount, needs_approval, over_budget, "
+    "needs_executive, due_at}",
+    reads=lambda params: [params.request_id_path, params.decided_by_path],
+    effect="writes",
+    **BACKOFFICE_ACCESS,
+)
+def _reject_department_request(ctx: StepContext,
+                               params: DepartmentRequestDecision) -> dict[str, Any]:  # fmt: skip
+    from app.modules.backoffice import service as backoffice
+
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    request = _trade_call("rejection_refused", backoffice.decide, ctx.db,
+                          _department_request(ctx, params.request_id_path), decider, False,
+                          now=ctx.now)  # fmt: skip
+    return _department_request_out(request)
+
+
+@_library_handler(
+    "backoffice.complete_request",
+    "Complete the approved request (or one needing no approval); late, it breaches the "
+    "process's target.",
+    DepartmentRequestRef,
+    "{request_id, request_number, status, amount, needs_approval, over_budget, "
+    "needs_executive, due_at}",
+    reads=lambda params: [params.request_id_path],
+    effect="writes",
+    **BACKOFFICE_ACCESS,
+)
+def _complete_department_request(ctx: StepContext,
+                                  params: DepartmentRequestRef) -> dict[str, Any]:  # fmt: skip
+    from app.modules.backoffice import service as backoffice
+
+    request = _trade_call("completion_refused", backoffice.complete, ctx.db,
+                          _department_request(ctx, params.request_id_path), ctx.initiator_id,
+                          ctx.now)  # fmt: skip
+    return _department_request_out(request)

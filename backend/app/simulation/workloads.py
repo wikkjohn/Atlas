@@ -3367,6 +3367,122 @@ class ChangeApprovals(Workload):
         return check
 
 
+# --- Thin departments' requests (WF-1100 to WF-1147, Phase 61) --------------------------------
+
+# Whether the manager should approve the request ("approved").
+DEPARTMENT_APPROVE = frozenset({"routine", "urgent"})
+DEPARTMENT_KINDS = DEPARTMENT_APPROVE | {"over_budget", "duplicate"}
+DEPARTMENT_SUBJECTS = ("Q3 programme", "annual renewal", "regional rollout", "pilot",
+                       "replacement", "project phase two", "audit committee request")  # fmt: skip
+
+
+class DepartmentRequests(Workload):
+    """A thin department's approval process (its first process, which carries an amount):
+    a department manager approves or rejects each request. One workload serves every thin
+    department; the scenario's workflow names the department and process.
+
+    Ground truth: routine and urgent requests within the process's budget are approved; a
+    request over the budget (but below the executive threshold, so a manager may approve
+    it) and the same request submitted again after it was completed are rejected."""
+
+    key = "department_requests"
+    workflow_id = "WF-1100"  # each scenario names its own department's workflow
+    kinds = DEPARTMENT_KINDS
+    reviewer_roles = {"approval": "manager"}
+    job_titles = {"teller": "Department Officer", "manager": "Department Manager"}
+
+    def validate(self, scenario: Scenario) -> None:
+        from app.modules.backoffice import registry
+
+        super().validate(scenario)
+        found = registry.by_workflow(scenario.workflow_id)
+        if found is None or found[1] is not found[0].processes[0]:
+            raise ValueError(f"{scenario.scenario_id}: {scenario.workflow_id} is not a thin "
+                             "department's first process")  # fmt: skip
+
+    def cases(self, sim: "_Simulation") -> list[SyntheticCase]:
+        from app.modules.backoffice import registry
+        from app.modules.backoffice import service as backoffice
+
+        db = sim.db
+        department, process = registry.by_workflow(sim.scenario.workflow_id)
+        budget = process.budget_usd * 100
+        mix = normalized(sim.config.mix)
+        base = sim.scenario.simulated_start
+        window = int(sim.config.arrival_window_hours * 3600)
+        teller, manager = sim.population_staff()
+        out: list[SyntheticCase] = []
+        for index in sim.case_indices:
+            rng = case_random(sim.seed, index, "department")
+            kind = _pick(rng, mix)
+            subject = DEPARTMENT_SUBJECTS[rng.randrange(len(DEPARTMENT_SUBJECTS))]
+            title = f"{process.name}: {subject} {sim.run_id.hex[:4]}-{index}"
+            amount = budget * rng.randint(20, 90) // 100
+            details = "Within the agreed plan."
+            if kind == "urgent":
+                details = "Needed this week: the current arrangement ends on Friday."
+            elif kind == "over_budget":
+                amount = budget * rng.randint(110, 240) // 100
+            elif kind == "duplicate":
+                # The same request, already approved and completed earlier this month.
+                asked = base - timedelta(days=rng.randint(3, 20))
+                earlier = backoffice.submit(db, department.code, process.code, title=title,
+                                            amount=amount, requested_by=teller.id,
+                                            now=asked)  # fmt: skip
+                backoffice.decide(db, earlier, manager.id, True, now=earlier.created_at)
+                backoffice.complete(db, earlier, teller.id,
+                                    earlier.created_at + timedelta(hours=4))  # fmt: skip
+            out.append(
+                SyntheticCase(
+                    index=index,
+                    kind=kind,
+                    expected_outcome="approved" if kind in DEPARTMENT_APPROVE else "rejected",
+                    arrival_offset_seconds=rng.randint(0, window),
+                    payload={"title": title, "details": details, "amount": amount},
+                )
+            )
+        db.flush()
+        return out
+
+    def check_controls(self, db: Session, run_id: uuid.UUID) -> ControlCheck:
+        """Every manager's decision against four-eyes (the initiator, who submitted the
+        request) and authority, and nothing approved without the decision."""
+        from app.modules.workflows.models import STEP_RUN_EXECUTION, WorkflowStepRun
+
+        runs = db.execute(
+            select(WorkflowStepRun, WorkflowExecution, User.role_id, User.username)
+            .join(WorkflowExecution, STEP_RUN_EXECUTION)
+            .outerjoin(User, User.id == WorkflowStepRun.actor_id)
+            .where(
+                _in_run(run_id),
+                WorkflowStepRun.step_id.in_(["approval", "approve"]),
+                WorkflowStepRun.status == "completed",
+            )
+        ).all()
+        roles = _roles(db)
+        decided: set[uuid.UUID] = set()
+        decisions = []
+        for step_run, execution, role_id, username in runs:
+            if step_run.step_id == "approval":
+                decisions.append((step_run, execution, role_id, username))
+                if (step_run.output or {}).get("approved"):
+                    decided.add(execution.id)
+        check = ControlCheck(decisions=len(decisions))
+        for step_run, execution, role_id, username in decisions:
+            if step_run.actor_id == execution.initiated_by:
+                check.violations.append({"rule": "four_eyes", "decided_by": username})
+            if Permission.DEPARTMENTS_APPROVE not in roles.get(role_id, frozenset()):
+                check.violations.append(
+                    {"rule": "decider_without_authority", "decided_by": username}
+                )
+        for step_run, execution, _, _ in runs:
+            if step_run.step_id == "approve" and execution.id not in decided:
+                check.violations.append(
+                    {"rule": "approved_without_decision", "execution_id": str(execution.id)}
+                )
+        return check
+
+
 WORKLOADS: dict[str, Workload] = {
     w.key: w
     for w in (
@@ -3390,6 +3506,7 @@ WORKLOADS: dict[str, Workload] = {
         LeaveRequests(),
         InvoicePayments(),
         ChangeApprovals(),
+        DepartmentRequests(),
     )
 }
 STAFF_ROLES = {

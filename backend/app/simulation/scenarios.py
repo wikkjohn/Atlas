@@ -974,3 +974,43 @@ register_scenario(
         ),
     )
 )
+
+
+def _thin_department_scenarios() -> None:
+    """One scenario per thin department (Phase 61), on its first process: a working day of
+    requests decided by its managers. Baseline only: these departments have no AI tool."""
+    from app.modules.backoffice.registry import DEPARTMENTS, workflow_id
+
+    for department in DEPARTMENTS:
+        process = department.processes[0]
+        register_scenario(
+            Scenario(
+                scenario_id=f"dept-{department.code.replace('_', '-')}",
+                version=1,
+                name=f"{process.name} ({department.name})",
+                description=f"A working day of {process.name.lower()} requests to "
+                f"{department.name}: a department manager approves or rejects each. Routine "
+                f"and urgent requests within the US${process.budget_usd:,} budget are "
+                "approved; requests over the budget and the same request submitted again "
+                "after it was completed are rejected (Phase 61).",
+                workload="department_requests",
+                workflow_id=workflow_id(department, process),
+                workflow_version=1,
+                simulated_start=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
+                config=ScenarioConfig(
+                    arrival_window_hours=8.0,
+                    document_delay_hours=None,
+                    mix={
+                        "routine": 0.5,
+                        "urgent": 0.2,
+                        "over_budget": 0.15,
+                        "duplicate": 0.15,
+                    },  # fmt: skip
+                    reviewers={"approval": ReviewerModel(mean_minutes=15, accuracy=0.85)},
+                    staff_mix={"teller": 0.6, "manager": 0.4},
+                ),
+            )
+        )
+
+
+_thin_department_scenarios()

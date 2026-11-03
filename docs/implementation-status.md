@@ -98,7 +98,17 @@ Last updated: Phase 70.
 
 ## Phase 71: verified results
 
-RESULTS71_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 742 passed. New: 6 tests covering: least-loaded spreading and the assignee-only rule; the initiator's manager, escalation up the line once, the fallback for a head of department; a queue task escalating to the initiator's manager, or flagged with nobody in the line; out of office and handing a task on (four-eyes, who may delegate); the API (mine, candidates, delegate, people, delegation CRUD and its permissions); unchanged definitions and the `timeout_escalate` rule |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (244.7 s on the development database); WF-1044 v3: 12 passed, steps and routes 100 % |
+| Demo on the development database (rolled back) | A generated analyst's leave request went to their team lead; the head was refused (`not_assignee`); a day later it escalated to the head, who approved it; with the lead out of office the next request went to the head. The request started in 330 ms; ranking the qualified candidates took 9 ms |
+| Frontend Vitest / typecheck / build | 164 passed (new: who a task is with and handing it over; the "assigned to me" filter; setting up and ending an out-of-office delegation) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Found while building it: `test_seed`'s demo-seed test fails when run straight after the
+workflow, HR and simulation tests in that order, on the Phase 70 code as well; it passes
+alone and in the full suite's order. A test-order dependency left as it is.
 
 ## Phase 71: known limitations
 

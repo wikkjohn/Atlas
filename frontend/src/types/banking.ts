@@ -17,6 +17,29 @@ export interface Customer {
   kyc_status: KycStatus;
   created_at: string;
   updated_at: string;
+  segment?: CustomerSegment | null; // the customer generator's segment (Phase 72)
+}
+
+export type CustomerSegment = "mass" | "student" | "affluent" | "senior" | "private" | "sme";
+
+/** Phase 72: the customer base in numbers. */
+export interface CustomerBaseSummary {
+  customers: number;
+  generated: number;
+  segments: Record<string, number>;
+  countries: Record<string, number>;
+  risk: Record<string, number>;
+  products: Record<string, number>;
+  accounts_per_customer: Record<string, number>;
+  history: Record<string, number>;
+}
+
+export interface CustomerGeneration {
+  created: number;
+  existing: number;
+  accounts: number;
+  entries: number;
+  seconds: number;
 }
 
 export type AccountType = "current" | "savings" | "business_current";

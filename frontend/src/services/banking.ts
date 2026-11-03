@@ -2,6 +2,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 
 import { apiGet, apiPost, query, useIdempotencyKey } from "@/services/api";
 import type {
+  CustomerBaseSummary,
+  CustomerGeneration,
   Account,
   AccountRequest,
   Customer,
@@ -34,6 +36,20 @@ function useInvalidateBanking() {
 }
 
 // --- Customers ---------------------------------------------------------------------------
+
+/** Phase 72: the customer base, and generating customers (customers:manage). */
+export function useCustomerBase() {
+  return useQuery({ queryKey: ["customers", "population"], queryFn: () => apiGet<CustomerBaseSummary>("/api/v1/customers/population/summary") });
+}
+
+export function useGenerateCustomers() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { count: number; seed: number; history_months: number }) =>
+      apiPost<CustomerGeneration>("/api/v1/customers/population/generate", body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["customers"] }),
+  });
+}
 
 export function useCustomers(params: Params) {
   return useQuery({

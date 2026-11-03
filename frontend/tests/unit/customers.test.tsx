@@ -5,6 +5,17 @@ import { pendingCustomer, tellerUser, verifiedCustomer } from "./banking-fixture
 import { authRoutes, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
 
+const base = {
+  customers: 1203,
+  generated: 1200,
+  segments: { mass: 660, affluent: 180, senior: 144, sme: 96, student: 96, private: 24, unsegmented: 3 },
+  countries: { US: 400, DE: 300 },
+  risk: { low: 1000, medium: 180, high: 23 },
+  products: { current: 1104, savings: 420, business_current: 96 },
+  accounts_per_customer: { "1": 780, "2": 420 },
+  history: { card: 21000, salary: 3200, housing: 3300, opening: 1620 },
+};
+
 function routes(customer = pendingCustomer) {
   return {
     ...healthyRoutes,
@@ -13,6 +24,7 @@ function routes(customer = pendingCustomer) {
     "GET /api/v1/accounts": () => jsonResponse(page([])),
     "GET /api/v1/account-requests": () => jsonResponse(page([])),
     "GET /api/v1/countries": () => jsonResponse(page([])),
+    "GET /api/v1/customers/population/summary": () => jsonResponse(base),
     [`GET /api/v1/customers/${customer.id}/eligibility`]: () =>
       jsonResponse(
         customer.kyc_status === "verified"
@@ -85,5 +97,38 @@ describe("Customers page", () => {
     const post = api.requests.find((r) => r.method === "POST");
     expect(post?.body).toEqual({ customer_id: "cus-2", account_type: "current" });
     expect(post?.headers["Idempotency-Key"]).toBeTruthy();
+  });
+
+  it("shows the customer base and generates customers (Phase 72)", async () => {
+    const api = mockApi({
+      ...routes(),
+      "POST /api/v1/customers/population/generate": () =>
+        jsonResponse({ created: 500, existing: 1200, accounts: 690, entries: 18000, seconds: 9.1 }),
+    });
+    renderApp("/customers");
+
+    const panel = await screen.findByRole("region", { name: "Customer base" });
+    expect(await within(panel).findByText("1,203 customers (1,200 generated)")).toBeInTheDocument();
+    expect(within(panel).getByText(/Segments: Mass 660 · Affluent 180/)).toBeInTheDocument();
+    expect(within(panel).getByLabelText("Accounts per customer")).toHaveTextContent("1: 780 · 2: 420");
+    expect(within(panel).getByText(/Transaction history: Card 21,000/)).toBeInTheDocument();
+
+    const count = within(panel).getByLabelText("Customers to generate");
+    await userEvent.clear(count);
+    await userEvent.type(count, "500");
+    await userEvent.clear(within(panel).getByLabelText("Months of history"));
+    await userEvent.type(within(panel).getByLabelText("Months of history"), "2");
+    await userEvent.click(within(panel).getByRole("button", { name: "Generate customers" }));
+    expect(await within(panel).findByRole("status")).toHaveTextContent("500 created (1,200 already there), 690 accounts, 18,000 entries in 9.1 s");
+    expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({ count: 500, seed: 2030, history_months: 2 });
+  });
+
+  it("does not offer the generator without customers:manage (Phase 72)", async () => {
+    mockApi({ ...routes(), ...authRoutes({ ...tellerUser, permissions: tellerUser.permissions.filter((p) => p !== "customers:manage") }) });
+    renderApp("/customers");
+
+    const panel = await screen.findByRole("region", { name: "Customer base" });
+    await within(panel).findByText(/1,203 customers/);
+    expect(within(panel).queryByRole("form", { name: "Generate customers" })).not.toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request, status
 
@@ -17,10 +17,58 @@ from app.modules.customers.schemas import (
     CustomerOut,
     CustomerReview,
     CustomerUpdate,
+    PopulationGenerate,
 )
 from app.modules.identity.dependencies import Authorized
 
 router = APIRouter(prefix="/customers", tags=["customers"])
+
+
+# --- The customer generator (Phase 72); before /{customer_id} so the paths do not clash.
+
+
+@router.post(
+    "/population/generate",
+    summary="Generate synthetic customers: segments, products and transaction history",
+)
+def generate_population(
+    body: PopulationGenerate, db: DbSession, actor: Authorized(Permission.CUSTOMERS_MANAGE)
+) -> dict[str, Any]:
+    from sqlalchemy.orm import Session
+
+    from app.config import get_settings
+    from app.core.errors import BusinessRuleViolation
+    from app.modules.identity.models import User
+    from app.simulation import customers as generator
+
+    if get_settings().environment in {"staging", "production"}:
+        raise BusinessRuleViolation(
+            "Synthetic customers are not generated in this environment.",
+            {"rule": "environment"},
+        )
+    requester = db.get(User, actor.id)
+    connection = db.connection()
+
+    def factory() -> Session:  # the generator's batches become savepoints of this request
+        return Session(bind=connection, join_transaction_mode="create_savepoint",
+                       autoflush=False, expire_on_commit=False)  # fmt: skip
+
+    # Four-eyes on the account requests: the caller requests them; the seeded department
+    # manager approves them (the administrator, when the caller is that manager).
+    approver = "admin" if requester.username == "manager" else "manager"
+    return generator.generate(factory, count=body.count, seed=body.seed,
+                              history_months=body.history_months,
+                              requested_by=requester.username, decided_by=approver)  # fmt: skip
+
+
+@router.get(
+    "/population/summary",
+    summary="The customer base in numbers: segments, countries, products, history",
+)
+def population_summary(db: DbSession, _: Authorized(Permission.CUSTOMERS_READ)) -> dict[str, Any]:
+    from app.simulation import customers as generator
+
+    return generator.summary(db)
 
 
 @router.get("", response_model=Page[CustomerOut], summary="List synthetic customers")

@@ -272,7 +272,9 @@ def _check_lines(
             {"debits": debits, "credits": credits, "difference": debits - credits},
         )
     account_ids = {line.ledger_account_id for line in lines}
-    missing = account_ids - accounts.keys()
+    # A membership test, not `account_ids - accounts.keys()`: that turns the whole dict into
+    # a set on every call, which made bulk postings quadratic (Phase 72).
+    missing = {a for a in account_ids if a not in accounts}
     if missing:
         raise BusinessRuleViolation(
             "Unknown ledger account.", {"ledger_account_ids": sorted(map(str, missing))}

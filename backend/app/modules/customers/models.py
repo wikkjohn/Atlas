@@ -63,6 +63,11 @@ class Customer(UUIDPrimaryKey, Timestamps, Base):
             "kyc_status IN ('not_started', 'pending', 'verified', 'rejected')",
             name="kyc_status_valid",
         ),
+        CheckConstraint(
+            "segment IS NULL OR segment IN "
+            "('mass', 'student', 'affluent', 'senior', 'private', 'sme')",
+            name="segment_valid",
+        ),
     )
 
     customer_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
@@ -75,6 +80,10 @@ class Customer(UUIDPrimaryKey, Timestamps, Base):
     )
     risk_rating: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     kyc_status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    # The customer generator (Phase 72): the segment it drew and the run that made the
+    # customer; None for customers onboarded one at a time.
+    segment: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    generated_from: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
 
     country: Mapped[Country] = relationship(lazy="joined")
 

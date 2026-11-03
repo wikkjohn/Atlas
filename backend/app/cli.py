@@ -680,6 +680,20 @@ def _reference(args: argparse.Namespace) -> int:
     return 0
 
 
+def _workforce(args: argparse.Namespace) -> int:
+    """The bank's workforce (Phase 69): generate it, or show it in numbers."""
+    from app.modules.employees import workforce
+
+    factory = get_sessionmaker()
+    with factory() as db:
+        if args.action == "generate":
+            result = workforce.generate_workforce(db, args.count, args.seed)
+            db.commit()
+            print(json.dumps(result, indent=2))
+        print(json.dumps(workforce.summary(db), indent=2))
+    return 0
+
+
 def _estate(args: argparse.Namespace) -> int:
     """The simulated application estate (Phase 63): generate it, or show it in numbers; how
     the workflows depend on it, and what an outage stops (Phase 65)."""
@@ -1011,6 +1025,17 @@ def main(argv: list[str] | None = None) -> int:
     estate_generate.add_argument("--count", type=int, default=2500)
     estate_generate.add_argument("--seed", type=int, default=2030)
     estate_parser.set_defaults(handler=_estate)
+    workforce_parser = commands.add_parser(
+        "workforce", help="The bank's workforce (Milestone F): generate or summarise"
+    )
+    workforce_actions = workforce_parser.add_subparsers(dest="action", required=True)
+    workforce_actions.add_parser("summary", help="Staff by country, department, grade, role")
+    workforce_generate = workforce_actions.add_parser(
+        "generate", help="Generate employees over the departments (seeded, idempotent)"
+    )
+    workforce_generate.add_argument("--count", type=int, default=150_000)
+    workforce_generate.add_argument("--seed", type=int, default=2030)
+    workforce_parser.set_defaults(handler=_workforce)
 
     country_sweep = commands.add_parser(
         "country-sweep",

@@ -260,7 +260,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
 
 ## Milestone F — Workforce and customers at full scale
 
-- [ ] Employee generator: 150,000 staff by department and country, roles, grades, skills
+- [x] Employee generator: 150,000 staff by department and country, roles, grades, skills
+      (Phase 69: weighted by department kind, a head, team leads and staff in each,
+      grades and pay in local currency, skills and languages; 150,000 in 37 s; see
+      `workforce.md`)
 - [ ] Shifts, holidays, absences and time zones in the reviewer model
 - [ ] Named task assignment, delegation and escalation routing
 - [ ] Customer generator: millions of customers, segments, products, transaction history
@@ -360,4 +363,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 66 (E4) | Milestone E, step 4: workflow steps call their applications as they run — an outage fails the step, retried and so delayed, or failed; latencies added to step durations | complete |
 | Phase 67 (E5) | Milestone E, step 5: outage scenarios — a scenario's outages on its own timeline, scoped to its run, their cost in failed and delayed executions; two outage scenarios | complete |
 | Phase 68 (E6) | Milestone E exit: the Enterprise Data Warehouse fed by every application nothing relies on, all 2,526 applications wired, an outage's cost measured, the exit check — Milestone E complete | complete |
-| Phase 69 (F1, proposed) | Milestone F, step 1: the employee generator — 150,000 staff by department and country, roles, grades and skills | next |
+| Phase 69 (F1) | Milestone F, step 1: the employee generator — staff by department and country with a hierarchy, roles, grades, local pay, skills and languages; 150,000 in 37 s | complete |
+| Phase 70 (F2, proposed) | Milestone F, step 2: shifts, holidays, absences and time zones in the reviewer model | next |

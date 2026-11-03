@@ -3,6 +3,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { apiGet, apiPatch, apiPost, query } from "@/services/api";
 import type { Job } from "@/types/jobs";
 import type {
+  WorkforceSummary,
   AuditEvent,
   Country,
   CountryRules,
@@ -255,5 +256,19 @@ export function useUpdateUser() {
     mutationFn: ({ id, ...body }: { id: string; role?: string; is_active?: boolean }) =>
       apiPatch<UserAccount>(`/api/v1/users/${id}`, body),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+/** Phase 69: the workforce summary, and generating it (employees:manage). */
+export function useWorkforce() {
+  return useQuery({ queryKey: ["employees", "workforce"], queryFn: () => apiGet<WorkforceSummary>("/api/v1/employees/workforce/summary") });
+}
+
+export function useGenerateWorkforce() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { count: number; seed: number }) =>
+      apiPost<{ created: number; existing: number; seconds: number }>("/api/v1/employees/workforce/generate", body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["employees"] }),
   });
 }

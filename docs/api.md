@@ -80,7 +80,9 @@ children or staff cannot be deactivated, and nothing can be created under an ina
 | --- | --- | --- | --- |
 | GET | `/api/v1/employees` | `employees:read` | Filters: `q`, `organization_id`, `department_id`, `country_id`, `manager_id`, `employment_status` |
 | POST | `/api/v1/employees` | `employees:manage` | Idempotent; see rules |
-| GET | `/api/v1/employees/{id}` | `employees:read` | |
+| POST | `/api/v1/employees/workforce/generate` | `employees:manage` | Phase 69: `{count, seed}` (1 to 250,000; rules `count_invalid`, `no_departments`): deterministic, idempotent per seed; see [workforce.md](workforce.md) |
+| GET | `/api/v1/employees/workforce/summary` | `employees:read` | Phase 69: totals; by country, department, grade, role and status; top skills |
+| GET | `/api/v1/employees/{id}` | `employees:read` | Phase 69 adds `grade` and `skills` to employees |
 | GET | `/api/v1/employees/{id}/direct-reports` | `employees:read` | |
 | GET | `/api/v1/employees/{id}/reporting-chain` | `employees:read` | Direct manager upwards |
 | PATCH | `/api/v1/employees/{id}` | `employees:manage` | Title, unit (transfer), manager, role, status, compensation |

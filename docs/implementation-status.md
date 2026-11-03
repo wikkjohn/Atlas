@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 68.
+Last updated: Phase 69.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -73,6 +73,31 @@ Last updated: Phase 68.
 | 66 | Enterprise applications, step 4: workflow steps call their applications ([itops.md](itops.md)) | **Complete** |
 | 67 | Enterprise applications, step 5: outage scenarios ([simulation.md](simulation.md)) | **Complete** |
 | 68 | Enterprise applications, step 6: the Milestone E exit ([itops.md](itops.md)) — roadmap Milestone E complete | **Complete** |
+| 69 | Workforce and customers, step 1: the employee generator ([workforce.md](workforce.md)) | **Complete** |
+
+## Phase 69: what exists
+
+- **The workforce generator** (`app/modules/employees/workforce.py`, migration 0046):
+  - deterministic and idempotent per seed;
+  - staff spread over every active department in every country by the department's kind;
+  - a head, team leads and staff in each department, with the department's role;
+  - grades 1 to 10 with titles and pay in the country's currency, at the FX anchor rates;
+  - skills from the department's pool, a general skill and a language of the country;
+  - bulk inserts, then the table analysed.
+- **The summary:** by country, department, grade, role, status and skill.
+- **API, CLI and page:** generate and summarise (`workforce generate|summary`); the
+  Workforce panel on the Employees page; employees now show their grade and skills.
+- **PR #59 (Phase 68)** had no review comments; CI passed on the first run.
+
+## Phase 69: verified results
+
+RESULTS69_PLACEHOLDER
+
+## Phase 69: known limitations
+
+- **The development database has five countries,** so each has about 30,000 staff.
+- **Teams are not organisational units;** grades 8 and 10 are not generated.
+- **Generated staff have no user accounts, shifts or leave records** (Milestone F step 2).
 
 ## Phase 68: what exists
 

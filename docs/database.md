@@ -41,6 +41,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0036_manual_journals` | 50 | `manual_journals` (`manual_journal_number_seq`; four-eyes check on approval) |
 | `0037_customer_service` | 51 | `service_cases` (`service_case_number_seq`; SLA due times, breaches, complaint outcome and redress with a four-eyes check), `service_case_events` (each case's timeline) |
 | `0038_collections` | 53 | `payment_plans` (`payment_plan_number_seq`; schedule as JSONB, four-eyes check on approval, one proposed or active per loan), `loan_recoveries` (`loan_recovery_number_seq`; four-eyes check on approval) |
+| `0046_workforce` | 69 | `employees` gains `grade` (1 to 10, checked; NULL before), `skills` (JSONB list) and `generated_from` (indexed) |
 | `0045_run_outages` | 67 | `application_outages.simulation_run_id`: a scenario's outage applies only to that run's executions and is deleted with the run |
 | `0044_app_outages` | 64 | `application_outages` (`application_outage_number_seq`; down or degraded, a window open-ended without an end and checked to end after it starts, the incident it opened) |
 | `0043_app_registry` | 63 | `applications` gains `owner_id`, `technology`, `hosting` (checked), `vendor` and `generated_from` (existing rows: unknown, on premise); `application_dependencies` (one per pair, not on itself, cascade from the application, restrict on the one relied on) |

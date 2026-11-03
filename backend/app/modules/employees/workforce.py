@@ -191,6 +191,9 @@ def generate_workforce(db: Session, count: int, seed: int,
         db.execute(insert(Employee), rows)
         created += len(rows)
     db.flush()
+    # Fresh planner statistics: straight after a bulk insert, queries on employees were
+    # planned for the old table (the summary took 16 s instead of 0.5 s).
+    db.execute(text("ANALYZE employees"))
     seconds = round(time.perf_counter() - started, 2)
     record_audit_event(db, actor_id=actor_id, action="employees.workforce_generated",
                        entity_type="employee", entity_id=None,

@@ -73,5 +73,7 @@ class EmployeeOut(BaseModel):
         description="Minor units; null unless the caller may read compensation."
     )
     compensation_currency: str | None
+    grade: int | None = None  # Phase 69
+    skills: list[str] = []
     created_at: datetime
     updated_at: datetime

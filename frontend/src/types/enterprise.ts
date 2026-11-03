@@ -340,3 +340,15 @@ export interface SubsidiaryBlueprint {
   usd_salary_band: [number, number];
   coverage: SubsidiaryCoverage[];
 }
+
+/** Phase 69: the workforce in numbers. */
+export interface WorkforceSummary {
+  employees: number;
+  generated: number;
+  countries: Record<string, number>;
+  departments: Record<string, number>;
+  grades: Record<string, number>;
+  roles: Record<string, number>;
+  statuses: Record<string, number>;
+  top_skills: Record<string, number>;
+}

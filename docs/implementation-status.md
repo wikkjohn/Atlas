@@ -77,6 +77,32 @@ Last updated: Phase 70.
 | 70 | Workforce and customers, step 2: reviewers' working time ([simulation.md](simulation.md)) | **Complete** |
 | 71 | Workforce and customers, step 3: task routing — named assignment, delegation, escalation ([workflows.md](workflows.md)) | **Complete** |
 | 72 | Workforce and customers, step 4: the customer generator ([customer-base.md](customer-base.md)) | **Complete** |
+| 73 | Workforce and customers, step 5: arrival patterns ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 73: what exists
+
+- **Arrival patterns** (`app/simulation/arrivals.py`, `ScenarioConfig.arrival_pattern`):
+  hour-of-day, weekday and month weights in a country's local time, and events that
+  multiply demand for a stretch of the window. The workloads' even draws are moved by the
+  inverse of the pattern's cumulative demand, so cases keep their order and every other
+  draw, and a run repeats.
+- **In the results:** `arrivals`, with cases by local hour and weekday, the busiest hour
+  against the mean, and cases per event. The Simulation Center shows them.
+- **`retail-onboarding-week`:** a week of New York demand with a Wednesday campaign.
+- Scenarios without a pattern are unchanged, digests included.
+- **PR #63 (Phase 72)** had no review comments; CI passed on the first run.
+
+## Phase 73: verified results
+
+RESULTS73_PLACEHOLDER
+
+## Phase 73: known limitations
+
+- **One country's local time per scenario;** no mix of time zones in one stream.
+- **Sharded runs** follow the pattern but report no `arrivals` section, as with staffing.
+- **The pattern moves when cases arrive, not how many:** demand above the window's case
+  count is not created by an event; it takes its share from the rest of the window.
+- **Per scenario, not per kind of case:** every kind of case follows the same pattern.
 
 ## Phase 72: what exists
 

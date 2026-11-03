@@ -568,14 +568,35 @@ class _Simulation:
         return self.tellers[0].principal, self.managers[0].principal
 
     def schedule_arrivals(self) -> None:
+        shape = None
+        if self.config.arrival_pattern is not None:
+            from app.simulation.arrivals import ArrivalShape
+
+            try:
+                shape = ArrivalShape(self.config.arrival_pattern, self.scenario.simulated_start,
+                                     int(self.config.arrival_window_hours * 3600))  # fmt: skip
+            except ValueError as exc:
+                raise SimulationSetupError(str(exc)) from exc
         for app in self.workload.cases(self):
+            drawn = app.arrival_offset_seconds if shape is None else shape.place(
+                app.arrival_offset_seconds)  # fmt: skip
             offset = business_offset(
                 self.scenario.simulated_start,
-                app.arrival_offset_seconds,
+                drawn,
                 self.config.business_calendar,
             )
             self.cases[app.index] = _Case(app=app, arrived=offset)
             self.push(offset, "arrive", app.index)
+
+    def arrivals(self) -> dict[str, Any] | None:
+        """How the cases arrived (Phase 73); None without an arrival pattern."""
+        pattern = self.config.arrival_pattern
+        if pattern is None:
+            return None
+        from app.simulation.arrivals import profile
+
+        offsets = sorted(c.arrived for c in self.cases.values())
+        return profile(pattern, self.scenario.simulated_start, offsets)
 
     # Events -------------------------------------------------------------------------------
 
@@ -1157,6 +1178,9 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
         staffing = sim.staffing()
         if staffing is not None:  # absent otherwise, so other runs' results are unchanged
             run.results = {**run.results, "staffing": staffing}
+        arrivals = sim.arrivals()
+        if arrivals is not None:  # likewise (Phase 73)
+            run.results = {**run.results, "arrivals": arrivals}
         run.result_digest = digest(rows)
         run.simulated_end = sim.clock.now
         run.wall_ms = wall_ms

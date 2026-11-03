@@ -207,6 +207,16 @@ export interface SimulationResults {
     off_shift_wait_hours: number;
     reviews_carried_over: number;
   };
+  /** Phase 73: how the cases arrived, with an arrival pattern. */
+  arrivals?: {
+    country: string;
+    by_local_hour: number[];
+    by_weekday: number[];
+    peak_hour_cases: number;
+    mean_hour_cases: number;
+    peak_to_mean: number | null;
+    events: Record<string, number>;
+  };
   /** Phase 67: the run's own application outages and what they cost it. */
   applications?: {
     outages: { application: string; application_number: string; kind: "down" | "degraded"; from: string; to: string | null }[];

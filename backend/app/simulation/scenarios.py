@@ -10,6 +10,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.simulation.arrivals import ArrivalEvent, ArrivalPattern
+
 
 class ApplicationMix(BaseModel):
     """Retail onboarding: share of each kind of synthetic application (normalized)."""
@@ -107,6 +109,9 @@ class ScenarioConfig(BaseModel):
     outages: list[ScenarioOutage] | None = None
     # Reviewers' working time (Phase 70). None: they work around the clock, as before.
     staff_schedule: StaffSchedule | None = None
+    # When in the window cases arrive (Phase 73): daily and weekly peaks, seasonality and
+    # events, in a country's local time. None: evenly over the window, as before.
+    arrival_pattern: ArrivalPattern | None = None
 
 
 class Scenario(BaseModel):
@@ -1095,4 +1100,30 @@ _schedule_scenario(
     "day. Applications arrive from 09:00 UTC, 04:00 in New York, so the first reviews wait "
     "for the morning shift.",
     StaffSchedule(country="US", shifts=[(8, 8), (12, 8)], absence_rate=0.05),
+)  # fmt: skip
+
+
+def _arrival_scenario(base_id: str, base_version: int, scenario_id: str, name: str,
+                      description: str, window_hours: float,
+                      pattern: ArrivalPattern) -> None:  # fmt: skip
+    """A scenario's cases arriving over a longer window in a real pattern (Phase 73)."""
+    base = get_scenario(base_id, base_version)
+    assert base is not None
+    register_scenario(base.model_copy(update={
+        "scenario_id": scenario_id, "version": 1, "name": name, "description": description,
+        "config": base.config.model_copy(update={"arrival_window_hours": window_hours,
+                                                 "arrival_pattern": pattern})}))  # fmt: skip
+
+
+_arrival_scenario(
+    "retail-onboarding", 1, "retail-onboarding-week",
+    "Retail account onboarding (a week of real demand)",
+    "A week of retail applications from Monday 04:00 in New York, arriving as demand "
+    "really does there: few at night, a morning rise, lunchtime and after-work peaks, busy "
+    "Mondays and quiet weekends, and a marketing campaign on Wednesday afternoon (12:00 "
+    "to 18:00 local) that triples demand. Reviewers work around the clock, so the queues "
+    "come from the peaks alone.",
+    168.0,
+    ArrivalPattern(country="US", events=[
+        ArrivalEvent(name="campaign", start_hours=2 * 24 + 8, hours=6, multiplier=3.0)]),
 )  # fmt: skip

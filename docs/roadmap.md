@@ -277,7 +277,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       accounts through the four-eyes request path; months of salary, bills, card spending,
       savings and business flows through the ledger; seeded and resumable; a million
       customers measured; see `customer-base.md`)
-- [ ] Realistic arrival patterns: daily and weekly peaks, seasonality, events
+- [x] Realistic arrival patterns: daily and weekly peaks, seasonality, events
+      (Phase 73: hour, weekday and month weights in a country's local time, and events
+      that multiply demand; cases keep their order and draws; `retail-onboarding-week`;
+      see `simulation.md`)
 - [ ] Durable event pipeline (outbox) for departmental dependencies
 - [ ] **Exit:** the `enterprise` profile completes, with its timing measured
 
@@ -377,4 +380,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 70 (F2) | Milestone F, step 2: reviewers' shifts in a country's time zone, its business days and holidays, seeded absences, reviews carried across shifts; `retail-onboarding-shifts` | complete |
 | Phase 71 (F3) | Milestone F, step 3: named task assignment (least loaded, the initiator's manager), out-of-office delegation and handing a task on, escalation up the management line; WF-1044 v3 | complete |
 | Phase 72 (F4) | Milestone F, step 4: the customer generator — six segments, deposit products, dated transaction history through the ledger, seeded and resumable; a million customers measured; bulk posting no longer quadratic | complete |
-| Phase 73 (F5, proposed) | Milestone F, step 5: realistic arrival patterns — daily and weekly peaks, seasonality, events | next |
+| Phase 73 (F5) | Milestone F, step 5: arrival patterns — hour, weekday and month weights in local time, events; the arrivals in the results; `retail-onboarding-week` | complete |
+| Phase 74 (F6, proposed) | Milestone F, step 6: a durable event pipeline (outbox) for departmental dependencies | next |

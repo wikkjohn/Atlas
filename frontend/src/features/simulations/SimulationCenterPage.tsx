@@ -31,6 +31,7 @@ import {
   MODE_LABELS,
   type ProfileId,
   type ShardProgress,
+  type SimulationResults,
   type SimulationRunDetail,
   type SimulationStatus,
 } from "@/types/simulations";
@@ -551,6 +552,8 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
             </section>
           )}
 
+          {res.arrivals && <ArrivalsSection arrivals={res.arrivals} />}
+
           {res.applications && (
             <section aria-label="Application outages" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
               <h3 className="mb-1 text-sm font-semibold">Application outages</h3>
@@ -668,6 +671,40 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
 }
 
 // --- Page -----------------------------------------------------------------------------------
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** Phase 73: when the cases arrived — by local hour (a bar each), by weekday, the busiest
+ * hour against the average one, and the cases in each event. */
+function ArrivalsSection({ arrivals }: { arrivals: NonNullable<SimulationResults["arrivals"]> }) {
+  const top = Math.max(1, ...arrivals.by_local_hour);
+  return (
+    <section aria-label="Arrivals" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+      <h3 className="mb-1 text-sm font-semibold">Arrivals</h3>
+      <div role="img" aria-label={`Cases by local hour in ${arrivals.country}`} className="mb-1 flex h-12 items-end gap-px">
+        {arrivals.by_local_hour.map((n, hour) => (
+          <div
+            key={hour}
+            title={`${String(hour).padStart(2, "0")}:00 — ${n} cases`}
+            className="flex-1 rounded-t-sm bg-navy-700"
+            style={{ height: `${Math.max(2, (n / top) * 100)}%`, opacity: n ? 1 : 0.25 }}
+          />
+        ))}
+      </div>
+      <p className="mb-1 flex justify-between text-[10px] text-slate-400">
+        <span>00:00</span>
+        <span>12:00</span>
+        <span>23:00 ({arrivals.country} time)</span>
+      </p>
+      <p>{arrivals.by_weekday.map((n, i) => `${WEEKDAYS[i]} ${n}`).join(" · ")}</p>
+      <p>
+        Busiest hour {arrivals.peak_hour_cases} cases against {arrivals.mean_hour_cases} on average
+        {arrivals.peak_to_mean !== null && ` (${arrivals.peak_to_mean}×)`}
+        {Object.entries(arrivals.events).map(([name, n]) => ` · ${name}: ${n} cases`)}
+      </p>
+    </section>
+  );
+}
 
 export function SimulationCenterPage() {
   const { can } = useAuth();

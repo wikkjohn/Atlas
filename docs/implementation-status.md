@@ -92,7 +92,18 @@ Last updated: Phase 65.
 
 ## Phase 65: verified results
 
-RESULTS65_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 718 passed. New: 4 tests covering: steps linked to the core systems of their handlers, with only the latest active version counting; an outage stopping the workflows that call what fails, synchronously only; deterministic estate wiring; the API |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed |
+| Development database (119 workflows, 2,525 applications) | 119 workflows linked, 1,105 applications wired; the Core Banking Ledger down stops 117 workflows. See [itops.md](itops.md) |
+| Frontend Vitest / typecheck / build | 157 passed (the registry test now also covers an application's workflows and the wiring line) / clean / built |
+| Playwright on a fresh database | 73 passed (new: the Core Banking Ledger's calling workflows and what its outage stops) |
+
+Found while building it:
+- **A small estate leaves domains without critical applications:** with 120 generated
+  applications, one domain had none at tier 1 or 2, so its steps call only their core
+  system. The test uses 400; the rule is documented.
 
 ## Phase 65: known limitations
 

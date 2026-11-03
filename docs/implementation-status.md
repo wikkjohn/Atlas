@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 60.
+Last updated: Phase 61.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -65,6 +65,59 @@ Last updated: Phase 60.
 | 58 | Departments, step 30: the procurement workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 59 | Departments, step 31: IT operations ([itops.md](itops.md)) | **Complete** |
 | 60 | Departments, step 32: the IT operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 61 | Departments, step 33: thin departments ([departments.md](departments.md)) | **Complete** |
+
+## Phase 61: what exists
+
+- **Thin departments** (`app/modules/backoffice/`, migration 0042): a registry of sixteen
+  support departments, three processes each:
+  - Legal, Internal Audit, Marketing, Facilities;
+  - Information Security, Data Office, Business Continuity, Corporate Communications;
+  - Investor Relations, Strategy, Tax, Company Secretariat;
+  - Model Risk, Operational Risk, Regulatory Affairs, Sustainability.
+
+  With the nineteen departments that have their own modules, that makes 35.
+- **One request lifecycle** (`department_requests`):
+  - submitted, then approved or rejected by someone other than the requester (also a
+    database constraint), or approved at once when the process needs no approval;
+  - the first process of each department carries an amount, with a budget (flagged when
+    exceeded) and an executive threshold (enforced);
+  - completed against a target; late completions are breaches, unfinished ones past it
+    are overdue.
+- **Permissions:**
+  - `departments:read`: banking employees, managers, executives, auditors;
+  - `departments:request`: banking employees, department managers;
+  - `departments:approve`: department managers, regional and global executives;
+  - `departments:approve_major`: regional and global executives.
+- **Workflow factory:** four `backoffice.*` handlers and 48 workflows, WF-1100 to WF-1147,
+  generated from the registry, classified under their departments.
+- **Workload `department_requests`** with sixteen `dept-*` scenarios, one per department,
+  baseline only; a control check covers four-eyes, `departments:approve`, and nothing
+  approved without the decision.
+- **Departments page** (`/departments`): every department's counts, the selected one's
+  processes and requests, with submit, decide and complete.
+- **PR #51 (Phase 60)** had no review comments; CI passed on the first run.
+
+## Phase 61: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 707 passed (new: 4 — the registry and its 48 generated workflows, all valid and classified; the request lifecycle (amount rules, four-eyes, the executive threshold, a breach, a process without approval, the dashboard counts); the API with its permissions; a department's simulation run with no control violations) |
+| Migration 0042 | upgrade, `alembic check` clean, downgrade and upgrade again |
+| Generated workflow tests | 109 workflows, 1,425 cases, 0 failed (each of WF-1100 to WF-1147 at 100 % steps and routes: 12 cases with approval, 5 without) |
+| Department runs | every `dept-*` scenario, seed 2030, 60 requests, 6 staff, baseline: 60 completed each, 83.3 % accurate, 13.9 manager hours — the same for all sixteen, as they share the mix, the seed and the reviewer model |
+| Frontend Vitest / typecheck / build | 155 passed (new: 3 — the department grid, processes and requests; submitting with an amount, rejecting and completing; read-only with `departments:read`) / clean / built |
+| Playwright on a fresh database | 70 passed (new: 2 — a marketing campaign above the executive threshold refused to a manager, approved by an executive and completed; a legal hold needing no approval, completed by its requester) |
+
+Found while building it: nothing failed in the new tests on their first runs.
+
+## Phase 61: known limitations
+
+- **Thin by design:** only the request is modelled; nothing posts to the ledger.
+- **No AI tools** for these departments, and baseline-only scenarios.
+- **US dollars only.**
+- **The Milestone D exit** (35+ departments, each with three base processes, a workload
+  and a dashboard) is not yet checked department by department: that is Phase 62.
 
 ## Phase 60: what exists
 

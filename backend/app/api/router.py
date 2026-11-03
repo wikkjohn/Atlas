@@ -14,6 +14,7 @@ from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.ai_tools.router import router as ai_tools_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.audit.router import router as audit_router
+from app.modules.backoffice.router import router as backoffice_router
 from app.modules.cards.router import router as cards_router
 from app.modules.clearing.router import router as clearing_router
 from app.modules.collections.router import router as collections_router
@@ -91,6 +92,7 @@ for module_router in (
     hr_router,
     procurement_router,
     itops_router,
+    backoffice_router,
     loans_router,
     definitions_router,
     authoring_router,

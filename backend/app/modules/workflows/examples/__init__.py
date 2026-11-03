@@ -11,7 +11,10 @@ HERE = Path(__file__).parent
 
 def documents() -> list[dict[str, Any]]:
     """Every example definition, in import order (by workflow id, then version)."""
+    from app.modules.backoffice.workflows import documents as thin_departments
+
     found = [json.loads(p.read_text()) for p in HERE.glob("WF-*.json")]
+    found += thin_departments()  # generated from the registry (Phase 61)
     return sorted(found, key=lambda d: (d["workflow_id"], d["version"]))
 
 

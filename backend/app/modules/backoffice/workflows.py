@@ -1,6 +1,6 @@
 """The thin departments' workflows (Phase 61): one stored definition per process, generated
 from the registry so that the factory, its generated tests and the simulation see them as
-any other example. WF-1100 to WF-1147."""
+any other example. WF-1100 to WF-1150."""
 
 from typing import Any
 

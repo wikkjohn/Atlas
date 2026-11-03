@@ -572,6 +572,8 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
             known.update(_treasury_fixtures(db, kinds))
         if kinds & FINANCE_KINDS:
             known.update(_finance_fixtures(db, kinds))
+        if "funded_loan.loan_number" in kinds:
+            known["funded_loan.loan_number"] = _funded_loan(db)
         if kinds & {"arrears_loan.loan_number", "written_off_loan.loan_number"}:
             known.update(_collections_fixtures(db, kinds))
         if kinds & {"hr.department_id", "hr.employee_number"}:
@@ -591,6 +593,38 @@ def _fixtures(db: Session, d: WorkflowDefinition, needs: dict[str, str]) -> Fixt
         outsider=_person(db, RoleCode.AUDITOR),
         values=values,
     )
+
+
+def _funded_loan(db: Session) -> str:
+    """A loan two instalments in arrears whose borrower has since paid in more than it would
+    take to settle it (Phase 62): both the arrears and the whole loan can be repaid."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.money import to_minor_units
+    from app.modules.accounts.service import deposit, withdraw
+    from app.modules.ledger import service as ledger
+    from app.modules.lending import service as lending
+    from app.modules.lending import servicing
+
+    manager = _person(db, RoleCode.DEPARTMENT_MANAGER)
+    as_of = max(servicing.business_date(db) or datetime.now(UTC).date(), datetime.now(UTC).date())
+    customer, account = _customer_and_account(db, True)
+    disbursed = datetime.combine(as_of - timedelta(days=70), datetime.min.time(),
+                                 tzinfo=UTC).replace(hour=12)  # fmt: skip
+    loan = lending.originate(
+        db, customer_id=customer.id, account_id=account.id,
+        principal=to_minor_units(5_000, account.currency), annual_rate_bps=1200,
+        term_months=12, purpose="other", requested_by=_person(db, RoleCode.BANKING_EMPLOYEE).id,
+        underwriter=manager, committee=None, now=disbursed,
+    )  # fmt: skip
+    held = ledger.balance(db, ledger.get_ledger_account(db, account.ledger_account_id))
+    withdraw(db, account.id, amount=held, memo="Spent", actor_id=manager.id,
+             idempotency_key=f"wftest-spend-{loan.id}")  # fmt: skip
+    servicing.run(db, as_of, manager)
+    owed = servicing.payoff_amount(db, loan)["total"] + servicing.arrears(db, loan, as_of).amount
+    deposit(db, account.id, amount=owed * 2, memo="Salary", actor_id=manager.id,
+            idempotency_key=f"wftest-fund-{loan.id}")  # fmt: skip
+    return loan.loan_number
 
 
 def _collections_fixtures(db: Session, kinds: set[str]) -> dict[str, str]:

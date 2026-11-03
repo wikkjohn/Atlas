@@ -42,6 +42,16 @@ const routes = {
   ...healthyRoutes,
   "GET /api/v1/backoffice/departments": () => jsonResponse([legal, marketing]),
   "GET /api/v1/backoffice/requests": () => jsonResponse(page([pending, approved])),
+  "GET /api/v1/backoffice/coverage": () =>
+    jsonResponse({
+      total: 2,
+      complete: 1,
+      min_processes: 3,
+      departments: [
+        { department: "Cards", workflows: ["WF-1006", "WF-1007", "WF-1008"], scenarios: ["card-fraud-alerts"], dashboard: "/cards", thin: false, complete: true },
+        { department: "Legal", workflows: ["WF-1100"], scenarios: [], dashboard: "/departments", thin: true, complete: false },
+      ],
+    }),
 };
 
 describe("Departments page", () => {
@@ -53,6 +63,10 @@ describe("Departments page", () => {
     expect(within(grid).getByRole("button", { name: /Legal/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("list", { name: "Processes" })).toHaveTextContent("executive above US$150,000");
     expect((await screen.findByText("DR-0000001")).closest("tr")).toHaveTextContent("over budget");
+    const coverage = await screen.findByRole("table", { name: "Department coverage" });
+    expect(within(coverage).getByText("Cards").closest("tr")).toHaveTextContent("3 processes");
+    expect(within(coverage).getByText("Legal").closest("tr")).toHaveTextContent("incomplete");
+    expect(screen.getByText("1 of 2 departments complete")).toBeInTheDocument();
   });
 
   it("submits a request with its amount, decides and completes requests", async () => {

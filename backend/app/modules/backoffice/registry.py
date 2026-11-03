@@ -179,6 +179,17 @@ DEPARTMENTS: tuple[Department, ...] = (
         _p("esg_data", "ESG data return", "Answer an ESG data request.", approval=False,
            sla_hours=168),
     )),
+    # Phase 62: the seventeenth, bringing the bank to 35 departments.
+    Department("branch_network", "Branch Network", "The branches: cash, opening hours and "
+               "equipment.", (
+        _p("cash_order", "Branch cash order", "Order cash for a branch, against its "
+           "holding limit.", amount_label="Cash value", budget_usd=250_000,
+           major_above_usd=750_000, sla_hours=48),
+        _p("hours_change", "Opening hours change", "Change a branch's opening hours.",
+           sla_hours=168),
+        _p("atm_fault", "ATM fault report", "Report a cash machine out of order.",
+           approval=False, sla_hours=24),
+    )),
 )  # fmt: skip
 
 BY_CODE = {d.code: d for d in DEPARTMENTS}

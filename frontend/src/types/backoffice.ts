@@ -46,3 +46,21 @@ export interface DepartmentRequest {
   note: string | null;
   created_at: string;
 }
+
+/** Milestone D coverage (Phase 62): every department's base processes, workloads and dashboard. */
+export interface DepartmentCoverage {
+  department: string;
+  workflows: string[];
+  scenarios: string[];
+  dashboard: string | null;
+  thin: boolean;
+  complete: boolean;
+}
+
+export interface Coverage {
+  departments: DepartmentCoverage[];
+  total: number;
+  complete: number;
+  min_processes: number;
+}
+

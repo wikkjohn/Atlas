@@ -9,15 +9,19 @@ import { StatusPill, type Tone } from "@/components/StatusPill";
 import { humanize } from "@/services/format";
 import {
   useAcknowledge,
+  useApplicationDetail,
   useApplications,
   useChanges,
   useCloseIncident,
   useDecideChange,
+  useEstateSummary,
+  useGenerateEstate,
   useImplement,
   useIncidents,
   useItopsSummary,
   useOpenIncident,
   useRaiseChange,
+  useRegistry,
   useResolve,
   useSweep,
 } from "@/services/itops";
@@ -35,8 +39,8 @@ function ApplicationSelect({ value, onChange, label }: { value: string; onChange
   return (
     <select aria-label={label} className={INPUT} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">Choose an application</option>
-      {apps.data
-        ?.filter((a) => a.status === "active")
+      {apps.data?.items
+        .filter((a) => a.status === "active")
         .map((a) => (
           <option key={a.id} value={a.application_number}>
             {a.name} (tier {a.tier})
@@ -46,27 +50,140 @@ function ApplicationSelect({ value, onChange, label }: { value: string; onChange
   );
 }
 
-function ApplicationsPanel() {
-  const apps = useApplications();
+const TIER_TONE = (tier: number): Tone => (tier === 1 ? "bad" : tier === 2 ? "warn" : "neutral");
+
+function ApplicationDetailPanel({ id }: { id: string }) {
+  const detail = useApplicationDetail(id);
+  const d = detail.data;
   return (
-    <Panel title="Applications" subtitle="The catalogue, most critical first. Tier 1: customers or money stop when it stops; tier 2: a department stops; tier 3: an inconvenience.">
-      <ErrorMessage error={apps.error} />
+    <div aria-label="Application detail" role="region" className="mt-3 rounded-md border border-slate-200 p-3 text-xs text-slate-700">
+      <ErrorMessage error={detail.error} />
+      {d && (
+        <>
+          <p className="mb-2 text-sm font-semibold text-slate-900">
+            {d.application.application_number} {d.application.name}
+          </p>
+          <p className="mb-2">
+            {d.application.department} · tier {d.application.tier} · {d.application.technology} on {d.application.hosting.replace("_", " ")}
+            {d.application.vendor && ` (${d.application.vendor})`} · owner {d.application.owner ?? "none"}
+          </p>
+          <p aria-label="If it stops" className="mb-2 font-semibold text-rose-800">
+            If it stops: {d.impact.affected} applications affected ({d.impact.direct} directly, up to {d.impact.depth} steps away; tier 1: {d.impact.by_tier["1"] ?? 0}, tier 2: {d.impact.by_tier["2"] ?? 0}, tier 3:{" "}
+            {d.impact.by_tier["3"] ?? 0}) across {d.impact.departments} departments
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="font-semibold">Relies on ({d.dependencies.length})</p>
+              <ul aria-label="Relies on">
+                {d.dependencies.map((x) => (
+                  <li key={x.id}>
+                    {x.application_number} {x.name} · {x.kind} · tier {x.tier}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold">Relied on by ({d.dependents.length})</p>
+              <ul aria-label="Relied on by">
+                {d.dependents.slice(0, 25).map((x) => (
+                  <li key={x.id}>
+                    {x.application_number} {x.name} · {x.kind} · tier {x.tier}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ApplicationsPanel() {
+  const { can } = useAuth();
+  const [filters, setFilters] = useState({ q: "", tier: "", offset: 0 });
+  const [selected, setSelected] = useState("");
+  const [estate, setEstate] = useState({ count: "2500", seed: "2030" });
+  const apps = useRegistry(filters);
+  const summary = useEstateSummary();
+  const generate = useGenerateEstate();
+  const page = apps.data;
+  return (
+    <Panel title="Application registry" subtitle="Every application with its owning department, tier, owner, technology and hosting, what it relies on and what relies on it. Tier 1: customers or money stop when it stops; tier 2: a department stops; tier 3: an inconvenience.">
+      {summary.data && (
+        <p aria-label="Estate summary" className="mb-2 text-xs text-slate-600">
+          {summary.data.applications} applications ({summary.data.generated} generated) · {summary.data.dependencies} dependencies · tier 1: {summary.data.by_tier["1"] ?? 0}, tier 2:{" "}
+          {summary.data.by_tier["2"] ?? 0}, tier 3: {summary.data.by_tier["3"] ?? 0}
+        </p>
+      )}
+      <div className="mb-2 flex flex-wrap items-end gap-2 text-xs">
+        <input aria-label="Search applications" placeholder="Name or APP-" className={`w-48 ${INPUT}`} value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value, offset: 0 })} />
+        <select aria-label="Tier" className={INPUT} value={filters.tier} onChange={(e) => setFilters({ ...filters, tier: e.target.value, offset: 0 })}>
+          <option value="">All tiers</option>
+          {["1", "2", "3"].map((t) => (
+            <option key={t} value={t}>
+              Tier {t}
+            </option>
+          ))}
+        </select>
+        {can("itops:approve_major") && (
+          <form
+            aria-label="Generate estate"
+            className="flex items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              generate.mutate({ count: Number(estate.count), seed: Number(estate.seed) });
+            }}
+          >
+            <input aria-label="Applications to generate" type="number" min={1} max={10000} className={`w-20 ${INPUT}`} value={estate.count} onChange={(e) => setEstate({ ...estate, count: e.target.value })} />
+            <input aria-label="Estate seed" type="number" min={0} className={`w-20 ${INPUT}`} value={estate.seed} onChange={(e) => setEstate({ ...estate, seed: e.target.value })} />
+            <Button size="sm" variant="secondary" type="submit">
+              Generate estate
+            </Button>
+            {generate.data && (
+              <span role="status">
+                {generate.data.created} created, {generate.data.dependencies_added} dependencies in {generate.data.seconds} s
+              </span>
+            )}
+          </form>
+        )}
+      </div>
+      <ErrorMessage error={apps.error ?? summary.error ?? generate.error} />
       <table aria-label="Applications" className="min-w-full text-sm">
         <tbody className="divide-y divide-slate-100">
-          {apps.data?.map((a) => (
-            <tr key={a.id}>
-              <td className="px-2 py-1.5 font-mono text-xs">{a.application_number}</td>
+          {page?.items.map((a) => (
+            <tr key={a.id} className={a.id === selected ? "bg-slate-50" : undefined}>
+              <td className="px-2 py-1.5 font-mono text-xs">
+                <button type="button" className="underline" aria-label={`Show ${a.application_number}`} onClick={() => setSelected(a.id)}>
+                  {a.application_number}
+                </button>
+              </td>
               <td className="px-2 py-1.5 text-xs text-slate-600">
-                {a.name} · {a.department} · {a.description}
+                {a.name} · {a.department} · {a.technology} · {a.hosting.replace("_", " ")}
+                {a.owner && ` · ${a.owner}`}
               </td>
               <td className="px-2 py-1.5">
-                <StatusPill compact tone={a.tier === 1 ? "bad" : a.tier === 2 ? "warn" : "neutral"} label={`tier ${a.tier}`} />
+                <StatusPill compact tone={TIER_TONE(a.tier)} label={`tier ${a.tier}`} />
               </td>
               <td className="px-2 py-1.5 text-right text-xs text-slate-600">{a.open_incidents} open incidents</td>
             </tr>
           ))}
         </tbody>
       </table>
+      {page && page.total > page.limit && (
+        <div className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+          <Button size="sm" variant="secondary" disabled={filters.offset === 0} onClick={() => setFilters({ ...filters, offset: Math.max(0, filters.offset - page.limit) })}>
+            Previous
+          </Button>
+          <span>
+            {filters.offset + 1}–{Math.min(filters.offset + page.limit, page.total)} of {page.total}
+          </span>
+          <Button size="sm" variant="secondary" disabled={filters.offset + page.limit >= page.total} onClick={() => setFilters({ ...filters, offset: filters.offset + page.limit })}>
+            Next
+          </Button>
+        </div>
+      )}
+      {selected && <ApplicationDetailPanel id={selected} />}
     </Panel>
   );
 }

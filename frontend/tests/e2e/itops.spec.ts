@@ -69,3 +69,17 @@ test("AI Innovation Lab: the change assistant would approve another change after
   await console.getByRole("button", { name: "Invoke" }).click();
   await expect(console.getByRole("status")).toContainText("Recommendation: Approve");
 });
+
+test("IT Operations: the registry shows what the Core Banking Ledger relies on and what stops if it stops", async ({ page }) => {
+  await signIn(page, "manager", "/it-operations");
+  await expect(page.getByLabel("Estate summary")).toContainText("dependencies");
+  await page.getByLabel("Search applications").fill("Core Banking Ledger");
+  const table = page.getByRole("table", { name: "Applications" });
+  await expect(table.getByRole("row")).toHaveCount(1);
+  await table.getByRole("button", { name: /^Show APP-/ }).click();
+  const detail = page.getByRole("region", { name: "Application detail" });
+  await expect(detail).toContainText("Core Banking Ledger");
+  // Payments Gateway, Card Authorisation, Online Banking and others call the ledger.
+  await expect(detail.getByRole("list", { name: "Relied on by" })).toContainText("Payments Gateway · api");
+  await expect(detail.getByLabel("If it stops")).toContainText("applications affected");
+});

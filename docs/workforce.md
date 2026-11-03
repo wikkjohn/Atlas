@@ -57,7 +57,9 @@ subsidiary blueprint does) and rounded to the thousand.
 - **Skills:** one or two from the department's pool (e.g. `kyc` and `sanctions` in Customer
   Onboarding), one general skill (`excel`, `coaching`…), and one language of the country
   (`language:ja-JP`).
-- **Leave:** about 2 % of staff are on leave.
+- **Status:** everyone starts active. Leave comes with leave records (Milestone F step 2);
+  the leave sweep (WF-1045) keeps the status in line with them, so an on-leave status
+  without a record would be undone by the next sweep.
 - **Contact:** emails are on `staff.atlas-bank.example`.
 
 Generated employees are tagged `workforce-v1:<seed>` and have no user accounts.
@@ -85,9 +87,19 @@ On the development database, which has 5 countries with 21 departments:
 | Spread | US, GB, JP, SG about 29,800 each, DE 31,163; Branch Network 94,945, Customer Onboarding 31,695, Financial Crime Compliance 19,019 |
 | Grades | 1: 40,907 · 2: 40,953 · 3: 27,260 · 4: 16,405 · 5: 10,809 · 6: 6,860 · 7: 6,785 · 9: 21 |
 | Roles | 127,989 banking employees, 19,008 compliance officers, 3,160 AI researchers, 89 department managers |
-| On leave | 3,008 (2.0 %) |
+| Generated workflow tests (115 workflows, 1,482 cases) on this database | 233.0 s, against 211.9 s before the workforce. Before the leave sweep was made set-based, they took 403.1 s, WF-1045 alone 151 s; it now takes 0.85 s |
 | Summary | 0.5 to 1.0 s |
 | Employee list, a page of 50 | 0.83 s; searching 0.74 s; at offset 100,000, 0.97 s |
+
+## The leave sweep, at scale
+
+HR's leave sweep (WF-1045, Phase 55) loaded every employee who was not terminated, one
+object at a time, with its organisation, country, role and manager. With 150,000 employees,
+its generated test took 151 s. It is now two set-based updates:
+- employees on approved leave today go on leave;
+- those whose leave has ended become active again.
+
+The counts it returns are unchanged.
 
 ## Known limitations
 

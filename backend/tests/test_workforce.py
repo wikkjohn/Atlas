@@ -13,6 +13,7 @@ from app.core.permissions import RoleCode
 from app.modules.countries.models import Country
 from app.modules.employees import workforce
 from app.modules.employees.models import Employee
+from app.modules.hr import service as hr
 from app.modules.identity.models import Role
 from tests.factories import auth, make_org_tree, make_user
 
@@ -74,8 +75,10 @@ def test_the_workforce_has_a_hierarchy_roles_grades_pay_and_skills(db: Session) 
         assert 3 <= len(e.skills) <= 4
     grades = Counter(e.grade for e in staff)
     assert grades[1] > grades[4] > grades[5]  # entry grades are the most common
-    statuses = Counter(e.employment_status for e in staff)
-    assert 0 < statuses["on_leave"] < 100  # about 2 %
+    # Everyone starts active, so the leave sweep (WF-1045) has nothing to change for them.
+    assert {e.employment_status for e in staff} == {"active"}
+    swept = hr.leave_sweep(db)
+    assert (swept["started"], swept["ended"]) == (0, 0)
 
 
 def test_the_rules(db: Session) -> None:

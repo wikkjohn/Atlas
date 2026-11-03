@@ -89,7 +89,6 @@ SKILLS = {
 DEFAULT_SKILLS = ("case-handling", "policy", "reporting", "stakeholder-management")
 GENERAL_SKILLS = ("excel", "presentation", "project-management", "data-analysis", "coaching",
                   "risk-awareness", "writing")  # fmt: skip
-ON_LEAVE = 0.02  # share of staff on leave on the day they are generated
 
 
 def _rule(message: str, rule: str) -> BusinessRuleViolation:
@@ -160,8 +159,9 @@ def generate_workforce(db: Session, count: int, seed: int,
             "email": f"{first.lower()}.{last.lower()}.{number}@{DOMAIN}",
             "organization_id": dept.id, "department_id": dept.id, "manager_id": manager,
             "job_title": title, "role_id": roles[role.value], "country_id": country.id,
-            "employment_status": (EmploymentStatus.ON_LEAVE if rng.random() < ON_LEAVE
-                                  else EmploymentStatus.ACTIVE).value,
+            # Everyone starts active: leave comes with leave records, which the leave sweep
+            # (WF-1045) keeps the status in line with (Milestone F step 2).
+            "employment_status": EmploymentStatus.ACTIVE.value,
             "annual_compensation": _pay(rng, grade, per_usd, country.default_currency),
             "compensation_currency": country.default_currency, "grade": grade,
             "skills": skills, "generated_from": tag,

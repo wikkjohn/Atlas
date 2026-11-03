@@ -91,13 +91,29 @@ Last updated: Phase 69.
 
 ## Phase 69: verified results
 
-RESULTS69_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 732 passed before the leave sweep fix. New: 4 tests covering: the shares; the hierarchy, roles, pay by grade, skills and languages, idempotency; the rules; the API and its permissions. After the fix, the workforce, HR and employee tests: 22 passed (the workforce test now also checks that the sweep changes no generated employee) |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed. They took 233.0 s against the development database with 150,000 employees (211.9 s before the workforce; 403.1 s before the fix) |
+| 150,000 employees (development database) | 37.0 s, 230 MB; summary 0.5 to 1.0 s; a page of the employee list about 0.8 s. See [workforce.md](workforce.md) |
+| Frontend Vitest / typecheck / build | 161 passed (new: the Workforce panel, and none of its form without `employees:manage`) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Found while building it:
+- **The leave sweep did not scale:** it loaded every employee, and its generated test took
+  151 s against 150,000. It is now set-based (0.85 s).
+- **Generated leave did not survive a sweep:** the generator first put 2 % of staff on
+  leave without leave records, which the next sweep would have undone. Everyone now starts
+  active; leave is Milestone F step 2.
+- **Stale statistics after the bulk insert** made the summary take 16 s; the generator now
+  analyses the table (0.5 s).
 
 ## Phase 69: known limitations
 
 - **The development database has five countries,** so each has about 30,000 staff.
 - **Teams are not organisational units;** grades 8 and 10 are not generated.
-- **Generated staff have no user accounts, shifts or leave records** (Milestone F step 2).
+- **Generated staff have no user accounts, shifts or leave records** (Milestone F step 2);
+  all start active.
 
 ## Phase 68: what exists
 

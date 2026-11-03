@@ -98,7 +98,16 @@ Last updated: Phase 70.
 
 ## Phase 74: verified results
 
-RESULTS74_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 758 passed. New: 6 tests covering: a delivered event, and a failing subscriber whose work alone is rolled back, retried with back-off and then delivered; out of attempts a delivery is dead until retried; the dispatcher delivers what was not delivered inline, once; lending tells collections through the outbox (none while current, the case opened in arrears, closed on the cure); a joiner and a leaver across HR and Information Security (access requested, granted through the API, HR's task closed, revoked on leaving; a redelivery asks for nothing more); the API, its permissions, the job kind and its schedule |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (208.2 s on the development database) |
+| The dispatcher (20,000 events, scratch database) | 1 worker 353 deliveries a second, 4 workers 1,656 (5,000 each); every event handled exactly once, on its first attempt. See [events.md](events.md) |
+| Frontend Vitest / typecheck / build | 169 passed (new: the Event pipeline panel and retrying a dead delivery; the Systems access panel and granting access) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Found while building it: the first dispatcher committed one delivery at a time (152 a
+second with one worker); claiming batches of 100 made it 2.3 times faster.
 
 ## Phase 74: known limitations
 

@@ -108,7 +108,9 @@ RESULTS_PLACEHOLDER
   - Investor Relations, Strategy, Tax, Company Secretariat;
   - Model Risk, Operational Risk, Regulatory Affairs, Sustainability.
 
-  With the nineteen departments that have their own modules, that makes 35.
+  Phase 61 said that with "nineteen" departments with their own modules this made 35; the
+  Phase 62 coverage check counts eighteen, so it made 34. Branch Network (Phase 62) is the
+  35th.
 - **One request lifecycle** (`department_requests`):
   - submitted, then approved or rejected by someone other than the requester (also a
     database constraint), or approved at once when the process needs no approval;

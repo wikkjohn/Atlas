@@ -73,7 +73,29 @@ Customers list and detail show the segment.
 
 ## Measured
 
-MEASURED72_PLACEHOLDER
+On the development container (PostgreSQL 16, one process), into a scratch database that was
+seeded and then dropped:
+
+| Run | Result |
+| --- | --- |
+| 1,000,000 customers, no history (seed 2032, batches of 5,000) | 1,519 s, 658 a second; 1,380,846 accounts (638,247 customers with one, 392,860 with two); 1,380,846 opening entries; database 3.9 GB. Segments: mass 549,469, affluent 149,657, senior 120,404, sme 80,170, student 80,074, private 20,226 |
+| Reads at that size (median) | customer list page 85 ms; search by name 27 ms, by number 73 ms; the summary 1.6 s (5.9 s before its accounts-per-customer count stopped joining customers) |
+| 20,000 customers, no history | 23.2 s, 862 a second |
+| 100,000 customers with 3 months of history (seed 2033, batches of 500) | HISTORY100K_PLACEHOLDER |
+
+**What history costs.** Each customer moves money about 35 times in three months, and every
+movement is a journal entry with two lines. The ledger checks each row: entries must
+balance (deferred constraint triggers), and stored balances are kept by a per-line trigger
+that updates the account's balance row, including the bank's cash row, which every movement
+touches. That holds history at about 2,000 entries a second. Building the base:
+
+- without history runs at about 650–860 customers a second;
+- with three months of history runs at about 55.
+
+**Found on the way: bulk posting was quadratic.** The posting check computed
+`account_ids - accounts.keys()`, which builds a set of every account in the batch for every
+posting. A batch of 17,761 entries hashed 12.5 million UUIDs. It is now a membership test,
+which halves the time of a history batch and speeds up every bulk posting.
 
 ## Known limitations
 

@@ -21,8 +21,10 @@ import {
   useAccounts,
   useCreateCustomer,
   useCustomer,
+  useCustomerBase,
   useCustomers,
   useEligibility,
+  useGenerateCustomers,
   useReviewCustomer,
   useSubmitAccountRequest,
 } from "@/services/banking";
@@ -293,6 +295,65 @@ function CustomerProfile({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
+const top = (counts: Record<string, number>, n: number) =>
+  Object.entries(counts)
+    .slice(0, n)
+    .map(([k, v]) => `${humanize(k)} ${v.toLocaleString("en-US")}`)
+    .join(" · ") || "—";
+
+/** Phase 72: the customer base in numbers, and the generator (customers:manage). */
+function CustomerBasePanel() {
+  const { can } = useAuth();
+  const summary = useCustomerBase();
+  const generate = useGenerateCustomers();
+  const [form, setForm] = useState({ count: "10000", seed: "2030", months: "3" });
+  const s = summary.data;
+  return (
+    <section aria-label="Customer base" className="mb-4 rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-600 shadow-sm">
+      <ErrorMessage error={summary.error ?? generate.error} />
+      {s && (
+        <>
+          <p className="mb-1 text-sm font-semibold text-slate-900">
+            {s.customers.toLocaleString("en-US")} customers ({s.generated.toLocaleString("en-US")} generated)
+          </p>
+          <p>Segments: {top(s.segments, 7)}</p>
+          <p>Countries: {top(s.countries, 8)}</p>
+          <p>Products: {top(s.products, 4)}</p>
+          <p aria-label="Accounts per customer">
+            Accounts per customer:{" "}
+            {Object.entries(s.accounts_per_customer)
+              .map(([n, c]) => `${n}: ${c.toLocaleString("en-US")}`)
+              .join(" · ") || "—"}
+          </p>
+          <p>Transaction history: {top(s.history, 10)}</p>
+        </>
+      )}
+      {can("customers:manage") && (
+        <form
+          aria-label="Generate customers"
+          className="mt-2 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            generate.mutate({ count: Number(form.count), seed: Number(form.seed), history_months: Number(form.months) });
+          }}
+        >
+          <input aria-label="Customers to generate" type="number" min={1} max={50000} className="w-24 rounded-md border border-slate-200 px-2 py-1" value={form.count} onChange={(e) => setForm({ ...form, count: e.target.value })} />
+          <input aria-label="Customer seed" type="number" min={0} className="w-20 rounded-md border border-slate-200 px-2 py-1" value={form.seed} onChange={(e) => setForm({ ...form, seed: e.target.value })} />
+          <input aria-label="Months of history" type="number" min={0} max={24} className="w-16 rounded-md border border-slate-200 px-2 py-1" value={form.months} onChange={(e) => setForm({ ...form, months: e.target.value })} />
+          <Button size="sm" variant="secondary" type="submit" disabled={generate.isPending}>
+            Generate customers
+          </Button>
+          {generate.data && (
+            <span role="status">
+              {generate.data.created.toLocaleString("en-US")} created ({generate.data.existing.toLocaleString("en-US")} already there), {generate.data.accounts.toLocaleString("en-US")} accounts, {generate.data.entries.toLocaleString("en-US")} entries in {generate.data.seconds} s
+            </span>
+          )}
+        </form>
+      )}
+    </section>
+  );
+}
+
 export function CustomersPage() {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
@@ -348,6 +409,7 @@ export function CustomersPage() {
           )
         }
       />
+      <CustomerBasePanel />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <form
           role="search"

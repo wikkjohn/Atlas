@@ -42,6 +42,7 @@ def to_out(customer: Customer) -> CustomerOut:
         kyc_status=customer.kyc_status,
         created_at=customer.created_at,
         updated_at=customer.updated_at,
+        segment=customer.segment,
     )
 
 

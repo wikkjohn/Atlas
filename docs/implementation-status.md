@@ -76,6 +76,50 @@ Last updated: Phase 70.
 | 69 | Workforce and customers, step 1: the employee generator ([workforce.md](workforce.md)) | **Complete** |
 | 70 | Workforce and customers, step 2: reviewers' working time ([simulation.md](simulation.md)) | **Complete** |
 | 71 | Workforce and customers, step 3: task routing — named assignment, delegation, escalation ([workflows.md](workflows.md)) | **Complete** |
+| 72 | Workforce and customers, step 4: the customer generator ([customer-base.md](customer-base.md)) | **Complete** |
+
+## Phase 72: what exists
+
+- **The customer generator** (`app/simulation/customers.py`, migration 0048):
+  - six segments (mass, student, affluent, senior, private, sme) with their ages, income
+    or turnover, risk mix and products;
+  - deposit accounts (current, savings, business current) through the approved four-eyes
+    request path, each with its own ledger account;
+  - months of dated history through the ledger's bulk path: salary or pension, housing,
+    bills, card payments, savings transfers; receipts, suppliers and payroll for
+    businesses. Balances never go negative; the books reconcile;
+  - seeded per customer, and resumable: the same seed continues where it stopped.
+- **The summary:** by segment, country, risk, product, accounts per customer and history
+  category.
+- **API, CLI and page:** `customers generate|summary`; `POST
+  /customers/population/generate` (up to 50,000) and `GET /customers/population/summary`;
+  the Customer base panel on the Customers page; customers show their segment.
+- **Bulk posting is no longer quadratic:** `_check_lines` turned the batch's whole account
+  map into a set for every posting. The fix halves the time of a history batch and speeds
+  up every bulk posting.
+- **PR #62 (Phase 71)** had no review comments; CI passed on the first run.
+
+## Phase 72: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 747 passed. New: 5 tests covering: plans follow their segment (ages, products, currency) and repeat; history never overdraws and has every kind of movement; generated customers are complete, through approved four-eyes requests, balances match and the books reconcile, a second run adds nothing and a larger one continues; the rules; the API, its permissions and its limit |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (207.5 s on the development database) |
+| 1,000,000 customers, no history (scratch database) | 1,519 s, 658 a second; 1,380,846 accounts; 3.9 GB. Customer list 85 ms, search 27 to 73 ms, the summary 1.6 s (5.9 s before) |
+| 100,000 customers, 3 months of history | 2,092 s; 3,557,214 entries; 3.5 GB; no account below zero; a full reconciliation passed (103.6 s) |
+| Frontend Vitest / typecheck / build | 166 passed (new: the Customer base panel and generating customers; none of its form without `customers:manage`) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+See [customer-base.md](customer-base.md) for the measurements and what history costs.
+
+## Phase 72: known limitations
+
+- **Deposit products only;** no generated cards, loans or mortgages.
+- **The bank's cash account is the other side of every movement;** there are no
+  counterparty banks or payments between customers.
+- **History is costly:** about 2,000 entries a second under the ledger's per-row
+  integrity triggers, so the million was loaded without history (see below).
+- **One currency per customer, and no overdrafts.**
 
 ## Phase 71: what exists
 

@@ -38,3 +38,12 @@ class CustomerOut(BaseModel):
     kyc_status: str
     created_at: datetime
     updated_at: datetime
+    segment: str | None = None  # the customer generator's segment (Phase 72)
+
+
+class PopulationGenerate(BaseModel):
+    """A customer-generator run through the API (Phase 72); larger runs use the CLI."""
+
+    count: int = Field(ge=1, le=50_000)
+    seed: int = 2030
+    history_months: int = Field(default=3, ge=0, le=24)

@@ -694,6 +694,34 @@ def _workforce(args: argparse.Namespace) -> int:
     return 0
 
 
+def _customers(args: argparse.Namespace) -> int:
+    """The customer base (Phase 72): generate it, or show it in numbers."""
+    from app.core.errors import BusinessRuleViolation
+    from app.simulation import customers as generator
+
+    factory = get_sessionmaker()
+    if args.action == "generate":
+        settings = get_settings()
+        if settings.environment in {"staging", "production"}:
+            print(f"Refusing to generate synthetic customers in the {settings.environment} "
+                  "environment.")  # fmt: skip
+            return 1
+        try:
+            result = generator.generate(
+                factory, count=args.count, seed=args.seed, history_months=args.months,
+                batch=args.batch,
+                progress=lambda done, seconds: print(f"  {done:,} customers in {seconds:.1f}s",
+                                                     flush=True),
+            )  # fmt: skip
+        except BusinessRuleViolation as exc:
+            print(f"Could not generate the customers: {exc.message}")
+            return 1
+        print(json.dumps(result, indent=2))
+    with factory() as db:
+        print(json.dumps(generator.summary(db), indent=2))
+    return 0
+
+
 def _estate(args: argparse.Namespace) -> int:
     """The simulated application estate (Phase 63): generate it, or show it in numbers; how
     the workflows depend on it, and what an outage stops (Phase 65)."""
@@ -1036,6 +1064,19 @@ def main(argv: list[str] | None = None) -> int:
     workforce_generate.add_argument("--count", type=int, default=150_000)
     workforce_generate.add_argument("--seed", type=int, default=2030)
     workforce_parser.set_defaults(handler=_workforce)
+    customers_parser = commands.add_parser(
+        "customers", help="The customer base (Milestone F): generate or summarise"
+    )
+    customers_actions = customers_parser.add_subparsers(dest="action", required=True)
+    customers_actions.add_parser("summary", help="Customers by segment, country, product")
+    customers_generate = customers_actions.add_parser(
+        "generate", help="Generate customers with products and history (seeded, resumable)"
+    )
+    customers_generate.add_argument("--count", type=int, default=100_000)
+    customers_generate.add_argument("--seed", type=int, default=2030)
+    customers_generate.add_argument("--months", type=int, default=3, help="Months of history")
+    customers_generate.add_argument("--batch", type=int, default=2_000)
+    customers_parser.set_defaults(handler=_customers)
 
     country_sweep = commands.add_parser(
         "country-sweep",

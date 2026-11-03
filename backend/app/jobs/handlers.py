@@ -344,3 +344,15 @@ def customer_service_sla_sweep(ctx: JobContext) -> dict:
         raise PermanentJobError("The job's principal may not handle customer service cases.")
     with ctx.factory() as db, db.begin():
         return customer_service.sweep(db, principal.id)
+
+
+@job_kind(
+    "events.dispatch",
+    description="Deliver due outbox events to their subscribers, with retries (Phase 74)",
+    max_attempts=2,
+)
+def events_dispatch(ctx: JobContext) -> dict:
+    from app.modules.events import outbox
+
+    report = outbox.dispatch(ctx.factory, limit=int(ctx.payload.get("limit", 500)))
+    return asdict(report)

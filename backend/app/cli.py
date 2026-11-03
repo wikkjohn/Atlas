@@ -722,6 +722,20 @@ def _customers(args: argparse.Namespace) -> int:
     return 0
 
 
+def _events(args: argparse.Namespace) -> int:
+    """The outbox (Phase 74): deliver what is due, or show the pipeline in numbers."""
+    from dataclasses import asdict
+
+    from app.modules.events import outbox
+
+    factory = get_sessionmaker()
+    if args.action == "dispatch":
+        print(json.dumps(asdict(outbox.dispatch(factory, limit=args.limit)), indent=2))
+    with factory() as db:
+        print(json.dumps(outbox.summary(db), indent=2, default=str))
+    return 0
+
+
 def _estate(args: argparse.Namespace) -> int:
     """The simulated application estate (Phase 63): generate it, or show it in numbers; how
     the workflows depend on it, and what an outage stops (Phase 65)."""
@@ -1077,6 +1091,14 @@ def main(argv: list[str] | None = None) -> int:
     customers_generate.add_argument("--months", type=int, default=3, help="Months of history")
     customers_generate.add_argument("--batch", type=int, default=2_000)
     customers_parser.set_defaults(handler=_customers)
+    events_parser = commands.add_parser(
+        "events", help="The outbox (Milestone F): deliver due events, or summarise"
+    )
+    events_actions = events_parser.add_subparsers(dest="action", required=True)
+    events_actions.add_parser("summary", help="Deliveries by subscriber and status")
+    events_dispatch = events_actions.add_parser("dispatch", help="Deliver due events now")
+    events_dispatch.add_argument("--limit", type=int, default=500)
+    events_parser.set_defaults(handler=_events)
 
     country_sweep = commands.add_parser(
         "country-sweep",

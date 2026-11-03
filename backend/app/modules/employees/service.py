@@ -292,7 +292,18 @@ def update_employee(
                     "Reassign this employee's direct reports before terminating them.",
                     {"direct_reports": len(reports)},
                 )
+        leaving = (data.employment_status == EmploymentStatus.TERMINATED
+                   and employee.employment_status != EmploymentStatus.TERMINATED)  # fmt: skip
         employee.employment_status = data.employment_status.value
+        if leaving:
+            # A leaver, through the outbox (Phase 74): Information Security revokes access.
+            from app.modules.events import outbox
+
+            db.flush()
+            outbox.publish(db, "hr.employee_left", str(employee.id),
+                           {"employee_id": str(employee.id),
+                            "employee_number": employee.employee_number},
+                           publisher="hr", actor_id=actor_id)  # fmt: skip
 
     db.flush()
     db.expire(employee)

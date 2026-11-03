@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from app.api import system
 from app.jobs import handlers  # noqa: F401  (registers the job kinds)
 from app.jobs.router import jobs_router, schedules_router
+from app.modules.access.router import router as access_router
 from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.ai_tools.router import router as ai_tools_router
 from app.modules.analytics.router import router as analytics_router
@@ -25,6 +26,7 @@ from app.modules.countries.router import router as countries_router
 from app.modules.customer_service.router import router as customer_service_router
 from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
+from app.modules.events.router import router as events_router
 from app.modules.experiments.router import benchmarks_router, experiments_router
 from app.modules.finance.router import router as finance_router
 from app.modules.fx.router import router as fx_router
@@ -93,6 +95,8 @@ for module_router in (
     procurement_router,
     itops_router,
     backoffice_router,
+    access_router,
+    events_router,
     loans_router,
     definitions_router,
     authoring_router,

@@ -26,6 +26,8 @@ from sqlalchemy.orm import Session
 
 from app.modules.collections.service import active_plan
 from app.modules.customers.models import Customer, CustomerNotification
+from app.modules.events.models import DomainEvent
+from app.modules.events.outbox import subscribe
 from app.modules.identity.service import AuthenticatedUser
 from app.modules.lending import servicing
 from app.modules.lending.models import Loan, LoanStatus
@@ -267,7 +269,25 @@ def open_case_for(db: Session, loan: Loan) -> WorkflowExecution | None:
     )
 
 
-@servicing.on_arrears_change
+@subscribe(servicing.ARREARS_TOPIC, "collections.sync", department="collections")
+def on_arrears(db: Session, event: DomainEvent) -> None:
+    """Collections hears of a loan's arrears through the outbox (Phase 74)."""
+    from app.modules.identity.models import User
+    from app.modules.workflows.routing import principal as person
+
+    loan = db.get(Loan, uuid.UUID(event.payload["loan_id"]))
+    if loan is None:
+        raise LookupError(f"Loan {event.payload['loan_id']} does not exist.")
+    user = db.get(User, event.actor_id) if event.actor_id else None
+    if user is None:
+        raise LookupError("The event names no user to act as.")
+    p = event.payload
+    oldest = date.fromisoformat(p["oldest_due"]) if p.get("oldest_due") else None
+    state = servicing.Arrears(p["days_past_due"], p["amount"], p["instalments"], p["bucket"],
+                              oldest)  # fmt: skip
+    sync_collections(db, loan, state, date.fromisoformat(p["business_date"]), person(user))
+
+
 def sync_collections(
     db: Session,
     loan: Loan,

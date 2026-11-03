@@ -152,6 +152,56 @@ own random stream, so v1 runs are unchanged and still reproduce.
 | `personal-loans` baseline, seed 42 | 100 / 25 | 17.2 s | 93 % correct (7 false declines, 0 false approvals); 91 manual reviews |
 | `personal-loans` v2, seed 11, baseline / assisted / automated (Phase 11) | 300 / 40 | 32–35 s each | 94.3 % / 99.3 % / 99.7 % correct; 264 / 266 / 168 manual reviews; 98 loans underwritten by the policy engine |
 
+## Application outages (Phase 67)
+
+A scenario can declare **application outages on its own timeline**
+(`ScenarioConfig.outages`). For each one it gives:
+- the application, by name;
+- `down` or `degraded`;
+- the hours after the scenario's start at which it begins, and how many minutes it lasts.
+
+When the run starts, the runner declares each outage. A declared outage:
+- applies only to that run's executions (`application_outages.simulation_run_id`), so
+  other runs on the same simulated day, and the bank's live estate, never see it;
+- opens no incident;
+- is deleted with the run.
+
+Workflow steps then meet it through the application gateway (Phase 66; see
+[itops.md](itops.md)): retried, then failed, or slowed.
+
+The run's results gain an `applications` section, which is absent when a scenario has no
+outages, so older runs' results and digests are unchanged:
+- the outages, with their windows;
+- `executions_failed`: executions failed by an unavailable application;
+- `executions_delayed`: executions that completed after retrying one;
+- `retries`.
+
+The Simulation Center shows it under the run's metrics.
+
+| Scenario | Outages | Base |
+| --- | --- | --- |
+| `retail-onboarding-outage` v1 | Sanctions Screening down 12:00 to 14:00 | `retail-onboarding` v1 |
+| `domestic-payments-outage` v1 | Core Banking Ledger down 10:00 to 10:30; Payments Gateway degraded 10:00 to 13:00 | `domestic-payments` v1 |
+
+Measured on the development database: 300 cases, 12 employees, seed 2030.
+
+| Run | Completed | Failed by an outage | Delayed | Retries | Review labour |
+| --- | --- | --- | --- | --- | --- |
+| `retail-onboarding` (no outage) | 300 | 0 | 0 | 0 | 71.6 h |
+| `retail-onboarding-outage` | 222 | 78 | 1 | 157 | 56.1 h |
+| `domestic-payments` (no outage) | 300 | 0 | 0 | 0 | 26.3 h |
+| `domestic-payments-outage` | 281 | 19 | 0 | 40 | 25.0 h |
+
+**What the runs show:**
+- **Failures follow the arrivals in each window.** The two-hour screening outage covers a
+  quarter of the eight-hour arrival window: 78 of 300 cases fail, about the 75 expected.
+  The half-hour ledger outage covers about 6 % of the arrivals: 19 of 300.
+- **A half-hour outage delays nothing.** It outlasts the default retry span of about 90 s,
+  so every step that met it failed.
+- **Review labour falls** only because failed cases never reach a reviewer.
+- **The degraded gateway** only adds latency to steps: the payments' p95 cycle time is 0.565 h
+  against 0.557 h.
+
 ## Reproducibility
 
 The same scenario version, dataset, seed, configuration and software version produce the
@@ -340,6 +390,9 @@ removing postings would rewrite the books; only workflow history is lifecycle-ma
   process when no worker is configured, otherwise in `python -m app.cli worker`
   processes. A run whose process stops is reported as interrupted and must be started
   again; the job is not retried.
+- Outage scenarios (Phase 67): `retail-onboarding-outage` v1 and
+  `domestic-payments-outage` v1, besides the scenarios below. An outage's cost is counted in
+  failed and delayed executions, not in money or in customers' patience.
 - Nineteen scenarios exist (`retail-onboarding` v1/v2, `domestic-payments` v1,
   `payments-easter` v1, `global-onboarding` v1, `global-payments` v1, `personal-loans`
   v1/v2, `retail-overdrafts` v1 — Phase 30, the first on a stored workflow, WF-1003 v2 —

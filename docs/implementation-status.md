@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 66.
+Last updated: Phase 67.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -71,6 +71,32 @@ Last updated: Phase 66.
 | 64 | Enterprise applications, step 2: the generic simulated application and outages ([itops.md](itops.md)) | **Complete** |
 | 65 | Enterprise applications, step 3: the application ↔ workflow dependency graph ([itops.md](itops.md)) | **Complete** |
 | 66 | Enterprise applications, step 4: workflow steps call their applications ([itops.md](itops.md)) | **Complete** |
+| 67 | Enterprise applications, step 5: outage scenarios ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 67: what exists
+
+- **Outage scenarios** (`ScenarioConfig.outages`, migration 0045):
+  - a scenario declares outages on its own timeline;
+  - the runner declares them for its run alone, without incidents;
+  - the bank's estate and outage list never see them, and they go with the run.
+- **Their cost in the results:** an `applications` section with the outages, the
+  executions failed and delayed, and the retries. It is absent without outages, so older
+  results and digests are unchanged. The Simulation Center shows it.
+- **Two scenarios:** `retail-onboarding-outage` (screening down two hours) and
+  `domestic-payments-outage` (the ledger down half an hour, the gateway degraded three).
+
+## Phase 67: verified results
+
+RESULTS67_PLACEHOLDER
+
+## Phase 67: known limitations
+
+- **Cost is counted in executions,** not in money, customers or staff time spent on
+  failed cases.
+- **The cases that fail are not re-run** after the outage: nothing resubmits them.
+- **An outage scenario copies its base scenario's day;** outages cannot be set when a run
+  is started, only in a scenario.
+- **Wiring is still 44 %:** the Milestone E exit (2,500 applications wired) is next.
 
 ## Phase 66: what exists
 

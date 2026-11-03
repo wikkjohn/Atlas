@@ -1,0 +1,154 @@
+{
+  "workflow_id": "WF-1052",
+  "name": "Customer Risk Re-rating",
+  "version": 1,
+  "description": "A customer's risk rating is changed after onboarding: a compliance officer (customers:review), someone other than the requester, approves the new rating before it is recorded, and the customer is told; or rejects it. Stored definition: built only from library handlers (Phase 62).",
+  "business_owner": "Customer Onboarding",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "customer_number",
+      "rating",
+      "reason"
+    ],
+    "properties": {
+      "customer_number": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+      },
+      "rating": {
+        "type": "string",
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "examples": [
+          "high"
+        ]
+      },
+      "reason": {
+        "type": "string",
+        "minLength": 10,
+        "maxLength": 300,
+        "examples": [
+          "Large cash deposits inconsistent with the stated occupation."
+        ]
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "lookup.customer_number"
+  },
+  "catalogue": {
+    "department": "Customer Onboarding"
+  },
+  "start": "lookup",
+  "steps": [
+    {
+      "id": "lookup",
+      "type": "service_task",
+      "name": "Find the customer",
+      "handler": "customers.lookup",
+      "params": {
+        "customer_number_path": "input.customer_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the new rating",
+      "description": "Someone other than the requester (customers:review) approves the rating change.",
+      "approval": {
+        "permissions": [
+          "customers:review"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "rate",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "declined"
+    },
+    {
+      "id": "rate",
+      "type": "service_task",
+      "name": "Record the rating",
+      "handler": "customers.set_risk_rating",
+      "params": {
+        "customer_id_path": "lookup.customer_id",
+        "rating_path": "input.rating",
+        "note": "Risk re-rating (WF-1052)"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "notify"
+    },
+    {
+      "id": "notify",
+      "type": "service_task",
+      "name": "Tell the customer",
+      "handler": "customers.notify",
+      "params": {
+        "customer_id_path": "lookup.customer_id",
+        "channel": "simulated_letter",
+        "subject": "Your account review",
+        "body": "We have reviewed your account. Reference {lookup.customer_number}."
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Re-rated",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Rating kept",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

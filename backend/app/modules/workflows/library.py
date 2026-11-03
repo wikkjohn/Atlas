@@ -5207,3 +5207,115 @@ def _complete_department_request(ctx: StepContext,
                           _department_request(ctx, params.request_id_path), ctx.initiator_id,
                           ctx.now)  # fmt: skip
     return _department_request_out(request)
+
+
+# --- Retail lending: payoff and arrears repayment (Phase 62) ---------------------------------
+
+LENDING_ACCESS = {"start_permission": "loans:repay", "read_permission": "loans:read"}
+
+
+def _principal_of(ctx: StepContext, user_id: uuid.UUID):
+    from app.core.permissions import permissions_for
+    from app.modules.identity.models import User
+    from app.modules.identity.service import AuthenticatedUser
+
+    user = ctx.db.get(User, user_id)
+    return AuthenticatedUser(id=user.id, username=user.username, role=user.role.code,
+                             permissions=permissions_for(user.role.code))  # fmt: skip
+
+
+class LoanRef(_Strict):
+    loan_number_path: str = Field(min_length=1, max_length=200)
+
+
+def _loan_out(ctx: StepContext, loan) -> dict[str, Any]:
+    from app.modules.accounts.models import Account
+    from app.modules.ledger import service as ledger
+    from app.modules.lending import servicing
+
+    on = servicing.current_date(ctx.db)
+    arrears = servicing.arrears(ctx.db, loan, on)
+    account = ctx.db.get(Account, loan.disbursement_account_id)
+    available = ledger.balance(ctx.db, ledger.get_ledger_account(ctx.db, account.ledger_account_id))
+    payoff = servicing.payoff_amount(ctx.db, loan)["total"]
+    return {"loan_id": str(loan.id), "loan_number": loan.loan_number, "status": loan.status,
+            "currency": loan.currency, "payoff_total": payoff,
+            "arrears_amount": arrears.amount, "days_past_due": arrears.days_past_due,
+            "in_arrears": arrears.amount > 0, "available": available}  # fmt: skip
+
+
+@_library_handler(
+    "lending.loan_profile",
+    "Read a loan by number: its status, the amount to pay it off, any arrears and how late "
+    "they are, and what the borrower's account holds.",
+    LoanRef,
+    "{loan_id, loan_number, status, currency, payoff_total, arrears_amount, days_past_due, "
+    "in_arrears, available}; an unknown number fails the step.",
+    reads=lambda params: [params.loan_number_path],
+    effect="reads",
+    fixtures=lambda params: {params.loan_number_path: "funded_loan.loan_number"},
+    **LENDING_ACCESS,
+)
+def _loan_profile(ctx: StepContext, params: LoanRef) -> dict[str, Any]:
+    from app.modules.lending.models import Loan
+
+    number = str(_required(ctx, params.loan_number_path))
+    loan = ctx.db.execute(select(Loan).where(Loan.loan_number == number)).scalar_one_or_none()
+    if loan is None:
+        raise StepError("loan_not_found", f"No loan {number}.")
+    return _loan_out(ctx, loan)
+
+
+class LoanSettlement(_Strict):
+    loan_id_path: str = Field(min_length=1, max_length=200)
+    decided_by_path: str = Field(min_length=1, max_length=200)
+
+
+def _settle_loan(ctx: StepContext, params: LoanSettlement, kind: str) -> dict[str, Any]:
+    from app.modules.lending import servicing
+    from app.modules.lending.service import get_loan
+
+    loan_id = uuid.UUID(str(_required(ctx, params.loan_id_path)))
+    decider = uuid.UUID(str(_required(ctx, params.decided_by_path)))
+    if decider == ctx.initiator_id:
+        raise StepError("four_eyes", "Whoever started the repayment does not approve it.")
+    principal = _principal_of(ctx, ctx.initiator_id)
+    key = f"{ctx.execution.workflow_id}-{ctx.execution.id}-{kind}"
+    if kind == "payoff":
+        _trade_call("payoff_refused", servicing.payoff, ctx.db, loan_id, principal, key=key)
+    else:
+        _trade_call("repayment_refused", servicing.repay_arrears, ctx.db, loan_id, principal,
+                    key=key)  # fmt: skip
+    return _loan_out(ctx, get_loan(ctx.db, loan_id))
+
+
+@_library_handler(
+    "lending.pay_off",
+    "Pay the loan off early from the borrower's account: outstanding principal plus interest "
+    "already accrued. A second person approves first.",
+    LoanSettlement,
+    "{loan_id, loan_number, status, currency, payoff_total, arrears_amount, days_past_due, "
+    "in_arrears, available}; too little in the account fails the step.",
+    reads=lambda params: [params.loan_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **LENDING_ACCESS,
+)
+def _pay_off_loan(ctx: StepContext, params: LoanSettlement) -> dict[str, Any]:
+    return _settle_loan(ctx, params, "payoff")
+
+
+@_library_handler(
+    "lending.repay_arrears",
+    "Settle the loan's overdue instalments from the borrower's account, oldest first. A "
+    "second person approves first.",
+    LoanSettlement,
+    "{loan_id, loan_number, status, currency, payoff_total, arrears_amount, days_past_due, "
+    "in_arrears, available}; too little in the account fails the step.",
+    reads=lambda params: [params.loan_id_path, params.decided_by_path],
+    effect="moves_money",
+    requires_approval=True,
+    **LENDING_ACCESS,
+)
+def _repay_loan_arrears(ctx: StepContext, params: LoanSettlement) -> dict[str, Any]:
+    return _settle_loan(ctx, params, "arrears")

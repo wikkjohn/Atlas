@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { useAuth } from "@/app/auth";
 import { Button } from "@/components/Button";
@@ -6,7 +7,7 @@ import { ErrorMessage } from "@/components/ErrorMessage";
 import { PageHeader } from "@/components/PageHeader";
 import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
-import { useCompleteRequest, useDecideRequest, useDepartmentRequests, useSubmitRequest, useThinDepartments } from "@/services/backoffice";
+import { useCompleteRequest, useCoverage, useDecideRequest, useDepartmentRequests, useSubmitRequest, useThinDepartments } from "@/services/backoffice";
 import { formatExactMoney, toMinorUnits } from "@/services/format";
 import type { DepartmentRequest, ThinDepartment } from "@/types/backoffice";
 
@@ -147,6 +148,39 @@ function DepartmentPanel({ department }: { department: ThinDepartment }) {
   );
 }
 
+function CoveragePanel() {
+  const coverage = useCoverage();
+  const c = coverage.data;
+  return (
+    <Panel title="Milestone D coverage" subtitle="Every department of the bank: its base processes (stored and code workflows), the simulation scenarios that exercise them, and its dashboard. Each needs at least three processes, a workload and a dashboard.">
+      <ErrorMessage error={coverage.error} />
+      {c && (
+        <>
+          <p role="status" className="mb-2 text-sm text-slate-700">
+            {c.complete} of {c.total} departments complete
+          </p>
+          <table aria-label="Department coverage" className="min-w-full text-sm">
+            <tbody className="divide-y divide-slate-100">
+              {c.departments.map((d) => (
+                <tr key={d.department}>
+                  <td className="px-2 py-1.5 text-xs font-semibold text-slate-800">{d.department}</td>
+                  <td className="px-2 py-1.5 text-xs text-slate-600">
+                    {d.workflows.length} processes ({d.workflows.join(", ")}) · {d.scenarios.length} scenarios ({d.scenarios.join(", ")})
+                  </td>
+                  <td className="px-2 py-1.5 text-xs">{d.dashboard && <Link to={d.dashboard}>{d.thin ? "Departments" : "Dashboard"}</Link>}</td>
+                  <td className="px-2 py-1.5">
+                    <StatusPill compact tone={d.complete ? "good" : "bad"} label={d.complete ? "complete" : "incomplete"} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Panel>
+  );
+}
+
 /** Thin departments (Phase 61): sixteen departments, three processes each, one request lifecycle. */
 export function DepartmentsPage() {
   const departments = useThinDepartments();
@@ -158,6 +192,9 @@ export function DepartmentsPage() {
       <ErrorMessage error={departments.error} />
       {departments.data && <DepartmentGrid departments={departments.data} selected={selected} onSelect={setSelected} />}
       {department && <DepartmentPanel key={department.code} department={department} />}
+      <div className="mt-6">
+        <CoveragePanel />
+      </div>
     </>
   );
 }

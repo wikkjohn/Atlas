@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost, query } from "@/services/api";
-import type { DepartmentRequest, ThinDepartment } from "@/types/backoffice";
+import type { Coverage, DepartmentRequest, ThinDepartment } from "@/types/backoffice";
 import type { Page } from "@/types/enterprise";
 
 const BASE = "/api/v1/backoffice";
@@ -24,3 +24,5 @@ export const useSubmitRequest = () =>
 export const useDecideRequest = () =>
   useAction(({ id, approve, note }: { id: string; approve: boolean; note?: string }) => apiPost<DepartmentRequest>(`${BASE}/requests/${id}/${approve ? "approve" : "reject"}`, { note }));
 export const useCompleteRequest = () => useAction((id: string) => apiPost<DepartmentRequest>(`${BASE}/requests/${id}/complete`, {}));
+export const useCoverage = () => useQuery({ queryKey: ["backoffice", "coverage"], queryFn: () => apiGet<Coverage>(`${BASE}/coverage`) });
+

@@ -1,0 +1,114 @@
+{
+  "workflow_id": "WF-1053",
+  "name": "Loan Early Payoff",
+  "version": 1,
+  "description": "A borrower pays a personal loan off early from their account: the payoff amount (outstanding principal and interest already accrued) is read, someone other than whoever started it (loans:approve) approves, and the loan is settled and closed; or the payoff is declined. Stored definition: built only from library handlers (Phase 62).",
+  "business_owner": "Retail Lending",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "loan_number"
+    ],
+    "properties": {
+      "loan_number": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "profile.loan_number"
+  },
+  "catalogue": {
+    "department": "Retail Lending"
+  },
+  "start": "profile",
+  "steps": [
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the loan",
+      "handler": "lending.loan_profile",
+      "params": {
+        "loan_number_path": "input.loan_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "approval"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the payoff",
+      "description": "Someone other than whoever started the payoff approves taking it from the account.",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "pay_off",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "declined"
+    },
+    {
+      "id": "pay_off",
+      "type": "service_task",
+      "name": "Pay the loan off",
+      "handler": "lending.pay_off",
+      "params": {
+        "loan_id_path": "profile.loan_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Paid off",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

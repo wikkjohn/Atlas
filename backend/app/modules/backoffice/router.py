@@ -104,3 +104,16 @@ def reject(request_id: uuid.UUID, body: DecisionIn, db: DbSession, user: Authori
 @router.post("/requests/{request_id}/complete", response_model=RequestOut)
 def complete(request_id: uuid.UUID, db: DbSession, user: Authorized(REQUEST)):
     return _out(db, service.complete(db, service.get(db, request_id), user.id))
+
+
+@router.get(
+    "/coverage", summary="Milestone D: every department's processes, workloads and dashboard"
+)
+def coverage(_: Authorized(READ)) -> dict:
+    from app.modules.backoffice.coverage import MIN_PROCESSES
+    from app.modules.backoffice.coverage import coverage as departments_coverage
+
+    rows = departments_coverage()
+    return {"departments": rows, "total": len(rows),
+            "complete": sum(1 for r in rows if r["complete"]),
+            "min_processes": MIN_PROCESSES}  # fmt: skip

@@ -223,7 +223,13 @@ for the factory, a simulation workload and at least one AI tool candidate.
       lifecycle with budgets, executive thresholds, targets and four-eyes decisions; 48
       generated workflows WF-1100–1147; one workload with a scenario per department; see
       `departments.md`)
-- [ ] **Exit:** 35+ departments, each with ≥ 3 base processes, a workload and dashboards
+- [x] **Exit:** 35+ departments, each with ≥ 3 base processes, a workload and dashboards
+      (Phase 62: 35 departments, each with three or more workflows, at least one
+      simulation scenario and a dashboard the navigation links to, checked by a test over
+      `GET /backoffice/coverage`; Customer Onboarding and Retail Lending gained the
+      processes they lacked and Branch Network joined the thin departments; see
+      `departments.md`) — **Milestone D complete**. AI tool candidates exist for the 19
+      departments with their own modules; the 16 thin departments have none.
 
 ## Milestone E — 2,500 simulated enterprise applications
 
@@ -329,4 +335,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 59 (D31) | IT operations: an application catalogue with tiers, incidents with priority-based targets and P1 reviews, change management with risk, approval, conflicts and a month-end freeze; WF-1049–1051 | complete |
 | Phase 60 (D32) | IT operations, step 2: the `change-approvals` workload on stored WF-1050 v2, decided by department managers, and the AGB Change Review Assistant | complete |
 | Phase 61 (D33) | Thin departments: sixteen support departments from one registry, three processes each, 48 generated workflows WF-1100–1147, one workload with a scenario per department | complete |
-| Phase 62 (D34, proposed) | Milestone D exit check: every department's base processes, workload and dashboard, with what is missing filled in | next |
+| Phase 62 (D34) | Milestone D exit: 35 departments each with three or more processes, a workload and a dashboard (coverage check and test); Customer Onboarding and Retail Lending completed (WF-1052–1054), Branch Network added (WF-1148–1150) — Milestone D complete | complete |
+| Phase 63 (E1, proposed) | Milestone E, step 1: the application registry (department, owner, criticality, technology, dependencies) built on the IT operations catalogue | next |

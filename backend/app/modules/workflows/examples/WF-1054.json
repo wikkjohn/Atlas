@@ -1,0 +1,135 @@
+{
+  "workflow_id": "WF-1054",
+  "name": "Loan Arrears Repayment",
+  "version": 1,
+  "description": "A borrower in arrears catches up: the loan's overdue instalments are read; if there are any, someone other than whoever started it (loans:approve) approves settling them from the borrower's account, oldest first. A loan not in arrears needs nothing. Stored definition: built only from library handlers (Phase 62).",
+  "business_owner": "Retail Lending",
+  "trigger_type": "api",
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "loan_number"
+    ],
+    "properties": {
+      "loan_number": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 30
+      }
+    }
+  },
+  "presentation": {
+    "subject_path": "profile.loan_number"
+  },
+  "catalogue": {
+    "department": "Retail Lending"
+  },
+  "start": "profile",
+  "steps": [
+    {
+      "id": "profile",
+      "type": "service_task",
+      "name": "Read the loan",
+      "handler": "lending.loan_profile",
+      "params": {
+        "loan_number_path": "input.loan_number"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused",
+      "next": "route_arrears"
+    },
+    {
+      "id": "route_arrears",
+      "type": "decision",
+      "name": "In arrears?",
+      "transitions": [
+        {
+          "to": "approval",
+          "when": {
+            "path": "profile.in_arrears",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "nothing_due"
+    },
+    {
+      "id": "approval",
+      "type": "approval",
+      "name": "Approve the repayment",
+      "description": "Someone other than whoever started the repayment approves taking it from the account.",
+      "approval": {
+        "permissions": [
+          "loans:approve"
+        ],
+        "distinct_from": [
+          "initiator"
+        ]
+      },
+      "timeout": {
+        "after_seconds": 86400,
+        "action": "flag"
+      },
+      "transitions": [
+        {
+          "to": "repay",
+          "when": {
+            "path": "approval.approved",
+            "op": "truthy"
+          }
+        }
+      ],
+      "next": "declined"
+    },
+    {
+      "id": "repay",
+      "type": "service_task",
+      "name": "Settle the arrears",
+      "handler": "lending.repay_arrears",
+      "params": {
+        "loan_id_path": "profile.loan_id",
+        "decided_by_path": "approval.actor_id"
+      },
+      "retry": {
+        "max_attempts": 1,
+        "backoff_seconds": 0
+      },
+      "on_failure": "refused_after",
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "completion",
+      "name": "Arrears settled",
+      "outcome": "approved"
+    },
+    {
+      "id": "nothing_due",
+      "type": "completion",
+      "name": "Nothing overdue",
+      "outcome": "approved"
+    },
+    {
+      "id": "declined",
+      "type": "completion",
+      "name": "Declined",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused",
+      "type": "completion",
+      "name": "Refused",
+      "outcome": "rejected"
+    },
+    {
+      "id": "refused_after",
+      "type": "completion",
+      "name": "Could not be done",
+      "outcome": "rejected"
+    }
+  ]
+}

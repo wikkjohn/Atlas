@@ -25,9 +25,9 @@ NOW = datetime(2041, 3, 5, 9, 0, tzinfo=UTC)
 
 
 def test_the_registry_and_its_generated_workflows() -> None:
-    assert len(registry.DEPARTMENTS) == 16
+    assert len(registry.DEPARTMENTS) == 17
     codes = [d.code for d in registry.DEPARTMENTS]
-    assert len(set(codes)) == 16 and {"legal", "internal_audit", "marketing",
+    assert len(set(codes)) == 17 and {"legal", "internal_audit", "marketing",
                                       "facilities"} <= set(codes)  # fmt: skip
     for department in registry.DEPARTMENTS:
         first = department.processes[0]
@@ -38,8 +38,8 @@ def test_the_registry_and_its_generated_workflows() -> None:
         assert len({p.code for p in department.processes}) == 3
     docs = documents()
     ids = [d["workflow_id"] for d in docs]
-    assert len(ids) == 48 and len(set(ids)) == 48
-    assert ids[0] == "WF-1100" and ids[-1] == "WF-1147"
+    assert len(ids) == 51 and len(set(ids)) == 51
+    assert ids[0] == "WF-1100" and ids[-1] == "WF-1150"
     assert registry.by_workflow("WF-1100") == (registry.BY_CODE["legal"],
                                                registry.BY_CODE["legal"].processes[0])  # fmt: skip
     for doc in docs:
@@ -125,7 +125,7 @@ def test_backoffice_api_and_permissions(client: TestClient, db: Session) -> None
                         headers=auth(auditor))  # fmt: skip
     assert listed.json()["total"] == 1
     departments = client.get("/api/v1/backoffice/departments", headers=auth(auditor)).json()
-    assert len(departments) == 16
+    assert len(departments) == 17
     assert next(d for d in departments if d["code"] == "marketing")["counts"]["completed"] == 1
 
 
@@ -162,3 +162,27 @@ def test_a_department_run(db: Session, factory) -> None:
     by_kind = run.results["by_kind"]
     assert set(by_kind) <= {"routine", "urgent", "over_budget", "duplicate"}
     assert 0 < run.results["ground_truth"]["accuracy"] <= 1
+
+
+def test_milestone_d_exit(client: TestClient, db: Session) -> None:
+    """35 or more departments, each with three base processes, a simulation workload and a
+    dashboard that the frontend's navigation links to."""
+    import re
+    from pathlib import Path
+
+    from app.modules.backoffice.coverage import coverage
+
+    rows = coverage()
+    incomplete = [r["department"] for r in rows if not r["complete"]]
+    assert len(rows) >= 35 and incomplete == []
+    assert all(len(r["workflows"]) >= 3 and r["scenarios"] for r in rows)
+    navigation = Path(__file__).resolve().parents[2] / "frontend/src/app/navigation.ts"
+    pages = set(re.findall(r'path: "(/[a-z-]*)"', navigation.read_text()))
+    assert {r["dashboard"] for r in rows} <= pages
+    by_name = {r["department"]: r for r in rows}
+    assert by_name["Customer Onboarding"]["workflows"] == ["WF-0001", "WF-1001", "WF-1052"]
+    assert by_name["Retail Lending"]["workflows"] == ["WF-0003", "WF-1053", "WF-1054"]
+    assert "WF-0004" in by_name["Collections"]["workflows"]
+    auditor = make_user(db, RoleCode.AUDITOR)
+    body = client.get("/api/v1/backoffice/coverage", headers=auth(auditor)).json()
+    assert body["total"] == len(rows) and body["complete"] == len(rows)

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 61.
+Last updated: Phase 62.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -66,6 +66,51 @@ Last updated: Phase 61.
 | 59 | Departments, step 31: IT operations ([itops.md](itops.md)) | **Complete** |
 | 60 | Departments, step 32: the IT operations workload and AI tool ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 61 | Departments, step 33: thin departments ([departments.md](departments.md)) | **Complete** |
+| 62 | Departments, step 34: the Milestone D exit check ([departments.md](departments.md)) | **Complete** |
+
+## Phase 62: what exists
+
+- **Milestone D coverage** (`app/modules/backoffice/coverage.py`, `GET
+  /backoffice/coverage`, a panel on the Departments page): every department with its base
+  processes, scenarios and dashboard. Older owner names map onto one department each.
+- **35 departments, all complete:** three or more processes, at least one scenario, and a
+  dashboard the navigation links to. A test checks it; **Milestone D is complete.**
+- **What was missing, now added:**
+  - Customer Onboarding had two processes: **WF-1052 Customer Risk Re-rating** (a
+    compliance officer approves the new rating; the customer is written to);
+  - Retail Lending had one: **WF-1053 Loan Early Payoff** and **WF-1054 Loan Arrears
+    Repayment**, with three new handlers (`lending.loan_profile`, `lending.pay_off`,
+    `lending.repay_arrears`; money moves only after an approval by someone other than
+    whoever started it) and a funded-loan fixture;
+  - **Branch Network**, a seventeenth thin department (WF-1148 to WF-1150,
+    `dept-branch-network`), bringing the count to 35.
+- **PR #52 (Phase 61)** had no review comments; CI passed on the first run.
+
+## Phase 62: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 708 passed (new: 1 — the Milestone D exit: 35 departments, each with three or more workflows, a scenario and a dashboard the navigation links to, through the coverage function and its API; the thin-department tests now count seventeen departments and 51 workflows) |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (WF-1052: 10 cases, WF-1053: 8, WF-1054: 10, WF-1148: 12, WF-1149: 12, WF-1150: 5; each 100 % steps and routes) |
+| Branch Network run | `dept-branch-network`, seed 2030, 60 requests: 60 completed, 83.3 % accurate |
+| Frontend Vitest / typecheck / build | 155 passed (the department test now also checks the coverage panel) / clean / built |
+| Playwright on a fresh database | 70 passed |
+
+Found while building it:
+- **The loan profile read the wrong column:** the first generated tests of WF-1053 and
+  WF-1054 failed at their first step; a loan's account is `disbursement_account_id`, not
+  `account_id`. Fixed; both then passed in full.
+- **Phase 61 miscounted:** it said the thin departments made 35; the coverage check counts
+  34. Branch Network makes 35, and the Phase 61 entry above is corrected.
+
+## Phase 62: known limitations
+
+- **AI tools:** the 18 departments with their own modules have AI tool candidates; the 17
+  thin departments have none.
+- **Coverage counts workflows, not depth:** a thin department's three processes share one
+  request model.
+- **The new retail lending and onboarding workflows have no workload of their own;** their
+  departments' existing scenarios (`personal-loans`, `retail-onboarding`) count.
 
 ## Phase 61: what exists
 
@@ -76,7 +121,9 @@ Last updated: Phase 61.
   - Investor Relations, Strategy, Tax, Company Secretariat;
   - Model Risk, Operational Risk, Regulatory Affairs, Sustainability.
 
-  With the nineteen departments that have their own modules, that makes 35.
+  Phase 61 said that with "nineteen" departments with their own modules this made 35; the
+  Phase 62 coverage check counts eighteen, so it made 34. Branch Network (Phase 62) is the
+  35th.
 - **One request lifecycle** (`department_requests`):
   - submitted, then approved or rejected by someone other than the requester (also a
     database constraint), or approved at once when the process needs no approval;

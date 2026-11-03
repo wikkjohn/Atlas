@@ -36,6 +36,28 @@ class ApplicationOut(BaseModel):
     tier: int
     status: str
     open_incidents: int
+    owner: str | None
+    technology: str
+    hosting: str
+    vendor: str | None
+    generated_from: str | None
+
+
+class ProfileIn(BaseModel):
+    owner_username: str | None = Field(default=None, max_length=100)
+    technology: str = Field(min_length=2, max_length=40)
+    hosting: str = Field(pattern=r"^(on_premise|private_cloud|public_cloud|saas)$")
+    vendor: str | None = Field(default=None, max_length=100)
+
+
+class DependencyIn(BaseModel):
+    depends_on: str = Field(min_length=1, max_length=20, description="Application number")
+    kind: str = Field(pattern=r"^(data|api|batch|auth)$")
+
+
+class EstateIn(BaseModel):
+    count: int = Field(ge=1, le=10_000)
+    seed: int = Field(ge=0, le=2**31 - 1)
 
 
 class IncidentIn(BaseModel):
@@ -108,20 +130,33 @@ class ChangeOut(BaseModel):
     created_at: datetime
 
 
-def _app_out(db, a: Application) -> ApplicationOut:
+def _open_incidents(db, ids: list[uuid.UUID]) -> dict[uuid.UUID, int]:
     from sqlalchemy import func
 
     from app.modules.itops.models import IncidentStatus
 
-    open_count = db.execute(
-        select(func.count()).select_from(Incident).where(
-            Incident.application_id == a.id,
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(Incident.application_id, func.count()).where(
+            Incident.application_id.in_(ids),
             Incident.status.in_([IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED]))
-    ).scalar_one()  # fmt: skip
+        .group_by(Incident.application_id)).all()  # fmt: skip
+    return {app_id: count for app_id, count in rows}
+
+
+def _app_out(db, a: Application, open_count: int | None = None) -> ApplicationOut:
+    from app.modules.identity.models import User
+
+    if open_count is None:
+        open_count = _open_incidents(db, [a.id]).get(a.id, 0)
+    owner = db.get(User, a.owner_id) if a.owner_id else None
     return ApplicationOut(
         id=a.id, application_number=a.application_number, name=a.name,
         description=a.description, department=db.get(Organization, a.department_id).name,
         tier=a.tier, status=a.status, open_incidents=open_count,
+        owner=owner.username if owner else None, technology=a.technology, hosting=a.hosting,
+        vendor=a.vendor, generated_from=a.generated_from,
     )  # fmt: skip
 
 
@@ -161,13 +196,97 @@ def _page(db, query, page, out):
 # --- Applications ------------------------------------------------------------------------------
 
 
-@router.get("/applications", response_model=list[ApplicationOut],
-            summary="The application catalogue, most critical first")  # fmt: skip
-def list_applications(db: DbSession, _: Authorized(READ)):
-    rows = db.execute(
-        select(Application).order_by(Application.tier, Application.name)
-    ).scalars()  # fmt: skip
-    return [_app_out(db, a) for a in rows]
+@router.get("/applications", response_model=Page[ApplicationOut],
+            summary="The application registry, most critical first")  # fmt: skip
+def list_applications(db: DbSession, page: PageParamsDep, _: Authorized(READ),
+                      q: str | None = Query(default=None, max_length=100),
+                      tier: int | None = Query(default=None, ge=1, le=3),
+                      technology: str | None = Query(default=None, max_length=40),
+                      generated: bool | None = None):  # fmt: skip
+    query = select(Application).order_by(Application.tier, Application.name)
+    if q:
+        like = f"%{q.strip()}%"
+        query = query.where(Application.name.ilike(like)
+                            | Application.application_number.ilike(like))  # fmt: skip
+    if tier:
+        query = query.where(Application.tier == tier)
+    if technology:
+        query = query.where(Application.technology == technology)
+    if generated is not None:
+        query = query.where(Application.generated_from.is_not(None) if generated
+                            else Application.generated_from.is_(None))  # fmt: skip
+    items, total = paginate(db, query, page)
+    counts = _open_incidents(db, [a.id for a in items])
+    return Page(items=[_app_out(db, a, counts.get(a.id, 0)) for a in items], total=total,
+                limit=page.limit, offset=page.offset)  # fmt: skip
+
+
+@router.get("/applications/{application_id}", summary="An application with what it relies on, "
+            "what relies on it, and what stops if it stops")  # fmt: skip
+def application_detail(application_id: uuid.UUID, db: DbSession, _: Authorized(READ)) -> dict:
+    from app.modules.itops import estate
+
+    app = service.get_application(db, application_id)
+
+    def edge(dependency, other) -> dict:
+        return {"id": str(dependency.id), "kind": dependency.kind,
+                "application_number": other.application_number, "name": other.name,
+                "tier": other.tier, "application_id": str(other.id)}  # fmt: skip
+
+    return {
+        "application": _app_out(db, app).model_dump(mode="json"),
+        "dependencies": [edge(d, o) for d, o in estate.dependencies(db, app)],
+        "dependents": [edge(d, o) for d, o in estate.dependents(db, app)],
+        "impact": estate.impact(db, app),
+    }
+
+
+@router.put("/applications/{application_id}/profile", response_model=ApplicationOut,
+            summary="Record the owner, technology, hosting and vendor")  # fmt: skip
+def set_profile(application_id: uuid.UUID, body: ProfileIn, db: DbSession,
+                user: Authorized(MAJOR)):  # fmt: skip
+    from app.modules.itops import estate
+
+    app = estate.set_profile(db, service.get_application(db, application_id),
+                             owner_username=body.owner_username, technology=body.technology,
+                             hosting=body.hosting, vendor=body.vendor,
+                             actor_id=user.id)  # fmt: skip
+    return _app_out(db, app)
+
+
+@router.post("/applications/{application_id}/dependencies", status_code=status.HTTP_201_CREATED,
+             summary="Record that the application relies on another (never a cycle)")  # fmt: skip
+def add_dependency(application_id: uuid.UUID, body: DependencyIn, db: DbSession,
+                   user: Authorized(MAJOR)) -> dict:  # fmt: skip
+    from app.modules.itops import estate
+
+    app = service.get_application(db, application_id)
+    dependency = estate.add_dependency(db, app, service.find_application(db, body.depends_on),
+                                       body.kind, user.id)  # fmt: skip
+    return {"id": str(dependency.id), "kind": dependency.kind}
+
+
+@router.delete("/applications/{application_id}/dependencies/{dependency_id}",
+               status_code=status.HTTP_204_NO_CONTENT)  # fmt: skip
+def remove_dependency(application_id: uuid.UUID, dependency_id: uuid.UUID, db: DbSession,
+                      user: Authorized(MAJOR)) -> None:  # fmt: skip
+    from app.modules.itops import estate
+
+    estate.remove_dependency(db, dependency_id, user.id)
+
+
+@router.post("/estate/generate", summary="Generate the simulated application estate (seeded)")
+def generate_estate(body: EstateIn, db: DbSession, user: Authorized(MAJOR)) -> dict:
+    from app.modules.itops import estate
+
+    return estate.generate_estate(db, body.count, body.seed, user.id)
+
+
+@router.get("/estate/summary", summary="The estate by tier, technology and hosting")
+def estate_summary(db: DbSession, _: Authorized(READ)) -> dict:
+    from app.modules.itops import estate
+
+    return estate.summary(db)
 
 
 @router.post("/applications", response_model=ApplicationOut,

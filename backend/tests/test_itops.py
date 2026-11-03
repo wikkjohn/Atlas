@@ -223,5 +223,6 @@ def test_itops_api_and_permissions(client: TestClient, db: Session) -> None:
     assert any(i["change_number"] == change["change_number"] for i in listed["items"])
     counts = client.get("/api/v1/itops/summary/counts", headers=auth(auditor)).json()
     assert counts["incidents_open"] >= 1 and counts["changes_failed_30d"] >= 1
-    apps = client.get("/api/v1/itops/applications", headers=auth(auditor)).json()
+    apps = client.get("/api/v1/itops/applications?q=Payments Hub",
+                      headers=auth(auditor)).json()["items"]  # fmt: skip
     assert next(a for a in apps if a["application_number"] == number)["open_incidents"] == 1

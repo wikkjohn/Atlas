@@ -680,6 +680,20 @@ def _reference(args: argparse.Namespace) -> int:
     return 0
 
 
+def _estate(args: argparse.Namespace) -> int:
+    """The simulated application estate (Phase 63): generate it, or show it in numbers."""
+    from app.modules.itops import estate
+
+    factory = get_sessionmaker()
+    with factory() as db:
+        if args.action == "generate":
+            result = estate.generate_estate(db, args.count, args.seed)
+            db.commit()
+            print(json.dumps(result, indent=2))
+        print(json.dumps(estate.summary(db), indent=2))
+    return 0
+
+
 def _subsidiaries(args: argparse.Namespace) -> int:
     """Generated country subsidiaries (Phase 27): show coverage, or launch countries."""
     import time
@@ -950,6 +964,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub_generate.add_argument("--no-staff", action="store_true", help="Build units only")
     subsidiaries.set_defaults(handler=_subsidiaries)
+
+    estate_parser = commands.add_parser(
+        "estate", help="The simulated application estate (Milestone E): generate or summarise"
+    )
+    estate_actions = estate_parser.add_subparsers(dest="action", required=True)
+    estate_actions.add_parser("summary", help="Applications by tier, technology and hosting")
+    estate_generate = estate_actions.add_parser(
+        "generate", help="Generate applications and their dependencies (seeded, idempotent)"
+    )
+    estate_generate.add_argument("--count", type=int, default=2500)
+    estate_generate.add_argument("--seed", type=int, default=2030)
+    estate_parser.set_defaults(handler=_estate)
 
     country_sweep = commands.add_parser(
         "country-sweep",

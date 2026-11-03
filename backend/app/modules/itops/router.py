@@ -512,3 +512,34 @@ def end_outage(outage_id: uuid.UUID, db: DbSession, user: Authorized(MANAGE)):
 
     outage = simulated.end_outage(db, simulated.get_outage(db, outage_id), user.id)
     return _outage_out(db, outage)
+
+
+# --- Applications and workflows (Phase 65) -----------------------------------------------
+
+
+@router.get("/applications/{application_id}/workflows",
+            summary="The workflows that call it, and what its outage stops")  # fmt: skip
+def application_workflows(application_id: uuid.UUID, db: DbSession,
+                          _: Authorized(READ)) -> dict:  # fmt: skip
+    from app.modules.itops import links
+
+    return links.application_workflows(db, service.get_application(db, application_id))
+
+
+@router.get("/workflows/{workflow_id}/applications",
+            summary="The applications a workflow's steps call")  # fmt: skip
+def workflow_applications(workflow_id: str, db: DbSession, _: Authorized(READ)) -> dict:
+    from app.core.errors import NotFoundError
+    from app.modules.itops import links
+
+    result = links.workflow_applications(db, workflow_id)
+    if result["name"] is None:
+        raise NotFoundError(f"No active workflow {workflow_id} calls an application.")
+    return result
+
+
+@router.get("/estate/wiring", summary="How much of the estate the workflows depend on")
+def estate_wiring(db: DbSession, _: Authorized(READ)) -> dict:
+    from app.modules.itops import links
+
+    return links.summary(db)

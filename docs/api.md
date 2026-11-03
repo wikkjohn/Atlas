@@ -521,6 +521,9 @@ first, paginated.
 | GET | `/api/v1/itops/outages` | `itops:read` | Phase 64: newest first, paginated; `?active=true` for those in force; each with its status (scheduled, in force, ended), incident and how many applications fail |
 | POST | `/api/v1/itops/outages` | `itops:manage` | Phase 64: `{application_number, kind, reason, starts_at?, ends_at?}` (rules `kind_invalid`, `reason_required`, `application_retired`, `window_invalid`, `outage_overlap`); one that has started opens an incident |
 | POST | `/api/v1/itops/outages/{id}/end` | `itops:manage` | Phase 64: restores service now (rule `outage_not_active`) |
+| GET | `/api/v1/itops/applications/{id}/workflows` | `itops:read` | Phase 65: `{calls, workflows, outage}`: the workflows that call it with their steps, and what its outage stops (`applications_failing`, `workflows_stopped`, `workflows_linked`, `steps_stopped`, `by_department`, each workflow with the applications it fails through) |
+| GET | `/api/v1/itops/workflows/{workflow_id}/applications` | `itops:read` | Phase 65: the applications the latest active version's steps call, core or estate; 404 when none |
+| GET | `/api/v1/itops/estate/wiring` | `itops:read` | Phase 65: workflows and steps linked, applications called directly, wired and not |
 | GET | `/api/v1/itops/estate/summary` | `itops:read` | Phase 63: applications, generated, dependencies, unconnected; by tier, technology and hosting |
 | POST | `/api/v1/itops/applications` | `itops:approve_major` | `{name, description?, department_id, tier}` (rule `tier_invalid`; 409 for a name in use) |
 | GET | `/api/v1/itops/incidents` | `itops:read` | With priority, targets, breaches and the change that caused it |

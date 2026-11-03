@@ -98,6 +98,21 @@ const routes = {
       state: { status: "down", cause: "APP-00001", path: ["APP-00001"] },
       blast_radius: 1238,
     }),
+  "GET /api/v1/itops/estate/wiring": () =>
+    jsonResponse({ workflows_linked: 119, workflows: 119, steps_linked: 544, links: 1270, applications: 2525, called_directly: 340, wired: 1105, unwired: 1420 }),
+  "GET /api/v1/itops/applications/app-1/workflows": () =>
+    jsonResponse({
+      calls: 2,
+      workflows: [{ workflow_id: "WF-1002", name: "Paper Statement Request", department: "Retail Banking", steps: ["Check the account is the customer's"] }],
+      outage: {
+        applications_failing: 1248,
+        workflows_stopped: 117,
+        workflows_linked: 119,
+        steps_stopped: 479,
+        by_department: { "Payments Operations": 4, Finance: 4 },
+        workflows: [{ workflow_id: "WF-0002", name: "Domestic Payment", department: "Payments Operations", steps: ["Release"], via: ["APP-00001", "APP-00002"] }],
+      },
+    }),
   "GET /api/v1/itops/applications/app-1": () =>
     jsonResponse({
       application: app,
@@ -177,6 +192,11 @@ describe("IT Operations page", () => {
     expect(within(detail).getByLabelText("If it stops")).toHaveTextContent("across 21 departments");
     expect(within(detail).getByRole("list", { name: "Relied on by" })).toHaveTextContent("APP-00005 Loan Origination · api · tier 2");
     expect(detail).toHaveTextContent("Java on on premise");
+    const flows = within(detail).getByRole("region", { name: "Workflows" });
+    expect(await within(flows).findByRole("list", { name: "Calling workflows" })).toHaveTextContent("WF-1002 Paper Statement Request · Retail Banking");
+    expect(within(flows).getByLabelText("If it goes down")).toHaveTextContent("117 of 119 workflows stop (479 steps, 1248 applications failing) · most in Payments Operations (4), Finance (4)");
+    expect(within(flows).getByRole("list", { name: "Stopped workflows" })).toHaveTextContent("WF-0002 Domestic Payment · 1 step · through APP-00001, APP-00002");
+    expect(screen.getByLabelText("Wiring")).toHaveTextContent("119 workflows call 340 applications directly in 544 steps; 1105 of 2525 applications are wired");
 
     await userEvent.type(screen.getByLabelText("Search applications"), "Ledger");
     await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/itops/applications" && r.search.get("q") === "Ledger")).toBe(true));

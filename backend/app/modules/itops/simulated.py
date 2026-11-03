@@ -300,10 +300,9 @@ def end_outage(db: Session, outage: ApplicationOutage, actor_id: uuid.UUID | Non
     return outage
 
 
-def blast_radius(db: Session, app: Application) -> dict[str, Any]:
-    """What fails if the application goes down: everything that waits on it synchronously,
-    directly or through others (a subset of the registry's impact, which counts every kind
-    of dependency)."""
+def failing(db: Session, app: Application) -> set[uuid.UUID]:
+    """The application and everything that waits on it synchronously, directly or through
+    others: what fails while it is down."""
     reverse: dict[uuid.UUID, list[uuid.UUID]] = {}
     for a, b in db.execute(select(ApplicationDependency.application_id,
                                   ApplicationDependency.depends_on_id)
@@ -315,4 +314,10 @@ def blast_radius(db: Session, app: Application) -> dict[str, Any]:
             if nxt not in seen:
                 seen.add(nxt)
                 queue.append(nxt)
-    return {"failing": len(seen) - 1}
+    return seen
+
+
+def blast_radius(db: Session, app: Application) -> dict[str, Any]:
+    """What fails if the application goes down, besides itself (a subset of the registry's
+    impact, which counts every kind of dependency)."""
+    return {"failing": len(failing(db, app)) - 1}

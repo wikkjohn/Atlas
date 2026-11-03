@@ -149,6 +149,73 @@ Measured on the development estate (2,512 applications, 6,025 dependencies, seed
 | Longest chain from a failing application to the ledger | 11 applications |
 | The registry's impact of the same outage | 2,255 applications: data and batch feeds count there, but they do not fail calls |
 
+## Applications and workflows (Phase 65)
+
+Phase 65 (roadmap Milestone E, step 3) links the bank's workflows to the applications they
+use. Code: `backend/app/modules/itops/links.py`. Nothing new is stored: the graph is read
+from the latest active version of each workflow, so it is always current.
+
+**Which applications a step calls.** A step runs a handler, and the handler's namespace
+names the core systems it uses:
+
+| Handlers | Core systems | Estate domain |
+| --- | --- | --- |
+| `accounts.*` | Core Banking Ledger | Ledger |
+| `customers.*` | Core Banking Ledger, Document Archive | Customer |
+| `compliance.*` | Sanctions Screening, AML Monitoring | Compliance |
+| `lending.*` | Loan Origination, Core Banking Ledger | Lending |
+| `cards.*` | Card Authorisation | Cards |
+| `clearing.*` | Payments Gateway | Payments |
+| `retail.*` | Retail Banking Platform, Core Banking Ledger | Channels |
+| `mortgages.*`, `commercial.*` | Mortgage Platform, Commercial Lending Platform | Lending |
+| `trade.*`, `treasury.*`, `wealth.*`, `risk.*` | Trade Finance System, Treasury Dealing System, Wealth Platform, Risk Engine | Trade, Treasury, Wealth, Risk |
+| `finance.*` | Core Banking Ledger, Regulatory Reporting | Finance |
+| `service.*`, `collections.*` | Service Desk CRM, Collections System | Customer, Collections |
+| `hr.*`, `procurement.*`, `itops.*` | HR System, Procurement Suite, IT Service Management | HR, Procurement, Data |
+| `backoffice.*`, `ai.*` | Workflow Factory, AI Innovation Lab Console | Reporting, Data |
+| `wf0001.*` to `wf0004.*` (the code workflows) | the ledger, screening, the gateway, loan origination | Customer, Payments, Lending, Collections |
+
+`core.*` handlers (values, checks, outcomes) call nothing.
+
+The catalogue gains the thirteen core systems these name, one for each department whose
+workflows had none. Each comes with its technology, hosting and dependencies: the
+Treasury Dealing System, for example, relies on the Payments Gateway and the ledger.
+
+**The estate.** Where the generated estate exists, each linked step also calls one critical
+(tier 1 or 2) estate application from its domain. A hash of the workflow and step picks
+it, so the same step always calls the same application. A domain with no critical
+application adds none.
+
+**What an outage stops.** A down application fails everything that waits on it
+synchronously (Phase 64). Every workflow with a step that calls any of those stops. For
+each application the page shows:
+- the workflows that call it, with their steps;
+- what its outage stops: workflows, steps and failing applications, by department, and for
+  each workflow the applications it fails through.
+
+**Wiring.** An application is wired when a workflow calls it, or when an application a
+workflow calls relies on it, directly or not (any kind of dependency). `GET
+/itops/estate/wiring` counts this, and so does `python -m app.cli estate wiring`. `python -m
+app.cli estate impact "<application>"` gives one application's outage.
+
+Measured on the development database: 119 active workflows, and 2,512 applications plus the
+thirteen new core systems, so 2,525.
+
+| Measure | Result |
+| --- | --- |
+| Workflows linked | 119 of 119: 544 steps, 1,270 links, 340 applications called directly |
+| Wired | 1,105 of 2,525 applications (44 %); 1,420 not yet |
+| Core Banking Ledger down | 1,248 applications fail; 117 of 119 workflows stop (479 steps); 0.22 s |
+| Sanctions Screening down | 1,034 applications fail; 106 workflows stop (269 steps) |
+| Card Authorisation down | 255 applications fail; 42 workflows stop (57 steps) |
+| Staff Intranet down | 20 applications fail; 9 workflows stop (18 steps), mostly HR and IT |
+| Whole-estate wiring count | 0.35 s |
+
+**Why only 44 % is wired.** A generated application relies only on applications generated
+before it (Phase 63), so the most recently generated ones are wired only when a step calls
+them directly. Wiring the rest is for step 4, where workflows call applications as they
+run.
+
 ## Incidents
 
 An incident (`INC-`, `itops:manage`) names an application, what is wrong, its impact and its
@@ -268,6 +335,9 @@ before Phase 60 the handler refused one as a missing value.
 
 ## Known limitations
 
+- **Links come from handler namespaces,** not from what a step does with its parameters:
+  every `accounts.*` step calls the ledger, whatever it reads.
+- **A link does not make a step fail yet:** the impact is computed, not observed (step 4).
 - **Retries and circuit breakers are not modelled:** a caller sees each failure.
 - **Latency does not grow with load:** an application answers as fast at 10,000 calls a
   second as at one.

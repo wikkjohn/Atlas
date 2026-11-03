@@ -199,6 +199,13 @@ export interface SimulationResults {
   staff: Record<string, number>;
   simulated_hours: number | null;
   ai?: AiResults | null;
+  /** Phase 67: the run's own application outages and what they cost it. */
+  applications?: {
+    outages: { application: string; application_number: string; kind: "down" | "degraded"; from: string; to: string | null }[];
+    executions_failed: number;
+    executions_delayed: number;
+    retries: number;
+  };
   execution: {
     events_processed: number;
     workflow_steps_completed: number;

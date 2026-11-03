@@ -536,6 +536,24 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
             />
           </dl>
 
+          {res.applications && (
+            <section aria-label="Application outages" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+              <h3 className="mb-1 text-sm font-semibold">Application outages</h3>
+              <ul className="mb-1">
+                {res.applications.outages.map((o) => (
+                  <li key={`${o.application_number}-${o.from}`}>
+                    {o.application} {o.kind} from {o.from.slice(11, 16)}
+                    {o.to && ` to ${o.to.slice(11, 16)}`} (simulated {o.from.slice(0, 10)})
+                  </li>
+                ))}
+              </ul>
+              <p>
+                {res.applications.executions_failed} executions failed on an unavailable application · {res.applications.executions_delayed} completed late after a retry ·{" "}
+                {res.applications.retries} retries
+              </p>
+            </section>
+          )}
+
           {res.ai && res.ai.mode !== "off" && (
             <section aria-label="AI tool behaviour" className="rounded-lg border border-slate-200 p-3 text-xs text-slate-600">
               <h3 className="mb-1 text-sm font-semibold text-slate-900">AI tool behaviour</h3>

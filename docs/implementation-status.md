@@ -101,7 +101,16 @@ Last updated: Phase 70.
 
 ## Phase 72: verified results
 
-RESULTS72_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 747 passed. New: 5 tests covering: plans follow their segment (ages, products, currency) and repeat; history never overdraws and has every kind of movement; generated customers are complete, through approved four-eyes requests, balances match and the books reconcile, a second run adds nothing and a larger one continues; the rules; the API, its permissions and its limit |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (207.5 s on the development database) |
+| 1,000,000 customers, no history (scratch database) | 1,519 s, 658 a second; 1,380,846 accounts; 3.9 GB. Customer list 85 ms, search 27 to 73 ms, the summary 1.6 s (5.9 s before) |
+| 100,000 customers, 3 months of history | 2,092 s; 3,557,214 entries; 3.5 GB; no account below zero; a full reconciliation passed (103.6 s) |
+| Frontend Vitest / typecheck / build | 166 passed (new: the Customer base panel and generating customers; none of its form without `customers:manage`) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+See [customer-base.md](customer-base.md) for the measurements and what history costs.
 
 ## Phase 72: known limitations
 

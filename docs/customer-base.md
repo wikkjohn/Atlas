@@ -81,7 +81,7 @@ seeded and then dropped:
 | 1,000,000 customers, no history (seed 2032, batches of 5,000) | 1,519 s, 658 a second; 1,380,846 accounts (638,247 customers with one, 392,860 with two); 1,380,846 opening entries; database 3.9 GB. Segments: mass 549,469, affluent 149,657, senior 120,404, sme 80,170, student 80,074, private 20,226 |
 | Reads at that size (median) | customer list page 85 ms; search by name 27 ms, by number 73 ms; the summary 1.6 s (5.9 s before its accounts-per-customer count stopped joining customers) |
 | 20,000 customers, no history | 23.2 s, 862 a second |
-| 100,000 customers with 3 months of history (seed 2033, batches of 500) | HISTORY100K_PLACEHOLDER |
+| 100,000 customers with 3 months of history (seed 2033, batches of 500) | 2,092 s, 47.8 customers a second; 137,700 accounts; 3,557,214 entries (about 1,700 a second): card 1,942,386, bills 538,906, housing 276,249, salary 240,447, receipts 142,381, savings 113,100, supplier 106,498, pension 35,802, payroll 23,745, plus opening balances; database 3.5 GB. No account below zero; a full reconciliation of the ledger passed (103.6 s); the summary took 0.9 s |
 
 **What history costs.** Each customer moves money about 35 times in three months, and every
 movement is a journal entry with two lines. The ledger checks each row: entries must

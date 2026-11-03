@@ -87,7 +87,19 @@ Last updated: Phase 68.
 
 ## Phase 68: verified results
 
-RESULTS68_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 728 passed. New: 2 tests. One wires a generated 2,500-application estate through the warehouse: batch feeds only, never relied on, idempotent, none left unwired, and the finance step calls the warehouse. The other is the exit check: wired but not yet generated nor measured, then passed once the estate is generated and an outage scenario has run |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (211.9 s) |
+| Development database exit check | **Passed:** 2,500 generated; 2,526 of 2,526 wired (947 warehouse feeds); outage measured in run #10 (`domestic-payments-outage`, 19 of 300 executions failed). The Core Banking Ledger's outage impact is unchanged: 1,248 applications fail and 117 of 119 workflows stop |
+| Frontend Vitest / typecheck / build | 159 passed (the registry test now also checks the exit line) / clean / built |
+| Playwright on a fresh database | 73 passed (the registry test now also checks the exit line, "not yet" without an estate) |
+
+Found while building it:
+- **The catalogue was wired only by the seed:** the first exit test found a database with
+  the catalogue but no warehouse feeds. `ensure_applications` now feeds the warehouse
+  itself, so any database with the catalogue is wired.
+- **PR #58's Codex review** completed after the merge with no findings.
 
 ## Phase 68: known limitations
 

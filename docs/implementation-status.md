@@ -87,7 +87,28 @@ Last updated: Phase 67.
 
 ## Phase 67: verified results
 
-RESULTS67_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 725 passed and 1 failed in the full run, on a second test database `atlas_test_e5` (so it could run beside the Phase 66 run). The failure is `test_system_status_is_operational_after_migrations`, which expects the name `atlas_test`. Re-run against `atlas_test` with the outage, gateway, simulated-application and simulation tests: 40 passed. New: 4 tests covering: the registered scenarios and unchanged configs of older ones; a scenario's outage failing only its own run, repeatably; a short outage that delays without failing; an unknown application failing the run with a reason |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed |
+| Outage scenarios (300 cases, seed 2030) | See [simulation.md](simulation.md): 78 executions failed by the screening outage, 19 by the ledger's |
+| Frontend Vitest / typecheck / build | 159 passed (new: the outage section, and no section without outages) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Found while building it:
+- **The outage cost was missing from the results at first:** the results were flushed
+  before the section was added in place, and in-place JSONB changes after a flush are not
+  saved. The runner now assigns a new dict.
+- **Phase 66's gateway cost generated tests a third more time.** Measured on the same
+  database, the generated tests took 244.3 s before Phase 66 and 325.7 s with it. The
+  engine made a new gateway for each advance, and generated tests make many short ones, so
+  their unchanging lookups (core applications, estate domains, contracts) were loaded again
+  and again. They are now kept on the session for as long as it lasts, while outages are
+  still read for each moment. With this, the generated tests take 260.4 s (about 7 % over
+  Phase 65) and the `retail-onboarding` run 97.6 s (94.2 s before Phase 66), with an
+  unchanged result digest.
+  Phase 66 put the 302 s it saw down to the full test run going at the same time; most
+  of it was the gateway.
 
 ## Phase 67: known limitations
 
@@ -139,7 +160,8 @@ Found while building it:
   step error shows; the calls are on the step's event, not displayed.
 - **Outages are declared by people** (or by scripts); a scenario cannot declare its own yet
   (step 5).
-- **About 7 % slower simulations** for the calls (one outage query per step's moment).
+- **About 7 % slower simulations** for the calls (one outage query per step's moment);
+  Phase 67 found generated tests 33 % slower and brought it down to about 7 %.
 
 ## Phase 65: what exists
 

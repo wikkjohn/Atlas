@@ -89,7 +89,20 @@ Last updated: Phase 64.
 
 ## Phase 64: verified results
 
-RESULTS64_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 713 passed, 1 failed in a full run against a second test database, `atlas_test_e2`. The failure is `test_system_status_is_operational_after_migrations`, which expects the database to be named `atlas_test`. Re-run against `atlas_test` with the registry, IT operations and new tests: 15 passed. New: 3 — the contract, latency and errors, deterministic per seed; outages failing callers through API and authentication links only, degraded outages, the incident, the rules; the API and its permissions |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed |
+| Measurement on the 2,512-application estate (seed 2030) | See [itops.md](itops.md): the Core Banking Ledger down takes 1,239 applications down, found in 0.13 s; 10,048 calls in 2.7 s |
+| Frontend Vitest / typecheck / build | 157 passed (the IT operations test now also covers the contract, test calls and outages) / clean / built |
+| Playwright on a fresh database | 72 passed (new: an outage of Sanctions Screening fails the Payments Gateway that calls it, until it ends) |
+
+Found while building it:
+- **An outage declared without a person failed:** the incident it opens needs a reporter
+  (`reported_by` is required). Outages are declared by people in this phase; simulation
+  scenarios that raise them (step 5) will need a system reporter.
+- **The Phase 64 full run used a second test database** so it could run beside the Phase 63
+  run; the one test that names the database is the failure above.
 
 ## Phase 64: known limitations
 

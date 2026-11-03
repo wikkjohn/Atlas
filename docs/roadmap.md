@@ -281,7 +281,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 73: hour, weekday and month weights in a country's local time, and events
       that multiply demand; cases keep their order and draws; `retail-onboarding-week`;
       see `simulation.md`)
-- [ ] Durable event pipeline (outbox) for departmental dependencies
+- [x] Durable event pipeline (outbox) for departmental dependencies
+      (Phase 74: events and per-subscriber deliveries written in the publisher's
+      transaction, delivered inline in savepoints and by a SKIP LOCKED dispatcher with
+      back-off; lending → collections moved onto it; HR ↔ Information Security joiners and
+      leavers; see `events.md`)
 - [ ] **Exit:** the `enterprise` profile completes, with its timing measured
 
 ## Milestone G — AI laboratory at enterprise scale
@@ -381,4 +385,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 71 (F3) | Milestone F, step 3: named task assignment (least loaded, the initiator's manager), out-of-office delegation and handing a task on, escalation up the management line; WF-1044 v3 | complete |
 | Phase 72 (F4) | Milestone F, step 4: the customer generator — six segments, deposit products, dated transaction history through the ledger, seeded and resumable; a million customers measured; bulk posting no longer quadratic | complete |
 | Phase 73 (F5) | Milestone F, step 5: arrival patterns — hour, weekday and month weights in local time, events; the arrivals in the results; `retail-onboarding-week` | complete |
-| Phase 74 (F6, proposed) | Milestone F, step 6: a durable event pipeline (outbox) for departmental dependencies | next |
+| Phase 74 (F6) | Milestone F, step 6: the event outbox — deliveries per subscriber, retries, a SKIP LOCKED dispatcher; lending → collections and HR ↔ Information Security on it | complete |
+| Phase 75 (F7, proposed) | Milestone F exit: the `enterprise` profile completes, with its timing measured | next |

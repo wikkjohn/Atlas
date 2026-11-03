@@ -78,6 +78,35 @@ Last updated: Phase 70.
 | 71 | Workforce and customers, step 3: task routing — named assignment, delegation, escalation ([workflows.md](workflows.md)) | **Complete** |
 | 72 | Workforce and customers, step 4: the customer generator ([customer-base.md](customer-base.md)) | **Complete** |
 | 73 | Workforce and customers, step 5: arrival patterns ([simulation.md](simulation.md)) | **Complete** |
+| 74 | Workforce and customers, step 6: the event pipeline ([events.md](events.md)) | **Complete** |
+
+## Phase 74: what exists
+
+- **The outbox** (`app/modules/events`, migration 0049):
+  - events and one delivery per subscriber, written in the publisher's transaction;
+  - delivered inline, each subscriber in a savepoint, so a subscriber's failure never undoes
+    the publisher's change;
+  - retried by the `events.dispatch` job (every minute) with back-off, batches claimed with
+    `FOR UPDATE SKIP LOCKED`; dead after 8 attempts until retried.
+- **Lending → collections** moved from an in-process listener onto it; only loans in
+  arrears, and their cures, publish.
+- **HR ↔ Information Security:** a hire requests the joiner's access (`access_grants`);
+  granting it closes HR's onboarding task; a leaver's access is revoked.
+- **API, CLI and pages:** events, summary, retry, access grants; `events dispatch|summary`;
+  the Event pipeline panel on Settings and Systems access on Employees.
+- **PR #64 (Phase 73)** had no review comments; CI passed on the first run.
+
+## Phase 74: verified results
+
+RESULTS74_PLACEHOLDER
+
+## Phase 74: known limitations
+
+- **One database, no external broker.**
+- **No ordering between deliveries;** today's subscribers read the latest state or are
+  order-free.
+- **No retention for delivered events** yet.
+- **Simulations do not publish** (the simulated servicing path never notified listeners).
 
 ## Phase 73: what exists
 

@@ -13,6 +13,7 @@ import { StatusPill } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
 import { formatTimestamp } from "@/features/dashboard/format";
 import { HealthTiles, PlatformDetails } from "@/features/dashboard/PlatformHealth";
+import { EventsPanel } from "@/features/settings/EventsPanel";
 import { JobsPanel } from "@/features/settings/JobsPanel";
 import { ObservabilityPanel } from "@/features/settings/ObservabilityPanel";
 import { SimulationHistoryPanel } from "@/features/settings/SimulationHistoryPanel";
@@ -305,6 +306,7 @@ export function SettingsPage() {
       <ErrorMessage error={roles.error} />
       {can("observability:read") && <ObservabilityPanel />}
       {can("jobs:read") && <JobsPanel />}
+      {can("jobs:read") && <EventsPanel />}
       {can("simulations:manage") && <SimulationHistoryPanel />}
       {can("users:read") && roles.data && <UsersPanel roles={roles.data} />}
       {roles.data && <RolesMatrix roles={roles.data} />}

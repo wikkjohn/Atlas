@@ -692,6 +692,11 @@ def _estate(args: argparse.Namespace) -> int:
 
     factory = get_sessionmaker()
     with factory() as db:
+        if args.action in ("wire", "exit"):
+            result = estate.wire(db) if args.action == "wire" else links.exit_check(db)
+            db.commit()
+            print(json.dumps(result, indent=2, default=str))
+            return 0 if args.action == "wire" or result["passed"] else 1
         if args.action in ("wiring", "impact"):
             started = time.perf_counter()
             if args.action == "wiring":
@@ -994,6 +999,8 @@ def main(argv: list[str] | None = None) -> int:
     estate_actions.add_parser(
         "wiring", help="How much of the estate the workflows depend on (Phase 65)"
     )
+    estate_actions.add_parser("wire", help="Feed the data warehouse (Phase 68)")
+    estate_actions.add_parser("exit", help="The Milestone E exit check (Phase 68)")
     estate_impact = estate_actions.add_parser(
         "impact", help="The workflows an application's outage stops (Phase 65)"
     )

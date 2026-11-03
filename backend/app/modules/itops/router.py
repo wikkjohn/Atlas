@@ -545,3 +545,17 @@ def estate_wiring(db: DbSession, _: Authorized(READ)) -> dict:
     from app.modules.itops import links
 
     return links.summary(db)
+
+
+@router.get("/estate/exit", summary="Milestone E's exit: 2,500 wired, an outage measured")
+def estate_exit(db: DbSession, _: Authorized(READ)) -> dict:
+    from app.modules.itops import links
+
+    return links.exit_check(db)
+
+
+@router.post("/estate/wire", summary="Feed the data warehouse from what nothing relies on")
+def estate_wire(db: DbSession, user: Authorized(MAJOR)) -> dict:
+    from app.modules.itops import estate
+
+    return estate.wire(db, user.id)

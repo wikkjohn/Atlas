@@ -20,6 +20,7 @@ import {
   useEndOutage,
   useEstateSummary,
   useEstateWiring,
+  useMilestoneExit,
   useGenerateEstate,
   useImplement,
   useIncidents,
@@ -263,6 +264,7 @@ function ApplicationsPanel() {
   const apps = useRegistry(filters);
   const summary = useEstateSummary();
   const wiring = useEstateWiring();
+  const exit = useMilestoneExit();
   const generate = useGenerateEstate();
   const page = apps.data;
   return (
@@ -277,6 +279,17 @@ function ApplicationsPanel() {
         <p aria-label="Wiring" className="mb-2 text-xs text-slate-600">
           {wiring.data.workflows_linked} workflows call {wiring.data.called_directly} applications directly in {wiring.data.steps_linked} steps; {wiring.data.wired} of {wiring.data.applications} applications are
           wired (called, or relied on by what is called)
+        </p>
+      )}
+      {exit.data && (
+        <p aria-label="Milestone E exit" className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <StatusPill compact tone={exit.data.passed ? "good" : "warn"} label={exit.data.passed ? "Milestone E exit passed" : "Milestone E exit not yet"} />
+          <span>
+            {exit.data.generated} of {exit.data.target} generated · {exit.data.wiring.unwired} unwired ·{" "}
+            {exit.data.outage
+              ? `outage measured in run #${exit.data.outage.run_number} (${exit.data.outage.scenario_id}: ${exit.data.outage.executions_failed} of ${exit.data.outage.cases} executions failed)`
+              : "no outage measured yet"}
+          </span>
         </p>
       )}
       <div className="mb-2 flex flex-wrap items-end gap-2 text-xs">

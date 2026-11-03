@@ -98,6 +98,15 @@ const routes = {
       state: { status: "down", cause: "APP-00001", path: ["APP-00001"] },
       blast_radius: 1238,
     }),
+  "GET /api/v1/itops/estate/exit": () =>
+    jsonResponse({
+      passed: true,
+      checks: { generated: true, wired: true, outage_measured: true },
+      target: 2500,
+      generated: 2500,
+      wiring: { workflows_linked: 119, workflows: 119, steps_linked: 544, links: 1283, applications: 2526, called_directly: 341, wired: 2526, unwired: 0 },
+      outage: { run_number: 10, scenario_id: "domestic-payments-outage", cases: 300, outages: ["Core Banking Ledger", "Payments Gateway"], executions_failed: 19, executions_delayed: 0 },
+    }),
   "GET /api/v1/itops/estate/wiring": () =>
     jsonResponse({ workflows_linked: 119, workflows: 119, steps_linked: 544, links: 1270, applications: 2525, called_directly: 340, wired: 1105, unwired: 1420 }),
   "GET /api/v1/itops/applications/app-1/workflows": () =>
@@ -196,6 +205,9 @@ describe("IT Operations page", () => {
     expect(await within(flows).findByRole("list", { name: "Calling workflows" })).toHaveTextContent("WF-1002 Paper Statement Request · Retail Banking");
     expect(within(flows).getByLabelText("If it goes down")).toHaveTextContent("117 of 119 workflows stop (479 steps, 1248 applications failing) · most in Payments Operations (4), Finance (4)");
     expect(within(flows).getByRole("list", { name: "Stopped workflows" })).toHaveTextContent("WF-0002 Domestic Payment · 1 step · through APP-00001, APP-00002");
+    expect(screen.getByLabelText("Milestone E exit")).toHaveTextContent(
+      "Milestone E exit passed2500 of 2500 generated · 0 unwired · outage measured in run #10 (domestic-payments-outage: 19 of 300 executions failed)",
+    );
     expect(screen.getByLabelText("Wiring")).toHaveTextContent("119 workflows call 340 applications directly in 544 steps; 1105 of 2525 applications are wired");
 
     await userEvent.type(screen.getByLabelText("Search applications"), "Ledger");

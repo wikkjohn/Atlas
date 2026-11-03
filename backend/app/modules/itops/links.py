@@ -24,7 +24,7 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.modules.itops import simulated
@@ -45,7 +45,10 @@ NAMESPACES: dict[str, tuple[tuple[str, ...], str]] = {
     "treasury": (("Treasury Dealing System",), "Treasury"),
     "wealth": (("Wealth Platform",), "Wealth"),
     "risk": (("Risk Engine",), "Risk"),
-    "finance": (("Core Banking Ledger", "Regulatory Reporting"), "Finance"),
+    "finance": (
+        ("Core Banking Ledger", "Regulatory Reporting", "Enterprise Data Warehouse"),
+        "Finance",
+    ),
     "service": (("Service Desk CRM",), "Customer"),
     "collections": (("Collections System",), "Collections"),
     "hr": (("HR System",), "HR"),
@@ -220,3 +223,37 @@ def summary(db: Session) -> dict[str, Any]:
         "wired": len(wired),
         "unwired": len(active) - len(wired & {r[0] for r in active}),
     }
+
+
+# --- The Milestone E exit (Phase 68) ---------------------------------------------------------
+
+EXIT_APPLICATIONS = 2500
+
+
+def exit_check(db: Session) -> dict[str, Any]:
+    """Roadmap Milestone E's exit: 2,500 applications generated and wired, and one outage's
+    impact measured (a completed simulation run with application outages, Phase 67)."""
+    from app.simulation.models import SimulationRun
+
+    wiring = summary(db)
+    generated = db.execute(select(func.count()).select_from(Application).where(
+        Application.generated_from.is_not(None))).scalar_one()  # fmt: skip
+    measured = db.execute(
+        select(SimulationRun).where(SimulationRun.status == "completed",
+                                    SimulationRun.results["applications"].is_not(None))
+        .order_by(SimulationRun.completed_at.desc()).limit(1)).scalar_one_or_none()  # fmt: skip
+    outage = None
+    if measured is not None:
+        effects = measured.results["applications"]
+        outage = {"run_number": measured.run_number, "scenario_id": measured.scenario_id,
+                  "cases": measured.results.get("cases"),
+                  "outages": [o["application"] for o in effects["outages"]],
+                  "executions_failed": effects["executions_failed"],
+                  "executions_delayed": effects["executions_delayed"]}  # fmt: skip
+    checks = {
+        "generated": generated >= EXIT_APPLICATIONS,
+        "wired": wiring["applications"] > 0 and wiring["unwired"] == 0,
+        "outage_measured": outage is not None,
+    }
+    return {"passed": all(checks.values()), "checks": checks, "target": EXIT_APPLICATIONS,
+            "generated": generated, "wiring": wiring, "outage": outage}  # fmt: skip

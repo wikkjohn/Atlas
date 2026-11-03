@@ -112,6 +112,8 @@ test("IT Operations: an outage of Sanctions Screening takes down the Payments Ga
 test("IT Operations: the Core Banking Ledger's workflows, and the workflows its outage would stop", async ({ page }) => {
   await signIn(page, "manager", "/it-operations");
   await expect(page.getByLabel("Wiring")).toContainText("workflows call");
+  // A fresh database has the catalogue but no generated estate: the exit is not yet met.
+  await expect(page.getByLabel("Milestone E exit")).toContainText("of 2500 generated");
   await page.getByLabel("Search applications").fill("Core Banking Ledger");
   const table = page.getByRole("table", { name: "Applications" });
   await expect(table.getByRole("row")).toHaveCount(1);

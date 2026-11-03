@@ -628,7 +628,14 @@ unchanged.
 | POST | `/api/v1/workflow-executions/{id}/resume` | `workflows:manage` | Runs due steps now (never passes a waiting approval) |
 | POST | `/api/v1/workflow-executions/{id}/cancel` | `workflows:manage` | `{reason}` |
 | GET | `/api/v1/workflow-tasks?actionable=` | signed in | Open tasks/approvals with `can_act` and `blocked_reason` for the caller |
-| POST | `/api/v1/workflow-tasks/{run_id}/complete` | the step's permissions | `{decision?, data?, note?}`; four-eyes enforced; a task completes once (409 after) |
+| POST | `/api/v1/workflow-tasks/{run_id}/complete` | the step's permissions | `{decision?, data?, note?}`; four-eyes enforced; a task completes once (409 after); a task assigned by name only by its assignee (403, rule `not_assignee`) |
+| GET | `/api/v1/workflow-tasks?mine=true` | signed in | Only the tasks assigned to the caller by name (Phase 71); every task carries `assignee_username`, `delegated_from_username` and `assigned_to_me` |
+| GET | `/api/v1/workflow-tasks/{run_id}/candidates` | signed in | Who could take the task: qualified people with their open assigned tasks, least loaded first |
+| POST | `/api/v1/workflow-tasks/{run_id}/delegate` | the assignee, or `workflows:manage` | `{delegate_id, note?}`: hand the task to another qualified person (422, rule `delegate_not_qualified`, otherwise) |
+| GET | `/api/v1/workflow-tasks/people?q=` | signed in | Active people (not service accounts) to delegate to |
+| GET | `/api/v1/workflow-tasks/delegations?everyone=` | signed in | Out-of-office delegations that have not ended: the caller's (away or delegate), or everyone's for `workflows:manage` |
+| POST | `/api/v1/workflow-tasks/delegations` | signed in (`workflows:manage` for someone else) | `{delegate_id, starts_on, ends_on, reason?, user_id?}`: while it runs, tasks assigned to the person go to the delegate |
+| DELETE | `/api/v1/workflow-tasks/delegations/{id}` | its owner, or `workflows:manage` | End a delegation |
 
 #### Workflow definitions (Phase 17)
 

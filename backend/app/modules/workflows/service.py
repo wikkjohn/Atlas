@@ -1,17 +1,33 @@
 """Read models for the workflow API: definitions, executions, history, tasks, metrics."""
 
 import uuid
+from datetime import UTC, date, datetime
 from typing import Any
 
 from pydantic import ValidationError
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.core.errors import DomainError, NotFoundError, PermissionDeniedError
+from app.core.audit import record_audit_event
+from app.core.errors import (
+    BusinessRuleViolation,
+    DomainError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from app.core.pagination import PageParams, paginate
+from app.core.security import UNUSABLE_PASSWORD_HASH
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser
-from app.modules.workflows import graph, library, registry, store, templates, validation
+from app.modules.workflows import (
+    graph,
+    library,
+    registry,
+    routing,
+    store,
+    templates,
+    validation,
+)
 from app.modules.workflows.definition import Catalogue, StepType, WorkflowDefinition
 from app.modules.workflows.engine import check_task_access
 from app.modules.workflows.models import (
@@ -20,6 +36,7 @@ from app.modules.workflows.models import (
     DefinitionStatus,
     Realm,
     RunStatus,
+    TaskDelegation,
     WorkflowCatalogueEntry,
     WorkflowDefinitionRecord,
     WorkflowEvent,
@@ -33,15 +50,19 @@ from app.modules.workflows.schemas import (
     CatalogueFacet,
     CatalogueIn,
     CatalogueOut,
+    DelegationIn,
+    DelegationOut,
     DraftPreview,
     ExecutionDetail,
     ExecutionSummary,
     GenerationOut,
     LibraryHandlerOut,
+    PersonOut,
     RenderOut,
     StepMetric,
     StepRunOut,
     StoredDefinitionOut,
+    TaskCandidate,
     TaskOut,
     TemplateDetail,
     TemplateOut,
@@ -452,6 +473,9 @@ def execution_detail(db: Session, execution: WorkflowExecution) -> ExecutionDeta
                 not_before=r.not_before,
                 due_at=r.due_at,
                 escalated_at=r.escalated_at,
+                assignee_id=r.assignee_id,
+                assignee_username=names.get(r.assignee_id) if r.assignee_id else None,
+                delegated_from_id=r.delegated_from_id,
             )
             for r in runs
         ],
@@ -478,10 +502,16 @@ def history(db: Session, execution_id: uuid.UUID) -> list[WorkflowEventOut]:
 
 
 def open_tasks(
-    db: Session, user: AuthenticatedUser, params: PageParams, *, actionable_only: bool
+    db: Session,
+    user: AuthenticatedUser,
+    params: PageParams,
+    *,
+    actionable_only: bool,
+    mine: bool = False,
 ) -> tuple[list[TaskOut], int]:
-    """Open human tasks and approvals, each marked with whether `user` may act on it."""
-    rows = db.execute(
+    """Open human tasks and approvals, each marked with whether `user` may act on it.
+    `mine`: only those assigned to `user` by name (Phase 71)."""
+    query = (
         select(WorkflowStepRun, WorkflowExecution)
         .join(WorkflowExecution, STEP_RUN_EXECUTION)
         .where(
@@ -490,44 +520,191 @@ def open_tasks(
             WorkflowExecution.realm == Realm.LIVE,
         )
         .order_by(WorkflowStepRun.due_at.asc().nullslast(), WorkflowStepRun.created_at)
-    ).all()
-    names = _usernames(db, {e.initiated_by for _, e in rows})
+    )
+    if mine:
+        query = query.where(WorkflowStepRun.assignee_id == user.id)
+    rows = db.execute(query).all()
+    names = _task_names(db, rows)
     tasks: list[TaskOut] = []
     for run, execution in rows:
-        definition = store.for_execution(db, execution)
-        if definition is None:
+        task = _task_out(db, user, run, execution, names)
+        if task is None or (actionable_only and not task.can_act):
             continue
-        step = definition.step(run.step_id)
-        blocked = None
-        try:
-            check_task_access(db, execution, step, user)
-        except DomainError as exc:
-            blocked = exc.message
-        if actionable_only and blocked:
-            continue
-        shown = store.present(db, execution)
-        tasks.append(
-            TaskOut(
-                run_id=run.id,
-                execution_id=execution.id,
-                workflow_id=execution.workflow_id,
-                step_id=run.step_id,
-                step_name=step.name,
-                step_type=run.step_type,
-                opened_at=run.started_at,
-                due_at=run.due_at,
-                overdue=run.escalated_at is not None,
-                required_permissions=run.required_permissions,
-                can_act=blocked is None,
-                blocked_reason=blocked,
-                subject=shown["subject"],
-                risk_rating=shown["risk_rating"],
-                flags=shown["flags"],
-                initiated_by_username=names.get(execution.initiated_by),
-            )
-        )
+        tasks.append(task)
     total = len(tasks)
     return tasks[params.offset : params.offset + params.limit], total
+
+
+def _task_names(db: Session, rows) -> dict[uuid.UUID, str]:
+    return _usernames(
+        db,
+        {e.initiated_by for _, e in rows}
+        | {r.assignee_id for r, _ in rows}
+        | {r.delegated_from_id for r, _ in rows},
+    )
+
+
+def task_out(db: Session, user: AuthenticatedUser, run_id: uuid.UUID) -> TaskOut:
+    run, execution, _ = _open_task(db, run_id)
+    task = _task_out(db, user, run, execution, _task_names(db, [(run, execution)]))
+    assert task is not None
+    return task
+
+
+def _task_out(
+    db: Session,
+    user: AuthenticatedUser,
+    run: WorkflowStepRun,
+    execution: WorkflowExecution,
+    names: dict[uuid.UUID, str],
+) -> TaskOut | None:
+    definition = store.for_execution(db, execution)
+    if definition is None:
+        return None
+    step = definition.step(run.step_id)
+    blocked = None
+    try:
+        check_task_access(db, execution, step, user, run)
+    except DomainError as exc:
+        blocked = exc.message
+    shown = store.present(db, execution)
+    return TaskOut(
+        run_id=run.id,
+        execution_id=execution.id,
+        workflow_id=execution.workflow_id,
+        step_id=run.step_id,
+        step_name=step.name,
+        step_type=run.step_type,
+        opened_at=run.started_at,
+        due_at=run.due_at,
+        overdue=run.escalated_at is not None,
+        required_permissions=run.required_permissions,
+        can_act=blocked is None,
+        blocked_reason=blocked,
+        subject=shown["subject"],
+        risk_rating=shown["risk_rating"],
+        flags=shown["flags"],
+        initiated_by_username=names.get(execution.initiated_by),
+        assignee_id=run.assignee_id,
+        assignee_username=names.get(run.assignee_id) if run.assignee_id else None,
+        assigned_at=run.assigned_at,
+        delegated_from_username=(
+            names.get(run.delegated_from_id) if run.delegated_from_id else None
+        ),
+        assigned_to_me=run.assignee_id == user.id,
+    )
+
+
+def task_candidates(db: Session, run_id: uuid.UUID) -> list[TaskCandidate]:
+    """Who could take this task: qualified people, least loaded first (Phase 71)."""
+    run, execution, step = _open_task(db, run_id)
+    return [
+        TaskCandidate(user_id=u.id, username=u.username, display_name=u.display_name,
+                      role=u.role.code, open_tasks=n, assignee=u.id == run.assignee_id)
+        for u, n in routing.candidates(db, execution, step)
+    ]  # fmt: skip
+
+
+def _open_task(db: Session, run_id: uuid.UUID):
+    run = db.get(WorkflowStepRun, run_id)
+    if run is None or run.status != RunStatus.WAITING or run.realm != Realm.LIVE:
+        raise NotFoundError("Open task not found.")
+    execution = db.get(WorkflowExecution, run.execution_id)
+    definition = store.for_execution(db, execution) if execution else None
+    if execution is None or definition is None:
+        raise NotFoundError("Open task not found.")
+    step = definition.step(run.step_id)
+    if step.approval is None:
+        raise NotFoundError("Open task not found.")
+    return run, execution, step
+
+
+def _delegation_out(d: TaskDelegation, names: dict[uuid.UUID, str], today: date) -> DelegationOut:
+    return DelegationOut(
+        id=d.id, user_id=d.user_id, username=names.get(d.user_id, "?"),
+        delegate_id=d.delegate_id, delegate_username=names.get(d.delegate_id, "?"),
+        starts_on=d.starts_on, ends_on=d.ends_on, reason=d.reason,
+        active=d.starts_on <= today <= d.ends_on,
+    )  # fmt: skip
+
+
+def people(db: Session, q: str | None, limit: int = 20) -> list[PersonOut]:
+    """Active people (not service accounts) to delegate to, by username or name."""
+    query = select(User).where(
+        User.is_active.is_(True), User.password_hash != UNUSABLE_PASSWORD_HASH
+    )
+    if q and q.strip():
+        needle = f"%{q.strip().lower()}%"
+        query = query.where(User.username.ilike(needle) | User.display_name.ilike(needle))
+    rows = db.execute(query.order_by(User.username).limit(limit)).scalars()
+    return [
+        PersonOut(user_id=u.id, username=u.username, display_name=u.display_name,
+                  role=u.role.code)
+        for u in rows
+    ]  # fmt: skip
+
+
+def list_delegations(
+    db: Session, user: AuthenticatedUser, *, everyone: bool
+) -> list[DelegationOut]:
+    """Out-of-office delegations that have not ended: the caller's own (as the person away
+    or the delegate), or everyone's for a workflow manager."""
+    today = datetime.now(UTC).date()
+    query = select(TaskDelegation).where(TaskDelegation.ends_on >= today)
+    if not (everyone and routing.is_manager_role(user.role)):
+        query = query.where(
+            (TaskDelegation.user_id == user.id) | (TaskDelegation.delegate_id == user.id)
+        )
+    rows = list(db.execute(query.order_by(TaskDelegation.starts_on)).scalars())
+    names = _usernames(db, {d.user_id for d in rows} | {d.delegate_id for d in rows})
+    return [_delegation_out(d, names, today) for d in rows]
+
+
+def create_delegation(db: Session, user: AuthenticatedUser, body: DelegationIn) -> DelegationOut:
+    owner = body.user_id or user.id
+    if owner != user.id and not routing.is_manager_role(user.role):
+        raise PermissionDeniedError("Only a workflow manager can set up a delegation for others.")
+    if body.ends_on < body.starts_on:
+        raise BusinessRuleViolation("The delegation ends before it starts.",
+                                    {"rule": "dates_ordered"})  # fmt: skip
+    if body.delegate_id == owner:
+        raise BusinessRuleViolation("You cannot delegate to yourself.", {"rule": "not_self"})
+    delegate = db.get(User, body.delegate_id)
+    if delegate is None or db.get(User, owner) is None:
+        raise NotFoundError("User not found.")
+    if not delegate.is_active or delegate.password_hash == UNUSABLE_PASSWORD_HASH:
+        raise BusinessRuleViolation("The delegate must be an active person.",
+                                    {"rule": "delegate_not_person"})  # fmt: skip
+    record = TaskDelegation(
+        user_id=owner,
+        delegate_id=delegate.id,
+        starts_on=body.starts_on,
+        ends_on=body.ends_on,
+        reason=body.reason,
+        created_by=user.id,
+    )
+    db.add(record)
+    db.flush()
+    record_audit_event(db, actor_id=user.id, action="workflow.delegation_created",
+                       entity_type="task_delegation", entity_id=record.id,
+                       metadata={"user_id": str(owner), "delegate_id": str(delegate.id),
+                                 "starts_on": body.starts_on.isoformat(),
+                                 "ends_on": body.ends_on.isoformat()})  # fmt: skip
+    names = _usernames(db, {owner, delegate.id})
+    return _delegation_out(record, names, datetime.now(UTC).date())
+
+
+def delete_delegation(db: Session, user: AuthenticatedUser, delegation_id: uuid.UUID) -> None:
+    record = db.get(TaskDelegation, delegation_id)
+    if record is None:
+        raise NotFoundError("Delegation not found.")
+    if record.user_id != user.id and not routing.is_manager_role(user.role):
+        raise PermissionDeniedError("Only its owner or a workflow manager can end a delegation.")
+    record_audit_event(db, actor_id=user.id, action="workflow.delegation_deleted",
+                       entity_type="task_delegation", entity_id=record.id,
+                       metadata={"user_id": str(record.user_id)})  # fmt: skip
+    db.delete(record)
+    db.flush()
 
 
 def metrics(db: Session, workflow_id: str) -> WorkflowMetrics:

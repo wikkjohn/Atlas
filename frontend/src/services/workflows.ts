@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { apiGet, apiPost, apiPut, query } from "@/services/api";
+import { apiDelete, apiGet, apiPost, apiPut, query } from "@/services/api";
 import type { WorkflowGraphData } from "@/features/workflows/WorkflowGraph";
 import type { Page } from "@/types/enterprise";
 import type {
@@ -14,7 +14,10 @@ import type {
   GenerationSpec,
   ImportResult,
   LibraryHandler,
+  Person,
   StoredDefinition,
+  TaskCandidate,
+  TaskDelegation,
   TestRun,
   ValidationReport,
   WorkflowDefinition,
@@ -99,11 +102,58 @@ export const useExecutionHistory = (id: string | null) =>
     enabled: Boolean(id),
   });
 
-export const useTasks = (actionable: boolean) =>
+export const useTasks = (actionable: boolean, mine = false) =>
   useQuery({
-    queryKey: ["workflow-tasks", actionable],
-    queryFn: () => apiGet<Page<WorkflowTask>>(`/api/v1/workflow-tasks${query({ actionable, limit: 100 })}`),
+    queryKey: ["workflow-tasks", actionable, mine],
+    queryFn: () => apiGet<Page<WorkflowTask>>(`/api/v1/workflow-tasks${query({ actionable, mine: mine || undefined, limit: 100 })}`),
   });
+
+/** Who could take a task, least loaded first (Phase 71). */
+export const useTaskCandidates = (runId: string | null) =>
+  useQuery({
+    queryKey: ["workflow-tasks", "candidates", runId],
+    queryFn: () => apiGet<TaskCandidate[]>(`/api/v1/workflow-tasks/${runId}/candidates`),
+    enabled: runId !== null,
+  });
+
+export function useDelegateTask() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ runId, delegateId, note }: { runId: string; delegateId: string; note?: string }) =>
+      apiPost<WorkflowTask>(`/api/v1/workflow-tasks/${runId}/delegate`, { delegate_id: delegateId, note: note || null }),
+    onSuccess: invalidate,
+  });
+}
+
+export const usePeople = (q: string) =>
+  useQuery({
+    queryKey: ["workflow-tasks", "people", q],
+    queryFn: () => apiGet<Person[]>(`/api/v1/workflow-tasks/people${query({ q: q || undefined })}`),
+    placeholderData: keepPreviousData,
+  });
+
+export const useDelegations = () =>
+  useQuery({
+    queryKey: ["workflow-tasks", "delegations"],
+    queryFn: () => apiGet<TaskDelegation[]>("/api/v1/workflow-tasks/delegations"),
+  });
+
+export function useCreateDelegation() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (body: { delegate_id: string; starts_on: string; ends_on: string; reason: string }) =>
+      apiPost<TaskDelegation>("/api/v1/workflow-tasks/delegations", body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteDelegation() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/api/v1/workflow-tasks/delegations/${id}`),
+    onSuccess: invalidate,
+  });
+}
 
 export function useStartExecution(workflowId: string) {
   const invalidate = useInvalidate();

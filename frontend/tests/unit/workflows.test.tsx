@@ -115,6 +115,8 @@ function routes(extra = {}) {
     "GET /api/v1/workflows/WF-0001": () => jsonResponse(definition),
     "GET /api/v1/workflows/WF-0001/metrics": () => jsonResponse(metrics),
     "GET /api/v1/countries": () => jsonResponse(page([germany])),
+    "GET /api/v1/workflow-tasks/delegations": () => jsonResponse([]),
+    "GET /api/v1/workflow-tasks/people": () => jsonResponse([]),
     ...extra,
   };
 }
@@ -190,6 +192,87 @@ describe("Workflow Explorer", () => {
 
     await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
     expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({ decision: "approve", note: "Docs verified" });
+  });
+
+  it("shows who a task is assigned to and lets the assignee hand it over (Phase 71)", async () => {
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflow-tasks": () =>
+          jsonResponse(
+            page([
+              task({ assignee_id: "u-me", assignee_username: "manager", assigned_to_me: true, delegated_from_username: "lead" }),
+              task({ run_id: "run-2", subject: "Their Case", can_act: false, blocked_reason: "This task is assigned to someone else.", assignee_id: "u-2", assignee_username: "hr-b" }),
+              task({ run_id: "run-3", subject: "Queue Case" }),
+            ]),
+          ),
+        "GET /api/v1/workflow-tasks/run-1/candidates": () =>
+          jsonResponse([
+            { user_id: "u-me", username: "manager", display_name: "Manager", role: "department_manager", open_tasks: 3, assignee: true },
+            { user_id: "u-3", username: "hr-a", display_name: "Hr A", role: "department_manager", open_tasks: 0, assignee: false },
+          ]),
+        "POST /api/v1/workflow-tasks/run-1/delegate": () => jsonResponse(task({ assignee_id: "u-3" })),
+      }),
+    );
+    renderApp("/workflows?tab=tasks");
+
+    const tasks = await screen.findByRole("list", { name: "Tasks" });
+    const mine = (await within(tasks).findByText(/Grace Hopper/)).closest("li") as HTMLElement;
+    expect(within(mine).getByText(/Assigned to/)).toHaveTextContent("Assigned to you (from lead)");
+    const theirs = within(tasks).getByText(/Their Case/).closest("li") as HTMLElement;
+    expect(within(theirs).getByText(/Assigned to/)).toHaveTextContent("Assigned to hr-b");
+    expect(within(theirs).queryByRole("button", { name: "Delegate" })).not.toBeInTheDocument();
+    const queue = within(tasks).getByText(/Queue Case/).closest("li") as HTMLElement;
+    expect(within(queue).getByText(/Shared queue/)).toBeInTheDocument();
+    expect(within(queue).queryByRole("button", { name: "Delegate" })).not.toBeInTheDocument();
+
+    await userEvent.click(within(mine).getByRole("button", { name: "Delegate" }));
+    const picker = await within(mine).findByLabelText("Delegate Grace Hopper to");
+    await within(picker).findByRole("option", { name: "Hr A (0 open)" });
+    // The current assignee is not offered.
+    expect(within(picker).queryByRole("option", { name: /Manager/ })).not.toBeInTheDocument();
+    await userEvent.selectOptions(picker, "u-3");
+    await userEvent.click(within(mine).getByRole("button", { name: "Hand over" }));
+    await waitFor(() => expect(api.requests.some((r) => r.path.endsWith("/delegate"))).toBe(true));
+    expect(api.requests.find((r) => r.path.endsWith("/delegate"))?.body).toEqual({ delegate_id: "u-3", note: null });
+
+    // "Only tasks assigned to me" asks the API for them.
+    await userEvent.click(screen.getByRole("checkbox", { name: "Only tasks assigned to me" }));
+    await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/workflow-tasks" && r.search.get("mine") === "true")).toBe(true));
+  });
+
+  it("sets up and ends an out-of-office delegation (Phase 71)", async () => {
+    let delegations = [] as object[];
+    const api = mockApi(
+      routes({
+        "GET /api/v1/workflow-tasks": () => jsonResponse(page([])),
+        "GET /api/v1/workflow-tasks/delegations": () => jsonResponse(delegations),
+        "GET /api/v1/workflow-tasks/people": () => jsonResponse([{ user_id: "u-3", username: "hr-a", display_name: "Hr A", role: "department_manager" }]),
+        "POST /api/v1/workflow-tasks/delegations": (r: RecordedRequest) => {
+          delegations = [{ id: "d-1", user_id: "u-me", username: "manager", delegate_id: "u-3", delegate_username: "hr-a", starts_on: "2026-11-10", ends_on: "2026-11-20", reason: "Training", active: false }];
+          return jsonResponse({ ...delegations[0], ...(r.body as object) }, 201);
+        },
+        "DELETE /api/v1/workflow-tasks/delegations/d-1": () => {
+          delegations = [];
+          return new Response(null, { status: 204 });
+        },
+      }),
+    );
+    renderApp("/workflows?tab=tasks");
+
+    const panel = await screen.findByRole("region", { name: "Out of office" });
+    const delegate = within(panel).getByLabelText("Delegate");
+    await within(delegate).findByRole("option", { name: "Hr A (hr-a)" });
+    await userEvent.selectOptions(delegate, "u-3");
+    await userEvent.type(within(panel).getByLabelText("From"), "2026-11-10");
+    await userEvent.type(within(panel).getByLabelText("To"), "2026-11-20");
+    await userEvent.type(within(panel).getByLabelText("Reason"), "Training");
+    await userEvent.click(within(panel).getByRole("button", { name: "Delegate my tasks" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({ delegate_id: "u-3", starts_on: "2026-11-10", ends_on: "2026-11-20", reason: "Training" });
+    expect(await within(panel).findByText(/manager → hr-a, 2026-11-10 to 2026-11-20/)).toBeInTheDocument();
+
+    await userEvent.click(within(panel).getByRole("button", { name: "End the delegation to hr-a" }));
+    await waitFor(() => expect(within(panel).queryByText(/manager → hr-a/)).not.toBeInTheDocument());
   });
 
   it("shows where and why an execution failed", async () => {

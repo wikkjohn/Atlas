@@ -1,11 +1,12 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -218,6 +219,12 @@ class WorkflowStepRun(Base):
             "due_at",
             postgresql_where=text("status = 'waiting'"),
         ),
+        # Each person's open assigned tasks: "my tasks" and the least-loaded count.
+        Index(
+            "ix_workflow_step_runs_assignee_waiting",
+            "assignee_id",
+            postgresql_where=text("status = 'waiting' AND assignee_id IS NOT NULL"),
+        ),
         {"postgresql_partition_by": "LIST (realm)"},
     )
     __mapper_args__ = _ID_ONLY
@@ -245,6 +252,16 @@ class WorkflowStepRun(Base):
     not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Named assignment (Phase 71): the one person who may complete the task; None for a
+    # shared queue. `delegated_from_id` is whom it was assigned to before a delegation or an
+    # escalation handed it on.
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delegated_from_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
 
 
 # Joins a step run to its execution on the full key, so PostgreSQL can prune partitions on
@@ -405,4 +422,32 @@ class WorkflowCatalogueEntry(UUIDPrimaryKey, Base):
     )
     updated_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+
+
+class TaskDelegation(UUIDPrimaryKey, Base):
+    """Out of office (Phase 71): while it runs, tasks assigned to `user_id` go to
+    `delegate_id` instead."""
+
+    __tablename__ = "task_delegations"
+    __table_args__ = (
+        CheckConstraint("ends_on >= starts_on", name="dates_ordered"),
+        CheckConstraint("delegate_id <> user_id", name="not_self"),
+        Index("ix_task_delegations_user", "user_id", "starts_on", "ends_on"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    delegate_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    starts_on: Mapped[date] = mapped_column(Date, nullable=False)
+    ends_on: Mapped[date] = mapped_column(Date, nullable=False)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

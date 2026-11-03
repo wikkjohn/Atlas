@@ -47,7 +47,7 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 
 // --- Requests --------------------------------------------------------------------------
 
-type Method = "GET" | "POST" | "PATCH" | "PUT";
+type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 interface RequestOptions {
   body?: unknown;
@@ -107,6 +107,8 @@ export const apiPost = <T>(path: string, body: unknown, idempotencyKey = newIdem
 export const apiPatch = <T>(path: string, body: unknown) => send<T>("PATCH", path, { body });
 
 export const apiPut = <T>(path: string, body: unknown) => send<T>("PUT", path, { body });
+
+export const apiDelete = (path: string) => send<null>("DELETE", path);
 
 /** Fetch a file (e.g. a report) with the caller's credentials. */
 export async function apiDownload(path: string): Promise<Blob> {

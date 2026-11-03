@@ -75,6 +75,39 @@ Last updated: Phase 70.
 | 68 | Enterprise applications, step 6: the Milestone E exit ([itops.md](itops.md)) — roadmap Milestone E complete | **Complete** |
 | 69 | Workforce and customers, step 1: the employee generator ([workforce.md](workforce.md)) | **Complete** |
 | 70 | Workforce and customers, step 2: reviewers' working time ([simulation.md](simulation.md)) | **Complete** |
+| 71 | Workforce and customers, step 3: task routing — named assignment, delegation, escalation ([workflows.md](workflows.md)) | **Complete** |
+
+## Phase 71: what exists
+
+- **Named assignment** (`app/modules/workflows/routing.py`, `ApprovalPolicy.assign`):
+  - `least_loaded`: the qualified person with the fewest open assigned tasks;
+  - `initiator_manager`: the initiator's line manager through the employee records, the next
+    manager up if the nearest cannot do the task, else the least loaded.
+  Only the assignee may complete the task (`not_assignee`). Queue tasks are unchanged.
+- **Handing a task on:** out-of-office delegations (`task_delegations`, migration 0047)
+  redirect new assignments. The assignee or a workflow manager can delegate an open task to
+  another qualified person. Timeouts with `action: escalate` give an overdue task to the
+  manager up the line, or flag it when there is nobody.
+- **WF-1044 v3** (Leave Request): to the requester's manager, escalated after a day.
+- **API and UI:** `?mine=true`, candidates, delegate, people, and delegation CRUD. The Task
+  inbox shows the assignee, has an "assigned to me" filter, a Delegate control and an Out of
+  office panel. Step runs show their assignee.
+- **Live cases only;** simulations and earlier definitions' hashes are unchanged. Generated
+  tests complete assigned tasks as the assignee and check that others are refused.
+- **PR #61 (Phase 70)** had no review comments; CI passed on the first run.
+
+## Phase 71: verified results
+
+RESULTS71_PLACEHOLDER
+
+## Phase 71: known limitations
+
+- **Two rules:** no skills-, grade- or country-based routing yet, and least-loaded counts
+  open tasks, not their size.
+- **One escalation per task:** a second timeout is not scheduled after an escalation.
+- **The manager's line comes from employee records,** so people without a linked employee
+  (or whose managers have no account) fall back to the least loaded.
+- **Simulated reviewers are not routed;** the simulation keeps its own reviewer pools.
 
 ## Phase 70: what exists
 

@@ -90,7 +90,21 @@ Last updated: Phase 66.
 
 ## Phase 66: verified results
 
-RESULTS66_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 722 passed. New: 4 tests covering: calls and their latency on step durations, deterministic; a short outage delaying a workflow through retries; a long one taking `on_failure`; a cause two applications away; random errors only when realistic |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed. They took 302 s, but the full pytest run was going at the same time; usually about 220 s |
+| `retail-onboarding` measurement (300 cases, seed 2030) | See [itops.md](itops.md): no outage gives the same result digest as before Phase 66; a two-hour screening outage fails 78 executions |
+| Frontend Vitest / typecheck / build | 157 passed (unchanged) / clean / built |
+| Playwright on a fresh database | First run: 72 passed, 1 failed. Second run: 73 passed |
+
+The Playwright failure was the compliance structuring test. It looked for the new alert within the default 5 s after clicking "Run monitoring". Monitoring scans every account's activity, which can take longer under a full parallel run. The test passed alone and in the second full run. The test now waits for the monitoring run's response before looking for the alert.
+
+Found while building it:
+- **Outages are on the simulation's timeline:** a measurement outage declared from 2000 and
+  "ended" today still covered the simulated day, so a later run failed every case. This is
+  correct and is now documented; it is also why step 5 scopes a scenario's outages to its
+  run.
 
 ## Phase 66: known limitations
 

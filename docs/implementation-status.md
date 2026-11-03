@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 63.
+Last updated: Phase 64.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -68,6 +68,51 @@ Last updated: Phase 63.
 | 61 | Departments, step 33: thin departments ([departments.md](departments.md)) | **Complete** |
 | 62 | Departments, step 34: the Milestone D exit check ([departments.md](departments.md)) | **Complete** |
 | 63 | Enterprise applications, step 1: the application registry ([itops.md](itops.md)) | **Complete** |
+| 64 | Enterprise applications, step 2: the generic simulated application and outages ([itops.md](itops.md)) | **Complete** |
+
+## Phase 64: what exists
+
+- **The generic simulated application** (`app/modules/itops/simulated.py`):
+  - every application in the registry answers reads and writes;
+  - latency is log-normal by technology and hosting, plus each synchronous dependency;
+  - errors by tier and technology, and a five-second timeout;
+  - deterministic per seed.
+- **Outages** (migration 0044):
+  - down or degraded, for a window or until ended;
+  - a down application fails the calls of everything that waits on it through API or
+    authentication links, directly or through others, naming the cause and the chain;
+  - a degraded one slows them;
+  - one that has started opens an incident.
+- **API:** an application's contract and state, sampled test calls, and declaring,
+  listing and ending outages.
+- **Page:** the selected application's state, contract and test calls; an Outages panel.
+
+## Phase 64: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 713 passed, 1 failed in a full run against a second test database, `atlas_test_e2`. The failure is `test_system_status_is_operational_after_migrations`, which expects the database to be named `atlas_test`. Re-run against `atlas_test` with the registry, IT operations and new tests: 15 passed. New: 3 — the contract, latency and errors, deterministic per seed; outages failing callers through API and authentication links only, degraded outages, the incident, the rules; the API and its permissions |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed |
+| Measurement on the 2,512-application estate (seed 2030) | See [itops.md](itops.md): the Core Banking Ledger down takes 1,239 applications down, found in 0.13 s; 10,048 calls in 2.7 s |
+| Frontend Vitest / typecheck / build | 157 passed (the IT operations test now also covers the contract, test calls and outages) / clean / built |
+| Playwright on a fresh database | 72 passed (new: an outage of Sanctions Screening fails the Payments Gateway that calls it, until it ends) |
+
+Found while building it:
+- **An outage declared without a person failed:** the incident it opens needs a reporter
+  (`reported_by` is required). Outages are declared by people in this phase; simulation
+  scenarios that raise them (step 5) will need a system reporter.
+- **The Phase 64 full run used a second test database** so it could run beside the Phase 63
+  run; the one test that names the database is the failure above.
+
+## Phase 64: known limitations
+
+- **Workflows do not call applications yet** (Milestone E steps 3 and 4): an outage fails
+  test calls, not processes.
+- **No retries or circuit breakers, and latency does not grow with load.**
+- **A caller's latency does not add up its dependencies' sampled latencies;** it adds a
+  fixed 20 ms per synchronous dependency.
+- **Outages are declared by people only;** simulation scenarios do not raise them yet
+  (Milestone E step 5).
 
 ## Phase 63: what exists
 

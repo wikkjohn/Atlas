@@ -34,6 +34,7 @@ from app.core.models import UUIDPrimaryKey
 APPLICATION_SEQUENCE = Sequence("application_number_seq", start=1)
 INCIDENT_SEQUENCE = Sequence("incident_number_seq", start=1)
 CHANGE_SEQUENCE = Sequence("change_number_seq", start=1)
+OUTAGE_SEQUENCE = Sequence("application_outage_number_seq", start=1)
 
 
 class IncidentStatus(StrEnum):
@@ -193,6 +194,39 @@ class ChangeRequest(UUIDPrimaryKey, Base):
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     implemented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ApplicationOutage(UUIDPrimaryKey, Base):
+    """A window in which an application is down or degraded (Phase 64); open-ended while it
+    has no end."""
+
+    __tablename__ = "application_outages"
+    __table_args__ = (
+        CheckConstraint("kind IN ('down', 'degraded')", name="kind_valid"),
+        CheckConstraint("ends_at IS NULL OR ends_at > starts_at", name="window_valid"),
+    )
+
+    outage_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    application_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("applications.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(10), nullable=False)
+    reason: Mapped[str] = mapped_column(String(300), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False,
+                                                index=True)  # fmt: skip
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("incidents.id", ondelete="SET NULL")
+    )
+    declared_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    ended_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

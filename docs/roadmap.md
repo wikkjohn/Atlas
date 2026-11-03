@@ -237,7 +237,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 63: owner, technology, hosting and vendor on each application, dependencies
       without cycles, impact analysis, and a deterministic 2,500-application estate
       generator; see `itops.md`)
-- [ ] Generic simulated-application adapter: contract, latency model, failure and outages
+- [x] Generic simulated-application adapter: contract, latency model, failure and outages
+      (Phase 64: read and write calls with log-normal latency by technology and hosting,
+      errors by tier, timeouts, down and degraded outages that fail or slow every caller
+      through API and authentication links, with incidents; see `itops.md`)
 - [ ] Application ↔ workflow dependency graph with impact analysis
 - [ ] Workflows call applications through the step library, so outages cause real delays
 - [ ] Outage scenarios in the simulation engine
@@ -340,4 +343,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 61 (D33) | Thin departments: sixteen support departments from one registry, three processes each, 48 generated workflows WF-1100–1147, one workload with a scenario per department | complete |
 | Phase 62 (D34) | Milestone D exit: 35 departments each with three or more processes, a workload and a dashboard (coverage check and test); Customer Onboarding and Retail Lending completed (WF-1052–1054), Branch Network added (WF-1148–1150) — Milestone D complete | complete |
 | Phase 63 (E1) | Milestone E, step 1: the application registry — owner, technology, hosting, vendor, dependencies without cycles, impact analysis, a deterministic 2,500-application estate generator | complete |
-| Phase 64 (E2, proposed) | Milestone E, step 2: the generic simulated-application adapter — a contract, a latency model, failures and outages | next |
+| Phase 64 (E2) | Milestone E, step 2: the generic simulated-application adapter — read and write calls, latency by technology and hosting, errors by tier, timeouts, down and degraded outages spreading through synchronous links, with incidents | complete |
+| Phase 65 (E3, proposed) | Milestone E, step 3: the application ↔ workflow dependency graph — which workflow steps call which applications — with impact analysis on workflows | next |

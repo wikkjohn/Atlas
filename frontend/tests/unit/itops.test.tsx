@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { Application, ChangeRequest, Incident } from "@/types/itops";
+import type { Application, ChangeRequest, Incident, Outage } from "@/types/itops";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
 import { renderApp } from "./render";
@@ -63,6 +63,21 @@ const change: ChangeRequest = {
 };
 const scheduled: ChangeRequest = { ...change, id: "chg-2", change_number: "CHG-0000002", application: "Loan Origination", tier: 2, risk: "medium", needs_cab: false, status: "approved" };
 
+const outage: Outage = {
+  id: "out-1",
+  outage_number: "OUT-0000001",
+  application_number: "APP-00001",
+  application: "Core Banking Ledger",
+  tier: 1,
+  kind: "down",
+  reason: "Storage array failed",
+  starts_at: "2026-11-03T09:00:00Z",
+  ends_at: null,
+  status: "in_force",
+  incident_number: "INC-0000009",
+  failing: 1238,
+};
+
 const routes = {
   ...healthyRoutes,
   "GET /api/v1/itops/summary/counts": () =>
@@ -70,6 +85,19 @@ const routes = {
   "GET /api/v1/itops/applications": () => jsonResponse(page([app, desk])),
   "GET /api/v1/itops/estate/summary": () =>
     jsonResponse({ applications: 2512, dependencies: 6015, unconnected: 78, generated: 2500, by_tier: { "1": 243, "2": 913, "3": 1356 }, by_technology: {}, by_hosting: {} }),
+  "GET /api/v1/itops/outages": () => jsonResponse(page([outage])),
+  "GET /api/v1/itops/applications/app-1/contract": () =>
+    jsonResponse({
+      application_number: "APP-00001",
+      median_ms: { read: 40, write: 60 },
+      p95_ms: { read: 91.1, write: 136.6 },
+      error_rate: 0.0005,
+      timeout_ms: 5000,
+      sync_dependencies: 0,
+      operations: ["read", "write"],
+      state: { status: "down", cause: "APP-00001", path: ["APP-00001"] },
+      blast_radius: 1238,
+    }),
   "GET /api/v1/itops/applications/app-1": () =>
     jsonResponse({
       application: app,
@@ -162,6 +190,43 @@ describe("IT Operations page", () => {
     expect(Number(choices?.search.get("limit"))).toBeLessThanOrEqual(200);
   });
 
+  it("shows a simulated application's contract and state, tests calls, declares and ends outages", async () => {
+    const api = mockApi({
+      ...routes,
+      "POST /api/v1/itops/applications/app-1/calls": () =>
+        jsonResponse({ application_number: "APP-00001", operation: "read", calls: 100, seed: 2030, ok: 0, failed: 100, errors: { outage: 100 }, p50_ms: 50, p95_ms: 5000, max_ms: 5000, state: { status: "down", cause: "APP-00001", path: ["APP-00001"] } }),
+      "POST /api/v1/itops/outages": () => jsonResponse({ ...outage, id: "out-2", outage_number: "OUT-0000002", application: "Loan Origination", kind: "degraded", failing: 0, incident_number: "INC-0000010" }, 201),
+      "POST /api/v1/itops/outages/out-1/end": () => jsonResponse({ ...outage, status: "ended", ends_at: "2026-11-03T10:00:00Z" }),
+    });
+    renderApp("/it-operations");
+    const outages = await screen.findByRole("table", { name: "Outages" });
+    expect(await within(outages).findByText("OUT-0000001")).toBeInTheDocument();
+    expect(within(outages).getByText("OUT-0000001").closest("tr")).toHaveTextContent("1238 applications fail");
+    expect(within(outages).getByText("OUT-0000001").closest("tr")).toHaveTextContent("In force");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Show APP-00001" }));
+    const sim = await screen.findByRole("region", { name: "Simulated application" });
+    expect(await within(sim).findByLabelText("Contract")).toHaveTextContent("Read 40 ms median, 91.1 ms p95");
+    expect(within(sim).getByLabelText("Contract")).toHaveTextContent("1238 applications fail if it goes down");
+    expect(sim).toHaveTextContent("down");
+    await userEvent.click(within(sim).getByRole("button", { name: "Test 100 calls" }));
+    expect(await within(sim).findByRole("status")).toHaveTextContent("0 ok, 100 failed (100 outage)");
+
+    const form = screen.getByRole("form", { name: "Declare outage" });
+    await within(within(form).getByLabelText("Outage application")).findByRole("option", { name: /Loan Origination/ });
+    await userEvent.selectOptions(within(form).getByLabelText("Outage application"), "APP-00005");
+    await userEvent.selectOptions(within(form).getByLabelText("Outage kind"), "degraded");
+    await userEvent.type(within(form).getByLabelText("Outage reason"), "Connection pool exhausted");
+    await userEvent.click(within(form).getByRole("button", { name: "Declare outage" }));
+    expect(await within(form).findByRole("status")).toHaveTextContent("OUT-0000002 degraded");
+    await userEvent.click(screen.getByRole("button", { name: "End OUT-0000001" }));
+
+    await waitFor(() => expect(api.requests.filter((r) => r.method === "POST")).toHaveLength(3));
+    const bodies = Object.fromEntries(api.requests.filter((r) => r.method === "POST").map((r) => [r.path, r.body]));
+    expect(bodies["/api/v1/itops/applications/app-1/calls"]).toEqual({ operation: "read", count: 100, seed: 2030 });
+    expect(bodies["/api/v1/itops/outages"]).toEqual({ application_number: "APP-00005", kind: "degraded", reason: "Connection pool exhausted" });
+  });
+
   it("is read-only with only itops:read", async () => {
     mockApi({ ...routes, ...authRoutes({ ...employeeUser, permissions: ["itops:read"] }) });
     renderApp("/it-operations");
@@ -171,5 +236,7 @@ describe("IT Operations page", () => {
     expect(screen.queryByRole("button", { name: "Acknowledge INC-0000001" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve CHG-0000001" })).not.toBeInTheDocument();
     expect(screen.queryByRole("form", { name: "Generate estate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Declare outage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "End OUT-0000001" })).not.toBeInTheDocument();
   });
 });

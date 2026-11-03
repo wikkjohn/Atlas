@@ -224,6 +224,10 @@ class ApplicationOutage(UUIDPrimaryKey, Base):
     declared_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL")
     )
+    # A scenario's outage (Phase 67) applies only to its own simulation run's executions.
+    simulation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("simulation_runs.id", ondelete="CASCADE"), index=True
+    )
     ended_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="SET NULL")
     )

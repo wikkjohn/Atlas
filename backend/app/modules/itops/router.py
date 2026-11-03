@@ -485,8 +485,10 @@ def list_outages(db: DbSession, page: PageParamsDep, _: Authorized(READ),
     from app.modules.itops import simulated
     from app.modules.itops.models import ApplicationOutage
 
-    query = select(ApplicationOutage).order_by(ApplicationOutage.starts_at.desc(),
-                                               ApplicationOutage.outage_number.desc())  # fmt: skip
+    # The bank's outages; a simulation's own (Phase 67) are reported with its run.
+    query = (select(ApplicationOutage).where(ApplicationOutage.simulation_run_id.is_(None))
+             .order_by(ApplicationOutage.starts_at.desc(),
+                       ApplicationOutage.outage_number.desc()))  # fmt: skip
     if active:
         now = simulated._now()
         query = query.where(ApplicationOutage.starts_at <= now, or_(

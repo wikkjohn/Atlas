@@ -51,6 +51,16 @@ def normalized(mix: dict[str, float]) -> dict[str, float]:
     return {kind: weight / total for kind, weight in mix.items()}
 
 
+class ScenarioOutage(BaseModel):
+    """An application outage on the scenario's own timeline (Phase 67): it applies only to
+    the run's executions."""
+
+    application: str = Field(min_length=1, max_length=150)  # by name, e.g. "Payments Gateway"
+    kind: Literal["down", "degraded"] = "down"
+    start_hours: float = Field(ge=0)  # after the scenario's simulated start
+    minutes: int = Field(gt=0, le=7 * 24 * 60)
+
+
 class ScenarioConfig(BaseModel):
     arrival_window_hours: float = Field(default=8.0, gt=0)  # cases arrive across this
     # When late documents arrive (None: the workload has no document waits).
@@ -76,6 +86,9 @@ class ScenarioConfig(BaseModel):
     # sanctions names for onboarding; amounts against the high-value threshold and the
     # payment limit for payments. None keeps the original, country-blind generators.
     country_rules: bool | None = None
+    # Application outages during the run (Phase 67). None keeps older scenarios' configs,
+    # and so their hashes, unchanged.
+    outages: list[ScenarioOutage] | None = None
 
 
 class Scenario(BaseModel):
@@ -1014,3 +1027,33 @@ def _thin_department_scenarios() -> None:
 
 
 _thin_department_scenarios()
+
+
+def _outage_scenario(base_id: str, base_version: int, scenario_id: str, name: str,
+                     description: str, outages: list[ScenarioOutage]) -> None:  # fmt: skip
+    """A scenario's working day with application outages on its timeline (Phase 67)."""
+    base = get_scenario(base_id, base_version)
+    assert base is not None
+    register_scenario(base.model_copy(update={
+        "scenario_id": scenario_id, "version": 1, "name": name, "description": description,
+        "config": base.config.model_copy(update={"outages": outages})}))  # fmt: skip
+
+
+_outage_scenario(
+    "retail-onboarding", 1, "retail-onboarding-outage",
+    "Retail account onboarding (screening outage)",
+    "The retail onboarding working day with Sanctions Screening down from 12:00 to 14:00. "
+    "WF-0001 calls the ledger and screening at every step: applications that reach a step "
+    "in the outage are retried, then fail.",
+    [ScenarioOutage(application="Sanctions Screening", start_hours=3, minutes=120)],
+)  # fmt: skip
+_outage_scenario(
+    "domestic-payments", 1, "domestic-payments-outage",
+    "Domestic payments (ledger outage)",
+    "The domestic payments working day with the Core Banking Ledger down from 10:00 to "
+    "10:30 and the Payments Gateway degraded until 11:00. A short outage delays payments "
+    "through retries; the gateway's slowness adds to every call.",
+    [ScenarioOutage(application="Core Banking Ledger", start_hours=2, minutes=30),
+     ScenarioOutage(application="Payments Gateway", kind="degraded", start_hours=2,
+                    minutes=180)],
+)  # fmt: skip

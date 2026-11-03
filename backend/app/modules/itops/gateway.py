@@ -62,7 +62,7 @@ class Gateway:
     namespace and domain resolve to are loaded once."""
 
     db: Session
-    _views: dict[datetime, simulated.Estate] = field(default_factory=dict)
+    _views: dict[tuple, simulated.Estate] = field(default_factory=dict)
     _core: dict[str, Application] | None = None
     _estate: dict[str, list[Application]] = field(default_factory=dict)
 
@@ -94,23 +94,25 @@ class Gateway:
             apps.append(links._pick(candidates, workflow_id, step_id))
         return apps
 
-    def _view(self, at: datetime) -> simulated.Estate:
-        if at not in self._views:
-            view = simulated.Estate(self.db, at)  # the outages in force at that moment
+    def _view(self, at: datetime, run_id: uuid.UUID | None = None) -> simulated.Estate:
+        key = (at, run_id)
+        if key not in self._views:
+            view = simulated.Estate(self.db, at, run_id)  # the outages in force then
             for previous in self._views.values():  # contracts and the graph do not change
                 view._contracts = previous._contracts
                 view._edges = previous._edges
-            self._views = {at: view}
-        return self._views[at]
+            self._views = {key: view}
+        return self._views[key]
 
     def call(self, *, workflow_id: str, step_id: str, handler: str, execution_id: uuid.UUID,
-             attempt: int, at: datetime) -> Report:  # fmt: skip
+             attempt: int, at: datetime,
+             run_id: uuid.UUID | None = None) -> Report:  # fmt: skip
         """Make the step's calls in turn; stop at the first that fails."""
         report = Report()
         apps = self.applications(workflow_id, step_id, handler)
         if not apps:
             return report
-        view = self._view(at)
+        view = self._view(at, run_id)
         seed = hashlib.sha256(f"{execution_id}:{step_id}:{attempt}".encode()).digest()
         rng = random.Random(int.from_bytes(seed[:8], "big"))
         realistic_ = REALISTIC.get()

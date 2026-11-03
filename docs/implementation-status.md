@@ -94,7 +94,16 @@ Last updated: Phase 70.
 
 ## Phase 73: verified results
 
-RESULTS73_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 752 passed. New: 5 tests covering: a flat pattern changes nothing and placing keeps the order; the retail pattern's daily and weekly peaks; an event's multiplier and the months' seasonality; validation (lengths, weights, country, a window with no demand) and unchanged older configurations; a week of real demand against an even week, the same decisions at that size, and repeatability |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (236.0 s on the development database) |
+| `retail-onboarding-week` against an even week (1,000 cases, seed 2030) | Review queue wait 0.003 → 0.098 h on average (p95 0 → 0.259 h); busiest hour 35 cases against 6.0 (5.84×); 245 cases on campaign Wednesday, 168 in the campaign's six hours, 28 on Sunday. See [simulation.md](simulation.md) |
+| Frontend Vitest / typecheck / build | 167 passed (new: the Arrivals section, and none without a pattern) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Postgres stopped once during the first backend run (every test errored on the closed
+connection); after a restart the run above passed.
 
 ## Phase 73: known limitations
 

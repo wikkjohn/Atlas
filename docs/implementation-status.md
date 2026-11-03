@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 69.
+Last updated: Phase 70.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -74,6 +74,38 @@ Last updated: Phase 69.
 | 67 | Enterprise applications, step 5: outage scenarios ([simulation.md](simulation.md)) | **Complete** |
 | 68 | Enterprise applications, step 6: the Milestone E exit ([itops.md](itops.md)) — roadmap Milestone E complete | **Complete** |
 | 69 | Workforce and customers, step 1: the employee generator ([workforce.md](workforce.md)) | **Complete** |
+| 70 | Workforce and customers, step 2: reviewers' working time ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 70: what exists
+
+- **Reviewers' working time** (`app/simulation/staffing.py`, `ScenarioConfig.staff_schedule`):
+  - shifts in a country's time zone, given out in turn;
+  - the country's business days and holidays;
+  - seeded absences;
+  - a review goes to the reviewer who can start first, and carries over between shifts.
+  Scenarios without a schedule are unchanged, digests included.
+- **Its cost in the results** (`staffing`): waiting for a reviewer at work, reviews carried
+  over, reviewer-days absent. The Simulation Center shows it.
+- **`retail-onboarding-shifts`:** New York shifts for a day of arrivals starting at 04:00
+  there.
+- **PR #60 (Phase 69)** had no review comments; CI passed on the first run.
+
+## Phase 70: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 736 passed. New: 4 tests covering: shifts in New York time, the Martin Luther King Jr. Day holiday, a review carried over a weekend, Tokyo's offset; seeded absences; the schedule's validation and unchanged older configurations; a shifts run against its around-the-clock baseline, and its repeatability |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (281.3 s on the development database) |
+| `retail-onboarding` against `retail-onboarding-shifts` (300 cases, seed 2030, development database) | The baseline digest is unchanged (`bc59d6a0…`). With shifts: cycle time p50 0.41 → 5.56 h, average 3.78 → 10.41 h; review queue wait 0.58 → 7.31 h on average; overdue tasks 0 → 2; 53.39 h waiting off shift, 7 reviews carried over, 3 reviewer-days absent. Digest `ebeb4c86…`, the same on a second run |
+| Frontend Vitest / typecheck / build | 162 passed (new: the working-time section, and none without a schedule) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+## Phase 70: known limitations
+
+- **Reviewers only:** tellers and steps without a review start at once.
+- **One time zone per scenario;** no follow-the-sun teams.
+- **Sharded runs** follow the schedule but report no `staffing` section.
+- **Absences are single days,** not periods of leave; they are not HR leave records.
 
 ## Phase 69: what exists
 

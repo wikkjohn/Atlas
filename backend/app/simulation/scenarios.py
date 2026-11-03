@@ -51,6 +51,22 @@ def normalized(mix: dict[str, float]) -> dict[str, float]:
     return {kind: weight / total for kind, weight in mix.items()}
 
 
+class StaffSchedule(BaseModel):
+    """When simulated reviewers work (Phase 70): shifts in a country's time zone, its
+    business days, and absences. See `app.simulation.staffing`."""
+
+    country: str = Field(default="US", pattern=r"^[A-Z]{2}$")  # time zone and holidays
+    # (start hour, hours) in local time, given out to reviewers in turn.
+    shifts: list[tuple[int, int]] = Field(default_factory=lambda: [(8, 8), (12, 8)])
+    absence_rate: float = Field(default=0.05, ge=0, lt=1)  # per reviewer and working day
+
+    @model_validator(mode="after")
+    def _shifts_valid(self) -> "StaffSchedule":
+        if not self.shifts or any(not 0 <= h <= 23 or not 1 <= n <= 12 for h, n in self.shifts):
+            raise ValueError("Each shift starts at hour 0 to 23 and lasts 1 to 12 hours.")
+        return self
+
+
 class ScenarioOutage(BaseModel):
     """An application outage on the scenario's own timeline (Phase 67): it applies only to
     the run's executions."""
@@ -89,6 +105,8 @@ class ScenarioConfig(BaseModel):
     # Application outages during the run (Phase 67). None keeps older scenarios' configs,
     # and so their hashes, unchanged.
     outages: list[ScenarioOutage] | None = None
+    # Reviewers' working time (Phase 70). None: they work around the clock, as before.
+    staff_schedule: StaffSchedule | None = None
 
 
 class Scenario(BaseModel):
@@ -1056,4 +1074,25 @@ _outage_scenario(
     [ScenarioOutage(application="Core Banking Ledger", start_hours=2, minutes=30),
      ScenarioOutage(application="Payments Gateway", kind="degraded", start_hours=2,
                     minutes=180)],
+)  # fmt: skip
+
+
+def _schedule_scenario(base_id: str, base_version: int, scenario_id: str, name: str,
+                       description: str, schedule: StaffSchedule) -> None:  # fmt: skip
+    """A scenario's working day with its reviewers on shifts (Phase 70)."""
+    base = get_scenario(base_id, base_version)
+    assert base is not None
+    register_scenario(base.model_copy(update={
+        "scenario_id": scenario_id, "version": 1, "name": name, "description": description,
+        "config": base.config.model_copy(update={"staff_schedule": schedule})}))  # fmt: skip
+
+
+_schedule_scenario(
+    "retail-onboarding", 1, "retail-onboarding-shifts",
+    "Retail account onboarding (reviewers on New York shifts)",
+    "The retail onboarding working day with its reviewers in New York: half on 08:00 to "
+    "16:00 and half on 12:00 to 20:00 local time, on US business days, 5 % absent each "
+    "day. Applications arrive from 09:00 UTC, 04:00 in New York, so the first reviews wait "
+    "for the morning shift.",
+    StaffSchedule(country="US", shifts=[(8, 8), (12, 8)], absence_rate=0.05),
 )  # fmt: skip

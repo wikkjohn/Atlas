@@ -536,6 +536,21 @@ function RunDetail({ id, onSelect }: { id: string; onSelect: (id: string) => voi
             />
           </dl>
 
+          {res.staffing && (
+            <section aria-label="Reviewers' working time" className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+              <h3 className="mb-1 text-sm font-semibold">Reviewers&apos; working time</h3>
+              <p>
+                {res.staffing.reviewers} reviewers on {res.staffing.schedule.country} business days, shifts{" "}
+                {res.staffing.schedule.shifts.map(([h, n]) => `${String(h).padStart(2, "0")}:00–${String((h + n) % 24).padStart(2, "0")}:00`).join(" and ")} local time,{" "}
+                {Math.round(res.staffing.schedule.absence_rate * 100)} % absence
+              </p>
+              <p>
+                {res.staffing.off_shift_wait_hours} hours waiting for a reviewer at work · {res.staffing.reviews_carried_over} reviews carried into the next shift ·{" "}
+                {res.staffing.staff_days_absent} reviewer-days absent
+              </p>
+            </section>
+          )}
+
           {res.applications && (
             <section aria-label="Application outages" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
               <h3 className="mb-1 text-sm font-semibold">Application outages</h3>

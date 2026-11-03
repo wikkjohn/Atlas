@@ -199,6 +199,14 @@ export interface SimulationResults {
   staff: Record<string, number>;
   simulated_hours: number | null;
   ai?: AiResults | null;
+  /** Phase 70: the reviewers' working time and what it cost the run. */
+  staffing?: {
+    schedule: { country: string; shifts: [number, number][]; absence_rate: number };
+    reviewers: number;
+    staff_days_absent: number;
+    off_shift_wait_hours: number;
+    reviews_carried_over: number;
+  };
   /** Phase 67: the run's own application outages and what they cost it. */
   applications?: {
     outages: { application: string; application_number: string; kind: "down" | "degraded"; from: string; to: string | null }[];

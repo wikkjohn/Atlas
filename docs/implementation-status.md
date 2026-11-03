@@ -114,7 +114,7 @@ Found while building it:
   6,000 dependencies; not tuned for far larger graphs.
 - **The page shows the first 25 applications that rely on the selected one;** the impact
   counts all of them.
-- **The incident, change and outage forms list only the bank's own applications,** not the
+- **The incident and change forms list only the bank's own applications,** not the
   generated estate; a generated application is found through the registry search.
 
 ## Phase 62: what exists

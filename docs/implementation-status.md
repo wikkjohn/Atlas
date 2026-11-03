@@ -75,6 +75,49 @@ Last updated: Phase 70.
 | 68 | Enterprise applications, step 6: the Milestone E exit ([itops.md](itops.md)) — roadmap Milestone E complete | **Complete** |
 | 69 | Workforce and customers, step 1: the employee generator ([workforce.md](workforce.md)) | **Complete** |
 | 70 | Workforce and customers, step 2: reviewers' working time ([simulation.md](simulation.md)) | **Complete** |
+| 71 | Workforce and customers, step 3: task routing — named assignment, delegation, escalation ([workflows.md](workflows.md)) | **Complete** |
+
+## Phase 71: what exists
+
+- **Named assignment** (`app/modules/workflows/routing.py`, `ApprovalPolicy.assign`):
+  - `least_loaded`: the qualified person with the fewest open assigned tasks;
+  - `initiator_manager`: the initiator's line manager through the employee records, the next
+    manager up if the nearest cannot do the task, else the least loaded.
+  Only the assignee may complete the task (`not_assignee`). Queue tasks are unchanged.
+- **Handing a task on:** out-of-office delegations (`task_delegations`, migration 0047)
+  redirect new assignments. The assignee or a workflow manager can delegate an open task to
+  another qualified person. Timeouts with `action: escalate` give an overdue task to the
+  manager up the line, or flag it when there is nobody.
+- **WF-1044 v3** (Leave Request): to the requester's manager, escalated after a day.
+- **API and UI:** `?mine=true`, candidates, delegate, people, and delegation CRUD. The Task
+  inbox shows the assignee, has an "assigned to me" filter, a Delegate control and an Out of
+  office panel. Step runs show their assignee.
+- **Live cases only;** simulations and earlier definitions' hashes are unchanged. Generated
+  tests complete assigned tasks as the assignee and check that others are refused.
+- **PR #61 (Phase 70)** had no review comments; CI passed on the first run.
+
+## Phase 71: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 742 passed. New: 6 tests covering: least-loaded spreading and the assignee-only rule; the initiator's manager, escalation up the line once, the fallback for a head of department; a queue task escalating to the initiator's manager, or flagged with nobody in the line; out of office and handing a task on (four-eyes, who may delegate); the API (mine, candidates, delegate, people, delegation CRUD and its permissions); unchanged definitions and the `timeout_escalate` rule |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (244.7 s on the development database); WF-1044 v3: 12 passed, steps and routes 100 % |
+| Demo on the development database (rolled back) | A generated analyst's leave request went to their team lead; the head was refused (`not_assignee`); a day later it escalated to the head, who approved it; with the lead out of office the next request went to the head. The request started in 330 ms; ranking the qualified candidates took 9 ms |
+| Frontend Vitest / typecheck / build | 164 passed (new: who a task is with and handing it over; the "assigned to me" filter; setting up and ending an out-of-office delegation) / clean / built |
+| Playwright on a fresh database | 73 passed |
+
+Found while building it: `test_seed`'s demo-seed test fails when run straight after the
+workflow, HR and simulation tests in that order, on the Phase 70 code as well; it passes
+alone and in the full suite's order. A test-order dependency left as it is.
+
+## Phase 71: known limitations
+
+- **Two rules:** no skills-, grade- or country-based routing yet, and least-loaded counts
+  open tasks, not their size.
+- **One escalation per task:** a second timeout is not scheduled after an escalation.
+- **The manager's line comes from employee records,** so people without a linked employee
+  (or whose managers have no account) fall back to the least loaded.
+- **Simulated reviewers are not routed;** the simulation keeps its own reviewer pools.
 
 ## Phase 70: what exists
 

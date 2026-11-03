@@ -268,7 +268,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 70: shifts in a country's time zone, its business days and holidays, seeded
       absences; reviews wait for a reviewer at work and carry over between shifts;
       `retail-onboarding-shifts`; see `simulation.md`)
-- [ ] Named task assignment, delegation and escalation routing
+- [x] Named task assignment, delegation and escalation routing
+      (Phase 71: approvals and human tasks assigned by name to the least-loaded qualified
+      person or the initiator's line manager; out-of-office delegations and handing a task
+      on; timeouts that escalate up the management line; WF-1044 v3; see `workflows.md`)
 - [ ] Customer generator: millions of customers, segments, products, transaction history
 - [ ] Realistic arrival patterns: daily and weekly peaks, seasonality, events
 - [ ] Durable event pipeline (outbox) for departmental dependencies
@@ -368,4 +371,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 68 (E6) | Milestone E exit: the Enterprise Data Warehouse fed by every application nothing relies on, all 2,526 applications wired, an outage's cost measured, the exit check — Milestone E complete | complete |
 | Phase 69 (F1) | Milestone F, step 1: the employee generator — staff by department and country with a hierarchy, roles, grades, local pay, skills and languages; 150,000 in 37 s | complete |
 | Phase 70 (F2) | Milestone F, step 2: reviewers' shifts in a country's time zone, its business days and holidays, seeded absences, reviews carried across shifts; `retail-onboarding-shifts` | complete |
-| Phase 71 (F3, proposed) | Milestone F, step 3: named task assignment, delegation and escalation routing | next |
+| Phase 71 (F3) | Milestone F, step 3: named task assignment (least loaded, the initiator's manager), out-of-office delegation and handing a task on, escalation up the management line; WF-1044 v3 | complete |
+| Phase 72 (F4, proposed) | Milestone F, step 4: the customer generator — millions of customers, segments, products and transaction history | next |

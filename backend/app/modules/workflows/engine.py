@@ -28,6 +28,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.audit import record_audit_event
 from app.core.errors import (
+    BusinessRuleViolation,
     ConflictError,
     DomainError,
     NotFoundError,
@@ -36,7 +37,7 @@ from app.core.errors import (
 from app.core.logging import correlation_id_var
 from app.core.permissions import Permission
 from app.modules.identity.service import AuthenticatedUser
-from app.modules.workflows import registry, store
+from app.modules.workflows import registry, routing, store
 from app.modules.workflows.definition import (
     HANDLER_TYPES,
     WAITING_TYPES,
@@ -391,6 +392,8 @@ class _Driver:
             self.event(
                 kind, run, data={"step": step.id, "due_at": run.due_at and run.due_at.isoformat()}
             )
+            if step.approval is not None and step.approval.assign is not None:
+                self.assign_task(run, step)
         elif step.type == StepType.PARALLEL:
             self.complete_run(run, {"branches": step.branches})
             for branch_start in step.branches:
@@ -411,6 +414,41 @@ class _Driver:
                 outcome=step.outcome or "failed",
                 error=self.execution.context.get("_failure") or {"step": step.id},
             )
+
+    # Named assignment (Phase 71, see routing.py)
+
+    def assign_task(self, run: WorkflowStepRun, step: StepDefinition) -> None:
+        if self.execution.realm != Realm.LIVE:
+            return  # simulated cases keep the simulation's reviewer model
+        chosen, before, rule = routing.choose(self.db, self.execution, step, self.now.date())
+        if chosen is None:
+            self.event("task.unassigned", run, data={"step": step.id, "reason": "no_candidate"})
+            return
+        self.hand_to(run, chosen, "task.assigned", None,
+                     {"rule": rule, "away": str(before.id) if before else None},
+                     delegated_from=before)  # fmt: skip
+
+    def hand_to(
+        self,
+        run: WorkflowStepRun,
+        user: Any,
+        kind: str,
+        actor_id: uuid.UUID | None,
+        data: dict[str, Any],
+        *,
+        delegated_from: Any = None,
+    ) -> None:
+        previous = run.assignee_id
+        run.assignee_id = user.id
+        run.assigned_at = self.now
+        if delegated_from is not None:
+            run.delegated_from_id = delegated_from.id
+        elif previous is not None:
+            run.delegated_from_id = previous
+        self.event(kind, run, actor_id, {"step": run.step_id, "assignee_id": str(user.id),
+                                         "assignee": user.username,
+                                         "from_id": str(previous) if previous else None,
+                                         **data})  # fmt: skip
 
     def _run_handler(self, run: WorkflowStepRun, step: StepDefinition) -> None:
         handler = registry.handler_for(step.type, step.handler or "")
@@ -715,7 +753,7 @@ def complete_task(
     if step.type not in (StepType.APPROVAL, StepType.HUMAN_TASK) or step.approval is None:
         raise ConflictError("This step is not a task; send a signal instead.")
 
-    check_task_access(db, execution, step, actor)
+    check_task_access(db, execution, step, actor, run)
     if step.type == StepType.APPROVAL:
         if decision not in ("approve", "reject"):
             raise WorkflowInputError("decision must be 'approve' or 'reject'.")
@@ -744,10 +782,20 @@ def complete_task(
 
 
 def check_task_access(
-    db: Session, execution: WorkflowExecution, step: StepDefinition, actor: AuthenticatedUser
+    db: Session,
+    execution: WorkflowExecution,
+    step: StepDefinition,
+    actor: AuthenticatedUser,
+    run: WorkflowStepRun | None = None,
 ) -> None:
-    """Raise unless `actor` may complete this task (permissions and four-eyes)."""
+    """Raise unless `actor` may complete this task (permissions, four-eyes and, for a task
+    given to a named person, being that person)."""
     assert step.approval is not None
+    if run is not None and run.assignee_id is not None and run.assignee_id != actor.id:
+        raise PermissionDeniedError(
+            "This task is assigned to someone else.",
+            {"rule": "not_assignee", "assignee_id": str(run.assignee_id)},
+        )
     missing = [p for p in step.approval.permissions if not actor.can(Permission(p))]
     if missing:
         raise PermissionDeniedError(
@@ -880,6 +928,19 @@ def process_timers(db: Session, execution: WorkflowExecution, now: datetime) -> 
             driver.touch()
             driver.event("step.timed_out", run, data={"step": step.id, "to": step.timeout.to})
             driver.goto(step.timeout.to or "", run.branch)
+        elif step.timeout.action == "escalate" and (manager := _escalation_target(
+                db, execution, step, run)) is not None:  # fmt: skip
+            run.escalated_at = now
+            driver.hand_to(run, manager, "task.escalated", None, {"reason": "timeout"})
+            record_audit_event(
+                db,
+                actor_id=None,
+                action="workflow.task_escalated",
+                entity_type="workflow_execution",
+                entity_id=execution.id,
+                metadata={"step": step.id, "to": manager.username,
+                          "from_id": str(run.delegated_from_id) if run.delegated_from_id else None},
+            )  # fmt: skip
         else:
             run.escalated_at = now
             driver.event("task.overdue", run, data={"step": step.id})
@@ -897,6 +958,75 @@ def process_timers(db: Session, execution: WorkflowExecution, now: datetime) -> 
     if overdue:
         driver.advance()
     return len(overdue)
+
+
+def _escalation_target(
+    db: Session, execution: WorkflowExecution, step: StepDefinition, run: WorkflowStepRun
+) -> Any:
+    """The assignee's (else the initiator's) nearest qualified manager; live cases only."""
+    if execution.realm != Realm.LIVE:
+        return None
+    return routing.qualified_manager(db, execution, step, run.assignee_id or execution.initiated_by)
+
+
+def delegate_task(
+    db: Session,
+    run_id: uuid.UUID,
+    actor: AuthenticatedUser,
+    delegate_id: uuid.UUID,
+    *,
+    note: str | None = None,
+    now: datetime | None = None,
+) -> WorkflowStepRun:
+    """Hand an open task to another qualified person. The assignee may, and so may anyone
+    who manages workflows (an unassigned task needs a manager)."""
+    from app.modules.identity.models import User
+
+    found = db.get(WorkflowStepRun, run_id)
+    if found is None:
+        raise NotFoundError("Task not found.")
+    execution = _lock(db, found.execution_id)
+    assert execution is not None
+    run = db.execute(
+        select(WorkflowStepRun).where(WorkflowStepRun.id == run_id).with_for_update()
+    ).scalar_one()
+    db.refresh(run)
+    if run.status != RunStatus.WAITING:
+        raise ConflictError(f"This task is {run.status}; it can no longer be delegated.")
+    if execution.realm != Realm.LIVE:
+        raise ConflictError("Simulated tasks are not delegated.")
+    driver = _driver(db, execution, now)
+    step = driver.definition.step(run.step_id)
+    if step.type not in (StepType.APPROVAL, StepType.HUMAN_TASK) or step.approval is None:
+        raise ConflictError("This step is not a task.")
+    if run.assignee_id != actor.id and not actor.can(Permission.WORKFLOWS_MANAGE):
+        raise PermissionDeniedError(
+            "Only the task's assignee or a workflow manager can delegate it.",
+            {"rule": "not_assignee"},
+        )
+    delegate = db.get(User, delegate_id)
+    if delegate is None:
+        raise NotFoundError("Delegate not found.")
+    if delegate.id == run.assignee_id:
+        raise ConflictError("The task is already assigned to this person.")
+    if not routing.is_qualified(db, execution, step, delegate):
+        raise BusinessRuleViolation(
+            f"{delegate.username} cannot complete this task (permissions, four-eyes, or not an "
+            "active person).",
+            {"rule": "delegate_not_qualified"},
+        )
+    driver.hand_to(run, delegate, "task.delegated", actor.id, {"note": note})
+    record_audit_event(
+        db,
+        actor_id=actor.id,
+        action="workflow.task_delegated",
+        entity_type="workflow_execution",
+        entity_id=execution.id,
+        metadata={"step": step.id, "to": delegate.username, "note": note},
+    )
+    driver.touch()
+    db.flush()
+    return run
 
 
 @dataclass

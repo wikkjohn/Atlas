@@ -116,6 +116,9 @@ export interface StepRun {
   not_before: string | null;
   due_at: string | null;
   escalated_at: string | null;
+  assignee_id?: string | null;
+  assignee_username?: string | null;
+  delegated_from_id?: string | null;
 }
 
 export interface ExecutionDetail extends ExecutionSummary {
@@ -150,6 +153,40 @@ export interface WorkflowTask {
   risk_rating: string | null;
   flags: string[];
   initiated_by_username: string | null;
+  // Named assignment (Phase 71); null for a shared-queue task.
+  assignee_id?: string | null;
+  assignee_username?: string | null;
+  assigned_at?: string | null;
+  delegated_from_username?: string | null;
+  assigned_to_me?: boolean;
+}
+
+export interface TaskCandidate {
+  user_id: string;
+  username: string;
+  display_name: string;
+  role: string;
+  open_tasks: number;
+  assignee: boolean;
+}
+
+export interface Person {
+  user_id: string;
+  username: string;
+  display_name: string;
+  role: string;
+}
+
+export interface TaskDelegation {
+  id: string;
+  user_id: string;
+  username: string;
+  delegate_id: string;
+  delegate_username: string;
+  starts_on: string;
+  ends_on: string;
+  reason: string;
+  active: boolean;
 }
 
 export interface StepMetric {

@@ -17,6 +17,8 @@ from app.modules.workflows.schemas import (
     CatalogueIn,
     CatalogueOut,
     DefinitionDocument,
+    DelegationIn,
+    DelegationOut,
     DraftPreview,
     ExecutionDetail,
     ExecutionSummary,
@@ -24,6 +26,7 @@ from app.modules.workflows.schemas import (
     GenerationOut,
     ImportResult,
     LibraryHandlerOut,
+    PersonOut,
     RenderIn,
     RenderOut,
     ReturnIn,
@@ -31,7 +34,9 @@ from app.modules.workflows.schemas import (
     SignalIn,
     StartExecution,
     StoredDefinitionOut,
+    TaskCandidate,
     TaskCompletion,
+    TaskDelegate,
     TaskOut,
     TemplateDetail,
     TemplateDocumentIn,
@@ -578,8 +583,9 @@ def list_tasks(
     page: PageParamsDep,
     user: CurrentUser,
     actionable: Annotated[bool, Query(description="Only tasks you may complete")] = False,
+    mine: Annotated[bool, Query(description="Only tasks assigned to you by name")] = False,
 ) -> Page[TaskOut]:
-    items, total = service.open_tasks(db, user, page, actionable_only=actionable)
+    items, total = service.open_tasks(db, user, page, actionable_only=actionable, mine=mine)
     return Page(items=items, total=total, limit=page.limit, offset=page.offset)
 
 
@@ -595,3 +601,69 @@ def complete_task(
         db, run_id, actor, decision=body.decision, data=body.data, note=body.note
     )
     return service.execution_detail(db, execution)
+
+
+@tasks_router.get(
+    "/people",
+    response_model=list[PersonOut],
+    summary="Active people to delegate to, by username or name",
+)
+def task_people(
+    db: DbSession,
+    user: CurrentUser,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+) -> list[PersonOut]:
+    return service.people(db, q)
+
+
+@tasks_router.get(
+    "/delegations",
+    response_model=list[DelegationOut],
+    summary="Out-of-office delegations that have not ended (yours, or everyone's)",
+)
+def list_delegations(
+    db: DbSession,
+    user: CurrentUser,
+    everyone: Annotated[bool, Query(description="All delegations (workflow managers)")] = False,
+) -> list[DelegationOut]:
+    return service.list_delegations(db, user, everyone=everyone)
+
+
+@tasks_router.post(
+    "/delegations",
+    response_model=DelegationOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Set up an out-of-office delegation: new tasks for you go to your delegate",
+)
+def create_delegation(body: DelegationIn, db: DbSession, user: CurrentUser) -> DelegationOut:
+    return service.create_delegation(db, user, body)
+
+
+@tasks_router.delete(
+    "/delegations/{delegation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="End an out-of-office delegation",
+)
+def delete_delegation(delegation_id: uuid.UUID, db: DbSession, user: CurrentUser) -> None:
+    service.delete_delegation(db, user, delegation_id)
+
+
+@tasks_router.get(
+    "/{run_id}/candidates",
+    response_model=list[TaskCandidate],
+    summary="Who could take this task: qualified people, least loaded first",
+)
+def task_candidates(run_id: uuid.UUID, db: DbSession, user: CurrentUser) -> list[TaskCandidate]:
+    return service.task_candidates(db, run_id)
+
+
+@tasks_router.post(
+    "/{run_id}/delegate",
+    response_model=TaskOut,
+    summary="Hand a task to another qualified person (its assignee or a workflow manager)",
+)
+def delegate_task(
+    run_id: uuid.UUID, body: TaskDelegate, db: DbSession, actor: CurrentUser
+) -> TaskOut:
+    run = engine.delegate_task(db, run_id, actor, body.delegate_id, note=body.note)
+    return service.task_out(db, actor, run.id)

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -100,6 +100,9 @@ class StepRunOut(BaseModel):
     not_before: datetime | None
     due_at: datetime | None
     escalated_at: datetime | None
+    assignee_id: uuid.UUID | None = None
+    assignee_username: str | None = None
+    delegated_from_id: uuid.UUID | None = None
 
 
 class ExecutionDetail(ExecutionSummary):
@@ -134,6 +137,54 @@ class TaskOut(BaseModel):
     risk_rating: str | None
     flags: list[str]
     initiated_by_username: str | None
+    # Named assignment (Phase 71); None for a shared-queue task.
+    assignee_id: uuid.UUID | None = None
+    assignee_username: str | None = None
+    assigned_at: datetime | None = None
+    delegated_from_username: str | None = None
+    assigned_to_me: bool = False
+
+
+class TaskDelegate(BaseModel):
+    delegate_id: uuid.UUID
+    note: str | None = Field(default=None, max_length=500)
+
+
+class TaskCandidate(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    display_name: str
+    role: str
+    open_tasks: int
+    assignee: bool
+
+
+class PersonOut(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    display_name: str
+    role: str
+
+
+class DelegationIn(BaseModel):
+    delegate_id: uuid.UUID
+    starts_on: date
+    ends_on: date
+    reason: str = Field(default="", max_length=200)
+    # A workflow manager may set one up for someone else; otherwise it is your own.
+    user_id: uuid.UUID | None = None
+
+
+class DelegationOut(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    username: str
+    delegate_id: uuid.UUID
+    delegate_username: str
+    starts_on: date
+    ends_on: date
+    reason: str
+    active: bool
 
 
 class StepMetric(BaseModel):

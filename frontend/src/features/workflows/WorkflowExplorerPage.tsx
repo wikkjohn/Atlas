@@ -15,6 +15,7 @@ import { EffectBadge, ImportDefinitionDialog, StartFromSchemaDialog } from "@/fe
 import { CatalogueFilterBar, Classification, VersionsPanel } from "@/features/workflows/CatalogueParts";
 import { DefinitionEditor } from "@/features/workflows/DefinitionEditor";
 import { StartLoanDialog, StartPaymentDialog } from "@/features/workflows/StartDialogs";
+import { AssignmentLine, DelegateControl, OutOfOfficePanel } from "@/features/workflows/TaskRouting";
 import { TemplatesTab } from "@/features/workflows/TemplatesTab";
 import { TestsPanel } from "@/features/workflows/TestsPanel";
 import { WorkflowGraph } from "@/features/workflows/WorkflowGraph";
@@ -625,7 +626,7 @@ function ExecutionView({ id, onClose }: { id: string; onClose: () => void }) {
                     <td className="py-1.5">
                       <StatusPill tone={RUN_TONE[s.status]} label={s.escalated_at ? "overdue" : s.status} />
                     </td>
-                    <td className="py-1.5 text-xs text-slate-600">{s.actor_username ?? (s.step_type === "approval" || s.step_type === "human_task" ? "—" : "system")}</td>
+                    <td className="py-1.5 text-xs text-slate-600">{s.actor_username ?? (s.assignee_username ? `assigned to ${s.assignee_username}` : s.step_type === "approval" || s.step_type === "human_task" ? "—" : "system")}</td>
                     <td className="py-1.5 text-right text-xs whitespace-nowrap text-slate-600">{formatDuration(s.duration_ms)}</td>
                   </tr>
                   {s.error && (
@@ -761,6 +762,7 @@ function TaskRow({ task, onOpen }: { task: WorkflowTask; onOpen: (id: string) =>
             {task.due_at && ` · due ${formatTimestamp(task.due_at)}`}
             {task.overdue && <span className="font-medium text-rose-700"> · overdue</span>}
           </p>
+          <AssignmentLine task={task} />
           <button type="button" className="mt-1 text-xs text-navy-700 hover:underline" onClick={() => onOpen(task.execution_id)}>
             Open case
           </button>
@@ -782,6 +784,7 @@ function TaskRow({ task, onOpen }: { task: WorkflowTask; onOpen: (id: string) =>
                 <XCircle aria-hidden className="h-3.5 w-3.5" /> Reject
               </Button>
             </div>
+            <DelegateControl task={task} />
           </div>
         ) : (
           <p className="max-w-xs text-right text-xs text-slate-500">{task.blocked_reason}</p>
@@ -794,13 +797,21 @@ function TaskRow({ task, onOpen }: { task: WorkflowTask; onOpen: (id: string) =>
 
 function TasksTab({ onOpen }: { onOpen: (id: string) => void }) {
   const [onlyMine, setOnlyMine] = useState(true);
-  const tasks = useTasks(onlyMine);
+  const [assignedToMe, setAssignedToMe] = useState(false);
+  const tasks = useTasks(onlyMine, assignedToMe);
   return (
     <>
-      <label className="mb-4 flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} />
-        Only tasks I can act on
-      </label>
+      <OutOfOfficePanel />
+      <div className="mb-4 flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" checked={onlyMine} onChange={(e) => setOnlyMine(e.target.checked)} />
+          Only tasks I can act on
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" checked={assignedToMe} onChange={(e) => setAssignedToMe(e.target.checked)} />
+          Only tasks assigned to me
+        </label>
+      </div>
       <ErrorMessage error={tasks.error} className="mb-4" />
       {tasks.data?.items.length === 0 && <p className="text-sm text-slate-500">No open tasks.</p>}
       <ul aria-label="Tasks" className="space-y-3">

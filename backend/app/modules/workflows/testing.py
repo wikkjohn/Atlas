@@ -41,7 +41,7 @@ from app.core.errors import DomainError, PermissionDeniedError
 from app.core.permissions import ROLE_PERMISSIONS, SERVICE_ROLES, RoleCode, permissions_for
 from app.modules.identity.models import User
 from app.modules.identity.service import AuthenticatedUser, get_role
-from app.modules.workflows import engine, library, store
+from app.modules.workflows import engine, library, routing, store
 from app.modules.workflows.definition import (
     Condition,
     StepDefinition,
@@ -1098,13 +1098,14 @@ def _drive(
                 _check_refusals(db, run, step, fx, now, notes)
             decision = case.plan.decisions.get(step.id, "approve")
             engine.complete_task(
-                db, run.id, fx.approvers[step.id], decision=decision, note="Generated test", now=now
-            )
+                db, run.id, _actor(db, run, fx, step), decision=decision, note="Generated test",
+                now=now,
+            )  # fmt: skip
         elif step.type == StepType.HUMAN_TASK:
             engine.complete_task(
                 db,
                 run.id,
-                fx.approvers[step.id],
+                _actor(db, run, fx, step),
                 data=_form_data(step, case.plan.forms.get(step.id, {})),
                 now=now,
             )
@@ -1126,10 +1127,20 @@ def _drive(
     raise AssertionError(f"the case did not finish within {MAX_DRIVE_ROUNDS} rounds")
 
 
+def _actor(db: Session, run, fx: Fixtures, step) -> AuthenticatedUser:
+    """Who completes the task: its assignee when routing gave it to someone by name
+    (Phase 71), else the fixture approver."""
+    if run.assignee_id is not None:
+        return routing.principal(db.get(User, run.assignee_id))
+    return fx.approvers[step.id]
+
+
 def _check_refusals(db, run, step, fx: Fixtures, now, notes: list[str]) -> None:
     attempts = [("a person without its permissions", fx.outsider)]
     if "initiator" in step.approval.distinct_from:
         attempts.insert(0, ("the initiator (four-eyes)", fx.initiator))
+    if run.assignee_id is not None:
+        attempts.append(("a qualified person it is not assigned to", fx.approvers[step.id]))
     for who, actor in attempts:
         try:
             with db.begin_nested():

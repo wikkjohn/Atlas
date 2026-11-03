@@ -575,6 +575,10 @@ WF-1044 **v2** (Phase 56) reads the leave profile (`hr.leave_profile`) after the
 requested and asks the AGB Leave Review Assistant (`ai.review`, advisory) before the manager
 decides (`leave-requests`).
 
+WF-1044 **v3** (Phase 71) assigns the approval to the requester's line manager by name and
+escalates it to that manager's manager after a day (see *Task routing* below). The
+`leave-requests` scenario stays on v2.
+
 ### WF-1046, WF-1047 and WF-1048: procurement (Phase 57)
 
 The procurement base processes:
@@ -827,3 +831,49 @@ is audited (`workflow_definition.submitted|approved|returned|retired|reactivated
 over N worker processes (spawned), each in its own sessions with its own ledger-balance
 shard; results and a summary are printed as one, and `--output` writes them as JSON.
 
+## Task routing (Phase 71)
+
+Until Phase 71 every open approval and human task sat in a shared queue: anyone holding the
+step's permissions who passed the four-eyes rule could take it. A step's approval policy can
+now name an **assignment rule**, and the task then goes to one person, who alone may
+complete it (anyone else is refused with rule `not_assignee`):
+
+```json
+"approval": {"permissions": ["hr:manage"], "distinct_from": ["initiator"],
+             "assign": "initiator_manager"},
+"timeout": {"after_seconds": 86400, "action": "escalate"}
+```
+
+| `assign` | Who gets the task |
+| --- | --- |
+| absent | Nobody by name: the shared queue, as before |
+| `least_loaded` | The qualified person with the fewest open assigned tasks (ties by username, so it repeats) |
+| `initiator_manager` | The initiator's line manager, found through `users.employee_id` and `employees.manager_id`; the next manager up when the nearest cannot do the task; else the least loaded |
+
+"Qualified" is what it always was: an active person (not a service account) whose role
+holds the permissions and who passes the four-eyes rule.
+
+**Handing a task on.**
+- *Out of office:* `task_delegations` holds periods when a person is away. A task assigned
+  to them while one runs goes to their delegate instead, if the delegate is qualified.
+  People set up their own; `workflows:manage` can set one up for anyone.
+- *Delegating:* the assignee, or anyone with `workflows:manage`, can hand an open task to
+  another qualified person (`POST /workflow-tasks/{run_id}/delegate`). The candidates
+  endpoint lists who qualifies, least loaded first.
+- *Escalating:* a timeout with `action: escalate` gives the overdue task to the assignee's
+  nearest qualified manager (the initiator's for a queue task) once. With nobody qualified in
+  the line it is flagged overdue, as `flag` does. It applies to approvals and human tasks
+  only (`timeout_escalate` otherwise).
+
+Each step run records `assignee_id`, `assigned_at` and `delegated_from_id` (migration 0047),
+and the history records `task.assigned`, `task.unassigned` (nobody qualified: the queue),
+`task.delegated` and `task.escalated`. Delegations and escalations are audited.
+
+**Live cases only.** Simulated cases keep the simulation's reviewer model (Phases 5 and 70),
+so simulation results and digests do not change. The new fields are absent unless set, so
+earlier definitions keep their content hashes. Generated tests complete an assigned task as
+its assignee, and check that a qualified person it is not assigned to is refused.
+
+**The Task inbox** shows who each task is with ("Assigned to you (from lead)", or "Shared
+queue"). It offers *Only tasks assigned to me*, a *Delegate* control on the caller's
+assigned tasks, and an *Out of office* panel to set up and end delegations.

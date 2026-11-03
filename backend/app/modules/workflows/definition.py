@@ -115,8 +115,9 @@ class RetryPolicy(BaseModel):
 
 class TimeoutPolicy(BaseModel):
     after_seconds: int = Field(gt=0)
-    # "flag": record the task as overdue/escalated; "transition": abandon it and go to `to`.
-    action: Literal["flag", "transition"] = "flag"
+    # "flag": record the task as overdue/escalated; "transition": abandon it and go to `to`;
+    # "escalate" (Phase 71): hand the task to its assignee's manager (else flag it).
+    action: Literal["flag", "transition", "escalate"] = "flag"
     to: str | None = None
 
 
@@ -125,6 +126,11 @@ class ApprovalPolicy(BaseModel):
     permissions: list[str] = Field(min_length=1)
     # "initiator" and/or step ids whose actor must be someone else (four-eyes).
     distinct_from: list[str] = Field(default_factory=lambda: ["initiator"])
+    # Named assignment (Phase 71). None: a shared queue anyone qualified may take.
+    # "least_loaded": the qualified person with the fewest open assigned tasks;
+    # "initiator_manager": the initiator's line manager, else the least loaded.
+    # (None rather than a default value keeps existing definitions' content hashes.)
+    assign: Literal["least_loaded", "initiator_manager"] | None = None
 
 
 class FormField(BaseModel):
@@ -290,6 +296,9 @@ class WorkflowDefinition(BaseModel):
                     add("no_way_forward", f"Step '{step.id}' has no way forward.")
             if step.timeout and step.timeout.action == "transition" and not step.timeout.to:
                 add("timeout_target", f"Step '{step.id}' timeout transition needs 'to'.")
+            if (step.timeout and step.timeout.action == "escalate"
+                    and step.type not in (StepType.APPROVAL, StepType.HUMAN_TASK)):  # fmt: skip
+                add("timeout_escalate", f"Only a task can escalate; '{step.id}' is {step.type}.")
         if not any(s.type == StepType.COMPLETION for s in self.steps):
             problems.append(
                 problem("steps", "completion_required", "A workflow needs a completion step.")

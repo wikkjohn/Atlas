@@ -88,7 +88,20 @@ Last updated: Phase 62.
 
 ## Phase 62: verified results
 
-RESULTS_PLACEHOLDER
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 708 passed (new: 1 — the Milestone D exit: 35 departments, each with three or more workflows, a scenario and a dashboard the navigation links to, through the coverage function and its API; the thin-department tests now count seventeen departments and 51 workflows) |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (WF-1052: 10 cases, WF-1053: 8, WF-1054: 10, WF-1148: 12, WF-1149: 12, WF-1150: 5; each 100 % steps and routes) |
+| Branch Network run | `dept-branch-network`, seed 2030, 60 requests: 60 completed, 83.3 % accurate |
+| Frontend Vitest / typecheck / build | 155 passed (the department test now also checks the coverage panel) / clean / built |
+| Playwright on a fresh database | 70 passed |
+
+Found while building it:
+- **The loan profile read the wrong column:** the first generated tests of WF-1053 and
+  WF-1054 failed at their first step; a loan's account is `disbursement_account_id`, not
+  `account_id`. Fixed; both then passed in full.
+- **Phase 61 miscounted:** it said the thin departments made 35; the coverage check counts
+  34. Branch Network makes 35, and the Phase 61 entry above is corrected.
 
 ## Phase 62: known limitations
 

@@ -48,11 +48,20 @@ class ToolContext:
 class ToolError(Exception):
     """A structured failure reported by an adapter."""
 
-    def __init__(self, code: str, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        usage: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.retryable = retryable
+        # What a failed call still used (a hosted model bills refused and cut-off answers).
+        self.usage = usage or {}
 
 
 class AIToolAdapter(ABC):

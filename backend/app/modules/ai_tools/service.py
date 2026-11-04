@@ -366,6 +366,8 @@ def invoke(
         actor_id=str(actor_id) if actor_id else None,
         execution_id=str(execution_id) if execution_id else None,
         correlation_id=correlation_id_var.get(),
+        # A hosted model answers in the tool's registered output schema (Phase 76).
+        extra={"output_schema": tool.output_schema},
     )
     request = ToolRequest(action=action, input=payload)
     timeout = float(tool.configuration.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS))
@@ -380,6 +382,7 @@ def invoke(
         )
     except ToolError as exc:
         record.duration_ms = round((time.perf_counter() - started) * 1000)
+        record.usage = exc.usage
         return finish(
             InvocationStatus.FAILED,
             error={"code": exc.code, "message": exc.message, "retryable": exc.retryable},

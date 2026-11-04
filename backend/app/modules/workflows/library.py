@@ -4789,6 +4789,21 @@ def _check_tool(db: Any, params: AiReview) -> list[str]:
     return []
 
 
+def _experiment_tool(ctx: StepContext):
+    """The tool an experiment's run chose (Phase 76), when it may serve this workflow: the
+    step's own tool is then a default, so two tools can be compared on the same workflow,
+    as the code workflows already allowed."""
+    from app.modules.ai_tools.models import AITool
+
+    chosen = (ctx.get("_settings") or {}).get("ai_tool_id")
+    if not chosen:
+        return None
+    tool = ctx.db.get(AITool, uuid.UUID(chosen))
+    if tool is None or ctx.execution.workflow_id not in tool.compatible_workflows:
+        return None
+    return tool
+
+
 @_library_handler(
     "ai.review",
     "Ask a registered AI tool for an advisory analysis; it never decides.",
@@ -4814,10 +4829,12 @@ def _ai_review(ctx: StepContext, params: AiReview) -> dict[str, Any]:
     if (ctx.get("_settings") or {}).get("ai_mode") == "off":
         # An experiment's baseline (Phase 30): the case runs without the tool.
         return {"available": False, "skipped": True, "mode": "off", "recommendation": "escalate"}
-    try:
-        tool = find_tool(ctx.db, params.tool_id)
-    except NotFoundError as exc:
-        return unavailable("tool_missing", exc.message)
+    tool = _experiment_tool(ctx)
+    if tool is None:
+        try:
+            tool = find_tool(ctx.db, params.tool_id)
+        except NotFoundError as exc:
+            return unavailable("tool_missing", exc.message)
     payload = {name: ctx.get(path) for name, path in params.payload.items()}
     call = invoke(
         ctx.db, tool, params.action, payload, actor_id=None, execution_id=ctx.execution.id,

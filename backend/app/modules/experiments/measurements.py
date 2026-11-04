@@ -103,6 +103,19 @@ def measure(db: Session, run: SimulationRun) -> dict[str, Any]:
         ).all()
     )
     ai_errors = sum(statuses.get(s, 0) for s in AI_ERROR_STATUSES)
+    # What hosted-model calls measured (Phase 76): their tokens and cost, failed ones too.
+    usage = AIToolInvocation.usage
+    priced = db.execute(
+        select(
+            func.count(),
+            func.coalesce(func.sum(usage["cost_usd"].as_float()), 0.0),
+            func.coalesce(func.sum(usage["input_tokens"].as_integer()), 0),
+            func.coalesce(func.sum(usage["output_tokens"].as_integer()), 0),
+        ).where(
+            AIToolInvocation.simulation_run_id == run.id,
+            usage["priced"].as_boolean().is_(True),
+        )
+    ).one()
     recommendations: dict[str, int] = {}
     for c in cases:
         if c.ai_recommendation:
@@ -155,6 +168,18 @@ def measure(db: Session, run: SimulationRun) -> dict[str, Any]:
             "errors": ai_errors,
             "blocked": statuses.get("blocked", 0),
             "recommendations": recommendations,
+            # Present only when a tool reported its cost, so other runs' measurements (and
+            # their digests) are unchanged.
+            **(
+                {
+                    "priced_invocations": priced[0],
+                    "measured_cost": round(float(priced[1]), 6),
+                    "input_tokens": int(priced[2]),
+                    "output_tokens": int(priced[3]),
+                }
+                if priced[0]
+                else {}
+            ),
         },
         "decisions_checked": decisions,
         "policy_violations": len(violations),

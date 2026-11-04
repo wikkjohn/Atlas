@@ -734,6 +734,33 @@ def _import_example_definitions(db: Session, report: SeedReport) -> None:
 
 
 # The candidate tools of the AI Innovation Lab and a deliberately unreliable test double.
+def _leave_schemas() -> tuple[dict, dict]:
+    from app.modules.ai_tools.adapters.leave_review import LeaveReviewInput, LeaveReviewOutput
+
+    return LeaveReviewInput.model_json_schema(), LeaveReviewOutput.model_json_schema()
+
+
+LEAVE_INPUT_SCHEMA, LEAVE_OUTPUT_SCHEMA = _leave_schemas()
+LEAVE_REVIEW_INSTRUCTIONS = (
+    "Task: review one leave request before the employee's department manager decides it. "
+    "The input's profile gives the kind of leave (annual, sick or unpaid), its working days "
+    "and notice, the annual balance left afterwards, the department's headcount, how many "
+    "colleagues are already away and the share of the department that would be working "
+    "(coverage_pct), the employee's sick days in the last year, and their other requests "
+    "and short-notice requests in the last 90 days.\n"
+    "Bank policy: a department must keep at least 60 % of its people working; under 70 % "
+    "is tight and needs the manager's attention. A week or more of annual leave needs at "
+    "least a week's notice. More than five days of sickness needs a fit note. A pattern of "
+    "repeated days off at a day or two's notice is a concern for the manager even when each "
+    "request is short.\n"
+    "List each finding with a code, a severity (low, medium, high or critical) and a "
+    "message; give a risk_score (1 per low, 2 per medium, 3 per high and 5 per critical "
+    "finding), a risk_classification, and a recommendation: approve routine leave, reject "
+    "leave that breaks policy, escalate (refer to the manager) anything that needs their "
+    "judgement. Confidence is your probability that the recommendation is right."
+)
+
+
 DEMO_AI_TOOLS = [
     {
         "tool_id": "agb-intelligent-kyc-assistant",
@@ -993,6 +1020,31 @@ DEMO_AI_TOOLS = [
         "allowed_actions": ["recommend_decision"],
         "permissions": ["hr:read"],
         "compatible_workflows": ["WF-1044"],
+    },
+    {
+        # The leave assistant's contract (the same input and output) on a hosted Claude
+        # model (Phase 76): an experiment can set it against the rule-based version on
+        # WF-1044. Calls fail safely, and the workflow refers the case to a person, until
+        # ATLAS_AI_PROVIDER_ENABLED is set.
+        "tool_id": "agb-leave-assistant-claude",
+        "tool_name": "AGB Leave Review Assistant (Claude)",
+        "tool_version": "1.0.0",
+        "provider": "Anthropic Claude (hosted model, synthetic data only)",
+        "description": "The leave review assistant's task on a hosted Claude model: reviews a "
+        "leave request's cover, notice, balance and the employee's recent requests, and "
+        "recommends approving, rejecting or referring it, with its reasons. Records tokens "
+        "and cost per call. Advisory: it never decides leave (Phase 76).",
+        "adapter": "claude_messages",
+        "allowed_actions": ["recommend_decision"],
+        "permissions": ["hr:read"],
+        "compatible_workflows": ["WF-1044"],
+        "input_schema": LEAVE_INPUT_SCHEMA,
+        "output_schema": LEAVE_OUTPUT_SCHEMA,
+        "configuration": {
+            "model": "claude-opus-5-5",
+            "effort": "medium",
+            "instructions": LEAVE_REVIEW_INSTRUCTIONS,
+        },
     },
     {
         "tool_id": "agb-invoice-assistant",

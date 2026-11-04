@@ -19,6 +19,7 @@ dependencies = [
     "PyJWT>=2.8,<3",
     "tzdata>=2024.1",
     "jsonschema>=4.22,<5",
+    "anthropic>=2.4,<3",
 ]
 
 [project.optional-dependencies]

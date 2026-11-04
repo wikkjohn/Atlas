@@ -27,7 +27,11 @@ from app.modules.customer_service.router import router as customer_service_route
 from app.modules.customers.router import router as customers_router
 from app.modules.employees.router import router as employees_router
 from app.modules.events.router import router as events_router
-from app.modules.experiments.router import benchmarks_router, experiments_router
+from app.modules.experiments.router import (
+    benchmarks_router,
+    experiments_router,
+    series_router,
+)
 from app.modules.finance.router import router as finance_router
 from app.modules.fx.router import router as fx_router
 from app.modules.hr.router import router as hr_router
@@ -107,6 +111,7 @@ for module_router in (
     simulations_router,
     ai_tools_router,
     experiments_router,
+    series_router,
     benchmarks_router,
     analytics_router,
     audit_router,

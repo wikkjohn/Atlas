@@ -400,7 +400,8 @@ Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
 
 | Table | Contents |
 | --- | --- |
-| `experiments` | `experiment_number` (identity), `name`, `scenario_id`, `scenario_version`, `baseline_run_id`, `candidate_run_id` (distinct, both → `simulation_runs`), `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `configuration` (cost assumptions + thresholds), `configuration_hash`, `status` (running, completed, failed), `failure_reason`, `created_by`, `created_at`, `completed_at` |
+| `experiments` | `experiment_number` (identity), `name`, `scenario_id`, `scenario_version`, `baseline_run_id`, `candidate_run_id` (distinct, both → `simulation_runs`), `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `configuration` (cost assumptions + thresholds), `configuration_hash`, `status` (running, completed, failed), `failure_reason`, `created_by`, `created_at`, `completed_at`, `series_id` (→ `experiment_series`, a replicate of a series, Phase 77) |
+| `experiment_series` | A repeated-seed series (Phase 77, migration 0051): `series_number` (identity), `name`, `scenario_id`, `scenario_version`, `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `seeds` (jsonb), `confidence` (0.5–1), `configuration`, `configuration_hash`, `status`, `failure_reason`, `statistics` (jsonb: per metric the mean paired difference, confidence interval, p-value and Holm-adjusted p-value, finding; derived), `verdict`, `created_by`, `created_at`, `completed_at` |
 | `experiment_measurements` | RAW: one row per experiment and role (baseline, candidate): `run_id`, `metrics` (jsonb), `measurement_digest`, `captured_at` |
 | `experiment_evaluations` | DERIVED: one row per experiment: `evaluation_version`, `costs`, `comparisons`, `criteria`, `verdict`, `conclusion`, `limitations`, `evaluation_digest`, `computed_at` |
 

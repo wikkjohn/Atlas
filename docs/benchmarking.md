@@ -95,6 +95,49 @@ workload, tool, configuration and software produce identical measurement and eva
 digests (tested). `scripts/validate_system.py --login auditor` re-evaluates every
 evaluated experiment of a running stack.
 
+## Repeated seeds: confidence intervals and significance (Phase 77)
+
+One experiment is one draw: one seed's cases, reviewers and decisions. A **series**
+(`POST /api/v1/experiment-series`, or *New series* on the Experiments page) runs the same
+experiment once per seed (`seed`, `seed + 1`, … for `replicates` seeds, or an explicit
+`seeds` list; 2 to 30) and tests the effect across them.
+
+- **Each replicate is an ordinary experiment**, measured and evaluated as before, with its
+  own verdict; the series links them (`experiments.series_id`).
+- **Per metric**, the series takes the paired difference (candidate minus baseline) on
+  every seed and reports the mean difference, its **confidence interval** (Student's t,
+  n − 1 degrees of freedom; 95 % by default, 90 % or 99 % on request), the change relative
+  to the baseline mean, and a two-sided **paired t-test**.
+- **Many metrics are tested at once**, so p-values are adjusted with **Holm's method**
+  across the tested metrics; a difference is *better* or *worse* only when its adjusted
+  p-value is below 1 − confidence. The intervals are per metric and not adjusted, so an
+  interval that excludes zero can still be "no significant difference" — the table shows
+  both.
+- **The series verdict** is successful when every replicate met every success criterion
+  and no metric is significantly worse.
+- **Recomputable:** the statistics are derived from the replicates' stored evaluations.
+  A failed replicate fails the series; no statistics are computed over the seeds that
+  happened to succeed.
+- The statistics use the standard library only (an incomplete-beta implementation of the
+  t distribution, checked against published t tables in the tests).
+
+Measured on the development database: the KYC assistant on retail onboarding, 200
+applications and 20 staff per run, seeds 101–105, 95 % intervals:
+
+| Metric | AI-assisted (5 seeds, 285 s) | AI-automated (5 seeds, 244 s) |
+| --- | --- | --- |
+| Labour time | −34.4 % (−35.7 % to −33.1 %), p < 0.001 | −70.4 % (−73.2 % to −67.6 %), p < 0.001 |
+| Cost per completed case | −31.0 % (−32.2 % to −29.8 %), p < 0.001 | −63.7 % (−66.2 % to −61.1 %), p < 0.001 |
+| Processing time | −2.3 % (−2.5 % to −2.2 %), p < 0.001 | −4.9 % (−5.1 % to −4.7 %), p < 0.001 |
+| Accuracy | +2.6 % (+0.7 % to +4.6 %), adjusted p = 0.163: not significant | +3.8 % (+2.6 % to +4.9 %), adjusted p = 0.007 |
+| Manual reviews | unchanged on every seed | −84.7 % (−87.5 % to −81.9 %), p < 0.001 |
+| Series verdict | successful (5 of 5 replicates) | successful (5 of 5 replicates) |
+
+The seeds vary the generated cases and the simulated reviewers. What the intervals measure
+is how much the tool's effect varies with the workload; they say nothing about whether the
+simulation's own assumptions (review times, reviewer accuracy, how people use AI advice)
+are right.
+
 ## Reports
 
 `GET /api/v1/experiments/{id}/report` downloads a Markdown proof-of-concept report

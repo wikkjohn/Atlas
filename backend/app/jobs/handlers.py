@@ -150,6 +150,20 @@ def execute_experiment(ctx: JobContext) -> dict:
 
 
 @job_kind(
+    "experiment_series.execute",
+    description="Run every replicate of a repeated-seed experiment series, then its statistics",
+    max_attempts=1,
+)
+def execute_experiment_series(ctx: JobContext) -> dict:
+    from app.modules.experiments import series
+
+    series_id = uuid.UUID(ctx.payload["series_id"])
+    run_ids = [uuid.UUID(r) for r in ctx.payload["run_ids"]]
+    series.execute(ctx.factory, series_id, run_ids)
+    return {"series_id": str(series_id), "runs": len(run_ids)}
+
+
+@job_kind(
     "system.ping",
     description="Does nothing: shows that a worker is picking up jobs",
     max_attempts=1,

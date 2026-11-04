@@ -186,3 +186,80 @@ export const DEFAULT_THRESHOLDS: SuccessThresholds = {
   max_policy_violations: 0,
   regression_tolerance: 0.01,
 };
+
+// --- Repeated-seed series (Phase 77) ---------------------------------------------------------
+
+export type SeriesFinding = "improved" | "worse" | "no_significant_difference" | "too_few_seeds" | "informational";
+
+export interface SeriesMetric {
+  metric: string;
+  label: string;
+  unit: string;
+  better: "lower" | "higher" | "none";
+  n: number;
+  baseline_mean: number | null;
+  candidate_mean: number | null;
+  mean_delta: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  relative_change: number | null;
+  relative_ci_low: number | null;
+  relative_ci_high: number | null;
+  p_value: number | null;
+  p_adjusted: number | null;
+  significant: boolean;
+  finding: SeriesFinding;
+  per_seed: { seed: number; baseline: number | null; candidate: number | null; delta: number | null }[];
+}
+
+export interface SeriesStatistics {
+  method: string;
+  confidence: number;
+  replicates: number;
+  seeds: number[];
+  replicate_verdicts: { successful: number; not_successful: number };
+  metrics: SeriesMetric[];
+  significantly_worse: string[];
+  verdict: "successful" | "not_successful";
+  conclusion: string;
+}
+
+export interface SeriesSummary {
+  id: string;
+  series_number: number;
+  name: string;
+  scenario_id: string;
+  scenario_version: number;
+  candidate_mode: "ai_assisted" | "ai_automated";
+  tool_id: string | null;
+  tool_version: string | null;
+  seeds: number[];
+  confidence: number;
+  status: ExperimentStatus;
+  failure_reason: string | null;
+  verdict: "successful" | "not_successful" | null;
+  replicates_completed: number;
+  created_by_username: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface SeriesDetail extends SeriesSummary {
+  configuration: Record<string, unknown>;
+  statistics: SeriesStatistics | null;
+  experiments: ExperimentSummary[];
+}
+
+export interface SeriesCreate {
+  name: string;
+  scenario_id: string;
+  tool_id: string;
+  tool_version: string | null;
+  candidate_mode: "ai_assisted" | "ai_automated";
+  profile: "custom";
+  applications: number;
+  employees: number;
+  seed: number;
+  replicates: number;
+  confidence: number;
+}

@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Identity,
     String,
@@ -31,6 +32,46 @@ class ExperimentStatus(StrEnum):
 class Verdict(StrEnum):
     SUCCESSFUL = "successful"
     NOT_SUCCESSFUL = "not_successful"
+
+
+class ExperimentSeries(UUIDPrimaryKey, Base):
+    """The same experiment repeated over several seeds (Phase 77): one baseline and one
+    candidate run per seed, each evaluated as an experiment, and statistics across them."""
+
+    __tablename__ = "experiment_series"
+    __table_args__ = (
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="status_valid"),
+        CheckConstraint("confidence > 0.5 AND confidence < 1", name="confidence_valid"),
+    )
+
+    series_number: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), nullable=False, unique=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    scenario_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scenario_version: Mapped[int] = mapped_column(nullable=False)
+    candidate_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    tool_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("ai_tools.id", ondelete="RESTRICT"), nullable=True
+    )
+    tool_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    tool_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    seeds: Mapped[list[int]] = mapped_column(JSONB, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    configuration_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Derived: recomputable from the replicates' stored evaluations.
+    statistics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Experiment(UUIDPrimaryKey, Base):
@@ -72,6 +113,10 @@ class Experiment(UUIDPrimaryKey, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # One replicate of a series (Phase 77), or None for a single experiment.
+    series_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("experiment_series.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
 
 class ExperimentMeasurement(UUIDPrimaryKey, Base):

@@ -104,10 +104,10 @@ Last updated: Phase 77.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
-| Frontend Vitest / typecheck / build | VITEST_RESULT |
-| Playwright on a fresh database | PW_RESULT |
+| Backend pytest (real PostgreSQL) | 790 passed. New: 13 tests covering: t critical values and p-values against published tables; paired differences, their interval and p-value, constant and single-seed differences; Holm's adjustment; a consistent effect is significant and noise is not, with an informational metric never tested; a significant regression or a failed replicate fails the series; a series through the API runs every seed, links its replicates and stores statistics that recompute exactly; explicit seeds and validation (duplicates, a single seed); a failed replicate fails the series without statistics; only permitted roles start one |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (123.3 s on the development database) |
+| Frontend Vitest / typecheck / build | 172 passed (new: the effect across seeds with intervals, adjusted p-values and findings; starting a series, with seed-count validation) / clean / built |
+| Playwright on a fresh database | 73 passed |
 | KYC assistant, AI-assisted, 5 seeds × 200 cases | 285 s; labour −34.4 % (−35.7 % to −33.1 %), p < 0.001; accuracy +2.6 % (interval +0.7 % to +4.6 %), adjusted p = 0.163, not significant; successful |
 | KYC assistant, AI-automated, 5 seeds × 200 cases | 244 s; labour −70.4 % (−73.2 % to −67.6 %); accuracy +3.8 % (+2.6 % to +4.9 %), adjusted p = 0.007; successful |
 

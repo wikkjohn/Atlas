@@ -111,8 +111,8 @@ Last updated: Phase 79.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
+| Backend pytest (real PostgreSQL) | 810 passed. New: 13 tests covering: chi-square tails against published tables; PSI (gated by a chi-square test), Welch and two-proportion tests; segments from the inputs, including the age band; unequal false rejections are a disparity; a different case mix is not; without ground truth, parity and the four-fifths rule decide, and small groups are left out; every call hashed and a tampered row found; bias and drift over two real KYC simulation runs through the API, with the audit intact; and the Claude adapter keeps the exact prompt and answer |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (812.7 s, alongside the backend suite) |
 | Frontend Vitest / typecheck / build | 175 passed (new: bias by segment with the finding, four-fifths and groups left out; drift newest against oldest run; changing the bias window; verifying records lists an altered one; the hash in the invocations table) / clean / built |
 | Playwright on a fresh database | PW_RESULT |
 | The KYC assistant's stored runs (development database) | bias clear (account type p = 0.0003 but approval ratio 0.977); first against last run: recommendations stable (PSI 0.016), input country significant (PSI 7.27, a run pinned to one country); 2,231 calls from before this phase unhashed |

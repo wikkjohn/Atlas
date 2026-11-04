@@ -388,7 +388,7 @@ indexed) links executions a simulation drove. Since Phase 15 these tables are pa
 
 | Table | Contents |
 | --- | --- |
-| `ai_tools` | One row per tool version (unique `tool_id`, `tool_version`): `tool_name`, `provider`, `description`, `adapter`, `input_schema`, `output_schema`, `allowed_actions`, `permissions`, `compatible_workflows`, `configuration` (jsonb), `status` (active, disabled), `created_by`, `created_at`, `updated_at` |
+| `ai_tools` | One row per tool version (unique `tool_id`, `tool_version`): `tool_name`, `provider`, `description`, `adapter`, `input_schema`, `output_schema`, `allowed_actions`, `permissions`, `compatible_workflows`, `configuration` (jsonb), `status` (active, disabled), `created_by`, `created_at`, `updated_at`, `family` (product line, Phase 78) |
 | `ai_tool_invocations` | Every call: `tool_record_id`, `tool_id`, `tool_version`, `action`, `status` (succeeded, failed, timeout, invalid_input, invalid_output, blocked), `input`, `output`, `error`, `duration_ms`, `usage`, `invoked_by`, `execution_id`, `simulation_run_id`, `occurred_at` (business time), `created_at` |
 
 Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
@@ -401,7 +401,8 @@ Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
 | Table | Contents |
 | --- | --- |
 | `experiments` | `experiment_number` (identity), `name`, `scenario_id`, `scenario_version`, `baseline_run_id`, `candidate_run_id` (distinct, both → `simulation_runs`), `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `configuration` (cost assumptions + thresholds), `configuration_hash`, `status` (running, completed, failed), `failure_reason`, `created_by`, `created_at`, `completed_at`, `series_id` (→ `experiment_series`, a replicate of a series, Phase 77) |
-| `experiment_series` | A repeated-seed series (Phase 77, migration 0051): `series_number` (identity), `name`, `scenario_id`, `scenario_version`, `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `seeds` (jsonb), `confidence` (0.5–1), `configuration`, `configuration_hash`, `status`, `failure_reason`, `statistics` (jsonb: per metric the mean paired difference, confidence interval, p-value and Holm-adjusted p-value, finding; derived), `verdict`, `created_by`, `created_at`, `completed_at` |
+| `experiment_series` | A repeated-seed series (Phase 77, migration 0051): `series_number` (identity), `name`, `scenario_id`, `scenario_version`, `candidate_mode`, `tool_record_id`, `tool_id`, `tool_version`, `seeds` (jsonb), `confidence` (0.5–1), `configuration`, `configuration_hash`, `status`, `failure_reason`, `statistics` (jsonb: per metric the mean paired difference, confidence interval, p-value and Holm-adjusted p-value, finding; derived), `verdict`, `created_by`, `created_at`, `completed_at`, `country` (one country or none) and `portfolio_id` (→ `experiment_portfolios`, Phase 78) |
+| `experiment_portfolios` | A tool family across workflows, departments and countries (Phase 78, migration 0052): `portfolio_number` (identity), `name`, `family`, `candidate_mode`, `countries`, `seeds` (jsonb), `applications`, `employees`, `confidence`, `configuration` (assumptions, thresholds and the `plan`: cells and skipped scenarios), `configuration_hash`, `status`, `failure_reason`, `statistics` (jsonb, derived), `verdict`, `created_by`, `created_at`, `completed_at` |
 | `experiment_measurements` | RAW: one row per experiment and role (baseline, candidate): `run_id`, `metrics` (jsonb), `measurement_digest`, `captured_at` |
 | `experiment_evaluations` | DERIVED: one row per experiment: `evaluation_version`, `costs`, `comparisons`, `criteria`, `verdict`, `conclusion`, `limitations`, `evaluation_digest`, `computed_at` |
 

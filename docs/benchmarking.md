@@ -138,6 +138,34 @@ is how much the tool's effect varies with the workload; they say nothing about w
 simulation's own assumptions (review times, reviewer accuracy, how people use AI advice)
 are right.
 
+## Portfolios: a tool family across workflows, departments and countries (Phase 78)
+
+A **tool family** is a product line of tools evaluated together (`ai_tools.family`); the
+19 AGB rule-based review assistants form `agb-review-assistants` (migration 0052
+backfills it, the seed sets it). A **portfolio** (`POST /api/v1/experiment-portfolios`, or
+*New portfolio* on the Experiments page) evaluates the family wherever it applies:
+
+- **Cells.** Every scenario with AI modes that one of the family's active tools serves,
+  in each chosen country (1 to 10), is a cell; each cell is a repeated-seed series. The
+  plan (`GET /api/v1/experiment-portfolios/plan?family=`) lists the cells and the
+  scenarios left out, with why: no tool of the family serves the workflow, no automated
+  decision path (for the automated mode), or an outage scenario. At most 600 experiments
+  (cells × seeds).
+- **Countries.** Each cell's runs draw their customers from the one country, with staff
+  from its subsidiary and its country rules (Phase 28); `country` is now on suites,
+  experiments and series too.
+- **The cell is the unit.** Each cell contributes its series' mean relative change per
+  metric, so a workflow counts once whatever its size. Across cells: the mean change per
+  cell with a t-interval, a one-sample t-test against zero (Holm-adjusted across
+  metrics), the median, and how many cells were significantly better, worse or neither
+  by their own series.
+- **Breakdowns** give the mean change per cell by department (the workflow's catalogue
+  department or its definition's business owner) and by country.
+- **The verdict** is successful when every cell succeeded on every seed; cells with a
+  significantly worse metric are named in the conclusion.
+
+PORTFOLIO_RESULT
+
 ## Reports
 
 `GET /api/v1/experiments/{id}/report` downloads a Markdown proof-of-concept report

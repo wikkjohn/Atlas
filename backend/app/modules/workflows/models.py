@@ -22,7 +22,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
 
 from app.core.database import Base
 from app.core.models import UUIDPrimaryKey
@@ -313,6 +313,17 @@ class WorkflowEvent(Base):
         Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Never loaded: declared so a flush inserts a step run before the events that name it
+    # (Phase 75: the engine no longer flushes after scheduling each step).
+    step_run: Mapped["WorkflowStepRun | None"] = relationship(
+        primaryjoin=lambda: and_(
+            foreign(WorkflowEvent.step_run_id) == WorkflowStepRun.id,
+            foreign(WorkflowEvent.realm) == WorkflowStepRun.realm,
+        ),
+        lazy="noload",
+        overlaps="",
+    )
 
 
 class WorkflowTemplateRecord(UUIDPrimaryKey, Base):

@@ -67,6 +67,14 @@ class StartSimulation(BaseModel):
         description="Custom profile, instead of employees: as many staff as this department "
         "has available on the scenario's simulated day, by HR's leave and rosters (Phase 55)",
     )
+    rolling_archive: int | None = Field(
+        default=None,
+        ge=1,
+        le=1_000_000,
+        description="Archive the history of every this many finished cases while the run "
+        "goes on (per shard), so the database holds only the cases in flight (Phase 75); "
+        "the enterprise profile does every 5,000 by default",
+    )
 
 
 class StartSuite(BaseModel):

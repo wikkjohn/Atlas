@@ -243,6 +243,7 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
         shards=body.shards,
         countries=[body.country] if body.country else None,
         staffing=staffing,
+        rolling_archive=body.rolling_archive,
     )
 
 

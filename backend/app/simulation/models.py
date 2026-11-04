@@ -177,6 +177,36 @@ class SimulationArchive(UUIDPrimaryKey, Base):
     )
 
 
+class SimulationArchiveSegment(UUIDPrimaryKey, Base):
+    """Part of a run's history archived while the run was still going (Phase 75).
+
+    A run with a rolling archive moves the history of its finished cases to compressed COPY
+    files every few thousand cases, so the database holds only the cases in flight. When
+    the run ends, its segments (and the rest of its history) become one archive.
+    """
+
+    __tablename__ = "simulation_archive_segments"
+    __table_args__ = (
+        UniqueConstraint("run_id", "shard", "sequence", name="uq_simulation_archive_segments"),
+    )
+
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("simulation_runs.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # The shard that archived it; -1 for the rest of the run's history, at its end.
+    shard: Mapped[int] = mapped_column(Integer, nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Directory of the segment's files, relative to the configured archive root.
+    location: Mapped[str] = mapped_column(String(300), nullable=False)
+    manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    rows: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class SimulationShard(UUIDPrimaryKey, Base):
     """One slice of a sharded run (Phase 16): its cases are `case_index % shards == shard`,
     simulated by one worker process with its own share of the staff."""

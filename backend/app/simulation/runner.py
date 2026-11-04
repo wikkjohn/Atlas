@@ -63,6 +63,7 @@ from app.simulation.generators import (
     digest,
 )
 from app.simulation.models import (
+    HistoryState,
     SimulationCaseResult,
     SimulationRun,
     SimulationShard,
@@ -74,6 +75,13 @@ from app.simulation.workloads import STAFF_ROLES, SyntheticCase, history_time, w
 logger = logging.getLogger("atlas.simulation")
 
 BATCH_EVENTS = 250  # events per transaction (progress and heartbeat are updated per batch)
+# Above this many staff a run hires them in batched inserts (Phase 75); below it, through
+# the employee and identity services, one by one, as before.
+BULK_HIRE_ABOVE = 2_000
+BULK_HIRE_BATCH = 5_000
+# The enterprise profile archives the history of every 5,000 finished cases while it runs
+# (per shard), so the database holds only the cases in flight (Phase 75).
+ENTERPRISE_ROLLING_ARCHIVE = 5_000
 STAFF_DIVISION = "Retail Banking"
 STAFF_DEPARTMENT = "Simulated Operations"
 # Synthetic annual pay in whole units of the country's currency, by role.
@@ -257,7 +265,20 @@ def create_run(
     shards: int = 1,
     countries: list[str] | None = None,
     staffing: dict[str, Any] | None = None,
+    rolling_archive: int | None = None,
 ) -> SimulationRun:
+    """Record a queued run. `rolling_archive`: archive the history of every that many
+    finished cases while the run goes on (the enterprise profile does by default)."""
+    if rolling_archive is None and profile == "enterprise":
+        rolling_archive = ENTERPRISE_ROLLING_ARCHIVE
+    if rolling_archive is not None:
+        if rolling_archive < 1:
+            raise SimulationSetupError("A rolling archive needs at least one case per segment.")
+        if scenario.config.outages:
+            raise SimulationSetupError(
+                "Outage scenarios measure their effects from the run's history at the end; "
+                "run them without a rolling archive."
+            )
     config = resolve_config(
         db,
         scenario,
@@ -270,6 +291,10 @@ def create_run(
         countries=countries,
         staffing=staffing,
     )
+    if rolling_archive is not None:
+        # Where the history goes, not what is simulated: left out of the hash, so a run with
+        # a rolling archive still reproduces (and is compared with) one without.
+        config["history"] = {"rolling_archive": rolling_archive}
     run = SimulationRun(
         scenario_id=scenario.scenario_id,
         scenario_version=scenario.version,
@@ -278,7 +303,7 @@ def create_run(
         profile=profile,
         seed=seed,
         config=config,
-        config_hash=_hash(config),
+        config_hash=_hash({k: v for k, v in config.items() if k != "history"}),
         software_version=software_version(),
         status=SimulationStatus.QUEUED.value,
         created_by=created_by,
@@ -390,6 +415,10 @@ class _Simulation:
         self.completed = 0
         self.case_rows: list[tuple] = []
         self.pending_results: list[SimulationCaseResult] = []
+        # Rolling archive (Phase 75): finished cases' executions not yet archived.
+        self.rolling = run.config.get("history", {}).get("rolling_archive")
+        self.to_archive: list[uuid.UUID] = []
+        self.segments = 0
         self.positions: dict[str, int] = {}  # members of each role enlisted so far
         # Reviewers' working time (Phase 70): one calendar per review step, when the
         # scenario has a staff schedule; otherwise reviewers work around the clock.
@@ -461,7 +490,12 @@ class _Simulation:
         assert country is not None
         low, high = PAY_BAND.get(country.default_currency, DEFAULT_PAY_BAND)
 
-        for member in self.staff_members():
+        members = self.staff_members()
+        if len(members) > BULK_HIRE_ABOVE:
+            self._bulk_hire(members, team, department, country, low, high)
+            self.open_pools()
+            return team.id
+        for member in members:
             role = STAFF_ROLES[member.role]
             pay = int(low + (high - low) * PAY[member.role]) // 1000 * 1000
             employee = create_employee(
@@ -489,6 +523,89 @@ class _Simulation:
             self.enlist(member, user.id, user.username)
         self.open_pools()
         return team.id
+
+    def _bulk_hire(
+        self,
+        members: list[SyntheticStaffMember],
+        team: Organization,
+        department: Organization,
+        country: Country,
+        low: int,
+        high: int,
+    ) -> None:
+        """Hire many simulated staff in batched inserts (Phase 75): the same employees and
+        service accounts the services would create, without their per-row checks, flushes
+        and audit records (one audit record for the whole hire). Hiring 150,000 one at a
+        time through the services did not finish in a quarter of an hour."""
+        from sqlalchemy import insert
+
+        from app.core.audit import record_audit_event
+        from app.core.security import UNUSABLE_PASSWORD_HASH
+        from app.modules.employees.models import Employee, EmploymentStatus
+        from app.modules.identity.models import User
+        from app.modules.identity.service import get_role
+
+        db = self.db
+        roles = {r: get_role(db, r).id for r in set(STAFF_ROLES.values())}
+        for start in range(0, len(members), BULK_HIRE_BATCH):
+            chunk = members[start : start + BULK_HIRE_BATCH]
+            numbers = (
+                db.execute(
+                    text("SELECT nextval('employee_number_seq') FROM generate_series(1, :n)"),
+                    {"n": len(chunk)},
+                )
+                .scalars()
+                .all()
+            )
+            employees, users = [], []
+            for member, number in zip(chunk, numbers, strict=True):
+                role = STAFF_ROLES[member.role]
+                pay = int(low + (high - low) * PAY[member.role]) // 1000 * 1000
+                employee_id, user_id = uuid.uuid4(), uuid.uuid4()
+                employees.append(
+                    {
+                        "id": employee_id,
+                        "employee_number": f"AGB-{number:07d}",
+                        "first_name": member.first_name,
+                        "last_name": member.last_name,
+                        "email": f"sim{self.run_number}.{member.index}@atlasbank.example",
+                        "organization_id": team.id,
+                        "department_id": department.id,
+                        "manager_id": None,
+                        "job_title": member.job_title,
+                        "role_id": roles[role],
+                        "country_id": country.id,
+                        "employment_status": EmploymentStatus.ACTIVE.value,
+                        "annual_compensation": to_minor_units(pay, country.default_currency),
+                        "compensation_currency": country.default_currency,
+                    }
+                )
+                username = f"sim{self.run_number}-{member.index:05d}"
+                users.append(
+                    {
+                        "id": user_id,
+                        "username": username,
+                        "email": f"sim{self.run_number}.{member.index}@users.atlasbank.example",
+                        "display_name": f"{member.first_name} {member.last_name} (simulated)",
+                        "password_hash": UNUSABLE_PASSWORD_HASH,
+                        "role_id": roles[role],
+                        "employee_id": employee_id,
+                        "is_active": True,
+                    }
+                )
+                self.enlist(member, user_id, username)
+            db.execute(insert(Employee), employees)
+            db.execute(insert(User), users)
+        record_audit_event(
+            db,
+            actor_id=None,
+            action="simulation.staff_hired",
+            entity_type="organization",
+            entity_id=team.id,
+            metadata={"run_number": self.run_number, "staff": len(members)},
+        )
+        db.execute(text("ANALYZE employees"))
+        db.execute(text("ANALYZE users"))
 
     def staff_members(self) -> list[SyntheticStaffMember]:
         return StaffGenerator(self.seed, self.config.staff_mix, self.workload.job_titles).generate(
@@ -549,9 +666,10 @@ class _Simulation:
         names = {f"sim{self.run_number}-{m.index:05d}": m for m in members}
         users = dict(
             self.db.execute(
-                select(User.username, User.id).where(User.username.in_(list(names)))
+                select(User.username, User.id).where(User.username.like(f"sim{self.run_number}-%"))
             ).all()
         )
+        users = {n: users[n] for n in names if n in users}
         if len(users) != len(names):
             raise SimulationSetupError(
                 f"Run {self.run_number}'s simulated staff are missing ({len(users)} of "
@@ -796,6 +914,8 @@ class _Simulation:
         )
         self.pending_results.append(result)
         self.case_rows.append(_row(result))
+        if self.rolling:
+            self.to_archive.append(execution.id)
 
     # Loop ---------------------------------------------------------------------------------
 
@@ -826,6 +946,16 @@ class _Simulation:
         db.commit()
         # Keep the session small: nothing loaded so far is needed again.
         db.expunge_all()
+        if self.rolling and len(self.to_archive) >= self.rolling:
+            from app.simulation import history
+
+            history.archive_segment(
+                db, self.run_id, self.run_number, self.shard, self.segments, self.to_archive
+            )
+            db.commit()
+            db.expunge_all()
+            self.segments += 1
+            self.to_archive = []
 
     def shard_checkpoint(self, wall_start: float) -> None:
         """Record this shard's progress, and the run's across all its shards."""
@@ -1206,7 +1336,28 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
         mark_failed(session_factory, run_id, reason, wall_start)
     finally:
         db.close()
+    finish_rolling_archive(session_factory, run_id)
     return []
+
+
+def finish_rolling_archive(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> None:
+    """A finished run with a rolling archive: the rest of its history joins its segments as
+    one archive. A failure here leaves the history where it is (archive it later)."""
+    from app.simulation import history
+
+    with session_factory() as db:
+        run = db.get(SimulationRun, run_id)
+        if (
+            run is None
+            or not run.config.get("history", {}).get("rolling_archive")
+            or run.status not in (SimulationStatus.COMPLETED, SimulationStatus.FAILED)
+            or run.history_state != HistoryState.PRESENT
+        ):
+            return
+    try:
+        history.archive_run(session_factory, run_id, None)
+    except Exception:  # the run's outcome stands; its history can be archived later
+        logger.exception("rolling archive not finished", extra={"run_id": str(run_id)})
 
 
 # --- Sharded runs -----------------------------------------------------------------------------
@@ -1386,6 +1537,7 @@ def merge_shards(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> b
         else:
             run.status = SimulationStatus.COMPLETED.value
     logger.info("sharded simulation run merged", extra={"run_id": str(run_id), "wall_ms": wall_ms})
+    finish_rolling_archive(session_factory, run_id)
     return True
 
 

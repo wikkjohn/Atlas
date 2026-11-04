@@ -52,6 +52,7 @@ from app.modules.workflows.models import (
 from app.simulation.models import (
     HistoryState,
     SimulationArchive,
+    SimulationArchiveSegment,
     SimulationRun,
     SimulationStatus,
 )
@@ -60,6 +61,8 @@ from app.simulation.workloads import customer_keyed
 logger = logging.getLogger("atlas.simulation.history")
 
 FORMAT_VERSION = 1
+# An archive made of segments, written while the run was going (Phase 75).
+SEGMENTED_FORMAT = 2
 # The disabled-by-default schedule that archives old runs (migration 0014).
 RETENTION_SCHEDULE = "simulation-history-retention"
 MANIFEST = "manifest.json"
@@ -90,8 +93,22 @@ def archive_root() -> Path:
     return get_settings().simulation_archive_dir.resolve()
 
 
-def _where(table: str, run_id: uuid.UUID) -> sql.Composed:
-    return sql.SQL(_RUN_ROWS[table]).format(run=sql.Literal(str(run_id)))
+# The same tables, limited to some of the run's executions (a rolling-archive segment).
+_SEGMENT_ROWS: dict[str, str] = {
+    "workflow_executions": "realm = 'simulation' AND simulation_run_id = {run} AND id = ANY({ids})",
+    "workflow_step_runs": "realm = 'simulation' AND execution_id = ANY({ids})",
+    "workflow_events": "realm = 'simulation' AND execution_id = ANY({ids})",
+    "ai_tool_invocations": "simulation_run_id = {run} AND execution_id = ANY({ids})",
+}
+
+
+def _where(table: str, run_id: uuid.UUID, ids: list[uuid.UUID] | None = None) -> sql.Composed:
+    if ids is None:
+        return sql.SQL(_RUN_ROWS[table]).format(run=sql.Literal(str(run_id)))
+    return sql.SQL(_SEGMENT_ROWS[table]).format(
+        run=sql.Literal(str(run_id)),
+        ids=sql.SQL("{}::uuid[]").format(sql.Literal([str(i) for i in ids])),
+    )
 
 
 def _columns(db: Session, table: str) -> list[str]:
@@ -124,11 +141,16 @@ def _fsync(path: Path) -> None:
         os.close(fd)
 
 
-def summarize(db: Session, run_id: uuid.UUID) -> dict[str, Any]:
-    """What the analytics still need about a run once its history is gone."""
+def summarize(db: Session, run_id: uuid.UUID, ids: list[uuid.UUID] | None = None) -> dict[str, Any]:
+    """What the analytics still need about a run once its history is gone (or about some of
+    its executions, `ids`, for a rolling-archive segment)."""
     in_run = (WorkflowExecution.realm == Realm.SIMULATION) & (
         WorkflowExecution.simulation_run_id == run_id
     )
+    ai_filter = AIToolInvocation.simulation_run_id == run_id
+    if ids is not None:
+        in_run = in_run & WorkflowExecution.id.in_(ids)
+        ai_filter = ai_filter & AIToolInvocation.execution_id.in_(ids)
     statuses = dict(
         db.execute(
             select(WorkflowExecution.status, func.count())
@@ -146,7 +168,7 @@ def summarize(db: Session, run_id: uuid.UUID) -> dict[str, Any]:
     calls = dict(
         db.execute(
             select(AIToolInvocation.status, func.count())
-            .where(AIToolInvocation.simulation_run_id == run_id)
+            .where(ai_filter)
             .group_by(AIToolInvocation.status)
         ).all()
     )
@@ -162,6 +184,22 @@ def summarize(db: Session, run_id: uuid.UUID) -> dict[str, Any]:
         "document_timeouts": timeouts,
         "ai_calls": calls,
     }
+
+
+def _add_summaries(summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    total: dict[str, Any] = {
+        "accounts": 0,
+        "executions": 0,
+        "failed_executions": 0,
+        "document_timeouts": 0,
+        "ai_calls": {},
+    }
+    for summary in summaries:
+        for key in ("accounts", "executions", "failed_executions", "document_timeouts"):
+            total[key] += summary.get(key, 0)
+        for status, n in summary.get("ai_calls", {}).items():
+            total["ai_calls"][status] = total["ai_calls"].get(status, 0) + n
+    return total
 
 
 def _lock_run(db: Session, run_id: uuid.UUID) -> SimulationRun:
@@ -213,76 +251,165 @@ def check_restorable(run: SimulationRun) -> None:
         )
 
 
-def _delete(db: Session, table: str, run_id: uuid.UUID) -> int:
+def _delete(db: Session, table: str, run_id: uuid.UUID, ids: list[uuid.UUID] | None = None) -> int:
     raw = db.connection().connection.driver_connection
     with raw.cursor() as cursor:
         cursor.execute(
-            sql.SQL("DELETE FROM {} WHERE {}").format(sql.Identifier(table), _where(table, run_id))
+            sql.SQL("DELETE FROM {} WHERE {}").format(
+                sql.Identifier(table), _where(table, run_id, ids)
+            )
         )
         return cursor.rowcount
+
+
+def _copy_out(
+    db: Session, directory: Path, run_id: uuid.UUID, ids: list[uuid.UUID] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Write the rows to compressed COPY files in `directory`, one per table."""
+    raw = db.connection().connection.driver_connection
+    tables: dict[str, dict[str, Any]] = {}
+    for table in _RUN_ROWS:
+        columns = _columns(db, table)
+        path = directory / f"{table}.copy.gz"
+        rows = 0
+        query = sql.SQL("COPY (SELECT {} FROM {} WHERE {} ORDER BY id) TO STDOUT").format(
+            sql.SQL(", ").join(map(sql.Identifier, columns)),
+            sql.Identifier(table),
+            _where(table, run_id, ids),
+        )
+        with raw.cursor() as cursor, gzip.open(path, "wb", compresslevel=6) as out:
+            with cursor.copy(query) as copy:
+                for data in copy:
+                    out.write(data)
+                    rows += bytes(data).count(b"\n")
+        _fsync(path)
+        tables[table] = {
+            "file": path.name,
+            "rows": rows,
+            "bytes": path.stat().st_size,
+            "sha256": _sha256(path),
+            "columns": columns,
+        }
+    _fsync(directory)
+    return tables
+
+
+def _delete_archived(
+    db: Session,
+    tables: dict[str, dict[str, Any]],
+    run_id: uuid.UUID,
+    ids: list[uuid.UUID] | None = None,
+) -> None:
+    """Delete what was just copied out, checking every count against the files."""
+    db.execute(text(f"SET LOCAL {PURGE_SETTING} = 'on'"))
+    for table in reversed(_RUN_ROWS):  # children first
+        deleted = _delete(db, table, run_id, ids)
+        if deleted != tables[table]["rows"]:
+            raise ConflictError(
+                f"{table}: {deleted} rows to delete but {tables[table]['rows']} archived; "
+                "the run's history changed while it was being archived."
+            )
+
+
+def rolling_location(run_number: int) -> str:
+    return f"run-{run_number:06d}-rolling"
+
+
+def archive_segment(
+    db: Session,
+    run_id: uuid.UUID,
+    run_number: int,
+    shard: int,
+    sequence: int,
+    ids: list[uuid.UUID] | None,
+) -> SimulationArchiveSegment:
+    """Archive part of a run's history while the run goes on (Phase 75), in the caller's
+    transaction: the executions `ids` (finished cases) or, with `ids=None` at the end, all
+    the run's history still in the database. The files stay if the transaction fails; a
+    later segment with the same number overwrites them."""
+    name = f"segment-{'rest' if shard < 0 else f'{shard:02d}'}-{sequence:05d}"
+    location = f"{rolling_location(run_number)}/{name}"
+    directory = archive_root() / location
+    directory.mkdir(parents=True, exist_ok=True)
+    summary = summarize(db, run_id, ids)
+    tables = _copy_out(db, directory, run_id, ids)
+    _delete_archived(db, tables, run_id, ids)
+    segment = SimulationArchiveSegment(
+        run_id=run_id,
+        shard=shard,
+        sequence=sequence,
+        location=location,
+        manifest={"format": FORMAT_VERSION, "tables": tables},
+        summary=summary,
+        rows=sum(t["rows"] for t in tables.values()),
+        bytes=sum(t["bytes"] for t in tables.values()),
+    )
+    db.add(segment)
+    db.flush()
+    return segment
 
 
 def archive_run(
     factory: sessionmaker[Session], run_id: uuid.UUID, actor_id: uuid.UUID | None
 ) -> SimulationArchive:
-    """Move one finished run's workflow history to archive files."""
+    """Move one finished run's workflow history to archive files. A run with a rolling
+    archive already moved most of it while it ran: the rest becomes a last segment, and
+    the segments become the one archive."""
     root = archive_root()
     directory: Path | None = None
     try:
         with factory() as db, db.begin():
             run = _lock_run(db, run_id)
             check_archivable(db, run)
-            summary = summarize(db, run.id)
-            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-            location = f"run-{run.run_number:06d}-{stamp}-{uuid.uuid4().hex[:6]}"
-            directory = root / location
-            directory.mkdir(parents=True)
-
-            raw = db.connection().connection.driver_connection
-            tables: dict[str, dict[str, Any]] = {}
-            for table in _RUN_ROWS:
-                columns = _columns(db, table)
-                path = directory / f"{table}.copy.gz"
-                rows = 0
-                query = sql.SQL("COPY (SELECT {} FROM {} WHERE {} ORDER BY id) TO STDOUT").format(
-                    sql.SQL(", ").join(map(sql.Identifier, columns)),
-                    sql.Identifier(table),
-                    _where(table, run.id),
-                )
-                with raw.cursor() as cursor, gzip.open(path, "wb", compresslevel=6) as out:
-                    with cursor.copy(query) as copy:
-                        for data in copy:
-                            out.write(data)
-                            rows += bytes(data).count(b"\n")
-                _fsync(path)
-                tables[table] = {
-                    "file": path.name,
-                    "rows": rows,
-                    "bytes": path.stat().st_size,
-                    "sha256": _sha256(path),
-                    "columns": columns,
+            segments = list(
+                db.execute(
+                    select(SimulationArchiveSegment)
+                    .where(SimulationArchiveSegment.run_id == run.id)
+                    .order_by(SimulationArchiveSegment.shard, SimulationArchiveSegment.sequence)
+                ).scalars()
+            )
+            if segments:
+                rest = archive_segment(db, run.id, run.run_number, -1, 0, None)
+                segments.append(rest)
+                location = rolling_location(run.run_number)
+                tables = {
+                    table: {"rows": sum(s.manifest["tables"][table]["rows"] for s in segments)}
+                    for table in _RUN_ROWS
                 }
-            manifest = {
-                "format": FORMAT_VERSION,
-                "run_id": str(run.id),
-                "run_number": run.run_number,
-                "archived_at": datetime.now(UTC).isoformat(),
-                "tables": tables,
-            }
-            (directory / MANIFEST).write_text(json.dumps(manifest, indent=2))
-            _fsync(directory / MANIFEST)
-            _fsync(directory)
+                manifest = {
+                    "format": SEGMENTED_FORMAT,
+                    "run_id": str(run.id),
+                    "run_number": run.run_number,
+                    "archived_at": datetime.now(UTC).isoformat(),
+                    "tables": tables,
+                    "segments": [
+                        {"location": s.location, "tables": s.manifest["tables"]} for s in segments
+                    ],
+                }
+                summary = _add_summaries([s.summary for s in segments])
+                total_rows = sum(s.rows for s in segments)
+                total_bytes = sum(s.bytes for s in segments)
+            else:
+                summary = summarize(db, run.id)
+                stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+                location = f"run-{run.run_number:06d}-{stamp}-{uuid.uuid4().hex[:6]}"
+                directory = root / location
+                directory.mkdir(parents=True)
+                tables = _copy_out(db, directory, run.id)
+                manifest = {
+                    "format": FORMAT_VERSION,
+                    "run_id": str(run.id),
+                    "run_number": run.run_number,
+                    "archived_at": datetime.now(UTC).isoformat(),
+                    "tables": tables,
+                }
+                _delete_archived(db, tables, run.id)
+                total_rows = sum(t["rows"] for t in tables.values())
+                total_bytes = sum(t["bytes"] for t in tables.values())
+            (root / location / MANIFEST).write_text(json.dumps(manifest, indent=2))
+            _fsync(root / location / MANIFEST)
+            _fsync(root / location)
 
-            db.execute(text(f"SET LOCAL {PURGE_SETTING} = 'on'"))
-            for table in reversed(_RUN_ROWS):  # children first
-                deleted = _delete(db, table, run.id)
-                if deleted != tables[table]["rows"]:
-                    raise ConflictError(
-                        f"{table}: {deleted} rows to delete but {tables[table]['rows']} archived; "
-                        "the run's history changed while it was being archived."
-                    )
-            total_rows = sum(t["rows"] for t in tables.values())
-            total_bytes = sum(t["bytes"] for t in tables.values())
             record = SimulationArchive(
                 run_id=run.id,
                 kind="archive",
@@ -306,6 +433,7 @@ def archive_run(
                     "location": location,
                     "rows": total_rows,
                     "bytes": total_bytes,
+                    **({"segments": len(segments)} if segments else {}),
                 },
             )
             db.flush()
@@ -335,29 +463,44 @@ def restore_run(
         ).scalar_one()
         assert record.location is not None
         directory = root / record.location
-        tables = record.manifest["tables"]
-        for entry in tables.values():
-            path = directory / entry["file"]
-            if not path.is_file():
-                raise BusinessRuleViolation(f"Archive file {path} is missing.")
-            if _sha256(path) != entry["sha256"]:
-                raise BusinessRuleViolation(f"Archive file {path} does not match its checksum.")
+        # One set of files, or one per segment of a rolling archive (Phase 75).
+        parts = (
+            [(root / seg["location"], seg["tables"]) for seg in record.manifest["segments"]]
+            if record.manifest.get("format") == SEGMENTED_FORMAT
+            else [(directory, record.manifest["tables"])]
+        )
+        for folder, tables in parts:
+            for entry in tables.values():
+                path = folder / entry["file"]
+                if not path.is_file():
+                    raise BusinessRuleViolation(f"Archive file {path} is missing.")
+                if _sha256(path) != entry["sha256"]:
+                    raise BusinessRuleViolation(f"Archive file {path} does not match its checksum.")
 
         raw = db.connection().connection.driver_connection
-        for table in _RUN_ROWS:  # parents first
-            entry = tables[table]
-            query = sql.SQL("COPY {} ({}) FROM STDIN").format(
-                sql.Identifier(table), sql.SQL(", ").join(map(sql.Identifier, entry["columns"]))
+        for table in _RUN_ROWS:  # parents first, across every segment
+            for folder, tables in parts:
+                entry = tables[table]
+                query = sql.SQL("COPY {} ({}) FROM STDIN").format(
+                    sql.Identifier(table),
+                    sql.SQL(", ").join(map(sql.Identifier, entry["columns"])),
+                )
+                with raw.cursor() as cursor:
+                    with cursor.copy(query) as copy, gzip.open(folder / entry["file"], "rb") as f:
+                        for chunk in iter(lambda f=f: f.read(1 << 20), b""):
+                            copy.write(chunk)
+                    if cursor.rowcount != entry["rows"]:
+                        raise ConflictError(
+                            f"{table}: restored {cursor.rowcount} rows, the manifest lists "
+                            f"{entry['rows']}."
+                        )
+        # The history is whole again: its segments are superseded (the archive record keeps
+        # their manifest), so a later archive starts afresh.
+        db.execute(
+            SimulationArchiveSegment.__table__.delete().where(
+                SimulationArchiveSegment.run_id == run.id
             )
-            with raw.cursor() as cursor:
-                with cursor.copy(query) as copy, gzip.open(directory / entry["file"], "rb") as f:
-                    for chunk in iter(lambda: f.read(1 << 20), b""):
-                        copy.write(chunk)
-                if cursor.rowcount != entry["rows"]:
-                    raise ConflictError(
-                        f"{table}: restored {cursor.rowcount} rows, the manifest lists "
-                        f"{entry['rows']}."
-                    )
+        )
         record.restored_at = datetime.now(UTC)
         record.restored_by = actor_id
         run.history_state = HistoryState.PRESENT

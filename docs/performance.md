@@ -97,13 +97,57 @@ hiring 5,000 staff, and the tables are ten times larger. It was steady across th
 
 ## Where the time goes, and what is not optimised
 
-A simulated case costs about 190 SQL statements, most of them single-row inserts and
-updates by the workflow engine (every step, event and audit record is written as it
-happens). A one-process profile of 300 cases: 4.3 cases/s, 188 statements per case,
-roughly half the time waiting on PostgreSQL and half in the ORM. Parallel shards hide
-this latency rather than remove it; batching the engine's writes (for example, events
-inserted after each step rather than flushed one by one) is the next lever, and it needs
-care because some flushes order foreign-key inserts.
+A simulated case used to cost about 197 SQL statements, most of them single-row inserts
+and updates by the workflow engine. Phase 75 removed the per-step flushes and the
+"which runs are still open" query after every step: the engine keeps an execution's open
+runs in memory, gives new rows their ids in Python, and flushes once per engine call (a
+relationship from events to step runs keeps the foreign-key insert order). The same
+50-case run now takes 128 statements a case, with the same digest. What remains is
+mostly the inserts themselves: the step runs, their events and the audit trail. Batching
+those across cases is the next lever.
+
+## The enterprise profile (Phase 75, the Milestone F exit)
+
+The `enterprise` profile is 1,000,000 cases with 150,000 staff. It has **not** been
+completed end to end in this repository: in this container (4 vCPUs, one PostgreSQL) it
+would take about 13.4 hours. What was measured instead, at its settings (WF-0001 v2,
+150,000 simulated staff, 8 shards on 8 worker processes, rolling archive every 5,000
+cases per shard), each on a fresh scratch database:
+
+| Run | Wall time | Throughput | Completed | Accuracy | Database afterwards | Archive files |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 cases, 5,000 staff, before the engine change (no rolling archive) | 876 s | 11.4 cases/s | 10,000 | — | 0.40 GB | — |
+| 10,000 cases, 5,000 staff, after it (same digest) | 486 s | 20.6 cases/s | 10,000 | — | 0.41 GB | — |
+| 16,000 cases, 150,000 staff (no rolling archive) | 775.7 s | 20.6 cases/s | 16,000 | 96.61 % | 0.76 GB | — |
+| **100,000 cases, 150,000 staff, rolling archive** | **4,812 s (80 min)** | **20.8 cases/s** | **100,000** | **96.64 %** | **2.15 GB** | **575 MB** |
+
+- **Hiring 150,000 staff** takes 42–47 s: above 2,000 staff the runner inserts employees and
+  users in batches with one audit record (through the HR services one by one it took over
+  15 minutes).
+- **Throughput was steady** across the 100,000-case run: between 5,300 and 8,600 cases in
+  each five minutes, with no downward trend, and the same rate as the 16,000-case run. The rolling
+  archive costs nothing measurable.
+- **The database stops growing with history.** Until each shard had finished 5,000
+  cases (40,000 in all), the database grew by about 40 KB a case; afterwards by about
+  7.6 KB a case, the part that is not workflow history: audit records (3.3 KB a case),
+  case results, the customers and accounts the cases opened. The history partitions stay
+  at the size of the cases in flight, about 1.3 GB, reused after each segment. The run's
+  history (6,742,319 rows) ended in 17 segments of compressed files, 5.75 KB a case.
+
+**Projection for one million cases**, from the 100,000-case run (rate and growth were
+linear over it):
+
+| | Projected |
+| --- | ---: |
+| Wall time | 1,000,000 ÷ 20.8 cases/s ≈ 48,100 s ≈ **13.4 hours** (+ 45 s to hire the staff) |
+| Database | about 1.3 GB of history in flight + 1,000,000 × 5.7 KB ≈ **7–8 GB** |
+| Archive files | 1,000,000 × 5.75 KB ≈ **5.8 GB** |
+| Without the rolling archive | about **38 GB** in the database (it would not fit in this container's 19 GB of free disk) |
+
+What it would take to meet the exit in practical time: the throughput is bound by
+PostgreSQL write latency across 8 processes on 4 vCPUs. More cores for more shards (at
+most 8 today, the balance rows per account), or batching inserts across cases, are the
+levers; the 13.4-hour run itself has not been attempted here.
 
 ## Workflow variants at scale (Phase 19)
 

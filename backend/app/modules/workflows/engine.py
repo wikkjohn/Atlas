@@ -181,6 +181,28 @@ class _Driver:
     live: bool = False
     _pending_audit: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     _gateway: Any = None  # the application gateway (Phase 66), made on first use
+    # The execution's step runs that may still need work (pending or waiting), loaded once
+    # per driver and kept up to date as steps are scheduled (Phase 75). Before, every step
+    # flushed the session and queried the database for them, which cost about a quarter
+    # of a simulated case's SQL statements.
+    _open: dict[uuid.UUID, WorkflowStepRun] | None = None
+
+    def open_runs(self) -> list[WorkflowStepRun]:
+        """The execution's pending and waiting step runs, in sequence order."""
+        if self._open is None:
+            self.db.flush()
+            self._open = {
+                r.id: r
+                for r in self.db.execute(
+                    select(WorkflowStepRun).where(
+                        WorkflowStepRun.execution_id == self.execution.id,
+                        WorkflowStepRun.status.in_([RunStatus.PENDING, RunStatus.WAITING]),
+                    )
+                ).scalars()
+            }
+        live = [r for r in self._open.values()
+                if r.status in (RunStatus.PENDING, RunStatus.WAITING)]  # fmt: skip
+        return sorted(live, key=lambda r: r.sequence)
 
     # Events and bookkeeping
 
@@ -208,17 +230,7 @@ class _Driver:
         flag_modified(self.execution, "context")
 
     def sync_current_steps(self) -> None:
-        self.db.flush()
-        self.execution.current_steps = list(
-            self.db.execute(
-                select(WorkflowStepRun.step_id)
-                .where(
-                    WorkflowStepRun.execution_id == self.execution.id,
-                    WorkflowStepRun.status.in_([RunStatus.PENDING, RunStatus.WAITING]),
-                )
-                .order_by(WorkflowStepRun.sequence)
-            ).scalars()
-        )
+        self.execution.current_steps = [r.step_id for r in self.open_runs()]
 
     # Scheduling and routing
 
@@ -226,6 +238,7 @@ class _Driver:
         step = self.definition.step(step_id)
         self.execution.step_counter += 1
         run = WorkflowStepRun(
+            id=uuid.uuid4(),  # known now, so the run needs no flush before its events
             realm=self.execution.realm,
             execution_id=self.execution.id,
             sequence=self.execution.step_counter,
@@ -238,7 +251,8 @@ class _Driver:
             created_at=self.now,
         )
         self.db.add(run)
-        self.db.flush()
+        if self._open is not None:
+            self._open[run.id] = run
         self.event("step.scheduled", run, data={"step": step.id, "branch": branch})
         return run
 
@@ -330,13 +344,7 @@ class _Driver:
         error: dict[str, Any] | None = None,
         actor_id: uuid.UUID | None = None,
     ) -> None:
-        self.db.flush()  # sessions do not autoflush; queries must see this run's changes
-        for run in self.db.execute(
-            select(WorkflowStepRun).where(
-                WorkflowStepRun.execution_id == self.execution.id,
-                WorkflowStepRun.status.in_([RunStatus.PENDING, RunStatus.WAITING]),
-            )
-        ).scalars():
+        for run in self.open_runs():
             run.status = RunStatus.CANCELLED.value
             run.completed_at = self.now
         self.execution.status = status.value
@@ -504,19 +512,8 @@ class _Driver:
     def advance(self, max_steps: int = MAX_STEPS_PER_ADVANCE) -> int:
         ran = 0
         while ran < max_steps and self.execution.status in ACTIVE_STATUSES:
-            self.db.flush()  # the next query must see the previous step's state changes
-            run = self.db.execute(
-                select(WorkflowStepRun)
-                .where(
-                    WorkflowStepRun.execution_id == self.execution.id,
-                    WorkflowStepRun.status == RunStatus.PENDING,
-                    or_(
-                        WorkflowStepRun.not_before.is_(None), WorkflowStepRun.not_before <= self.now
-                    ),
-                )
-                .order_by(WorkflowStepRun.sequence)
-                .limit(1)
-            ).scalar_one_or_none()
+            run = next((r for r in self.open_runs() if r.status == RunStatus.PENDING
+                        and (r.not_before is None or r.not_before <= self.now)), None)  # fmt: skip
             if run is None:
                 break
             self.run_step(run)
@@ -528,14 +525,7 @@ class _Driver:
         """Recompute current steps and the running/waiting status; flush audit records."""
         self.sync_current_steps()
         if self.execution.status in ACTIVE_STATUSES:
-            statuses = set(
-                self.db.execute(
-                    select(WorkflowStepRun.status).where(
-                        WorkflowStepRun.execution_id == self.execution.id,
-                        WorkflowStepRun.status.in_([RunStatus.PENDING, RunStatus.WAITING]),
-                    )
-                ).scalars()
-            )
+            statuses = {r.status for r in self.open_runs()}
             if RunStatus.PENDING in statuses:
                 self.execution.status = ExecutionStatus.RUNNING.value
             elif RunStatus.WAITING in statuses:
@@ -556,6 +546,9 @@ class _Driver:
                 metadata=metadata,
             )
         self._pending_audit.clear()
+        # Once per engine call, so callers' queries see its work (Phase 75: steps no longer
+        # flush one by one).
+        self.db.flush()
 
 
 def _error(code: str, message: str, details: Any = None) -> dict[str, Any]:

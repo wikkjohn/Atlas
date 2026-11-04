@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { AiTool } from "@/types/aiTools";
-import type { BenchmarkRow, Comparison, ExperimentDetail, SeriesDetail, SeriesMetric } from "@/types/experiments";
+import type { BenchmarkRow, Comparison, ExperimentDetail, PortfolioDetail, PortfolioMetric, SeriesDetail, SeriesMetric } from "@/types/experiments";
 import { DEFAULT_COSTS, DEFAULT_THRESHOLDS } from "@/types/experiments";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
@@ -177,8 +177,75 @@ const series: SeriesDetail = {
   },
 };
 
+// A portfolio (Phase 78): the review assistants across workflows, departments and countries.
+const portfolioMetric = (metric: string, label: string, mean: number, low: number, high: number, p: number, finding: PortfolioMetric["finding"], better: [number, number, number]): PortfolioMetric => ({
+  metric,
+  label,
+  better: metric === "accuracy" ? "higher" : "lower",
+  cells: 57,
+  mean_relative_change: mean,
+  ci_low: low,
+  ci_high: high,
+  median_relative_change: mean,
+  p_value: p,
+  p_adjusted: p,
+  significant: finding === "improved" || finding === "worse",
+  finding,
+  cell_findings: { improved: better[0], worse: better[1], no_significant_difference: better[2] },
+  by_department: [
+    { department: "Cards", cells: 3, mean_relative_change: -0.41 },
+    { department: "Human Resources", cells: 3, mean_relative_change: -0.12 },
+  ],
+  by_country: [
+    { country: "GB", cells: 19, mean_relative_change: -0.3 },
+    { country: "JP", cells: 19, mean_relative_change: -0.29 },
+  ],
+});
+const portfolio: PortfolioDetail = {
+  id: "pf-1",
+  portfolio_number: 1,
+  name: "AGB review assistants",
+  family: "agb-review-assistants",
+  candidate_mode: "ai_assisted",
+  countries: ["GB", "US", "JP"],
+  seeds: [301, 302, 303],
+  applications: 40,
+  employees: 20,
+  confidence: 0.95,
+  status: "completed",
+  failure_reason: null,
+  verdict: "not_successful",
+  cells: 57,
+  cells_completed: 57,
+  created_by_username: "researcher",
+  created_at: "2026-11-04T19:00:00Z",
+  completed_at: "2026-11-04T19:40:00Z",
+  configuration: { plan: { cells: [], skipped: [{ scenario_id: "domestic-payments-outage", reason: "an outage scenario: its effects come from the outage" }] } },
+  series: [],
+  statistics: {
+    method: "the cell is the unit",
+    confidence: 0.95,
+    cells: 57,
+    workflows: 19,
+    departments: ["Cards", "Human Resources"],
+    countries: ["GB", "JP", "US"],
+    tools: ["agb-card-fraud-assistant"],
+    cell_verdicts: { successful: 50, not_successful: 7 },
+    cells_with_a_worse_metric: ["leave-requests (GB)"],
+    metrics: [
+      portfolioMetric("labour_hours", "Simulated labour time (review + oversight)", -0.3, -0.34, -0.26, 0.0000001, "improved", [55, 0, 2]),
+      portfolioMetric("accuracy", "Decisions matching ground truth", 0.004, -0.002, 0.01, 0.4, "no_significant_difference", [5, 1, 51]),
+    ],
+    cell_summaries: [],
+    verdict: "not_successful",
+    conclusion: "Across 57 cells (19 workflows, 18 departments, 3 countries), mean change per cell: labour time -30.0%.",
+  },
+};
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/experiment-portfolios": () => jsonResponse(page([portfolio])),
+  "GET /api/v1/experiment-portfolios/pf-1": () => jsonResponse(portfolio),
   "GET /api/v1/experiment-series": () => jsonResponse(page([series])),
   "GET /api/v1/experiment-series/ser-1": () => jsonResponse(series),
   "GET /api/v1/experiments": () => jsonResponse(page([experiment])),
@@ -346,6 +413,49 @@ describe("Repeated-seed series", () => {
       seed: 101,
       replicates: 8,
       confidence: 0.95,
+    });
+  });
+});
+
+describe("Portfolios", () => {
+  it("pools the cells and breaks them down by department and country", async () => {
+    mockApi(routes);
+    renderApp("/experiments");
+    const details = await screen.findByRole("region", { name: "Portfolio details" });
+    expect(within(details).getByText(/countries GB, US, JP · 3 seeds per cell · 57 of 57 cells evaluated/)).toBeInTheDocument();
+    const table = within(details).getByRole("table", { name: "Effect across cells" });
+    const labour = within(table).getByRole("row", { name: /Simulated labour time/ });
+    expect(labour).toHaveTextContent("-30.0%");
+    expect(labour).toHaveTextContent("-34.0% to -26.0%");
+    expect(labour).toHaveTextContent("55 / 0 / 2");
+    expect(labour).toHaveTextContent("Better");
+    const departments = within(details).getByRole("table", { name: "By department" });
+    expect(within(departments).getByRole("row", { name: /Human Resources/ })).toHaveTextContent("-12.0%");
+    expect(within(details).getByRole("table", { name: "By country" })).toHaveTextContent("JP");
+    await userEvent.selectOptions(within(details).getByLabelText("Breakdown of"), "Decisions matching ground truth");
+    expect(within(details).getByText("1 scenario(s) not in the portfolio")).toBeInTheDocument();
+  });
+
+  it("starts a portfolio for a tool family in several countries", async () => {
+    const api = mockApi({ ...routes, "POST /api/v1/experiment-portfolios": () => jsonResponse({ ...portfolio, id: "pf-2", status: "running", statistics: null, verdict: null }, 202) });
+    renderApp("/experiments");
+    await userEvent.click(await screen.findByRole("button", { name: "New portfolio" }));
+    const form = await screen.findByRole("form", { name: "New portfolio" });
+    const countries = within(form).getByLabelText("Countries");
+    await userEvent.clear(countries);
+    await userEvent.type(countries, "GB, GB");
+    await userEvent.click(screen.getByRole("button", { name: "Run portfolio" }));
+    expect(within(form).getByText("1 – 10 different country codes, e.g. GB, US.")).toBeInTheDocument();
+    expect(api.requests.some((r) => r.method === "POST")).toBe(false);
+    await userEvent.clear(countries);
+    await userEvent.type(countries, "gb, sg");
+    await userEvent.click(screen.getByRole("button", { name: "Run portfolio" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
+      family: "agb-review-assistants",
+      candidate_mode: "ai_assisted",
+      countries: ["GB", "SG"],
+      replicates: 3,
     });
   });
 });

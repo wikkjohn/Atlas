@@ -19,6 +19,7 @@ import {
   MODE_NAMES,
   VerdictPill,
 } from "@/features/experiments/ExperimentResults";
+import { PortfolioPanel } from "@/features/experiments/PortfolioPanel";
 import { SeriesPanel } from "@/features/experiments/SeriesPanel";
 import { useAiTools } from "@/services/aiTools";
 import { downloadReport, useCreateExperiment, useExperiment, useExperiments, useReEvaluate } from "@/services/experiments";
@@ -463,6 +464,9 @@ export function ExperimentsPage() {
       </div>
       <div className="mt-6">
         <SeriesPanel />
+      </div>
+      <div className="mt-6">
+        <PortfolioPanel />
       </div>
       {creating && (
         <NewExperimentDialog

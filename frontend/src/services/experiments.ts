@@ -7,6 +7,9 @@ import type {
   ExperimentCreate,
   ExperimentDetail,
   ExperimentSummary,
+  PortfolioCreate,
+  PortfolioDetail,
+  PortfolioSummary,
   ReEvaluation,
   SeriesCreate,
   SeriesDetail,
@@ -91,6 +94,36 @@ export function useCreateSeries() {
   const once = useIdempotencyKey();
   return useMutation({
     mutationFn: (body: SeriesCreate) => apiPost<SeriesDetail>("/api/v1/experiment-series", body, once.key()),
+    onSuccess: () => {
+      once.renew();
+      void client.invalidateQueries({ queryKey: ["experiments"] });
+      void client.invalidateQueries({ queryKey: ["simulations"] });
+    },
+  });
+}
+
+// --- Portfolios (Phase 78) -------------------------------------------------------------------
+
+export const usePortfolios = () =>
+  useQuery({
+    queryKey: ["experiments", "portfolios"],
+    queryFn: () => apiGet<Page<PortfolioSummary>>(`/api/v1/experiment-portfolios${query({ limit: 20 })}`),
+    refetchInterval: (q) => (q.state.data?.items.some((p) => p.status === "running") ? POLL_MS : false),
+  });
+
+export const usePortfolio = (id: string | null) =>
+  useQuery({
+    queryKey: ["experiments", "portfolios", id],
+    queryFn: () => apiGet<PortfolioDetail>(`/api/v1/experiment-portfolios/${id}`),
+    enabled: Boolean(id),
+    refetchInterval: (q) => (q.state.data?.status === "running" ? POLL_MS : false),
+  });
+
+export function useCreatePortfolio() {
+  const client = useQueryClient();
+  const once = useIdempotencyKey();
+  return useMutation({
+    mutationFn: (body: PortfolioCreate) => apiPost<PortfolioDetail>("/api/v1/experiment-portfolios", body, once.key()),
     onSuccess: () => {
       once.renew();
       void client.invalidateQueries({ queryKey: ["experiments"] });

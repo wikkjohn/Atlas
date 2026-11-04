@@ -55,6 +55,21 @@ def test_paired_differences() -> None:
     assert paired([4.0], 0.95).p_value is None  # one seed: nothing to test
 
 
+def test_statistics_are_storable_when_every_seed_differs_by_the_same_amount() -> None:
+    import json
+
+    # Manual reviews fall by exactly 50 on every seed: t is infinite, p is 0.
+    reps = [_replicate(s, -10.0, 0.0, 0) for s in range(3)]
+    for r in reps:
+        r["comparisons"].append({"metric": "manual_reviews", "label": "Manual reviews",
+                                 "unit": "count", "better": "lower", "baseline": 180,
+                                 "candidate": 130, "delta": -50})  # fmt: skip
+    stats = series_statistics(reps, 0.95)
+    json.dumps(stats, allow_nan=False)  # what jsonb accepts
+    reviews = next(m for m in stats["metrics"] if m["metric"] == "manual_reviews")
+    assert reviews["t"] is None and reviews["p_value"] == 0.0 and reviews["finding"] == "improved"
+
+
 def test_holm_adjustment() -> None:
     assert holm({"a": 0.01, "b": 0.04, "c": 0.03}) == {
         "a": pytest.approx(0.03), "c": pytest.approx(0.06), "b": pytest.approx(0.06)

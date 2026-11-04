@@ -306,7 +306,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       difference, a Student-t interval and Holm-adjusted paired t-tests; the KYC assistant
       over 5 seeds: labour −34.4 % (−35.7 % to −33.1 %) assisted, −70.4 % automated; see
       `benchmarking.md`)
-- [ ] Experiment portfolios: one tool across many workflows, departments and countries
+- [x] Experiment portfolios: one tool across many workflows, departments and countries
+      (Phase 78: tool families; a portfolio runs a repeated-seed series per scenario and
+      country, with the workflow as the unit; the 19 review assistants across 19
+      workflows, 18 departments and 3 countries: labour −36.1 % (−36.9 % to −35.3 %);
+      country made no difference; see `benchmarking.md`)
 - [ ] Guardrails: drift detection, prompt/response audit, bias checks across segments
 - [ ] Scenario-specific success thresholds
 - [ ] Tool comparison across all benchmarks
@@ -403,4 +407,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 75 (F7) | Milestone F exit, measured but not met here: 100,000 enterprise-sized cases in 80 min (20.8 cases/s); a million projected at 13.4 h; engine 197 → 128 statements a case; bulk hiring; rolling history archive | complete (exit not met) |
 | Phase 76 (G1) | Milestone G, step 1: the Claude adapter behind the tool contract — structured output in the tool's schema, tokens and cost per call, off by default; experiments count measured cost; stored workflows use the experiment's tool | complete |
 | Phase 77 (G2) | Milestone G, step 2: repeated-seed series — per-metric paired differences, Student-t intervals, Holm-adjusted significance; API, Experiments page; measured on the KYC assistant | complete |
-| Phase 78 (G3, proposed) | Milestone G, step 3: experiment portfolios — one tool across many workflows, departments and countries | next |
+| Phase 78 (G3) | Milestone G, step 3: experiment portfolios — tool families, cells per scenario and country, workflow-level pooling, department and country breakdowns; the review-assistant family measured on 19 workflows | complete |
+| Phase 79 (G4, proposed) | Milestone G, step 4: guardrails — drift detection, prompt/response audit, bias checks across segments | next |

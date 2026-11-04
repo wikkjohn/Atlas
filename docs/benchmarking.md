@@ -138,6 +138,63 @@ is how much the tool's effect varies with the workload; they say nothing about w
 simulation's own assumptions (review times, reviewer accuracy, how people use AI advice)
 are right.
 
+## Portfolios: a tool family across workflows, departments and countries (Phase 78)
+
+A **tool family** is a product line of tools evaluated together (`ai_tools.family`); the
+19 AGB rule-based review assistants form `agb-review-assistants` (migration 0052
+backfills it, the seed sets it). A **portfolio** (`POST /api/v1/experiment-portfolios`, or
+*New portfolio* on the Experiments page) evaluates the family wherever it applies:
+
+- **Cells.** Every scenario with AI modes that one of the family's active tools serves,
+  in each chosen country (1 to 10), is a cell; each cell is a repeated-seed series. The
+  plan (`GET /api/v1/experiment-portfolios/plan?family=`) lists the cells and the
+  scenarios left out, with why: no tool of the family serves the workflow, no automated
+  decision path (for the automated mode), or an outage scenario. At most 600 experiments
+  (cells × seeds).
+- **Countries.** Each cell's runs draw their customers from the one country, with staff
+  from its subsidiary and its country rules (Phase 28); `country` is now on suites,
+  experiments and series too.
+- **The workflow is the unit.** A workflow's cells (one per country) share the tool, the
+  rules and the seeds, so they are not independent evidence: each workflow contributes
+  the mean relative change of its cells, and the statistics run across workflows — the
+  mean change per workflow with a t-interval, a one-sample t-test against zero
+  (Holm-adjusted across metrics) and the median. Per cell, how many were significantly
+  better, worse or neither by their own series is counted, and how many workflows'
+  effect the country changed at all. (The first design pooled cells; the measurement
+  below showed identical cells across countries, which would have counted one workflow
+  three times.)
+- **Breakdowns** give the mean change per cell by department (the workflow's catalogue
+  department or its definition's business owner) and by country.
+- **The verdict** is successful when every cell succeeded on every seed; cells with a
+  significantly worse metric are named in the conclusion.
+
+Measured on the development database: the 19 AGB rule-based review assistants
+(`agb-review-assistants`), AI-assisted, on every scenario they serve in GB, US and JP,
+3 seeds per cell, 40 cases and 20 staff per run — 57 cells, 171 experiments, 342 runs, in
+2,293 s (38 min):
+
+| Across 19 workflows (18 departments) | Mean change per workflow (95 % interval) | Adjusted p | Cells better / worse / neither |
+| --- | --- | --- | --- |
+| Labour time | −36.1 % (−36.9 % to −35.3 %) | < 0.001 | 30 / 0 / 27 |
+| Cost per completed case | −34.0 % (−35.4 % to −32.6 %) | < 0.001 | 30 / 0 / 27 |
+| Processing time | −34.4 % (−38.3 % to −30.5 %) | < 0.001 | 30 / 0 / 27 |
+| Accuracy | +12.0 % (+9.0 % to +15.1 %) | < 0.001 | 3 / 0 / 54 |
+| False approval rate (17 workflows with should-reject cases) | −45.2 % (−58.9 % to −31.6 %) | < 0.001 | 3 / 0 / 48 |
+| Manual reviews | +0.1 % (−0.1 % to +0.3 %) | 0.99 | 0 / 0 / 57 |
+
+- **Every department gained:** labour fell between 33.6 % (Trade Finance) and 40.0 %
+  (Retail Banking).
+- **The country made no difference:** in all 19 workflows the three countries gave the
+  same decisions for the same seed (the workloads' cases and decisions do not depend on
+  the customer's country), so each workflow's three cells are identical.
+- **Verdict not successful:** 9 of 57 cells met every criterion on every seed. Every
+  failure was the same criterion — the candidate's false approval rate above the absolute
+  5 % threshold (114 of 171 replicate evaluations), the documented blind spot of each
+  assistant, and coarse with 40 cases (a handful of should-reject cases per run). On
+  average the assistants still cut false approvals by 45 % against the baseline.
+- With 40 cases a run, 27 of 57 cells were not significant on their own over 3 seeds; the
+  family's effect is clear only across workflows.
+
 ## Reports
 
 `GET /api/v1/experiments/{id}/report` downloads a Markdown proof-of-concept report

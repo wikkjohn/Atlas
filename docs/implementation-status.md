@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 77.
+Last updated: Phase 78.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -82,6 +82,50 @@ Last updated: Phase 77.
 | 75 | Workforce and customers, step 7: the Milestone F exit, measured ([performance.md](performance.md)) — the exit itself **not met** in this container | **Complete** (exit not met) |
 | 76 | AI laboratory, step 1: a hosted model behind the tool contract ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 77 | AI laboratory, step 2: repeated-seed series with confidence intervals and significance tests ([benchmarking.md](benchmarking.md)) | **Complete** |
+| 78 | AI laboratory, step 3: experiment portfolios across workflows, departments and countries ([benchmarking.md](benchmarking.md)) | **Complete** |
+
+## Phase 78: what exists
+
+- **Tool families** (`ai_tools.family`, migration 0052): the 19 AGB rule-based review
+  assistants form `agb-review-assistants` (backfilled; the seed sets it).
+- **Country on suites, experiments and series:** a run's customers, staff and rules
+  from one active country.
+- **Portfolios** (`experiment_portfolios`): one repeated-seed series per cell (a scenario
+  the family serves, in one country); a plan of cells and of scenarios left out, with
+  why; at most 600 experiments.
+- **Statistics** (`significance.portfolio_statistics`): the workflow as the unit — the
+  mean change per workflow with an interval, a Holm-adjusted test, the median; cell
+  findings; breakdowns by department and country; how many workflows' effect the
+  country changed. Recomputable from the cells' series.
+- **API, job and page:** `/api/v1/experiment-portfolios` (list, plan, start, detail);
+  `experiment_portfolio.execute`; *Portfolios* on the Experiments page.
+- **Fixed (Phase 77):** a series whose difference was the same on every seed computed an
+  infinite t statistic, which jsonb cannot store, and failed; it is now stored as null.
+- **PR #68 (Phase 77)** had no review comments; CI passed on the first run.
+
+## Phase 78: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 797 passed. New: 7 tests covering: the workflow as the unit across departments and countries (means, interval, breakdowns, country-dependent workflows, conclusion); identical country cells add no evidence; a cell that got worse is named and fails the portfolio; the plan covers every scenario the family serves and says why others are left out; a portfolio through the API runs every cell (2 scenarios × 2 countries × 2 seeds), pools them and recomputes exactly; refusals (no tool of the family, too many experiments, duplicate countries, permissions); and a series with the same difference on every seed is storable |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (757.4 s, alongside the backend suite) |
+| Frontend Vitest / typecheck / build | 174 passed (new: the effect across workflows with cell counts, breakdowns by department and country, the scenarios left out; starting a portfolio with country validation) / clean / built |
+| Playwright on a fresh database | 73 passed |
+| The review-assistant family, AI-assisted, 19 workflows × GB, US, JP × 3 seeds × 40 cases | 342 runs in 2,293 s; labour −36.1 % (−36.9 % to −35.3 %), accuracy +12.0 %, false approvals −45.2 % per workflow; no country effect; 9 of 57 cells met every criterion (false approvals above 5 % in the rest) |
+
+## Phase 78: known limitations
+
+- **One tool per workflow:** a family is a set of specialised assistants, so "one tool
+  across workflows" is a product line, not a single model; a single generic tool (the
+  Claude adapter) would need credentials to measure.
+- **The country changes nothing in these workloads:** their cases and decisions do not
+  depend on the customer's country, so country cells duplicate each other; the workflow
+  is the unit for that reason.
+- **19 workflows, not 100+:** the Milestone G exit asks for 100+ workflows; only 19
+  workflows have AI steps.
+- **Small runs:** 40 cases per run give coarse rates (false approvals) and many cells
+  without a significant effect on their own.
+- **Cells run one after another** in one job (38 minutes for 342 runs).
 
 ## Phase 77: what exists
 

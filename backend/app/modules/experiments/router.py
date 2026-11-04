@@ -10,7 +10,7 @@ from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.jobs import engine as jobs
-from app.modules.experiments import report, series, service
+from app.modules.experiments import portfolios, report, series, service
 from app.modules.experiments.models import ExperimentStatus
 from app.modules.experiments.schemas import (
     BenchmarkRow,
@@ -18,6 +18,9 @@ from app.modules.experiments.schemas import (
     ExperimentDetail,
     ExperimentFromRuns,
     ExperimentSummary,
+    PortfolioCreate,
+    PortfolioDetail,
+    PortfolioSummary,
     ReEvaluation,
     SeriesCreate,
     SeriesDetail,
@@ -28,6 +31,7 @@ from app.simulation.router import SessionFactory, launch_idempotent
 
 experiments_router = APIRouter(prefix="/experiments", tags=["experiments"])
 series_router = APIRouter(prefix="/experiment-series", tags=["experiments"])
+portfolio_router = APIRouter(prefix="/experiment-portfolios", tags=["experiments"])
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["experiments"])
 
 
@@ -228,3 +232,79 @@ def get_series(
     series_id: uuid.UUID, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
 ) -> SeriesDetail:
     return series.detail(db, series.get(db, series_id))
+
+
+# --- Portfolios (Phase 78) ---------------------------------------------------------------------
+
+
+@portfolio_router.get("", response_model=Page[PortfolioSummary], summary="Experiment portfolios")
+def list_portfolios(
+    db: DbSession, page: PageParamsDep, _: Authorized(Permission.EXPERIMENTS_READ)
+) -> Page[PortfolioSummary]:
+    items, total = portfolios.list_portfolios(db, page)
+    return Page(items=items, total=total, limit=page.limit, offset=page.offset)
+
+
+@portfolio_router.get(
+    "/plan",
+    summary="The scenarios a tool family would be evaluated on, and those it would not",
+)
+def plan_portfolio(
+    db: DbSession,
+    _: Authorized(Permission.EXPERIMENTS_READ),
+    family: Annotated[str, Query(min_length=3, max_length=64)],
+    candidate_mode: Literal["ai_assisted", "ai_automated"] = "ai_assisted",
+) -> dict:
+    cells, skipped = portfolios.plan(db, family, candidate_mode)
+    return {"cells": cells, "skipped": skipped}
+
+
+@portfolio_router.post(
+    "",
+    response_model=PortfolioDetail,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Evaluate a tool family on every scenario it serves, in each country",
+)
+def create_portfolio(
+    body: PortfolioCreate,
+    request: Request,
+    db: DbSession,
+    actor: Authorized(Permission.EXPERIMENTS_RUN),
+    tasks: BackgroundTasks,
+    factory: SessionFactory,
+    idempotency_key: IdempotencyKey = None,
+):
+    def create():
+        created = portfolios.create(db, body, actor.id)
+        job = jobs.enqueue(
+            db,
+            "experiment_portfolio.execute",
+            {
+                "portfolio_id": str(created.id),
+                "run_ids": [str(r) for r in portfolios.run_ids(db, created)],
+            },  # fmt: skip
+            created_by=actor.id,
+        )
+        return portfolios.detail(db, created), [job.id]
+
+    def schedule(job_ids: list) -> None:
+        jobs.dispatch(tasks, factory, job_ids)
+
+    return launch_idempotent(
+        db,
+        request,
+        key=idempotency_key,
+        actor_id=actor.id,
+        payload=body,
+        create=create,
+        schedule=schedule,
+    )
+
+
+@portfolio_router.get(
+    "/{portfolio_id}", response_model=PortfolioDetail, summary="One experiment portfolio"
+)
+def get_portfolio(
+    portfolio_id: uuid.UUID, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
+) -> PortfolioDetail:
+    return portfolios.detail(db, portfolios.get(db, portfolio_id))

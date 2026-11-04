@@ -93,6 +93,11 @@ class StartSuite(BaseModel):
     )
     tool_id: str | None = Field(default=None, max_length=64)
     tool_version: str | None = Field(default=None, max_length=40)
+    country: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z]{2}$",
+        description="Only this active country's customers and staff (Phase 78)",
+    )
 
 
 class Reproduction(BaseModel):

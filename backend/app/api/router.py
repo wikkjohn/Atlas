@@ -30,6 +30,7 @@ from app.modules.events.router import router as events_router
 from app.modules.experiments.router import (
     benchmarks_router,
     experiments_router,
+    portfolio_router,
     series_router,
 )
 from app.modules.finance.router import router as finance_router
@@ -112,6 +113,7 @@ for module_router in (
     ai_tools_router,
     experiments_router,
     series_router,
+    portfolio_router,
     benchmarks_router,
     analytics_router,
     audit_router,

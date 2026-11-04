@@ -22,6 +22,9 @@ class ExperimentCreate(BaseModel):
     applications: int | None = Field(default=None, ge=1, le=MAX_CUSTOM_APPLICATIONS)
     employees: int | None = Field(default=None, ge=3, le=MAX_CUSTOM_EMPLOYEES)
     seed: int = Field(default=42, ge=0, le=MAX_SEED)
+    country: str | None = Field(
+        default=None, pattern=r"^[A-Z]{2}$", description="One active country (Phase 78)"
+    )
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
     thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
 
@@ -135,6 +138,9 @@ class SeriesCreate(BaseModel):
         description="Explicit seeds instead of `seed`, `seed + 1`, ... (`replicates` ignored)",
     )
     confidence: float = Field(default=0.95, ge=0.8, le=0.99)
+    country: str | None = Field(
+        default=None, pattern=r"^[A-Z]{2}$", description="One active country (Phase 78)"
+    )
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
     thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
 
@@ -165,6 +171,7 @@ class SeriesSummary(BaseModel):
     tool_version: str | None
     seeds: list[int]
     confidence: float
+    country: str | None
     status: str
     failure_reason: str | None
     verdict: str | None
@@ -178,3 +185,62 @@ class SeriesDetail(SeriesSummary):
     configuration: dict[str, Any]
     statistics: dict[str, Any] | None
     experiments: list[ExperimentSummary]
+
+
+# --- Portfolios (Phase 78) ---------------------------------------------------------------------
+
+MAX_PORTFOLIO_EXPERIMENTS = 600  # cells × seeds
+
+
+class PortfolioCreate(BaseModel):
+    """Evaluate a tool family on every scenario it serves, in each of the countries."""
+
+    name: str = Field(min_length=3, max_length=200)
+    family: str = Field(min_length=3, max_length=64)
+    candidate_mode: Literal["ai_assisted", "ai_automated"] = "ai_assisted"
+    countries: list[str] = Field(min_length=1, max_length=10)
+    applications: int = Field(default=60, ge=5, le=MAX_CUSTOM_APPLICATIONS)
+    employees: int = Field(default=12, ge=3, le=MAX_CUSTOM_EMPLOYEES)
+    seed: int = Field(default=42, ge=0, le=MAX_SEED, description="The first seed of each cell")
+    replicates: int = Field(default=3, ge=2, le=MAX_REPLICATES)
+    confidence: float = Field(default=0.95, ge=0.8, le=0.99)
+    costs: CostAssumptions = Field(default_factory=CostAssumptions)
+    thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
+
+    @field_validator("countries")
+    @classmethod
+    def _countries(cls, countries: list[str]) -> list[str]:
+        import re
+
+        if len(set(countries)) != len(countries):
+            raise ValueError("Countries must be different.")
+        if any(not re.fullmatch(r"[A-Z]{2}", c) for c in countries):
+            raise ValueError("Countries are ISO 3166 alpha-2 codes, e.g. GB.")
+        return countries
+
+
+class PortfolioSummary(BaseModel):
+    id: uuid.UUID
+    portfolio_number: int
+    name: str
+    family: str
+    candidate_mode: str
+    countries: list[str]
+    seeds: list[int]
+    applications: int
+    employees: int
+    confidence: float
+    status: str
+    failure_reason: str | None
+    verdict: str | None
+    cells: int
+    cells_completed: int
+    created_by_username: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class PortfolioDetail(PortfolioSummary):
+    configuration: dict[str, Any]
+    statistics: dict[str, Any] | None
+    series: list[SeriesSummary]

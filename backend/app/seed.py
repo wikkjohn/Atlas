@@ -8,7 +8,7 @@ users are added. Refuses to run in staging or production.
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.money import to_minor_units
@@ -1077,6 +1077,14 @@ DEMO_AI_TOOLS = [
 ]
 
 
+# The AGB rule-based review assistants form one product line (Phase 78): a portfolio
+# evaluates the family on every workflow one of them serves.
+REVIEW_FAMILY = "agb-review-assistants"
+for _spec in DEMO_AI_TOOLS:
+    if _spec["adapter"].startswith("rule_based_"):
+        _spec.setdefault("family", REVIEW_FAMILY)
+
+
 def _register_ai_tools(db: Session, report: SeedReport) -> None:
     from app.modules.ai_tools.models import AITool
     from app.modules.ai_tools.schemas import ToolCreate
@@ -1091,3 +1099,10 @@ def _register_ai_tools(db: Session, report: SeedReport) -> None:
         if not exists:
             register_tool(db, ToolCreate.model_validate(spec), actor_id=None)
             report.ai_tools.append(f"{spec['tool_id']} {spec['tool_version']}")
+        elif spec.get("family"):
+            # Tools registered before families existed (Phase 78) join theirs.
+            db.execute(
+                update(AITool)
+                .where(AITool.tool_id == spec["tool_id"], AITool.family.is_(None))
+                .values(family=spec["family"])
+            )

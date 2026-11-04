@@ -263,3 +263,90 @@ export interface SeriesCreate {
   replicates: number;
   confidence: number;
 }
+
+// --- Portfolios (Phase 78) -------------------------------------------------------------------
+
+export interface PortfolioMetric {
+  metric: string;
+  label: string;
+  better: "lower" | "higher";
+  workflows: number;
+  cells: number;
+  country_dependent_workflows: number;
+  mean_relative_change: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  median_relative_change: number | null;
+  p_value: number | null;
+  p_adjusted: number | null;
+  significant: boolean;
+  finding: "improved" | "worse" | "no_significant_difference" | "too_few_cells";
+  cell_findings: { improved: number; worse: number; no_significant_difference: number };
+  by_department: { department: string; cells: number; mean_relative_change: number | null }[];
+  by_country: { country: string; cells: number; mean_relative_change: number | null }[];
+}
+
+export interface PortfolioCell {
+  scenario_id: string;
+  workflow_id: string;
+  department: string | null;
+  country: string | null;
+  tool_id: string;
+  series_number: number;
+  verdict: "successful" | "not_successful" | null;
+  headline: Record<string, number | null>;
+}
+
+export interface PortfolioStatistics {
+  method: string;
+  confidence: number;
+  cells: number;
+  workflows: number;
+  departments: string[];
+  countries: string[];
+  tools: string[];
+  cell_verdicts: { successful: number; not_successful: number };
+  cells_with_a_worse_metric: string[];
+  metrics: PortfolioMetric[];
+  cell_summaries: PortfolioCell[];
+  verdict: "successful" | "not_successful";
+  conclusion: string;
+}
+
+export interface PortfolioSummary {
+  id: string;
+  portfolio_number: number;
+  name: string;
+  family: string;
+  candidate_mode: "ai_assisted" | "ai_automated";
+  countries: string[];
+  seeds: number[];
+  applications: number;
+  employees: number;
+  confidence: number;
+  status: ExperimentStatus;
+  failure_reason: string | null;
+  verdict: "successful" | "not_successful" | null;
+  cells: number;
+  cells_completed: number;
+  created_by_username: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface PortfolioDetail extends PortfolioSummary {
+  configuration: { plan?: { cells: unknown[]; skipped: { scenario_id: string; reason: string }[] } } & Record<string, unknown>;
+  statistics: PortfolioStatistics | null;
+  series: SeriesSummary[];
+}
+
+export interface PortfolioCreate {
+  name: string;
+  family: string;
+  candidate_mode: "ai_assisted" | "ai_automated";
+  countries: string[];
+  applications: number;
+  employees: number;
+  seed: number;
+  replicates: number;
+}

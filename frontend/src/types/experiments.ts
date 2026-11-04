@@ -270,7 +270,9 @@ export interface PortfolioMetric {
   metric: string;
   label: string;
   better: "lower" | "higher";
+  workflows: number;
   cells: number;
+  country_dependent_workflows: number;
   mean_relative_change: number | null;
   ci_low: number | null;
   ci_high: number | null;

@@ -292,11 +292,14 @@ def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict
     """Statistics across a portfolio's cells. Each cell: `scenario_id`, `workflow_id`,
     `department`, `country`, `tool_id`, `verdict` and its series' `metrics`.
 
-    The unit is the cell: each contributes its mean relative change on a metric, so a
-    workflow with large effects counts once, like any other. Across cells the pooled mean
-    has a t-interval and a one-sample t-test against zero (Holm-adjusted across metrics);
-    per cell, the series' own finding (better, worse, no significant difference) is
-    counted. Breakdowns give the mean change by department and by country."""
+    The unit is the workflow: the cells of one workflow (its countries) share the tool,
+    the rules and the seeds, so they are not independent evidence; each workflow
+    contributes the mean relative change of its cells, so a workflow counts once whatever
+    its size or number of countries. Across workflows the pooled mean has a t-interval and
+    a one-sample t-test against zero (Holm-adjusted across metrics). Per cell, the series'
+    own finding (better, worse, no significant difference) is counted; breakdowns give the
+    mean change by department and by country, and how many workflows' effect the country
+    changed at all."""
     alpha = 1.0 - confidence
     specs: dict[str, dict[str, Any]] = {}
     for cell in cells:
@@ -311,7 +314,13 @@ def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict
             for m in cell["metrics"]
             if m["metric"] == key and m["relative_change"] is not None
         ]
-        values = [m["relative_change"] for _, m in rows]
+        per_workflow: dict[str, list[float]] = {}
+        for cell, m in rows:
+            per_workflow.setdefault(cell["workflow_id"], []).append(m["relative_change"])
+        values = [fmean(v) for v in per_workflow.values()]
+        country_dependent = sum(
+            1 for v in per_workflow.values() if len(v) > 1 and max(v) - min(v) > 1e-9
+        )
         findings = {"improved": 0, "worse": 0, "no_significant_difference": 0}
         for _, m in rows:
             if m["finding"] in findings:
@@ -326,10 +335,14 @@ def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict
                 for name, v in sorted(groups.items())
             ]
 
+        pooled = _pooled(values, confidence)
+        pooled["workflows"] = pooled.pop("cells")
         row = (
             spec
-            | _pooled(values, confidence)
+            | pooled
             | {
+                "cells": len(rows),
+                "country_dependent_workflows": country_dependent,
                 "cell_findings": findings,
                 "by_department": group("department"),
                 "by_country": group("country"),
@@ -343,7 +356,7 @@ def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict
         p_adj = adjusted.get(row["metric"])
         row["p_adjusted"] = _r(p_adj, 8)
         row["significant"] = p_adj is not None and p_adj < alpha
-        if row["cells"] < 2:
+        if row["workflows"] < 2:
             row["finding"] = "too_few_cells"
         elif not row["significant"]:
             row["finding"] = "no_significant_difference"
@@ -360,10 +373,10 @@ def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict
         }
     )
     stats = {
-        "method": "the cell (a scenario in one country) is the unit: each cell's mean "
-        "relative change from its repeated-seed series; across cells a t-interval and a "
-        f"one-sample t-test against zero, {confidence:.0%} confidence, Holm-adjusted "
-        f"across the {len(tested)} tested metrics",
+        "method": "the workflow is the unit: each workflow's mean relative change over its "
+        "cells (one per country), each cell the mean of its repeated-seed series; across "
+        f"workflows a t-interval and a one-sample t-test against zero, {confidence:.0%} "
+        f"confidence, Holm-adjusted across the {len(tested)} tested metrics",
         "confidence": confidence,
         "cells": len(cells),
         "workflows": len({c["workflow_id"] for c in cells}),
@@ -408,11 +421,21 @@ def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict
             f = r["cell_findings"]
             text += f", better in {f['improved']} of {r['cells']} cells, worse in {f['worse']}"
             parts.append(text)
+    labour = rows.get("labour_hours")
+    country_note = (
+        f"The country changed the labour effect in {labour['country_dependent_workflows']} "
+        f"of {labour['workflows']} workflows. "
+        if labour and len(stats["countries"]) > 1
+        else ""
+    )
     stats["conclusion"] = (
-        f"Across {len(cells)} cells ({stats['workflows']} workflows, "
+        f"Across {stats['workflows']} workflows ({len(cells)} cells; "
         f"{len(stats['departments'])} departments, {len(stats['countries'])} countries), "
-        "mean change per cell: " + "; ".join(parts) + f". {successful} of {len(cells)} cells "
-        "met every success criterion on every seed."
+        "mean change per workflow: "
+        + "; ".join(parts)
+        + ". "
+        + country_note
+        + f"{successful} of {len(cells)} cells met every success criterion on every seed."
         + (f" A metric was worse in: {', '.join(worse_cells)}." if worse_cells else "")
     )
     return stats

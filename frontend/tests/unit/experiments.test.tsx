@@ -182,7 +182,9 @@ const portfolioMetric = (metric: string, label: string, mean: number, low: numbe
   metric,
   label,
   better: metric === "accuracy" ? "higher" : "lower",
+  workflows: 19,
   cells: 57,
+  country_dependent_workflows: 0,
   mean_relative_change: mean,
   ci_low: low,
   ci_high: high,
@@ -422,7 +424,7 @@ describe("Portfolios", () => {
     mockApi(routes);
     renderApp("/experiments");
     const details = await screen.findByRole("region", { name: "Portfolio details" });
-    expect(within(details).getByText(/countries GB, US, JP · 3 seeds per cell · 57 of 57 cells evaluated/)).toBeInTheDocument();
+    expect(within(details).getByText(/countries GB, US, JP · 3 seeds per cell · 57 of 57 cells evaluated · 19 workflows, 2 departments/)).toBeInTheDocument();
     const table = within(details).getByRole("table", { name: "Effect across cells" });
     const labour = within(table).getByRole("row", { name: /Simulated labour time/ });
     expect(labour).toHaveTextContent("-30.0%");

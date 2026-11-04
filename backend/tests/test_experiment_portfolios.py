@@ -39,30 +39,48 @@ def _cell(scenario, workflow, department, country, labour, accuracy, verdict="su
     }  # fmt: skip
 
 
-def test_the_cell_is_the_unit_across_workflows_departments_and_countries() -> None:
+def test_the_workflow_is_the_unit_across_departments_and_countries() -> None:
     cells = [
         _cell("a", "WF-1", "Lending", "US", -0.30, 0.01),
         _cell("a", "WF-1", "Lending", "JP", -0.34, -0.01),
         _cell("b", "WF-2", "Cards", "US", -0.40, 0.00),
         _cell("b", "WF-2", "Cards", "JP", -0.36, 0.005),
+        # The country makes no difference here: two identical cells, one workflow.
+        _cell("c", "WF-3", "Human Resources", "US", -0.35, 0.0),
+        _cell("c", "WF-3", "Human Resources", "JP", -0.35, 0.0),
     ]
     stats = portfolio_statistics(cells, 0.95)
-    assert (stats["cells"], stats["workflows"]) == (4, 2)
-    assert stats["departments"] == ["Cards", "Lending"] and stats["countries"] == ["JP", "US"]
+    assert (stats["cells"], stats["workflows"]) == (6, 3)
+    assert stats["countries"] == ["JP", "US"]
     rows = {m["metric"]: m for m in stats["metrics"]}
     assert "ai_execution_cost" not in rows  # informational metrics are not pooled
     labour = rows["labour_hours"]
+    # Workflow means -0.32, -0.38 and -0.35: three units, not six.
+    assert (labour["workflows"], labour["cells"]) == (3, 6)
     assert labour["mean_relative_change"] == pytest.approx(-0.35)
     assert labour["ci_high"] < 0 and labour["finding"] == "improved"
-    assert labour["cell_findings"] == {"improved": 4, "worse": 0, "no_significant_difference": 0}
+    assert labour["country_dependent_workflows"] == 2
+    assert labour["cell_findings"] == {"improved": 6, "worse": 0, "no_significant_difference": 0}
     assert {d["department"]: d["mean_relative_change"] for d in labour["by_department"]} == {
-        "Cards": pytest.approx(-0.38), "Lending": pytest.approx(-0.32)
+        "Cards": pytest.approx(-0.38), "Human Resources": pytest.approx(-0.35),
+        "Lending": pytest.approx(-0.32),
     }  # fmt: skip
-    assert [c["cells"] for c in labour["by_country"]] == [2, 2]
+    assert [c["cells"] for c in labour["by_country"]] == [3, 3]
     assert rows["accuracy"]["finding"] == "no_significant_difference"
-    assert stats["verdict"] == "successful" and stats["cell_verdicts"]["successful"] == 4
-    assert "Across 4 cells (2 workflows, 2 departments, 2 countries)" in stats["conclusion"]
-    assert "better in 4 of 4 cells" in stats["conclusion"]
+    assert stats["verdict"] == "successful" and stats["cell_verdicts"]["successful"] == 6
+    assert "Across 3 workflows (6 cells; 3 departments, 2 countries)" in stats["conclusion"]
+    assert "better in 6 of 6 cells" in stats["conclusion"]
+    assert "The country changed the labour effect in 2 of 3 workflows" in stats["conclusion"]
+
+
+def test_identical_country_cells_add_no_evidence() -> None:
+    # One workflow in five countries with the same result is still one unit: no test.
+    cells = [_cell("a", "WF-1", "Lending", c, -0.3, 0.0) for c in ("DE", "GB", "JP", "SG", "US")]
+    labour = next(
+        m for m in portfolio_statistics(cells, 0.95)["metrics"] if m["metric"] == "labour_hours"
+    )
+    assert (labour["workflows"], labour["cells"]) == (1, 5)
+    assert labour["p_value"] is None and labour["finding"] == "too_few_cells"
 
 
 def test_a_cell_that_got_worse_is_named_and_fails_the_portfolio() -> None:

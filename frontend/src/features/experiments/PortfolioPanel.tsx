@@ -44,6 +44,7 @@ function PortfolioView({ id }: { id: string }) {
       <p className="text-xs text-slate-500">
         Family {p.family} · {MODE_NAMES[p.candidate_mode]} · countries {p.countries.join(", ")} · {p.seeds.length} seeds per cell ·{" "}
         {p.cells_completed} of {p.cells} cells evaluated
+        {stats && ` · ${stats.workflows} workflows, ${stats.departments.length} departments`}
       </p>
       {p.failure_reason && <p className="text-sm text-red-700">{p.failure_reason}</p>}
       {stats && (
@@ -54,7 +55,7 @@ function PortfolioView({ id }: { id: string }) {
               <thead className="bg-slate-50 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
                 <tr>
                   <th className="px-3 py-2">Metric</th>
-                  <th className="px-3 py-2 text-right">Mean change per cell</th>
+                  <th className="px-3 py-2 text-right">Mean change per workflow</th>
                   <th className="px-3 py-2 text-right">{Math.round(stats.confidence * 100)}% interval</th>
                   <th className="px-3 py-2 text-right">p (adjusted)</th>
                   <th className="px-3 py-2 text-right">Cells better / worse / same</th>

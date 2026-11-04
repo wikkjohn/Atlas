@@ -247,12 +247,17 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
     )
 
 
-def start_suite(db: Session, body: StartSuite, actor_id: uuid.UUID) -> list[SimulationRun]:
-    """One run per mode, same scenario, seed and workload: the experiment's equal footing."""
+def start_suite(
+    db: Session, body: StartSuite, actor_id: uuid.UUID, *, check_idle: bool = True
+) -> list[SimulationRun]:
+    """One run per mode, same scenario, seed and workload: the experiment's equal footing.
+    `check_idle=False` lets an experiment series (Phase 77) queue one suite per seed after
+    checking once that nothing else is running."""
     scenario, applications, employees = _resolve(body)
     modes = list(dict.fromkeys(body.modes))
     tool = _resolve_tool(db, scenario, modes, body.tool_id, body.tool_version)
-    _ensure_idle(db)
+    if check_idle:
+        _ensure_idle(db)
     batch_id = uuid.uuid4()
     return [
         runner.create_run(

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.modules.experiments.assumptions import CostAssumptions, SuccessThresholds
 from app.simulation.scenarios import MAX_CUSTOM_APPLICATIONS, MAX_CUSTOM_EMPLOYEES
@@ -107,3 +107,74 @@ class BenchmarkRow(BaseModel):
     latest_experiment_id: uuid.UUID
     latest_verdict: str | None
     median_relative_change: dict[str, float | None]
+
+
+# --- Repeated-seed series (Phase 77) ----------------------------------------------------------
+
+MAX_REPLICATES = 30
+
+
+class SeriesCreate(BaseModel):
+    """Repeat an experiment over several seeds and test its effect across them."""
+
+    name: str = Field(min_length=3, max_length=200)
+    scenario_id: str = "retail-onboarding"
+    scenario_version: int | None = Field(default=None, ge=1, description="Defaults to latest")
+    tool_id: str = Field(max_length=64)
+    tool_version: str | None = Field(default=None, max_length=40)
+    candidate_mode: Literal["ai_assisted", "ai_automated"] = "ai_assisted"
+    profile: Literal["small", "custom"] = "small"
+    applications: int | None = Field(default=None, ge=1, le=MAX_CUSTOM_APPLICATIONS)
+    employees: int | None = Field(default=None, ge=3, le=MAX_CUSTOM_EMPLOYEES)
+    seed: int = Field(default=42, ge=0, le=MAX_SEED, description="The first seed")
+    replicates: int = Field(default=5, ge=2, le=MAX_REPLICATES)
+    seeds: list[int] | None = Field(
+        default=None,
+        min_length=2,
+        max_length=MAX_REPLICATES,
+        description="Explicit seeds instead of `seed`, `seed + 1`, ... (`replicates` ignored)",
+    )
+    confidence: float = Field(default=0.95, ge=0.8, le=0.99)
+    costs: CostAssumptions = Field(default_factory=CostAssumptions)
+    thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
+
+    @field_validator("seeds")
+    @classmethod
+    def _distinct(cls, seeds: list[int] | None) -> list[int] | None:
+        if seeds is not None:
+            if len(set(seeds)) != len(seeds):
+                raise ValueError("Seeds must be different.")
+            if any(not 0 <= s <= MAX_SEED for s in seeds):
+                raise ValueError(f"Seeds must be between 0 and {MAX_SEED}.")
+        return seeds
+
+    def seed_list(self) -> list[int]:
+        return self.seeds if self.seeds is not None else [
+            self.seed + i for i in range(self.replicates)
+        ]  # fmt: skip
+
+
+class SeriesSummary(BaseModel):
+    id: uuid.UUID
+    series_number: int
+    name: str
+    scenario_id: str
+    scenario_version: int
+    candidate_mode: str
+    tool_id: str | None
+    tool_version: str | None
+    seeds: list[int]
+    confidence: float
+    status: str
+    failure_reason: str | None
+    verdict: str | None
+    replicates_completed: int
+    created_by_username: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class SeriesDetail(SeriesSummary):
+    configuration: dict[str, Any]
+    statistics: dict[str, Any] | None
+    experiments: list[ExperimentSummary]

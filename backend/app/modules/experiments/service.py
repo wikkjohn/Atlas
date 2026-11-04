@@ -50,7 +50,14 @@ def _config(costs, thresholds) -> tuple[dict[str, Any], str]:
 # --- Creation ---------------------------------------------------------------------------------
 
 
-def create(db: Session, body: ExperimentCreate, actor_id: uuid.UUID) -> Experiment:
+def create(
+    db: Session,
+    body: ExperimentCreate,
+    actor_id: uuid.UUID,
+    *,
+    series_id: uuid.UUID | None = None,
+    check_idle: bool = True,
+) -> Experiment:
     """Queue the baseline and candidate runs; the evaluation follows when both finish."""
     if body.profile == "department":
         sizes: dict[str, Any] = {"profile": "custom", "applications": 10_000, "employees": 500}
@@ -74,6 +81,7 @@ def create(db: Session, body: ExperimentCreate, actor_id: uuid.UUID) -> Experime
             **sizes,
         ),
         actor_id,
+        check_idle=check_idle,
     )
     baseline, candidate = runs
     config, config_hash = _config(body.costs, body.thresholds)
@@ -92,6 +100,7 @@ def create(db: Session, body: ExperimentCreate, actor_id: uuid.UUID) -> Experime
         configuration_hash=config_hash,
         status=ExperimentStatus.RUNNING.value,
         created_by=actor_id,
+        series_id=series_id,
     )
     db.add(experiment)
     db.flush()

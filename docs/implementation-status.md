@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 78.
+Last updated: Phase 79.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -83,6 +83,55 @@ Last updated: Phase 78.
 | 76 | AI laboratory, step 1: a hosted model behind the tool contract ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 77 | AI laboratory, step 2: repeated-seed series with confidence intervals and significance tests ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 78 | AI laboratory, step 3: experiment portfolios across workflows, departments and countries ([benchmarking.md](benchmarking.md)) | **Complete** |
+| 79 | AI laboratory, step 4: guardrails — record audit, drift and bias across segments ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 79: what exists
+
+- **A hash on every call** (`ai_tool_invocations.record_hash`, migration 0053): SHA-256 of
+  the call's canonical record, set when the invocation service records it, refused and
+  failed calls included.
+- **A hosted model's exact exchange** (`ai_tool_invocations.transcript`): the Claude
+  adapter keeps the request as sent and the answer as received, on every outcome.
+- **Verification** (`guardrails.verify_audit`, `GET /api/v1/ai-tools/audit/verify`):
+  recomputes the hashes; altered records by id; older calls counted as unhashed.
+- **Drift** (`guardrails.drift`, `GET /api/v1/ai-tools/{id}/drift`): two runs or before and
+  after a time; PSI on recommendations and on the inputs' segment attributes, gated by a
+  chi-square test; Welch's t-test on confidence; a two-proportion test on errors.
+- **Bias** (`guardrails.bias`, `GET /api/v1/ai-tools/{id}/bias`): segments from the inputs
+  (country, nationality, employment status, account type, segment, age band); equal
+  opportunity against the simulation's ground truth, demographic parity and the
+  four-fifths rule without it; Holm-adjusted across attributes; small groups left out.
+- **Runs per tool** (`GET /api/v1/ai-tools/{id}/runs`) to pick windows.
+- **Page:** *Guardrails* on each tool in the AI Innovation Lab (bias tables per
+  attribute, drift between two runs, *Verify records*); the invocations table shows each
+  call's hash and a hosted model's prompt and answer.
+- **PR #69 (Phase 78)** had no review comments; CI passed on the first run.
+
+## Phase 79: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Generated workflow tests | GEN_RESULT |
+| Frontend Vitest / typecheck / build | 175 passed (new: bias by segment with the finding, four-fifths and groups left out; drift newest against oldest run; changing the bias window; verifying records lists an altered one; the hash in the invocations table) / clean / built |
+| Playwright on a fresh database | PW_RESULT |
+| The KYC assistant's stored runs (development database) | bias clear (account type p = 0.0003 but approval ratio 0.977); first against last run: recommendations stable (PSI 0.016), input country significant (PSI 7.27, a run pinned to one country); 2,231 calls from before this phase unhashed |
+
+## Phase 79: known limitations
+
+- **Tamper-evidence, not tamper-proof:** the hash sits in the same database as the row; an
+  editor who recomputes it is not caught. A signed or external ledger is not built.
+- **Segments only from the inputs:** an attribute the payload does not carry (gender, for
+  instance, which the synthetic applications do not hold) cannot be checked.
+- **Ground truth only in simulations:** live calls get parity and the four-fifths rule,
+  not equal opportunity.
+- **Small runs, coarse tests:** groups under 20 calls are left out; a run of 40 cases
+  rarely has two groups large enough, so bias is most useful across all of a tool's
+  calls.
+- **Older calls are unhashed** and have no transcript; nothing backfills them, because a
+  hash computed now would vouch for a record nobody checked at the time.
+- **Reports on request:** drift and bias are computed when asked, not on a schedule, and
+  raise no alert.
 
 ## Phase 78: what exists
 

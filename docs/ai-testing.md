@@ -121,6 +121,77 @@ and schemas on Claude Opus 5.5, compatible with WF-1044. Set it against the rule
 a fake client and never call the API; no measurement against the real API has been made
 in this repository.
 
+## Guardrails: audit, drift and bias (Phase 79)
+
+`app/modules/ai_tools/guardrails.py`, standard library only. Three questions a reviewer of
+an AI tool asks after it has been running: is the record of what it did intact, has its
+behaviour moved, and does it treat customer segments alike? The AI Innovation Lab shows
+all three under *Guardrails* on each tool.
+
+### Prompt and response audit
+
+- **Every call is hashed.** When the invocation service records a call it stores
+  `record_hash`, the SHA-256 of the record's canonical JSON (tool, version, action,
+  status, input, output, error, usage, transcript, who, execution, run and business
+  time; sorted keys, no whitespace). Refused, failed and blocked calls are hashed too.
+- **Hosted models keep the exact exchange.** The Claude adapter stores a `transcript`:
+  the request as sent (model, system prompt, messages, output configuration) and the
+  answer as received (served model, stop reason, raw text, request id), also on refused,
+  cut-off, unparseable and failed calls. Rule-based tools have no prompt; their input and
+  output are the record.
+- **Verification** (`GET /api/v1/ai-tools/audit/verify`) recomputes every hash and lists
+  the records that no longer match (`altered`), or reports `intact`. Calls recorded before
+  Phase 79 have no hash and are counted as `unhashed`, not as valid.
+- **What this is not:** a hash in the same database proves a row was changed only
+  against someone who edits a row without recomputing its hash. It is tamper-evidence
+  for accidental and casual edits, not a signed, external ledger.
+
+### Drift
+
+`GET /api/v1/ai-tools/{id}/drift?reference_run_id=&current_run_id=` (or `split_at=` for
+before and after a time) compares two windows of the tool's calls:
+
+| Measure | Test |
+| --- | --- |
+| Recommendation shares (approve, reject, escalate) | Population Stability Index (PSI) with a chi-square test of the counts |
+| Each segment attribute of the inputs (country, age band, account type, …) | PSI with a chi-square test |
+| Mean confidence | Welch's t-test |
+| Error rate (calls that did not succeed) | Two-proportion z-test |
+
+PSI below 0.1 is *stable*, below 0.25 *moderate*, above it *significant*; a shift the
+chi-square test cannot tell from sampling noise (p ≥ 0.05) is *stable* whatever its PSI,
+because PSI on a few dozen calls is large by chance alone. The overall status is the
+worst of the PSI statuses, raised to *moderate* when the confidence or the error rate
+moved significantly. Input drift says the workload changed; recommendation drift with
+stable inputs says the tool did.
+
+### Bias across segments
+
+`GET /api/v1/ai-tools/{id}/bias?run_id=&min_group=20`. Segments come from the tool's
+inputs, wherever they sit in the payload: country (`country_code`, `home_country`,
+`residence_country`), nationality, employment status, account type, customer segment,
+and an age band from `date_of_birth` (under 25, 25–39, 40–54, 55–69, 70 and over, on the
+input's `as_of` date or the call's). Groups with fewer than `min_group` calls are left out
+and named.
+
+- **With ground truth** (a simulation run: each case's expected outcome) the test is
+  **equal opportunity**: among cases that should be approved, how often each group is
+  recommended for rejection, with a chi-square test across groups. A different case mix
+  (one group having more cases that should be rejected) is not a disparity.
+- **Without ground truth** it falls back to **demographic parity**: approval rates with a
+  chi-square test, and the **four-fifths rule** (the lowest group's approval rate at least
+  80 % of the highest).
+- **A finding of disparity** needs a Holm-adjusted p below 0.05 across the attributes
+  tested *and* a material size: a false-rejection gap above 10 percentage points, or,
+  without ground truth, a four-fifths ratio below 0.8. A tiny but significant difference
+  is reported, not flagged.
+
+Measured on the KYC assistant's stored runs (development database): no attribute flagged
+— account type differed significantly in approval rates (p = 0.0003) but by a ratio of
+0.977; between the first and last runs the recommendations were stable (PSI 0.016) while
+the inputs' country shifted significantly (PSI 7.27; the last run was pinned to one
+country), which is the workload changing, not the tool.
+
 ## WF-0001 version 2
 
 Version 2 is version 1 plus two steps, controlled by the execution's settings

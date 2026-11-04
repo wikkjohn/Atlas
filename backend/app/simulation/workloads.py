@@ -2948,6 +2948,9 @@ class LeaveRequests(Workload):
             # Three or four days off at a day or two's notice in the last 90 days.
             for back in (80, 60, 40, 20)[: rng.randint(3, 4)]:
                 day = _weekday_on_or_after(today - timedelta(days=back))
+                # A working day: one off on a public holiday (Labor Day, say) is no leave.
+                while hr.business_days(employee, day, day) == 0:
+                    day = _weekday_on_or_after(day + timedelta(days=1))
                 approved(employee, day, day, asked=day - timedelta(days=rng.randint(1, 2)))
         return {"employee_number": employee.employee_number, "kind": leave_kind,
                 "start_date": start.isoformat(), "end_date": end.isoformat()}  # fmt: skip

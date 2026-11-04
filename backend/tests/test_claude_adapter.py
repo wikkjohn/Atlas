@@ -280,3 +280,24 @@ def test_the_real_client_shares_the_time_between_its_attempts(monkeypatch) -> No
     client = claude.make_client(config)
     assert isinstance(client, anthropic.AsyncAnthropic)
     assert (client.timeout, client.max_retries) == (30.0, 2)  # 3 attempts in 90 s
+
+
+def test_the_exact_prompt_and_answer_are_kept_for_the_audit(db: Session, provider) -> None:
+    from app.modules.ai_tools.service import record_hash
+
+    tool = _tool(db)
+    call = _call(db, tool)
+    request = call.transcript["request"]
+    assert request["model"] == "claude-opus-5-5" and "synthetic" in request["system"]
+    assert json.loads(request["messages"][0]["content"].split("Input (JSON):\n")[1]) == {
+        "profile": PROFILE
+    }
+    response = call.transcript["response"]
+    assert response["stop_reason"] == "end_turn" and json.loads(response["text"]) == call.output
+    assert call.record_hash == record_hash(call)
+    # A refused call keeps what was asked and what came back.
+    provider.respond = lambda params: message({}, stop="refusal", category="cyber")
+    refused = _call(db, tool)
+    assert refused.status == "failed" and refused.transcript["response"]["stop_reason"] == (
+        "refusal"
+    )

@@ -236,11 +236,17 @@ class ClaudeAdapter(AIToolAdapter):
         if config.refusal_fallbacks and config.model in FALLBACK_MODELS:
             params["betas"] = [FALLBACK_BETA]
             params["fallbacks"] = "default"
+        # The exact request, kept with the invocation for the audit (Phase 79).
+        transcript: dict[str, Any] = {
+            "request": {k: params[k] for k in ("model", "system", "messages", "output_config")},
+        }
         client = client_factory(config)
         try:
             response = await client.beta.messages.create(**params)
         except anthropic.AnthropicError as exc:
-            raise _provider_error(exc) from exc
+            error = _provider_error(exc)
+            error.transcript = transcript
+            raise error from exc
         finally:
             # Each call runs in its own event loop (the invocation service is synchronous),
             # so its connections are closed with it.
@@ -250,6 +256,13 @@ class ClaudeAdapter(AIToolAdapter):
 
         usage = _usage(response, config)
         stop = getattr(response, "stop_reason", None)
+        text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
+        transcript["response"] = {
+            "model": getattr(response, "model", None),
+            "stop_reason": stop,
+            "text": text,
+            "request_id": usage.get("request_id"),
+        }
         if stop == "refusal":
             details = getattr(response, "stop_details", None)
             category = getattr(details, "category", None)
@@ -257,14 +270,26 @@ class ClaudeAdapter(AIToolAdapter):
                 "refused",
                 f"The model declined the request (category: {category or 'unspecified'}).",
                 usage=usage,
+                transcript=transcript,
             )
         if stop == "max_tokens":
-            raise ToolError("truncated", "The answer was cut off at max_tokens.", usage=usage)
-        text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
+            raise ToolError(
+                "truncated",
+                "The answer was cut off at max_tokens.",
+                usage=usage,
+                transcript=transcript,
+            )
         try:
             output = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ToolError("unparseable_output", "The answer was not JSON.", usage=usage) from exc
+            raise ToolError(
+                "unparseable_output", "The answer was not JSON.", usage=usage, transcript=transcript
+            ) from exc
         if not isinstance(output, dict):
-            raise ToolError("unparseable_output", "The answer was not a JSON object.", usage=usage)
-        return ToolResult(output=output, usage=usage)
+            raise ToolError(
+                "unparseable_output",
+                "The answer was not a JSON object.",
+                usage=usage,
+                transcript=transcript,
+            )
+        return ToolResult(output=output, usage=usage, transcript=transcript)

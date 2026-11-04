@@ -2,6 +2,8 @@
 
 import asyncio
 import concurrent.futures
+import hashlib
+import json
 import time
 import uuid
 from datetime import UTC, datetime
@@ -34,6 +36,29 @@ from app.modules.identity.models import User
 from app.modules.workflows import store
 
 DEFAULT_TIMEOUT_SECONDS = 5.0
+
+
+def record_hash(record: AIToolInvocation) -> str:
+    """SHA-256 of everything an invocation records (Phase 79): recomputed by the audit to
+    show the record is as it was written. JSON with sorted keys; times in UTC."""
+    occurred = record.occurred_at.astimezone(UTC).isoformat() if record.occurred_at else None
+    content = {
+        "tool_id": record.tool_id,
+        "tool_version": record.tool_version,
+        "action": record.action,
+        "status": record.status,
+        "input": record.input,
+        "output": record.output,
+        "error": record.error,
+        "usage": record.usage,
+        "transcript": record.transcript,
+        "invoked_by": str(record.invoked_by) if record.invoked_by else None,
+        "execution_id": str(record.execution_id) if record.execution_id else None,
+        "simulation_run_id": str(record.simulation_run_id) if record.simulation_run_id else None,
+        "occurred_at": occurred,
+    }
+    canonical = json.dumps(content, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 # --- Catalogues -------------------------------------------------------------------------------
@@ -316,6 +341,7 @@ def invoke(
         record.status = status.value
         record.output = output
         record.error = error
+        record.record_hash = record_hash(record)
         db.add(record)
         db.flush()
         if status == InvocationStatus.BLOCKED:
@@ -385,6 +411,7 @@ def invoke(
     except ToolError as exc:
         record.duration_ms = round((time.perf_counter() - started) * 1000)
         record.usage = exc.usage
+        record.transcript = exc.transcript
         return finish(
             InvocationStatus.FAILED,
             error={"code": exc.code, "message": exc.message, "retryable": exc.retryable},
@@ -397,6 +424,7 @@ def invoke(
         )
     record.duration_ms = round((time.perf_counter() - started) * 1000)
     record.usage = result.usage
+    record.transcript = result.transcript
     output_errors = _schema_errors(tool.output_schema, result.output)
     if output_errors:
         return finish(

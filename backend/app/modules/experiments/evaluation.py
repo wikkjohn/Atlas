@@ -47,10 +47,16 @@ def costs(m: dict[str, Any], a: CostAssumptions) -> dict[str, Any]:
     oversight_minutes = (
         m["automated_approvals"] * a.oversight_sample_rate * a.oversight_minutes_per_sample
     )
+    # Calls whose tool measured its cost (a hosted model, Phase 76) count at that cost; the
+    # rest at the assumed cost per call.
+    ai = m["ai"]
+    priced = ai.get("priced_invocations", 0)
+    measured = ai.get("measured_cost", 0.0)
+    ai_cost = measured + max(ai["executed_invocations"] - priced, 0) * a.ai_cost_per_invocation
     lines = {
         "review_labour": review_minutes * a.reviewer_cost_per_minute,
         "automation_oversight": oversight_minutes * a.reviewer_cost_per_minute,
-        "ai_execution": m["ai"]["executed_invocations"] * a.ai_cost_per_invocation,
+        "ai_execution": ai_cost,
         "infrastructure": a.infrastructure_cost_per_run
         + m["cases"] * a.infrastructure_cost_per_case,
         "exception_handling": m["exceptions"] * a.exception_handling_cost,
@@ -66,6 +72,11 @@ def costs(m: dict[str, Any], a: CostAssumptions) -> dict[str, Any]:
             "review_minutes": round(review_minutes, 2),
             "oversight_minutes": round(oversight_minutes, 2),
             "executed_ai_invocations": m["ai"]["executed_invocations"],
+            **(
+                {"priced_ai_invocations": priced, "measured_ai_cost": round(measured, 6)}
+                if priced
+                else {}
+            ),
             "cases": m["cases"],
             "exceptions": m["exceptions"],
             "escalations": m["escalations"],
@@ -250,7 +261,8 @@ def criteria(
     )
 
     missing = []
-    if cm["ai"]["executed_invocations"] and a.ai_cost_per_invocation <= 0:
+    unpriced = cm["ai"]["executed_invocations"] - cm["ai"].get("priced_invocations", 0)
+    if unpriced > 0 and a.ai_cost_per_invocation <= 0:
         missing.append("AI execution is assumed to cost nothing")
     if cm["automated_approvals"] and (
         a.oversight_sample_rate <= 0 or a.oversight_minutes_per_sample <= 0

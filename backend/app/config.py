@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Simulation history archives (Phase 15): compressed COPY files, one directory per run.
     # The API and every worker must see the same directory (a shared volume in Docker).
     simulation_archive_dir: Path = Path("var/simulation-archive")
+    # Calls to hosted AI models (Phase 76): off unless switched on. The data is synthetic;
+    # credentials come from the provider's own environment variables, never from ATLAS.
+    ai_provider_enabled: bool = False
 
     # Observability (Phase 15). Statements slower than this are logged and kept in the
     # slow-query log; 0 turns the log off.

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 75.
+Last updated: Phase 76.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -80,6 +80,47 @@ Last updated: Phase 75.
 | 73 | Workforce and customers, step 5: arrival patterns ([simulation.md](simulation.md)) | **Complete** |
 | 74 | Workforce and customers, step 6: the event pipeline ([events.md](events.md)) | **Complete** |
 | 75 | Workforce and customers, step 7: the Milestone F exit, measured ([performance.md](performance.md)) — the exit itself **not met** in this container | **Complete** (exit not met) |
+| 76 | AI laboratory, step 1: a hosted model behind the tool contract ([ai-testing.md](ai-testing.md)) | **Complete** |
+
+## Phase 76: what exists
+
+- **The Claude adapter** (`claude_messages`): a registered tool keeps its schemas and
+  switches its adapter. The tool's instructions and the request go to the Messages API
+  (official `anthropic` SDK, `claude-opus-5-5`, explicit effort, server-side refusal
+  fallbacks); the answer comes back in the tool's own output schema (structured outputs),
+  checked by the invocation service like any other.
+- **Cost per call:** tokens, the answering model, the request id and `cost_usd` at list
+  prices, recorded on every call; refused, cut-off and non-JSON answers keep their usage.
+  The AI lab's invocations table shows it.
+- **Off by default, synthetic data only:** `ATLAS_AI_PROVIDER_ENABLED`; credentials from the
+  provider's environment, never stored.
+- **Experiments:** measured cost for priced calls, the assumed cost for the rest; other
+  runs' measurements and digests unchanged.
+- **Stored workflows** now call the tool an experiment chose (when compatible), so two
+  tools can be compared on the same stored workflow.
+- **`agb-leave-assistant-claude 1.0.0`** in the seed, on WF-1044.
+- **PR #66 (Phase 75)** had no review comments; CI passed on the first run.
+
+## Phase 76: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 777 passed. New: 14 tests covering: hosted calls are refused unless switched on (no client built); a call keeps the tool contract (the leave schemas, the right recommendation), records tokens, model, request id and cost, and sends the instructions, the input, an explicit effort, refusal fallbacks and the schema without unsupported limits; refused, cut-off, non-JSON and off-schema answers fail with their usage recorded; rate limits, timeouts, unreachable or failing providers and refused credentials become structured, retryable-or-not failures; list prices, cache reads and writes, a fallback model's price and overrides; the real client shares the timeout between its attempts; a leave experiment with the Claude-backed tool (stand-in model) decides as the rule-based one and is costed at its measured cost |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (136.8 s on the development database) |
+| Frontend Vitest / typecheck / build | 170 passed (new: the cost of a hosted model's call in the invocations table) / clean / built |
+| Playwright on a fresh database | 73 passed (the leave-assistant test now picks the rule-based tool by its exact name; the seed's Claude-backed twin matched too) |
+| Against the real Claude API | **not run**: no credentials in this container; every test uses a fake client |
+
+## Phase 76: known limitations
+
+- **No call to the real API has been made here,** so nothing is measured about the model's
+  accuracy, latency or real cost on the bank's cases.
+- **List prices are in the code** (October 2026); a price change needs a code or
+  configuration change, and partner platforms (Bedrock, Vertex) price differently.
+- **One call per review, no prompt caching:** the instructions are below the minimum
+  cacheable length; no batching for large experiments yet.
+- **Calls run inside the simulation's step,** one at a time: a hosted model's latency adds
+  directly to a run's wall time.
 
 ## Phase 75: what exists
 

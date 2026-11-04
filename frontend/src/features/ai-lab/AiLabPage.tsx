@@ -12,6 +12,7 @@ import { Pagination } from "@/components/Pagination";
 import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
+import { usageCost } from "@/features/ai-lab/usage";
 import { formatTimestamp } from "@/features/dashboard/format";
 import {
   useActions,
@@ -886,6 +887,7 @@ function ToolDetail({ id }: { id: string }) {
                 <th className="px-3 py-2">Action</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Result</th>
+                <th className="px-3 py-2 text-right">Cost</th>
                 <th className="px-3 py-2">Source</th>
               </tr>
             </thead>
@@ -904,6 +906,7 @@ function ToolDetail({ id }: { id: string }) {
                         ? i.error.message
                         : "—"}
                   </td>
+                  <td className="px-3 py-2 text-right text-xs">{usageCost(i.usage)}</td>
                   <td className="px-3 py-2 text-xs text-slate-500">
                     {i.simulation_run_id ? "Simulation" : i.execution_id ? "Workflow" : "Test console"}
                   </td>
@@ -911,7 +914,7 @@ function ToolDetail({ id }: { id: string }) {
               ))}
               {invocations.data?.items.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
                     No invocations yet.
                   </td>
                 </tr>

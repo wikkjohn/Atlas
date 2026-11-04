@@ -5,6 +5,7 @@ from app.modules.ai_tools.adapters.back_office_check import BackOfficeCheckAdapt
 from app.modules.ai_tools.adapters.base import AIToolAdapter
 from app.modules.ai_tools.adapters.card_fraud import CardFraudAdapter
 from app.modules.ai_tools.adapters.change_review import ChangeReviewAdapter
+from app.modules.ai_tools.adapters.claude import ClaudeAdapter
 from app.modules.ai_tools.adapters.complaint_review import ComplaintReviewAdapter
 from app.modules.ai_tools.adapters.covenant_review import CovenantReviewAdapter
 from app.modules.ai_tools.adapters.credit_underwriting import CreditUnderwritingAdapter
@@ -45,6 +46,7 @@ ADAPTERS: dict[str, AIToolAdapter] = {
         InvoiceReviewAdapter(),
         ChangeReviewAdapter(),
         FaultInjectionAdapter(),
+        ClaudeAdapter(),
     )
 }
 

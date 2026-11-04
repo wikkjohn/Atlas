@@ -65,6 +65,7 @@ against `output_schema` (`invalid_output`); otherwise `succeeded`.
 | `rule_based_payment_screening` | **AGB Payment Fraud Screener** (Phase 9, proof of concept). Reviews payments that WF-0002's screening held: scam phrases in the reference (high), payee on the synthetic watchlist (critical), share of the balance and payment velocity (medium), first payment to the payee and high value (low). Any critical or high finding → **reject**; score ≥ 5 → **escalate**; otherwise **approve** at low risk — behavioural signals alone are common for legitimate first payments. Its blind spot is deliberate and documented: a scam with an ordinary reference looks like a legitimate large payment. Deterministic. |
 | `rule_based_credit_underwriting` | **AGB Credit Underwriting Assistant** (Phase 11, proof of concept). Reviews loan applications WF-0003's credit policy refers to an underwriter: declared income against the synthetic bureau's income estimate (≥ 1.4× → high, ≥ 1.15× → medium), a recent default, a near-prime score (< 660) and a debt-to-income above 35 % (medium), self-employed income, five or more credit lines and a committee-size loan (low). Any high finding → **reject**; score ≥ 4 → **escalate**; a single medium finding → **approve** at medium risk; otherwise **approve** at low risk. Its blind spot is the same income rule: an honest self-employed applicant whose irregular income runs well above the estimate looks inflated. Deterministic. |
 | `rule_based_overdraft_affordability` | **AGB Overdraft Affordability Assistant** (Phase 30, proof of concept). Reviews arranged-overdraft requests in WF-1003 v2 against the account's last 90 days (`retail.account_profile`). Findings: a limit above the product's maximum (critical); no money in, or a limit above a month's money in (high); money in during fewer than all three months, or overdrawn on 15 or more of 90 days (medium); a limit above half a month's money in (low). Any critical or high finding → **reject**; score ≥ 4 → **escalate**; a single medium finding → **approve** at medium risk; otherwise **approve** at low risk. Its blind spot is deliberate and documented: a customer with regular income who already lives in an overdraft raises one medium finding only, and is recommended for approval. Deterministic. |
+| `claude_messages` | **A hosted Claude model** (Phase 76): the tool's instructions and the request go to the Messages API, and the answer comes back in the tool's own output schema; tokens and cost on every call. Off unless `ATLAS_AI_PROVIDER_ENABLED` is set. See the section below. |
 | `fault_injection` | Behaves like the KYC assistant but fails, times out or returns malformed output for a configurable share of requests, decided by a hash of the request (reproducible). Exists to test failure handling. |
 
 The demo seed registers `agb-intelligent-kyc-assistant 1.0.0` (all three actions),
@@ -77,6 +78,48 @@ registers `agb-credit-underwriting-assistant 1.0.0` (`analyze_credit_application
 registers `agb-overdraft-affordability-assistant 1.0.0` (`recommend_decision` only;
 compatible with WF-1003, a stored workflow; the seed imports the examples without AI
 steps first, then registers the tools, then imports WF-1003 v2, which calls the tool).
+
+## A hosted model: the Claude adapter (Phase 76)
+
+`claude_messages` (`app/modules/ai_tools/adapters/claude.py`) is the first real model
+provider, behind the same contract. A tool keeps its own input and output schemas and
+changes only its `adapter`; nothing in a workflow changes.
+
+- **The call.** The tool's `instructions` (its task and the bank's policy, in its
+  configuration) and the request's input go to the Messages API through the official
+  `anthropic` SDK, by default to `claude-opus-5-5` at an explicit `effort` (default
+  `medium`). The answer is requested in the tool's registered output schema with
+  structured outputs; limits structured outputs do not take (`minimum`, `maxLength` and
+  the like) are left out of what is sent, and the invocation service checks the answer
+  against the full schema as for any adapter. Server-side refusal fallbacks are on by
+  default (`refusal_fallbacks`).
+- **Cost per call.** Every call records its tokens (input, output, cache reads and writes),
+  the model that answered (a fallback may answer), the request id and `cost_usd` at list
+  prices (Opus 5.5: $4 / $20 per million input / output tokens; overridable per tool).
+  Refused (`refused`), cut-off (`truncated`) and non-JSON (`unparseable_output`) answers are
+  billed by the provider, so they record their usage too.
+- **Failures.** Rate limits, timeouts and unreachable or failing providers become
+  `ToolError`s with `retryable` set; refused credentials are `provider_auth`. As with every
+  tool, a failed call sends the case down the human path. The SDK retries (`max_retries`,
+  default 2) within `timeout_seconds` (default 120).
+- **Synthetic data only, and off by default.** ATLAS holds no real customer, employee or
+  payment data. Calls are refused (`provider_disabled`) unless `ATLAS_AI_PROVIDER_ENABLED`
+  is set; credentials come from the provider's environment (`ANTHROPIC_API_KEY` or an
+  `ant auth login` profile) and are never stored by ATLAS.
+- **Experiments count what it cost.** A run's measurements add `priced_invocations`,
+  `measured_cost` and tokens when a tool reported cost; the cost model charges those calls
+  at their measured cost and only the others at the assumed cost per call
+  ([benchmarking.md](benchmarking.md)). Runs of rule-based tools are unchanged.
+- **The tool an experiment chose.** A stored workflow's AI step now calls the tool the
+  experiment's run chose, when that tool is compatible with the workflow; the step's own
+  tool remains the default. Before, a stored workflow always called the tool its
+  definition named, so two tools could not be compared on it.
+
+The seed registers `agb-leave-assistant-claude 1.0.0`: the leave review assistant's task
+and schemas on Claude Opus 5.5, compatible with WF-1044. Set it against the rule-based
+`agb-leave-assistant` in an experiment once hosted calls are switched on. The tests use
+a fake client and never call the API; no measurement against the real API has been made
+in this repository.
 
 ## WF-0001 version 2
 

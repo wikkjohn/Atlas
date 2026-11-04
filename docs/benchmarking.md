@@ -48,7 +48,7 @@ illustrative):
 | Assumption | Default | Applied to |
 | --- | ---: | --- |
 | Reviewer cost per minute | 0.85 | recorded review minutes, and oversight minutes |
-| AI cost per invocation | 0.04 | executed tool calls (including failed ones; blocked calls never ran) |
+| AI cost per invocation | 0.04 | executed tool calls that did not measure their own cost (including failed ones; blocked calls never ran). A hosted model's calls (Phase 76) count at the cost they recorded |
 | Infrastructure per workload / per case | 20.00 / 0.02 | each run / each case |
 | Workflow exception handling | 12.00 | document timeouts, overdue tasks, failed executions, AI errors |
 | Manual escalation | 6.00 | cases escalated to compliance review |

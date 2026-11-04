@@ -78,6 +78,7 @@ def create(
             modes=["baseline", body.candidate_mode],
             tool_id=body.tool_id,
             tool_version=body.tool_version,
+            country=body.country,
             **sizes,
         ),
         actor_id,

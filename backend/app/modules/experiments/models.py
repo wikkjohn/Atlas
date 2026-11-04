@@ -34,6 +34,43 @@ class Verdict(StrEnum):
     NOT_SUCCESSFUL = "not_successful"
 
 
+class ExperimentPortfolio(UUIDPrimaryKey, Base):
+    """A tool family evaluated across workflows, departments and countries (Phase 78): one
+    repeated-seed series per cell (a scenario the family serves, in one country), and
+    statistics across the cells."""
+
+    __tablename__ = "experiment_portfolios"
+    __table_args__ = (
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="status_valid"),
+    )
+
+    portfolio_number: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), nullable=False, unique=True
+    )
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    family: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    candidate_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    countries: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    seeds: Mapped[list[int]] = mapped_column(JSONB, nullable=False)
+    applications: Mapped[int] = mapped_column(nullable=False)
+    employees: Mapped[int] = mapped_column(nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    configuration_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Derived: recomputable from the cells' series statistics.
+    statistics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ExperimentSeries(UUIDPrimaryKey, Base):
     """The same experiment repeated over several seeds (Phase 77): one baseline and one
     candidate run per seed, each evaluated as an experiment, and statistics across them."""
@@ -72,6 +109,15 @@ class ExperimentSeries(UUIDPrimaryKey, Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # One country, or None for every active one (Phase 78).
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    # A cell of a portfolio (Phase 78), or None for a series on its own.
+    portfolio_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("experiment_portfolios.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
 
 class Experiment(UUIDPrimaryKey, Base):

@@ -39,15 +39,23 @@ from app.simulation.schemas import MAX_SEED
 logger = logging.getLogger("atlas.experiments")
 
 
-def create(db: Session, body: SeriesCreate, actor_id: uuid.UUID) -> ExperimentSeries:
+def create(
+    db: Session,
+    body: SeriesCreate,
+    actor_id: uuid.UUID,
+    *,
+    portfolio_id: uuid.UUID | None = None,
+    check_idle: bool = True,
+) -> ExperimentSeries:
     """Queue one baseline and one candidate run per seed."""
     seeds = body.seed_list()
     if max(seeds) > MAX_SEED:
         raise BusinessRuleViolation(f"Seeds must stay at or below {MAX_SEED}.")
     if body.profile == "custom" and (body.applications is None or body.employees is None):
         raise BusinessRuleViolation("A custom series needs both applications and employees.")
-    simulations.reap_stale(db)
-    simulations._ensure_idle(db)  # once: the series' own runs then queue behind each other
+    if check_idle:
+        simulations.reap_stale(db)
+        simulations._ensure_idle(db)  # once: the series' own runs then queue behind each other
     config, config_hash = service._config(body.costs, body.thresholds)
     series = ExperimentSeries(
         name=body.name.strip(),
@@ -60,6 +68,8 @@ def create(db: Session, body: SeriesCreate, actor_id: uuid.UUID) -> ExperimentSe
         configuration_hash=config_hash,
         status=ExperimentStatus.RUNNING.value,
         created_by=actor_id,
+        country=body.country,
+        portfolio_id=portfolio_id,
     )
     db.add(series)
     db.flush()
@@ -75,6 +85,7 @@ def create(db: Session, body: SeriesCreate, actor_id: uuid.UUID) -> ExperimentSe
             "employees",
             "costs",
             "thresholds",
+            "country",
         }  # fmt: skip
     )
     for seed in seeds:
@@ -207,6 +218,7 @@ def summary(db: Session, series: ExperimentSeries) -> SeriesSummary:
         tool_version=series.tool_version,
         seeds=series.seeds,
         confidence=series.confidence,
+        country=series.country,
         status=series.status,
         failure_reason=series.failure_reason,
         verdict=series.verdict,

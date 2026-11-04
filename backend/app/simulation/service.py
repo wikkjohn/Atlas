@@ -271,6 +271,7 @@ def start_suite(
             mode=mode,
             tool=tool,
             batch_id=batch_id,
+            countries=[body.country] if body.country else None,
         )
         for mode in modes
     ]

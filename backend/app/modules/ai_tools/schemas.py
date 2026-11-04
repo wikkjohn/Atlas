@@ -15,6 +15,13 @@ class ToolCreate(BaseModel):
     provider: str = Field(min_length=2, max_length=200)
     description: str = Field(default="", max_length=2000)
     adapter: str = Field(description="Implementation key; see GET /ai-tools/adapters")
+    family: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=64,
+        pattern=TOOL_ID_PATTERN,
+        description="Product line, for portfolios across workflows (Phase 78)",
+    )
     input_schema: dict[str, Any] | None = Field(
         default=None, description="JSON Schema; defaults to the adapter's"
     )
@@ -39,6 +46,7 @@ class ToolOut(BaseModel):
     provider: str
     description: str
     adapter: str
+    family: str | None
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
     allowed_actions: list[str]

@@ -139,8 +139,10 @@ def holm(p_values: dict[str, float]) -> dict[str, float]:
 
 
 def _r(value: float | None, digits: int = 6) -> float | None:
-    if value is None or math.isinf(value):
-        return None if value is None else value
+    """Rounded for storage; infinities (a t statistic when every seed differs by the same
+    amount) and NaN become None, since JSON (and PostgreSQL's jsonb) cannot hold them."""
+    if value is None or math.isinf(value) or math.isnan(value):
+        return None
     return round(value, digits)
 
 
@@ -269,3 +271,148 @@ def conclusion(stats: dict[str, Any]) -> str:
         )
         text += f" Significantly worse: {worse}."
     return text
+
+
+# --- Portfolios (Phase 78) ---------------------------------------------------------------------
+
+
+def _pooled(values: list[float], confidence: float) -> dict[str, Any]:
+    result = paired(values, confidence)
+    return {
+        "cells": result.n,
+        "mean_relative_change": _r(result.mean),
+        "ci_low": _r(result.ci_low),
+        "ci_high": _r(result.ci_high),
+        "median_relative_change": _r(sorted(values)[len(values) // 2] if values else None),
+        "p_value": _r(result.p_value, 8),
+    }
+
+
+def portfolio_statistics(cells: list[dict[str, Any]], confidence: float) -> dict[str, Any]:
+    """Statistics across a portfolio's cells. Each cell: `scenario_id`, `workflow_id`,
+    `department`, `country`, `tool_id`, `verdict` and its series' `metrics`.
+
+    The unit is the cell: each contributes its mean relative change on a metric, so a
+    workflow with large effects counts once, like any other. Across cells the pooled mean
+    has a t-interval and a one-sample t-test against zero (Holm-adjusted across metrics);
+    per cell, the series' own finding (better, worse, no significant difference) is
+    counted. Breakdowns give the mean change by department and by country."""
+    alpha = 1.0 - confidence
+    specs: dict[str, dict[str, Any]] = {}
+    for cell in cells:
+        for m in cell["metrics"]:
+            if m["better"] != "none":
+                specs.setdefault(m["metric"], {k: m[k] for k in ("metric", "label", "better")})
+    metrics, tested = [], {}
+    for key, spec in specs.items():
+        rows = [
+            (cell, m)
+            for cell in cells
+            for m in cell["metrics"]
+            if m["metric"] == key and m["relative_change"] is not None
+        ]
+        values = [m["relative_change"] for _, m in rows]
+        findings = {"improved": 0, "worse": 0, "no_significant_difference": 0}
+        for _, m in rows:
+            if m["finding"] in findings:
+                findings[m["finding"]] += 1
+
+        def group(field: str, rows=rows) -> list[dict[str, Any]]:
+            groups: dict[str, list[float]] = {}
+            for cell, m in rows:
+                groups.setdefault(cell[field] or "—", []).append(m["relative_change"])
+            return [
+                {field: name, "cells": len(v), "mean_relative_change": _r(fmean(v))}
+                for name, v in sorted(groups.items())
+            ]
+
+        row = (
+            spec
+            | _pooled(values, confidence)
+            | {
+                "cell_findings": findings,
+                "by_department": group("department"),
+                "by_country": group("country"),
+            }
+        )
+        metrics.append(row)
+        if row["p_value"] is not None:
+            tested[key] = row["p_value"]
+    adjusted = holm(tested)
+    for row in metrics:
+        p_adj = adjusted.get(row["metric"])
+        row["p_adjusted"] = _r(p_adj, 8)
+        row["significant"] = p_adj is not None and p_adj < alpha
+        if row["cells"] < 2:
+            row["finding"] = "too_few_cells"
+        elif not row["significant"]:
+            row["finding"] = "no_significant_difference"
+        else:
+            direction = 1 if row["better"] == "higher" else -1
+            row["finding"] = "improved" if row["mean_relative_change"] * direction > 0 else "worse"
+    successful = sum(c["verdict"] == "successful" for c in cells)
+    worse_cells = sorted(
+        {
+            f"{c['scenario_id']} ({c['country'] or 'all countries'})"
+            for c in cells
+            for m in c["metrics"]
+            if m["finding"] == "worse"
+        }
+    )
+    stats = {
+        "method": "the cell (a scenario in one country) is the unit: each cell's mean "
+        "relative change from its repeated-seed series; across cells a t-interval and a "
+        f"one-sample t-test against zero, {confidence:.0%} confidence, Holm-adjusted "
+        f"across the {len(tested)} tested metrics",
+        "confidence": confidence,
+        "cells": len(cells),
+        "workflows": len({c["workflow_id"] for c in cells}),
+        "departments": sorted({c["department"] or "—" for c in cells}),
+        "countries": sorted({c["country"] or "—" for c in cells}),
+        "tools": sorted({c["tool_id"] for c in cells}),
+        "cell_verdicts": {"successful": successful, "not_successful": len(cells) - successful},
+        "cells_with_a_worse_metric": worse_cells,
+        "metrics": metrics,
+        "cell_summaries": [
+            {
+                k: c[k]
+                for k in (
+                    "scenario_id",
+                    "workflow_id",
+                    "department",
+                    "country",
+                    "tool_id",
+                    "series_number",
+                    "verdict",
+                )
+            }  # fmt: skip
+            | {
+                "headline": {
+                    m["metric"]: m["relative_change"]
+                    for m in c["metrics"]
+                    if m["metric"] in HEADLINE
+                }
+            }
+            for c in cells
+        ],
+        "verdict": "successful" if cells and successful == len(cells) else "not_successful",
+    }
+    rows = {r["metric"]: r for r in metrics}
+    parts = []
+    for key in HEADLINE:
+        if key in rows and rows[key]["mean_relative_change"] is not None:
+            r = rows[key]
+            text = f"{SHORT_NAMES[key]} {r['mean_relative_change']:+.1%}"
+            if r["ci_low"] is not None:
+                text += f" ({r['ci_low']:+.1%} to {r['ci_high']:+.1%})"
+            f = r["cell_findings"]
+            text += f", better in {f['improved']} of {r['cells']} cells, worse in {f['worse']}"
+            parts.append(text)
+    stats["conclusion"] = (
+        f"Across {len(cells)} cells ({stats['workflows']} workflows, "
+        f"{len(stats['departments'])} departments, {len(stats['countries'])} countries), "
+        "mean change per cell: " + "; ".join(parts) + f". {successful} of {len(cells)} cells "
+        "met every success criterion on every seed."
+        + (f" A metric was worse in: {', '.join(worse_cells)}." if worse_cells else "")
+    )
+    return stats

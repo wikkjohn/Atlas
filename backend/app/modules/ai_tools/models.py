@@ -52,6 +52,9 @@ class AITool(UUIDPrimaryKey, Base):
     provider: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     adapter: Mapped[str] = mapped_column(String(64), nullable=False)
+    # A product line of tools evaluated together across workflows (Phase 78), e.g. the AGB
+    # rule-based review assistants; None for a tool on its own.
+    family: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     input_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     output_schema: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     allowed_actions: Mapped[list[str]] = mapped_column(JSONB, nullable=False)

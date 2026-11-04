@@ -241,6 +241,12 @@ class ClaudeAdapter(AIToolAdapter):
             response = await client.beta.messages.create(**params)
         except anthropic.AnthropicError as exc:
             raise _provider_error(exc) from exc
+        finally:
+            # Each call runs in its own event loop (the invocation service is synchronous),
+            # so its connections are closed with it.
+            close = getattr(client, "close", None)
+            if close is not None:
+                await close()
 
         usage = _usage(response, config)
         stop = getattr(response, "stop_reason", None)

@@ -270,3 +270,13 @@ def test_a_leave_experiment_counts_what_the_model_cost(db: Session, factory, pro
     assert rules_cost["lines"]["ai_execution"] == round(
         measure(db, rules)["ai"]["executed_invocations"] * 0.04, 2
     )
+
+
+def test_the_real_client_shares_the_time_between_its_attempts(monkeypatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
+    config = claude.ClaudeConfig(
+        instructions="Review the request carefully, please.", timeout_seconds=90, max_retries=2
+    )
+    client = claude.make_client(config)
+    assert isinstance(client, anthropic.AsyncAnthropic)
+    assert (client.timeout, client.max_retries) == (30.0, 2)  # 3 attempts in 90 s

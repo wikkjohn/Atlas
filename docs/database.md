@@ -290,6 +290,7 @@ row triggers are declared on the parent and exist on both partitions.
 | Table | Contents |
 | --- | --- |
 | `simulation_archives` | One archive (`kind` = archive, with `location` under `ATLAS_SIMULATION_ARCHIVE_DIR`) or purge (`kind` = purge, by a reset) of a run's workflow history: `manifest` (jsonb: per table rows, columns, file, bytes, SHA-256), `summary` (jsonb: accounts, executions, failed executions, document timeouts, AI calls by status — what the dashboard still needs), `rows`, `bytes`, `created_by`, `created_at`, `restored_at`, `restored_by`. At most one archive per run is in effect (`restored_at IS NULL`) |
+| `simulation_archive_segments` | Part of a run's history archived while the run went on (Phase 75, migration 0050): `run_id`, `shard` (-1 for the rest, at the end), `sequence`, `location` (under `ATLAS_SIMULATION_ARCHIVE_DIR`), `manifest`, `summary`, `rows`, `bytes`, `created_at`; unique per run, shard and sequence. At the end of the run the segments become one `simulation_archives` record (manifest format 2) |
 | `simulation_runs.history_state` | `present` (in the simulation partitions), `archived` or `purged` |
 | `job_workers` | One row per worker process: `name` (unique), `hostname`, `pid`, `started_at`, `last_seen_at` (every ~5 s), `stopped_at`, `succeeded`, `failed`, `retried` |
 | `slow_queries` | `id` (identity), `occurred_at`, `duration_ms`, `statement` (no parameters, at most 4,000 characters), `source` (api or worker), `context` (route or job kind), `correlation_id`. The newest 5,000 rows are kept |

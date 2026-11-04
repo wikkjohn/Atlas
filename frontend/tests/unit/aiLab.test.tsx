@@ -153,7 +153,14 @@ const routes = {
   "GET /api/v1/ai-tools/tool-1": () => jsonResponse(tool),
   "GET /api/v1/ai-tools/adapters": () => jsonResponse(adapters),
   "GET /api/v1/ai-tools/actions": () => jsonResponse(actions),
-  "GET /api/v1/ai-tools/invocations": () => jsonResponse(page([invocation({ status: "blocked", output: null, error: { message: "Not permitted" } })])),
+  "GET /api/v1/ai-tools/invocations": () =>
+    jsonResponse(
+      page([
+        invocation({ status: "blocked", output: null, error: { message: "Not permitted" } }),
+        // A hosted model's call (Phase 76) records what it cost.
+        invocation({ id: "inv-2", usage: { cost_usd: 0.0108, input_tokens: 1200, output_tokens: 300 } }),
+      ]),
+    ),
   "GET /api/v1/simulations/scenarios": () => jsonResponse([scenarioV2]),
   "GET /api/v1/workflows": () => jsonResponse([{ workflow_id: "WF-0001", name: "Retail Account Opening", version: 2, versions: [1, 2], description: "", business_owner: "", trigger_type: "api", step_count: 21 }]),
 };
@@ -169,6 +176,7 @@ describe("AI Innovation Lab", () => {
     const invocations = await screen.findByRole("table", { name: "Invocations" });
     expect(within(invocations).getByText("Blocked")).toBeInTheDocument();
     expect(within(invocations).getByText("Not permitted")).toBeInTheDocument();
+    expect(within(invocations).getByText("$0.0108 · 1,500 tokens")).toBeInTheDocument();
   });
 
   it("validates a registration and never offers forbidden actions", async () => {

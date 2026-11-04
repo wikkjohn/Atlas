@@ -8,6 +8,9 @@ import type {
   ExperimentDetail,
   ExperimentSummary,
   ReEvaluation,
+  SeriesCreate,
+  SeriesDetail,
+  SeriesSummary,
 } from "@/types/experiments";
 
 const POLL_MS = 2000;
@@ -64,4 +67,34 @@ export async function downloadReport(id: string, number: number, format: "markdo
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+// --- Repeated-seed series (Phase 77) ---------------------------------------------------------
+
+export const useSeriesList = () =>
+  useQuery({
+    queryKey: ["experiments", "series"],
+    queryFn: () => apiGet<Page<SeriesSummary>>(`/api/v1/experiment-series${query({ limit: 20 })}`),
+    refetchInterval: (q) => (q.state.data?.items.some((s) => s.status === "running") ? POLL_MS : false),
+  });
+
+export const useSeries = (id: string | null) =>
+  useQuery({
+    queryKey: ["experiments", "series", id],
+    queryFn: () => apiGet<SeriesDetail>(`/api/v1/experiment-series/${id}`),
+    enabled: Boolean(id),
+    refetchInterval: (q) => (q.state.data?.status === "running" ? POLL_MS : false),
+  });
+
+export function useCreateSeries() {
+  const client = useQueryClient();
+  const once = useIdempotencyKey();
+  return useMutation({
+    mutationFn: (body: SeriesCreate) => apiPost<SeriesDetail>("/api/v1/experiment-series", body, once.key()),
+    onSuccess: () => {
+      once.renew();
+      void client.invalidateQueries({ queryKey: ["experiments"] });
+      void client.invalidateQueries({ queryKey: ["simulations"] });
+    },
+  });
 }

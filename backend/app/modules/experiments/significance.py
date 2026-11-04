@@ -217,8 +217,10 @@ def series_statistics(replicates: list[dict[str, Any]], confidence: float) -> di
     )
     stats = {
         "method": "paired t-test on per-seed differences (candidate minus baseline); "
-        f"{confidence:.0%} confidence intervals; Holm-adjusted p-values across the "
-        f"{len(tested)} tested metrics",
+        f"{confidence:.0%} confidence interval per metric (not adjusted); a difference is "
+        f"significant when its Holm-adjusted p-value, across the {len(tested)} tested "
+        f"metrics, is below {1 - confidence:.2f}. An interval that excludes zero can "
+        "therefore still be not significant.",
         "confidence": confidence,
         "replicates": len(replicates),
         "seeds": [r["seed"] for r in replicates],
@@ -252,9 +254,12 @@ def conclusion(stats: dict[str, Any]) -> str:
     rows = {r["metric"]: r for r in stats["metrics"]}
     parts = [_describe(rows[k]) for k in HEADLINE if k in rows]
     counts = stats["replicate_verdicts"]
+    tested = sum(r["better"] != "none" and r["n"] >= 2 for r in stats["metrics"])
     text = (
-        f"Over {stats['replicates']} seeds ({stats['confidence']:.0%} intervals, Holm-adjusted "
-        f"p-values): " + "; ".join(parts) + ". "
+        f"Over {stats['replicates']} seeds ({stats['confidence']:.0%} interval per metric; "
+        f"significance after adjusting for {tested} metrics tested together): "
+        + "; ".join(parts)
+        + ". "
         f"{counts['successful']} of {stats['replicates']} replicates met every success "
         "criterion."
     )

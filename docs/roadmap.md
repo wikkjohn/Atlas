@@ -301,7 +301,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       to Claude Opus 5.5, the answer in the tool's own output schema; tokens and cost on
       every call, failed ones too; off unless `ATLAS_AI_PROVIDER_ENABLED`; experiments
       count measured cost; `agb-leave-assistant-claude`; see `ai-testing.md`)
-- [ ] Repeated-seed experiments with confidence intervals and significance tests
+- [x] Repeated-seed experiments with confidence intervals and significance tests
+      (Phase 77: a series runs an experiment once per seed; per metric the mean paired
+      difference, a Student-t interval and Holm-adjusted paired t-tests; the KYC assistant
+      over 5 seeds: labour −34.4 % (−35.7 % to −33.1 %) assisted, −70.4 % automated; see
+      `benchmarking.md`)
 - [ ] Experiment portfolios: one tool across many workflows, departments and countries
 - [ ] Guardrails: drift detection, prompt/response audit, bias checks across segments
 - [ ] Scenario-specific success thresholds
@@ -398,4 +402,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 74 (F6) | Milestone F, step 6: the event outbox — deliveries per subscriber, retries, a SKIP LOCKED dispatcher; lending → collections and HR ↔ Information Security on it | complete |
 | Phase 75 (F7) | Milestone F exit, measured but not met here: 100,000 enterprise-sized cases in 80 min (20.8 cases/s); a million projected at 13.4 h; engine 197 → 128 statements a case; bulk hiring; rolling history archive | complete (exit not met) |
 | Phase 76 (G1) | Milestone G, step 1: the Claude adapter behind the tool contract — structured output in the tool's schema, tokens and cost per call, off by default; experiments count measured cost; stored workflows use the experiment's tool | complete |
-| Phase 77 (G2, proposed) | Milestone G, step 2: repeated-seed experiments with confidence intervals and significance tests | next |
+| Phase 77 (G2) | Milestone G, step 2: repeated-seed series — per-metric paired differences, Student-t intervals, Holm-adjusted significance; API, Experiments page; measured on the KYC assistant | complete |
+| Phase 78 (G3, proposed) | Milestone G, step 3: experiment portfolios — one tool across many workflows, departments and countries | next |

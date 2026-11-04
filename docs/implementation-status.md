@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 76.
+Last updated: Phase 77.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -81,6 +81,47 @@ Last updated: Phase 76.
 | 74 | Workforce and customers, step 6: the event pipeline ([events.md](events.md)) | **Complete** |
 | 75 | Workforce and customers, step 7: the Milestone F exit, measured ([performance.md](performance.md)) — the exit itself **not met** in this container | **Complete** (exit not met) |
 | 76 | AI laboratory, step 1: a hosted model behind the tool contract ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 77 | AI laboratory, step 2: repeated-seed series with confidence intervals and significance tests ([benchmarking.md](benchmarking.md)) | **Complete** |
+
+## Phase 77: what exists
+
+- **Experiment series** (`experiment_series`, migration 0051): the same experiment once per
+  seed (2 to 30 seeds); each replicate an ordinary experiment with its own evaluation.
+- **Statistics** (`app/modules/experiments/significance.py`, standard library only): per
+  metric the mean paired difference, a Student-t confidence interval, the relative change,
+  a two-sided paired t-test and Holm-adjusted p-values across the tested metrics; a
+  finding (better, worse, no significant difference); a series verdict and a written
+  conclusion. Recomputable from the replicates' stored evaluations.
+- **API and job:** `/api/v1/experiment-series` (list, start, detail); the
+  `experiment_series.execute` job runs every replicate, then the statistics.
+- **Experiments page:** *Repeated-seed series* — the list, the effect across seeds (means,
+  change, interval, adjusted p, finding) and a form to start one.
+- **Measured:** the KYC assistant on 5 seeds, assisted and automated
+  ([benchmarking.md](benchmarking.md)).
+- **PR #67 (Phase 76)** had no review comments; CI passed on the first run.
+
+## Phase 77: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Generated workflow tests | GEN_RESULT |
+| Frontend Vitest / typecheck / build | VITEST_RESULT |
+| Playwright on a fresh database | PW_RESULT |
+| KYC assistant, AI-assisted, 5 seeds × 200 cases | 285 s; labour −34.4 % (−35.7 % to −33.1 %), p < 0.001; accuracy +2.6 % (interval +0.7 % to +4.6 %), adjusted p = 0.163, not significant; successful |
+| KYC assistant, AI-automated, 5 seeds × 200 cases | 244 s; labour −70.4 % (−73.2 % to −67.6 %); accuracy +3.8 % (+2.6 % to +4.9 %), adjusted p = 0.007; successful |
+
+## Phase 77: known limitations
+
+- **The t-test assumes roughly normal differences;** with few seeds and rare events (false
+  approvals are 0–2 per run here) the intervals of rates are wide and can go past what is
+  possible (a relative change below −100 %).
+- **Intervals are not adjusted** for testing many metrics; significance is. The table shows
+  both, and they can disagree.
+- **Seeds vary the workload, not the assumptions:** the intervals say nothing about review
+  times, reviewer accuracy or how people use AI advice.
+- **Replicates run one after another** in one job; a series of 30 seeds of large runs takes
+  30 times one experiment.
 
 ## Phase 76: what exists
 

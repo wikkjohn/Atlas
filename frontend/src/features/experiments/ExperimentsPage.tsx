@@ -19,6 +19,7 @@ import {
   MODE_NAMES,
   VerdictPill,
 } from "@/features/experiments/ExperimentResults";
+import { SeriesPanel } from "@/features/experiments/SeriesPanel";
 import { useAiTools } from "@/services/aiTools";
 import { downloadReport, useCreateExperiment, useExperiment, useExperiments, useReEvaluate } from "@/services/experiments";
 import { humanize } from "@/services/format";
@@ -459,6 +460,9 @@ export function ExperimentsPage() {
         <Panel title="Experiment details">
           {selected ? <ExperimentView key={selected} id={selected} /> : <p className="text-sm text-slate-500">Run an experiment to see its evaluation.</p>}
         </Panel>
+      </div>
+      <div className="mt-6">
+        <SeriesPanel />
       </div>
       {creating && (
         <NewExperimentDialog

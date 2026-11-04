@@ -102,7 +102,10 @@ def test_a_consistent_effect_is_significant_and_noise_is_not() -> None:
     assert rows["error_count"]["finding"] == "no_significant_difference"  # zero on every seed
     assert rows["ai_execution_cost"]["finding"] == "informational"  # never tested
     assert stats["verdict"] == "successful" and stats["replicate_verdicts"]["successful"] == 4
-    assert "Over 4 seeds" in stats["conclusion"] and "labour time down 52.5%" in stats["conclusion"]
+    assert (
+        "Over 4 seeds (95% interval per metric" in stats["conclusion"]
+        and "labour time down 52.5%" in stats["conclusion"]
+    )
     assert "accuracy" in stats["conclusion"] and "not significant" in stats["conclusion"]
 
 

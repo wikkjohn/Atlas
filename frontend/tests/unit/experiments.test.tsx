@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { AiTool } from "@/types/aiTools";
-import type { BenchmarkRow, Comparison, ExperimentDetail } from "@/types/experiments";
+import type { BenchmarkRow, Comparison, ExperimentDetail, SeriesDetail, SeriesMetric } from "@/types/experiments";
 import { DEFAULT_COSTS, DEFAULT_THRESHOLDS } from "@/types/experiments";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
@@ -120,8 +120,67 @@ const benchmarks: BenchmarkRow[] = [
   },
 ];
 
+// A repeated-seed series (Phase 77): labour clearly down, accuracy within noise.
+const seriesMetric = (metric: string, label: string, rel: number, low: number, high: number, p: number, finding: SeriesMetric["finding"]): SeriesMetric => ({
+  metric,
+  label,
+  unit: "hours",
+  better: metric === "accuracy" ? "higher" : "lower",
+  n: 5,
+  baseline_mean: 47.07,
+  candidate_mean: 47.07 * (1 + rel),
+  mean_delta: 47.07 * rel,
+  ci_low: 47.07 * low,
+  ci_high: 47.07 * high,
+  relative_change: rel,
+  relative_ci_low: low,
+  relative_ci_high: high,
+  p_value: p,
+  p_adjusted: p,
+  significant: finding === "improved" || finding === "worse",
+  finding,
+  per_seed: [],
+});
+const series: SeriesDetail = {
+  id: "ser-1",
+  series_number: 2,
+  name: "KYC assistant over five seeds",
+  scenario_id: "retail-onboarding",
+  scenario_version: 2,
+  candidate_mode: "ai_assisted",
+  tool_id: "agb-intelligent-kyc-assistant",
+  tool_version: "1.0.0",
+  seeds: [101, 102, 103, 104, 105],
+  confidence: 0.95,
+  status: "completed",
+  failure_reason: null,
+  verdict: "successful",
+  replicates_completed: 5,
+  created_by_username: "researcher",
+  created_at: "2026-11-04T04:00:00Z",
+  completed_at: "2026-11-04T04:05:00Z",
+  configuration: {},
+  experiments: [],
+  statistics: {
+    method: "paired t-test on per-seed differences",
+    confidence: 0.95,
+    replicates: 5,
+    seeds: [101, 102, 103, 104, 105],
+    replicate_verdicts: { successful: 5, not_successful: 0 },
+    metrics: [
+      seriesMetric("labour_hours", "Simulated labour time (review + oversight)", -0.344, -0.357, -0.331, 0.0000029, "improved"),
+      seriesMetric("accuracy", "Decisions matching ground truth", 0.026, 0.007, 0.046, 0.163, "no_significant_difference"),
+    ],
+    significantly_worse: [],
+    verdict: "successful",
+    conclusion: "Over 5 seeds: labour time down 34.4%.",
+  },
+};
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/experiment-series": () => jsonResponse(page([series])),
+  "GET /api/v1/experiment-series/ser-1": () => jsonResponse(series),
   "GET /api/v1/experiments": () => jsonResponse(page([experiment])),
   "GET /api/v1/experiments/exp-1": () => jsonResponse(experiment),
   "GET /api/v1/ai-tools": () => jsonResponse(page([tool])),
@@ -242,6 +301,52 @@ describe("Experiments", () => {
     renderApp("/experiments");
     expect(await screen.findByRole("heading", { name: /Experiment #3/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New experiment" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Repeated-seed series", () => {
+  it("shows the effect across seeds with its interval and adjusted p-value", async () => {
+    mockApi(routes);
+    renderApp("/experiments");
+    const details = await screen.findByRole("region", { name: "Series details" });
+    expect(within(details).getByText(/seeds 101, 102, 103, 104, 105 · 5 of 5 replicates evaluated/)).toBeInTheDocument();
+    expect(within(details).getByText("Over 5 seeds: labour time down 34.4%.")).toBeInTheDocument();
+    const table = within(details).getByRole("table", { name: "Effect across seeds" });
+    const labour = within(table).getByRole("row", { name: /Simulated labour time/ });
+    expect(labour).toHaveTextContent("-34.4%");
+    expect(labour).toHaveTextContent("-35.7% to -33.1%");
+    expect(labour).toHaveTextContent("< 0.001");
+    expect(labour).toHaveTextContent("Better");
+    // An interval that excludes zero, but not significant once adjusted for many metrics.
+    const accuracy = within(table).getByRole("row", { name: /Decisions matching ground truth/ });
+    expect(accuracy).toHaveTextContent("+0.7% to +4.6%");
+    expect(accuracy).toHaveTextContent("0.163");
+    expect(accuracy).toHaveTextContent("No significant difference");
+  });
+
+  it("starts a series over several seeds", async () => {
+    const api = mockApi({ ...routes, "POST /api/v1/experiment-series": () => jsonResponse({ ...series, id: "ser-2", status: "running", statistics: null, verdict: null }, 202) });
+    renderApp("/experiments");
+    await userEvent.click(await screen.findByRole("button", { name: "New series" }));
+    const form = await screen.findByRole("form", { name: "New series" });
+    const seeds = within(form).getByLabelText("Seeds");
+    await userEvent.clear(seeds);
+    await userEvent.type(seeds, "1");
+    await userEvent.click(screen.getByRole("button", { name: "Run series" }));
+    expect(within(form).getByText("2 – 30 seeds.")).toBeInTheDocument();
+    expect(api.requests.some((r) => r.method === "POST")).toBe(false);
+    await userEvent.clear(seeds);
+    await userEvent.type(seeds, "8");
+    await userEvent.click(screen.getByRole("button", { name: "Run series" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
+      tool_id: "agb-intelligent-kyc-assistant",
+      tool_version: "1.0.0",
+      candidate_mode: "ai_assisted",
+      seed: 101,
+      replicates: 8,
+      confidence: 0.95,
+    });
   });
 });
 

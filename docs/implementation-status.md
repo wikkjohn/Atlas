@@ -101,15 +101,18 @@ Last updated: Phase 75.
   for a million ([performance.md](performance.md)). The `enterprise` profile's note now
   states it, and it needs 8 shards.
 - **PR #65 (Phase 74)** had no review comments; CI passed on the first run.
+- **Found on the way:** the leave-requests workload put an employee's earlier day off on
+  a date counted back from today; on 2026-11-04 that was Labor Day, with no working days,
+  and the run failed (on main too). Such a day now moves to the next working day.
 
 ## Phase 75: verified results
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
+| Backend pytest (real PostgreSQL) | 763 passed. New: 5 tests covering: bulk hiring gives the same staff, roles and digest as hiring one by one, with one audit record; the engine runs a case in fewer than 160 statements; a rolling archive leaves the digest, outcomes and configuration hash unchanged, empties the database of the run's history, adds up its summary, restores every row and archives again; a sharded run archives each shard as it goes; the enterprise profile archives by default and outage scenarios refuse it |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (151.4 s on the development database) |
 | Frontend Vitest / typecheck / build | 169 passed / clean / built (no frontend changes) |
-| Playwright on a fresh database | PW_RESULT |
+| Playwright on a fresh database | 73 passed |
 | 10,000 cases, 8 shards, before and after the engine change | 876 s → 486 s (11.4 → 20.6 cases/s), identical digest |
 | 16,000 cases, 150,000 staff, 8 shards | 775.7 s, 20.6 cases/s, 96.61 % accurate, 0.76 GB |
 | 100,000 cases, 150,000 staff, 8 shards, rolling archive | 4,812 s (80 min), 20.8 cases/s, 100,000 completed, 96.64 % accurate; database 2.15 GB, archive 575 MB in 17 segments (6,742,319 rows) |

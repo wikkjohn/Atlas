@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 70.
+Last updated: Phase 75.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -79,6 +79,54 @@ Last updated: Phase 70.
 | 72 | Workforce and customers, step 4: the customer generator ([customer-base.md](customer-base.md)) | **Complete** |
 | 73 | Workforce and customers, step 5: arrival patterns ([simulation.md](simulation.md)) | **Complete** |
 | 74 | Workforce and customers, step 6: the event pipeline ([events.md](events.md)) | **Complete** |
+| 75 | Workforce and customers, step 7: the Milestone F exit, measured ([performance.md](performance.md)) — the exit itself **not met** in this container | **Complete** (exit not met) |
+
+## Phase 75: what exists
+
+- **A leaner engine** (`app/modules/workflows/engine.py`): an execution's open step runs are
+  kept in memory during an engine call, new rows get their ids in Python, and the session
+  flushes once at the end instead of after every step. A relationship from events to their
+  step runs keeps PostgreSQL's foreign-key insert order. 197 → 128 statements a case, the
+  same digest.
+- **Bulk hiring** (`runner._bulk_hire`): above 2,000 simulated staff, employees and users are
+  inserted in batches with one `simulation.staff_hired` audit record; 150,000 staff in
+  42–47 s instead of over 15 minutes. Shards find their staff by the run's username prefix
+  (a list of 150,000 names exceeded PostgreSQL's 65,535-parameter limit).
+- **Rolling history archive** (`history.archive_segment`, `simulation_archive_segments`,
+  migration 0050): every shard archives each N finished cases' history while the run goes
+  on; at the end the segments become one restorable archive. `rolling_archive` on the API,
+  `simulate --rolling-archive`; the `enterprise` profile does it every 5,000 cases. Left out
+  of the configuration hash; refused for outage scenarios.
+- **The measurement**: 100,000 cases at enterprise settings in 80 min, and a projection
+  for a million ([performance.md](performance.md)). The `enterprise` profile's note now
+  states it, and it needs 8 shards.
+- **PR #65 (Phase 74)** had no review comments; CI passed on the first run.
+
+## Phase 75: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Generated workflow tests | GEN_RESULT |
+| Frontend Vitest / typecheck / build | 169 passed / clean / built (no frontend changes) |
+| Playwright on a fresh database | PW_RESULT |
+| 10,000 cases, 8 shards, before and after the engine change | 876 s → 486 s (11.4 → 20.6 cases/s), identical digest |
+| 16,000 cases, 150,000 staff, 8 shards | 775.7 s, 20.6 cases/s, 96.61 % accurate, 0.76 GB |
+| 100,000 cases, 150,000 staff, 8 shards, rolling archive | 4,812 s (80 min), 20.8 cases/s, 100,000 completed, 96.64 % accurate; database 2.15 GB, archive 575 MB in 17 segments (6,742,319 rows) |
+| One million cases | **not run**: projected 13.4 h, 7–8 GB of database, 5.8 GB of archive |
+
+## Phase 75: known limitations
+
+- **The Milestone F exit is not met:** the million-case run has not been completed; its
+  time is projected from 100,000 cases.
+- **The profile is still a `target`** in the API (refused there); the measurement script
+  runs it through the runner directly.
+- **A failed sharded run with a rolling archive** keeps its segments; archive it by hand to
+  join them (other shards may still be writing when one fails).
+- **Space is reused, not returned:** the history partitions keep the size of the cases in
+  flight (about 1.3 GB at 8 × 5,000) until a vacuum full or a reset.
+- **The rest of the database still grows** about 5.7 KB a case (audit records, results,
+  the customers and accounts cases open).
 
 ## Phase 74: what exists
 

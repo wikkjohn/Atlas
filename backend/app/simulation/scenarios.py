@@ -469,8 +469,10 @@ PROFILES: dict[str, Profile] = {
             applications=1_000_000,
             employees=150_000,
             status="target",
-            note="A configuration target only. Its performance has not been measured; the "
-            "current single-process runner is not expected to complete it in practical time.",
+            min_shards=8,
+            note="Not yet completed end to end. Measured at its settings (150,000 staff, 8 "
+            "shards, rolling archive): 100,000 cases in 80 min (20.8 cases/s); a million "
+            "would take about 13.4 hours here. See docs/performance.md.",
         ),
     )
 }

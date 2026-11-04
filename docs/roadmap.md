@@ -287,6 +287,12 @@ for the factory, a simulation workload and at least one AI tool candidate.
       back-off; lending → collections moved onto it; HR ↔ Information Security joiners and
       leavers; see `events.md`)
 - [ ] **Exit:** the `enterprise` profile completes, with its timing measured
+      (Phase 75, **not met in this container**: at its settings — 150,000 staff, 8
+      shards, a rolling archive that keeps the database bounded — 100,000 cases took
+      80 min at 20.8 cases/s, steady; a million is projected at 13.4 hours, 7–8 GB of
+      database and 5.8 GB of archive files, and has not been run. The engine now writes
+      128 statements a case instead of 197, and 150,000 staff hire in 45 s. See
+      `performance.md`)
 
 ## Milestone G — AI laboratory at enterprise scale
 
@@ -386,4 +392,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 72 (F4) | Milestone F, step 4: the customer generator — six segments, deposit products, dated transaction history through the ledger, seeded and resumable; a million customers measured; bulk posting no longer quadratic | complete |
 | Phase 73 (F5) | Milestone F, step 5: arrival patterns — hour, weekday and month weights in local time, events; the arrivals in the results; `retail-onboarding-week` | complete |
 | Phase 74 (F6) | Milestone F, step 6: the event outbox — deliveries per subscriber, retries, a SKIP LOCKED dispatcher; lending → collections and HR ↔ Information Security on it | complete |
-| Phase 75 (F7, proposed) | Milestone F exit: the `enterprise` profile completes, with its timing measured | next |
+| Phase 75 (F7) | Milestone F exit, measured but not met here: 100,000 enterprise-sized cases in 80 min (20.8 cases/s); a million projected at 13.4 h; engine 197 → 128 statements a case; bulk hiring; rolling history archive | complete (exit not met) |
+| Phase 76 (G1, proposed) | Milestone G, step 1: a real model-provider adapter behind the same tool contract (synthetic data only, cost per call) | next |

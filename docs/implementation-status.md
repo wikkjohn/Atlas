@@ -105,10 +105,10 @@ Last updated: Phase 76.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
-| Frontend Vitest / typecheck / build | VITEST_RESULT |
-| Playwright on a fresh database | PW_RESULT |
+| Backend pytest (real PostgreSQL) | 777 passed. New: 14 tests covering: hosted calls are refused unless switched on (no client built); a call keeps the tool contract (the leave schemas, the right recommendation), records tokens, model, request id and cost, and sends the instructions, the input, an explicit effort, refusal fallbacks and the schema without unsupported limits; refused, cut-off, non-JSON and off-schema answers fail with their usage recorded; rate limits, timeouts, unreachable or failing providers and refused credentials become structured, retryable-or-not failures; list prices, cache reads and writes, a fallback model's price and overrides; the real client shares the timeout between its attempts; a leave experiment with the Claude-backed tool (stand-in model) decides as the rule-based one and is costed at its measured cost |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (136.8 s on the development database) |
+| Frontend Vitest / typecheck / build | 170 passed (new: the cost of a hosted model's call in the invocations table) / clean / built |
+| Playwright on a fresh database | 73 passed (the leave-assistant test now picks the rule-based tool by its exact name; the seed's Claude-backed twin matched too) |
 | Against the real Claude API | **not run**: no credentials in this container; every test uses a fake client |
 
 ## Phase 76: known limitations

@@ -79,7 +79,8 @@ test("AI Innovation Lab: the leave assistant would approve another last-minute d
   // The tool reads HR data (hr:read); the administrator has it.
   await signIn(page, "admin", "/ai-lab");
   const registry = page.getByRole("list", { name: "AI tools" });
-  await registry.getByRole("button", { name: /AGB Leave Review Assistant/ }).click();
+  // The rule-based assistant, not its Claude-backed twin (Phase 76).
+  await registry.getByRole("button", { name: /^AGB Leave Review Assistant Active agb-leave-assistant / }).click();
   const details = page.getByRole("region", { name: "Tool details" });
   await expect(details.getByRole("heading", { name: "AGB Leave Review Assistant" })).toBeVisible();
   const console = details.getByRole("form", { name: "Test console" });

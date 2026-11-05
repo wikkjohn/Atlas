@@ -126,7 +126,7 @@ Last updated: Phase 84.
 | Check | Result |
 | --- | --- |
 | Backend pytest (real PostgreSQL) | 842 passed. New: 10 security tests: RFC 6238 vectors and no replay; sessions ended by sign-out, other sessions, idleness, age and deactivation; sessionless tokens and challenge tokens refused; enrolment, codes, recovery codes used once, five wrong codes; a required factor holding the session to enrolment, reset by an administrator; SSO with state reuse, a mismatched nonce, a forged token and a bad password refused, and the directory's factor accepted; country scopes on customers, accounts, deposits and account requests; department scopes on employees and hires; scope validation and scoped administrators. Also 2 tests for the PR #74 fixes. The permissions test now lists the six sign-in routes as public |
-| Generated workflow tests | GEN_RESULT |
+| Generated workflow tests | 120 workflows, 1,562 cases, 0 failed (1,156.9 s) |
 | Frontend Vitest / typecheck / build | 189 passed. New: browser TOTP against the RFC vector; the code step; sign-in through the directory; enrolment held on the Security page with the simulated authenticator; the Security link; an administrator setting scopes, signing a user out and resetting their factor. Typecheck clean; build succeeds |
 | Playwright on a fresh database | 79 passed. New: a teller enrols, then signs in with a code and with a recovery code; SSO through the directory; an administrator limits a teller to GB, who then sees GB customers only |
 

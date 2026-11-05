@@ -364,7 +364,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       (Phase 88: executions attributed to a country, a department and a workflow; figures and
       a breakdown at each level, steps and outcomes at the last; live or simulated history,
       a period; scoped users see only their scope; see `dashboard-drilldown.md`)
-- [ ] Architecture decision records, runbooks, contributor guide
+- [x] Architecture decision records, runbooks, contributor guide
+      (Phase 89: twelve decision records written from the code and the phase history; nine
+      runbooks with symptoms, checks, actions, verification and escalation; `CONTRIBUTING.md`;
+      a test that fails when a record or runbook names a file, CLI command or route that does
+      not exist — Milestone H done; see `adr/`, `runbooks/`)
 
 ## Order
 
@@ -458,4 +462,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 86 (H3) | Milestone H, step 3: dependency audits and static analysis in CI; the authorization matrix read from the routes, reviewed, and enforced for every role | complete |
 | Phase 87 (H4) | Milestone H, step 4: backups from one snapshot with a manifest, verification, restore checked against the manifest (revision, row counts, ledger, audit log and archive chain), a timed recovery drill | complete |
 | Phase 88 (H5) | Milestone H, step 5: the dashboard drill-down — enterprise → country → department → workflow, with step and outcome detail, history and period filters, scoped to the user | complete |
-| Phase 89 (H6, proposed) | Milestone H, step 6: architecture decision records, runbooks, contributor guide | next |
+| Phase 89 (H6) | Milestone H, step 6: twelve architecture decision records, nine runbooks, a contributor guide, and a test that keeps them true to the code — Milestone H done | complete |
+| Phase 90 (proposed) | Milestone F exit, second attempt: the `enterprise` profile within its time budget (fewer statements per simulated case), or the deferred period partitioning of journal lines and the audit log | next |

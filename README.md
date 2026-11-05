@@ -193,4 +193,7 @@ scripts/            Operational scripts (seed.py, validate_system.py)
 docker-compose.yml  Local development stack
 ```
 
-See [docs/architecture.md](docs/architecture.md) for the design.
+See [docs/architecture.md](docs/architecture.md) for the design, and:
+- [docs/adr/](docs/adr/README.md) for the decisions behind it;
+- [docs/runbooks/](docs/runbooks/README.md) for what to do when something fails;
+- [CONTRIBUTING.md](CONTRIBUTING.md) for how to work on it.

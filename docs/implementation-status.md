@@ -146,9 +146,9 @@ Architecture decision records, runbooks and a contributor guide (roadmap Milesto
 | --- | --- |
 | Documentation test (`tests/test_documentation.py`) | 90 passed. It covers 29 documents: 32 routes, 28 CLI commands, 85 paths and 64 links named, all of which exist |
 | Every runbook's routes and commands | Checked against the authorization matrix and the CLI. The audit action names and schedule names were checked against the code and the database |
-| Backend pytest (real PostgreSQL) | BACKEND89 |
-| Frontend vitest | FRONTEND89 |
-| Playwright | E2E89 |
+| Backend pytest (real PostgreSQL) | 972 passed in 17 min 5 s (CI, commit 44f0cdb; 90 of them the documentation test) |
+| Frontend vitest | 198 passed, 40 files (CI, commit 44f0cdb) |
+| Playwright | 82 passed in 3.9 min (CI, commit 44f0cdb) |
 
 ## Phase 89: fix from the PR #79 review (Phase 88)
 

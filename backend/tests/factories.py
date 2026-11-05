@@ -3,10 +3,10 @@
 import itertools
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import get_settings
 from app.core.permissions import RoleCode
@@ -15,7 +15,7 @@ from app.modules.countries.models import Country, Region
 from app.modules.employees.models import Employee
 from app.modules.employees.schemas import EmployeeCreate
 from app.modules.employees.service import create_employee
-from app.modules.identity.models import User
+from app.modules.identity.models import AuthSession, User
 from app.modules.identity.schemas import UserCreate
 from app.modules.identity.service import create_user
 from app.modules.organizations.models import Organization, OrganizationType
@@ -46,8 +46,20 @@ def make_user(db: Session, role: RoleCode, username: str | None = None) -> User:
 
 
 def token_for(user: User, ttl: timedelta = timedelta(minutes=5)) -> str:
-    secret = get_settings().jwt_secret.get_secret_value()
-    return create_access_token(user.id, secret, ttl).token
+    """An access token for a fresh sign-in session of `user` (Phase 84: tokens name one)."""
+    settings = get_settings()
+    db = object_session(user)
+    assert db is not None, "the user must belong to a database session"
+    now = datetime.now(UTC)
+    session = AuthSession(
+        id=uuid.uuid4(), user_id=user.id, method="password", mfa="not_required",
+        created_at=now, last_seen_at=now, expires_at=now + timedelta(hours=12),
+    )  # fmt: skip
+    db.add(session)
+    db.flush()
+    return create_access_token(
+        user.id, settings.jwt_secret.get_secret_value(), ttl, session_id=session.id
+    ).token
 
 
 def auth(user: User) -> dict[str, str]:
@@ -354,7 +366,6 @@ def loan_application(
 
 # --- Phase 10: loan servicing --------------------------------------------------------------
 
-from datetime import UTC, datetime  # noqa: E402
 
 from app.modules.accounts.service import withdraw  # noqa: E402
 from app.modules.lending.models import Loan  # noqa: E402

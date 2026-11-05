@@ -3,14 +3,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import object_session
 
 from app.core.dependencies import DbSession
+from app.core.errors import NotFoundError
 from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.employees import service
 from app.modules.employees.models import EmploymentStatus
 from app.modules.employees.schemas import EmployeeCreate, EmployeeOut, EmployeeUpdate
+from app.modules.identity import scopes
 from app.modules.identity.dependencies import Authorized
 from app.modules.identity.service import AuthenticatedUser
 
@@ -20,6 +23,23 @@ router = APIRouter(prefix="/employees", tags=["employees"])
 def _out(user: AuthenticatedUser):
     can_see_pay = user.can(Permission.EMPLOYEES_READ_COMPENSATION)
     return lambda employee: service.to_out(employee, include_compensation=can_see_pay)
+
+
+def _scoped(db, user: AuthenticatedUser, employee_id: uuid.UUID):
+    """The employee, if within the caller's countries and departments (Phase 84); else 404."""
+    employee = service.get_employee(db, employee_id)
+    if not service.in_scope(user.scope, employee):
+        raise NotFoundError("Employee not found.")
+    return employee
+
+
+def _hired_in_scope(actor: AuthenticatedUser, employee):
+    db = object_session(employee)
+    db.flush()
+    db.refresh(employee)
+    scopes.require_in_scope(actor.scope, country=employee.country.iso_country_code,
+                            department=employee.department.name)  # fmt: skip
+    return employee
 
 
 @router.get("", response_model=Page[EmployeeOut], summary="List employees")
@@ -45,6 +65,7 @@ def list_employees(
         country_id=country_id,
         manager_id=manager_id,
         employment_status=employment_status,
+        scope=user.scope,
     )
     out = _out(user)
     return Page(items=[out(e) for e in items], total=total, limit=page.limit, offset=page.offset)
@@ -67,7 +88,7 @@ def create_employee(
         path=request.url.path,
         payload=body,
         status_code=status.HTTP_201_CREATED,
-        operation=lambda: out(service.create_employee(db, body, actor.id)),
+        operation=lambda: out(_hired_in_scope(actor, service.create_employee(db, body, actor.id))),
     )
 
 
@@ -95,7 +116,7 @@ def workforce_summary(db: DbSession, _: Authorized(Permission.EMPLOYEES_READ)) -
 def get_employee(
     employee_id: uuid.UUID, db: DbSession, user: Authorized(Permission.EMPLOYEES_READ)
 ) -> EmployeeOut:
-    return _out(user)(service.get_employee(db, employee_id))
+    return _out(user)(_scoped(db, user, employee_id))
 
 
 @router.get(
@@ -107,7 +128,8 @@ def get_direct_reports(
     employee_id: uuid.UUID, db: DbSession, user: Authorized(Permission.EMPLOYEES_READ)
 ) -> list[EmployeeOut]:
     out = _out(user)
-    return [out(e) for e in service.direct_reports(db, service.get_employee(db, employee_id))]
+    reports = service.direct_reports(db, _scoped(db, user, employee_id))
+    return [out(e) for e in reports if service.in_scope(user.scope, e)]
 
 
 @router.get(
@@ -119,7 +141,8 @@ def get_reporting_chain(
     employee_id: uuid.UUID, db: DbSession, user: Authorized(Permission.EMPLOYEES_READ)
 ) -> list[EmployeeOut]:
     out = _out(user)
-    return [out(e) for e in service.reporting_chain(db, service.get_employee(db, employee_id))]
+    chain = service.reporting_chain(db, _scoped(db, user, employee_id))
+    return [out(e) for e in chain if service.in_scope(user.scope, e)]
 
 
 @router.patch("/{employee_id}", response_model=EmployeeOut, summary="Update an employee")
@@ -129,5 +152,5 @@ def update_employee(
     db: DbSession,
     actor: Authorized(Permission.EMPLOYEES_MANAGE),
 ) -> EmployeeOut:
-    employee = service.update_employee(db, service.get_employee(db, employee_id), body, actor.id)
-    return _out(actor)(employee)
+    employee = service.update_employee(db, _scoped(db, actor, employee_id), body, actor.id)
+    return _out(actor)(_hired_in_scope(actor, employee))  # a move out of scope is refused

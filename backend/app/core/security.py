@@ -2,7 +2,10 @@
 
 Passwords use scrypt from the standard library (memory-hard, salted per user). Access
 tokens are short-lived HS256 JWTs; every request re-loads the user, so deactivating a user
-or changing their role takes effect immediately rather than when the token expires.
+or changing their role takes effect immediately rather than when the token expires. Since
+Phase 84 every access token names its sign-in session (`sid`), and a token is valid only
+while that session is; second-factor challenges are tokens of their own type (`typ`), which
+are never accepted as access tokens.
 """
 
 import base64
@@ -72,15 +75,26 @@ class IssuedToken:
     expires_at: datetime
 
 
+ACCESS = "access"
+MFA_CHALLENGE = "mfa_challenge"
+
+
 @dataclass(frozen=True)
 class TokenClaims:
     user_id: uuid.UUID
     token_id: str
     expires_at: datetime
+    session_id: uuid.UUID | None = None
 
 
 def create_access_token(
-    user_id: uuid.UUID, secret: str, ttl: timedelta, now: datetime | None = None
+    user_id: uuid.UUID,
+    secret: str,
+    ttl: timedelta,
+    now: datetime | None = None,
+    *,
+    session_id: uuid.UUID | None = None,
+    token_type: str = ACCESS,
 ) -> IssuedToken:
     issued_at = now or datetime.now(UTC)
     expires_at = issued_at + ttl
@@ -90,13 +104,16 @@ def create_access_token(
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
         "jti": secrets.token_hex(8),
+        "typ": token_type,
     }
+    if session_id is not None:
+        payload["sid"] = str(session_id)
     return IssuedToken(
         token=jwt.encode(payload, secret, algorithm=_ALGORITHM), expires_at=expires_at
     )
 
 
-def decode_access_token(token: str, secret: str) -> TokenClaims:
+def decode_access_token(token: str, secret: str, *, token_type: str = ACCESS) -> TokenClaims:
     try:
         payload = jwt.decode(
             token,
@@ -106,6 +123,9 @@ def decode_access_token(token: str, secret: str) -> TokenClaims:
             options={"require": ["sub", "exp", "iat", "iss"]},
         )
         user_id = uuid.UUID(payload["sub"])
+        session_id = uuid.UUID(payload["sid"]) if payload.get("sid") else None
+        if payload.get("typ", ACCESS) != token_type:
+            raise jwt.InvalidTokenError("wrong token type")
     except jwt.ExpiredSignatureError as exc:
         raise AuthenticationError("Access token has expired.") from exc
     except (jwt.InvalidTokenError, ValueError) as exc:
@@ -114,4 +134,5 @@ def decode_access_token(token: str, secret: str) -> TokenClaims:
         user_id=user_id,
         token_id=str(payload.get("jti", "")),
         expires_at=datetime.fromtimestamp(payload["exp"], UTC),
+        session_id=session_id,
     )

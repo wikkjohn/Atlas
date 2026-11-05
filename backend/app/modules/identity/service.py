@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -18,16 +18,25 @@ from app.core.errors import (
 )
 from app.core.pagination import PageParams, paginate
 from app.core.permissions import SERVICE_ROLES, Permission, RoleCode, permissions_for
+from app.core.scope import UNRESTRICTED, Scope
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     UNUSABLE_PASSWORD_HASH,
-    IssuedToken,
-    create_access_token,
     hash_password,
     verify_password,
 )
-from app.modules.identity.models import Role, User
-from app.modules.identity.schemas import CurrentUserOut, UserCreate, UserOut, UserUpdate
+from app.modules.identity.models import AuthSession, Role, SessionMfa, User
+from app.modules.identity.schemas import (
+    CurrentUserOut,
+    ScopeOut,
+    SessionOut,
+    UserCreate,
+    UserOut,
+    UserUpdate,
+)
+
+if TYPE_CHECKING:
+    from app.modules.identity import sessions
 
 
 @dataclass(frozen=True)
@@ -38,9 +47,18 @@ class AuthenticatedUser:
     username: str
     role: str
     permissions: frozenset[Permission]
+    # Where the user may act (Phase 84); service principals are unrestricted.
+    scope: Scope = UNRESTRICTED
+    session_id: uuid.UUID | None = None
 
     def can(self, permission: Permission) -> bool:
         return permission in self.permissions
+
+
+def _scope_out(user: User) -> ScopeOut:
+    countries = sorted(s.value for s in user.scopes if s.kind == "country")
+    departments = sorted(s.value for s in user.scopes if s.kind == "department")
+    return ScopeOut(countries=countries or None, departments=departments or None)
 
 
 def user_out(user: User) -> UserOut:
@@ -56,13 +74,30 @@ def user_out(user: User) -> UserOut:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         is_service_account=user.password_hash == UNUSABLE_PASSWORD_HASH,
+        mfa_enabled=user.mfa_secret is not None,
+        scope=_scope_out(user),
     )
 
 
-def current_user_out(user: User) -> CurrentUserOut:
+def session_out(session: AuthSession, current: uuid.UUID | None = None) -> SessionOut:
+    return SessionOut(
+        id=session.id, method=session.method, provider=session.provider, mfa=session.mfa,
+        ip_address=session.ip_address, user_agent=session.user_agent,
+        created_at=session.created_at, last_seen_at=session.last_seen_at,
+        expires_at=session.expires_at, revoked_at=session.revoked_at,
+        revoked_reason=session.revoked_reason, current=session.id == current,
+    )  # fmt: skip
+
+
+def current_user_out(user: User, session: AuthSession | None = None) -> CurrentUserOut:
     return CurrentUserOut(
         **user_out(user).model_dump(),
         permissions=sorted(p.value for p in permissions_for(user.role.code)),
+        session=session_out(session, session.id) if session else None,
+        mfa_enrolment_required=bool(session and session.mfa == SessionMfa.ENROLMENT_REQUIRED),
+        mfa_recovery_codes_left=sum(
+            1 for c in user.mfa_recovery_codes or [] if c.get("used_at") is None
+        ),
     )
 
 
@@ -78,9 +113,13 @@ def list_roles(db: Session) -> list[Role]:
 
 
 def authenticate(
-    db: Session, username: str, password: str, settings: Settings
-) -> tuple[User, IssuedToken]:
-    """Verify credentials and issue a token. Failed attempts are audited and committed."""
+    db: Session, username: str, password: str, settings: Settings,
+    meta: "sessions.RequestMeta | None" = None,
+) -> tuple[User, "sessions.SignIn"]:  # fmt: skip
+    """Verify credentials and open a session: an access token, or (when the user has a
+    second factor) a challenge to complete. Failed attempts are audited and committed."""
+    from app.modules.identity import sessions
+
     user = db.execute(
         select(User).where(User.username == username.strip().lower())
     ).scalar_one_or_none()
@@ -103,16 +142,11 @@ def authenticate(
         db.commit()
         raise AuthenticationError("Invalid username or password.")
 
-    user.last_login_at = datetime.now(UTC)
     record_audit_event(
-        db, actor_id=user.id, action="auth.login", entity_type="user", entity_id=user.id
-    )
-    token = create_access_token(
-        user.id,
-        settings.jwt_secret.get_secret_value(),
-        timedelta(minutes=settings.access_token_ttl_minutes),
-    )
-    return user, token
+        db, actor_id=user.id, action="auth.login", entity_type="user", entity_id=user.id,
+        metadata={"method": "password"},
+    )  # fmt: skip
+    return user, sessions.start(db, user, settings, method="password", meta=meta)
 
 
 def load_active_user(db: Session, user_id: uuid.UUID) -> User:
@@ -242,6 +276,10 @@ def update_user(db: Session, user: User, data: UserUpdate, actor_id: uuid.UUID) 
         if user.id == actor_id and not data.is_active:
             raise BusinessRuleViolation("You cannot deactivate your own account.")
         user.is_active = data.is_active
+        if not data.is_active:
+            from app.modules.identity import sessions
+
+            sessions.revoke_all(db, user.id, "deactivated", actor_id)
     db.flush()
     after = {"display_name": user.display_name, "role": user.role.code, "is_active": user.is_active}
     changes = diff(before, after)

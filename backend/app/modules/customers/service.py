@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import diff, record_audit_event
 from app.core.errors import BusinessRuleViolation, NotFoundError
 from app.core.pagination import PageParams, paginate
+from app.modules.countries.models import Country
 from app.modules.countries.service import require_active_country
 from app.modules.customers.models import (
     CUSTOMER_NUMBER_SEQUENCE,
@@ -72,8 +73,16 @@ def list_customers(
     country_id: uuid.UUID | None = None,
     risk_rating: str | None = None,
     kyc_status: str | None = None,
+    countries: frozenset[str] | None = None,
 ) -> tuple[list[Customer], int]:
+    """`countries`: the caller's country scope (Phase 84); None is every country."""
     query = select(Customer).order_by(Customer.name, Customer.id)
+    if countries is not None:
+        query = query.where(
+            Customer.country_id.in_(
+                select(Country.id).where(Country.iso_country_code.in_(countries))
+            )
+        )
     if q:
         pattern = f"%{q.strip()}%"
         query = query.where(

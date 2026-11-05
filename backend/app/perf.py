@@ -103,16 +103,14 @@ def _ledger(ctx: Context, bulk: bool) -> tuple[float, dict[str, Any]]:
 
 
 def _admin_headers(db: Session) -> dict[str, str]:
-    from datetime import timedelta
-
-    from app.core.security import create_access_token
+    from app.modules.identity import sessions
     from app.modules.identity.models import User
 
     admin = db.execute(select(User).where(User.username == "admin")).scalar_one_or_none()
     if admin is None:
         raise RuntimeError("No 'admin' user: run `python -m app.cli seed-demo` first.")
-    secret = get_settings().jwt_secret.get_secret_value()
-    token = create_access_token(admin.id, secret, timedelta(minutes=30)).token
+    token = sessions.issue_for(db, admin, get_settings())  # a session of its own (Phase 84)
+    db.commit()
     return {"Authorization": f"Bearer {token}"}
 
 

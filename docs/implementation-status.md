@@ -128,6 +128,14 @@ The dashboard drill-down (roadmap Milestone H, step 5); see
 | Frontend vitest | 198 passed, 40 files (CI, commit 85b7f19) |
 | Playwright | 82 passed in 3.5 min (CI, commit 85b7f19) |
 
+## Phase 88: fixes from the PR #78 review (Phase 87)
+
+| Finding | Fix |
+| --- | --- |
+| The image did not create `/app/var/audit-archive`, so the new volume was root-owned and unwritable (P1) | The Dockerfile creates and chowns `audit-archive` (and `backups`) beside `simulation-archive` |
+| A simulation-history restore deleting its archive while a backup ran could leave the backup with neither the rows nor the files (P1) | An advisory lock, `atlas.archive_files` (`app/core/locks.py`). A backup holds it shared from before its snapshot until the files are packed, and `restore_run` takes it exclusively before deleting |
+| A non-empty files destination was refused only after the database was restored (P2) | The destination is checked with the database preflight, before anything is written |
+
 ## Phase 88: known limitations
 
 - **Attribution is computed per query.** The enterprise and country levels read every

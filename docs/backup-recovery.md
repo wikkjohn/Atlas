@@ -29,6 +29,11 @@ a read-only repeatable-read transaction, exports its snapshot, reads the manifes
 in it, and runs `pg_dump --snapshot` on it. The bank keeps running meanwhile: nothing is
 locked beyond what `pg_dump` itself takes (shared locks, which block only schema changes).
 
+**Files that cannot disappear mid-backup.** A backup holds the `atlas.archive_files`
+advisory lock shared from before its snapshot until the files are packed. Restoring a run's
+simulation history deletes its archive files only after taking that lock exclusively. So
+every file the snapshot still refers to is in the backup (Phase 88, PR #78 review).
+
 **Files after the database.** The archive files are packed after the dump. So every
 archive the dump records has its file in the backup. A file whose archiving transaction
 failed may be there too, unreferenced; that is harmless.
@@ -51,7 +56,8 @@ python -m app.cli backup restore DIR/atlas-backup-… \
 ```
 
 1. The backup is verified.
-2. The target must have no tables, or the restore stops. `--force` empties it first
+2. The target must have no tables, and `--files-root` must be empty, or the restore stops
+   before writing anything. `--force` empties it first
    (`DROP SCHEMA public CASCADE`); use it only on a database you mean to replace.
 3. `pg_restore --exit-on-error --no-owner --no-privileges`.
    - By default it runs in a single transaction: a failure leaves the target empty.

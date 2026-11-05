@@ -274,6 +274,8 @@ export const healthyRoutes: Routes = {
   "/api/health": () => jsonResponse(healthyHealth),
   "/api/system/info": () => jsonResponse(systemInfo),
   "/api/system/status": () => jsonResponse(systemStatus),
+  // Phase 87: no backups recorded unless a test says otherwise.
+  "/api/v1/backups": () => jsonResponse({ latest_backup: null, latest_drill: null, recovery_point_age_s: null, runs: [] }),
   // Phase 74: the event pipeline and access panels, empty unless a test says otherwise.
   "GET /api/v1/events/summary": () => jsonResponse({ events: 0, topics: {}, subscribers: [], waiting: 0, dead: 0, oldest_waiting_seconds: null }),
   "GET /api/v1/events": () => jsonResponse([]),

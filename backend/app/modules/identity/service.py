@@ -121,6 +121,67 @@ def list_roles(db: Session) -> list[Role]:
     return list(db.execute(select(Role).order_by(Role.name)).scalars())
 
 
+def is_locked(user: User, now: datetime | None = None) -> bool:
+    now = now or datetime.now(UTC)
+    return user.locked_until is not None and user.locked_until > now
+
+
+def verify_credentials(
+    db: Session, username: str, password: str, settings: Settings, *,
+    failure_action: str = "auth.login_failed",
+    failure_message: str = "Invalid username or password.", metadata: dict | None = None,
+) -> User:  # fmt: skip
+    """The password check every sign-in path shares: the bank's form and the simulated
+    directory alike. A locked account is refused, and wrong passwords count towards the
+    lockout (Phase 85; the directory was a way around it, PR #76 review). Failures are
+    audited and committed before the error is raised."""
+    user = db.execute(
+        select(User).where(User.username == username.strip().lower())
+    ).scalar_one_or_none()
+    password_ok = verify_password(password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+    now = datetime.now(UTC)
+    locked = user is not None and is_locked(user, now)
+    if user is not None and password_ok and user.is_active and not locked:
+        user.failed_logins = 0
+        user.locked_until = None
+        return user
+    reason = (
+        "unknown_user" if user is None else "locked" if locked
+        else "bad_password" if not password_ok else "inactive"
+    )  # fmt: skip
+    record_audit_event(
+        db,
+        actor_id=user.id if user else None,
+        action=failure_action,
+        entity_type="user",
+        entity_id=user.id if user else None,
+        metadata={**(metadata or {}), "username": username[:64], "reason": reason},
+    )
+    message = failure_message
+    if locked:
+        minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
+        message = (
+            "This account is locked after repeated failed sign-ins; try again in "
+            f"{minutes} minute(s) or ask an administrator to unlock it."
+        )
+    elif reason == "bad_password":
+        # This many wrong passwords in a row lock the account for a while.
+        user.failed_logins += 1
+        if user.failed_logins >= settings.login_lockout_attempts:
+            user.locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
+            user.failed_logins = 0
+            record_audit_event(
+                db, actor_id=None, action="auth.locked", entity_type="user",
+                entity_id=user.id,
+                metadata={"until": user.locked_until.isoformat(),
+                          "attempts": settings.login_lockout_attempts},
+            )  # fmt: skip
+    # The failure is raised as an error, which rolls the request back; commit first so the
+    # security record (and the count) survives.
+    db.commit()
+    raise AuthenticationError(message)
+
+
 def authenticate(
     db: Session, username: str, password: str, settings: Settings,
     meta: "sessions.RequestMeta | None" = None,
@@ -129,52 +190,7 @@ def authenticate(
     second factor) a challenge to complete. Failed attempts are audited and committed."""
     from app.modules.identity import sessions
 
-    user = db.execute(
-        select(User).where(User.username == username.strip().lower())
-    ).scalar_one_or_none()
-    password_ok = verify_password(password, user.password_hash if user else DUMMY_PASSWORD_HASH)
-    now = datetime.now(UTC)
-    locked = user is not None and user.locked_until is not None and user.locked_until > now
-
-    if user is None or not password_ok or not user.is_active or locked:
-        reason = (
-            "unknown_user" if user is None else "locked" if locked
-            else "bad_password" if not password_ok else "inactive"
-        )  # fmt: skip
-        record_audit_event(
-            db,
-            actor_id=user.id if user else None,
-            action="auth.login_failed",
-            entity_type="user",
-            entity_id=user.id if user else None,
-            metadata={"username": username[:64], "reason": reason},
-        )
-        message = "Invalid username or password."
-        if locked:
-            minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
-            message = (
-                "This account is locked after repeated failed sign-ins; try again in "
-                f"{minutes} minute(s) or ask an administrator to unlock it."
-            )
-        elif reason == "bad_password":
-            # Phase 85: this many wrong passwords in a row lock the account for a while.
-            user.failed_logins += 1
-            if user.failed_logins >= settings.login_lockout_attempts:
-                user.locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
-                user.failed_logins = 0
-                record_audit_event(
-                    db, actor_id=None, action="auth.locked", entity_type="user",
-                    entity_id=user.id,
-                    metadata={"until": user.locked_until.isoformat(),
-                              "attempts": settings.login_lockout_attempts},
-                )  # fmt: skip
-        # The failure is raised as an error, which rolls the request back; commit first so
-        # the security record (and the count) survives.
-        db.commit()
-        raise AuthenticationError(message)
-
-    user.failed_logins = 0
-    user.locked_until = None
+    user = verify_credentials(db, username, password, settings)
     record_audit_event(
         db, actor_id=user.id, action="auth.login", entity_type="user", entity_id=user.id,
         metadata={"method": "password"},

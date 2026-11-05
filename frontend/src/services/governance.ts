@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost } from "@/services/api";
 import type { UserAccount } from "@/types/enterprise";
-import type { ArchivedEvent, ArchiveVerification, AuditArchive, RetentionReview } from "@/types/governance";
+import type { ArchivedEvent, ArchiveVerification, AuditArchive, BackupStatus, RetentionReview } from "@/types/governance";
 
 export function useAuditArchives() {
   return useQuery({ queryKey: ["audit-archives"], queryFn: () => apiGet<AuditArchive[]>("/api/v1/audit-archives") });
@@ -29,11 +29,14 @@ export function useVerifyArchive() {
   });
 }
 
-export function useArchivedEvents(id: string | null, action: string) {
-  const params = new URLSearchParams({ limit: "50" });
+export const ARCHIVED_EVENTS_PAGE = 50;
+
+/** One page of an archive's matching events (PR #76 review: every match is reachable). */
+export function useArchivedEvents(id: string | null, action: string, offset = 0) {
+  const params = new URLSearchParams({ limit: String(ARCHIVED_EVENTS_PAGE), offset: String(offset) });
   if (action) params.set("action", action);
   return useQuery({
-    queryKey: ["audit-archives", id, "events", action],
+    queryKey: ["audit-archives", id, "events", action, offset],
     queryFn: () =>
       apiGet<{ items: ArchivedEvent[]; total: number }>(`/api/v1/audit-archives/${id}/events?${params}`),
     enabled: Boolean(id),
@@ -65,4 +68,9 @@ export function useUnlockUser() {
     mutationFn: (id: string) => apiPost<UserAccount>(`/api/v1/users/${id}/unlock`, {}),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
   });
+}
+
+/** Phase 87: backups and recovery drills (taken with the CLI; the API only reports them). */
+export function useBackups() {
+  return useQuery({ queryKey: ["backups"], queryFn: () => apiGet<BackupStatus>("/api/v1/backups?limit=10") });
 }

@@ -125,3 +125,72 @@ describe("Sign-in lockout (Phase 85)", () => {
     await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/users/u2/unlock")).toBe(true));
   });
 });
+
+describe("Backups and recovery drills (Phase 87)", () => {
+  it("shows the latest backup, the latest passing drill and the runs", async () => {
+    const drill = {
+      run_number: 2,
+      kind: "drill" as const,
+      ok: true,
+      location: "var/backups/atlas-backup-20261105T120000Z",
+      details: { measured: { backup_s: 6.5, rto_s: 2.2, rpo_s: 9.2, total_s: 9.2 } },
+      started_at: "2026-11-05T12:00:00Z",
+      finished_at: "2026-11-05T12:00:09Z",
+    };
+    const failed = { ...drill, run_number: 3, ok: false, details: { error: "pg_dump is not installed" } };
+    const backup = { ...drill, run_number: 1, kind: "backup" as const, details: {} };
+    mockApi({
+      ...healthyRoutes,
+      "GET /api/v1/audit-events": () => jsonResponse(page([])),
+      "GET /api/v1/audit-archives": () => jsonResponse([]),
+      "GET /api/v1/backups": () =>
+        jsonResponse({ latest_backup: backup, latest_drill: drill, recovery_point_age_s: 5400, runs: [failed, drill, backup] }),
+    });
+    renderApp("/audit");
+    const table = await screen.findByRole("table", { name: "Backup runs" });
+    expect(screen.getByText(/RTO 2\.2 s/)).toBeInTheDocument();
+    expect(screen.getByText("2 h")).toBeInTheDocument();
+    const rows = within(table).getAllByRole("row");
+    expect(rows).toHaveLength(4);
+    expect(rows[1]).toHaveTextContent("Failed");
+    expect(rows[1]).toHaveTextContent("pg_dump is not installed");
+    expect(rows[2]).toHaveTextContent("restored and checked in 2.2 s (recovery point 9 s old)");
+  });
+
+  it("says when nothing has been backed up", async () => {
+    mockApi({
+      ...healthyRoutes,
+      "GET /api/v1/audit-events": () => jsonResponse(page([])),
+      "GET /api/v1/audit-archives": () => jsonResponse([]),
+    });
+    renderApp("/audit");
+    expect(await screen.findByText(/No backup has been recorded/)).toBeInTheDocument();
+    expect(screen.getByText("No backup")).toBeInTheDocument();
+  });
+});
+
+describe("Archive search pagination (PR #76 review)", () => {
+  it("pages through every matching archived event", async () => {
+    const event = (n: number) => ({ id: `e${n}`, actor_id: null, action: "auth.login", entity_type: "user", entity_id: `u${n}`, timestamp: "2024-01-02T10:00:00Z", correlation_id: null, metadata: {} });
+    const api = mockApi({
+      ...healthyRoutes,
+      "GET /api/v1/audit-events": () => jsonResponse(page([])),
+      "GET /api/v1/audit-archives": () => jsonResponse([archiveRow()]),
+      "GET /api/v1/audit-archives/a1/events": (r) => {
+        const offset = Number(r.search.get("offset") ?? 0);
+        return jsonResponse({ items: [event(offset + 1)], total: 120 });
+      },
+    });
+    renderApp("/audit");
+    const table = await screen.findByRole("table", { name: "Audit archives" });
+    await userEvent.click(within(table).getByRole("button", { name: "Search archive 1" }));
+    const found = await screen.findByRole("region", { name: "Archived events" });
+    expect(await within(found).findByText(/user u1$/)).toBeInTheDocument();
+    expect(within(found).getByText("1–50 of 120")).toBeInTheDocument();
+    await userEvent.click(within(found).getByRole("button", { name: "Next" }));
+    expect(await within(found).findByText(/user u51$/)).toBeInTheDocument();
+    expect(within(found).getByText("51–100 of 120")).toBeInTheDocument();
+    const offsets = api.requests.filter((r) => r.path === "/api/v1/audit-archives/a1/events").map((r) => r.search.get("offset"));
+    expect(offsets).toEqual(expect.arrayContaining(["0", "50"]));
+  });
+});

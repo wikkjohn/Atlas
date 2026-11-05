@@ -42,6 +42,7 @@ services:
       # Background jobs run in the worker service below, not in the API process.
       ATLAS_JOBS_EXECUTION: worker
       ATLAS_SIMULATION_ARCHIVE_DIR: /app/var/simulation-archive
+      ATLAS_AUDIT_ARCHIVE_DIR: /app/var/audit-archive
       ATLAS_SLOW_QUERY_MS: ${ATLAS_SLOW_QUERY_MS:-250}
       # Set to enable the Prometheus endpoint /api/metrics (bearer token).
       ATLAS_METRICS_TOKEN: ${ATLAS_METRICS_TOKEN:-}
@@ -50,6 +51,9 @@ services:
     volumes:
       # Shared with the worker: either may archive or restore simulation history.
       - simulation-archive:/app/var/simulation-archive
+      # Shared and persistent: the worker's daily retention run writes audit archives
+      # that the API searches and verifies, and the events are gone from the database.
+      - audit-archive:/app/var/audit-archive
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,9 +83,11 @@ services:
       # This is a worker: shard jobs a sharded run queues are left to the worker processes.
       ATLAS_JOBS_EXECUTION: worker
       ATLAS_SIMULATION_ARCHIVE_DIR: /app/var/simulation-archive
+      ATLAS_AUDIT_ARCHIVE_DIR: /app/var/audit-archive
       ATLAS_SLOW_QUERY_MS: ${ATLAS_SLOW_QUERY_MS:-250}
     volumes:
       - simulation-archive:/app/var/simulation-archive
+      - audit-archive:/app/var/audit-archive
     depends_on:
       backend:
         condition: service_healthy  # the backend applies the migrations on start
@@ -101,3 +107,4 @@ services:
 volumes:
   postgres-data:
   simulation-archive:
+  audit-archive:

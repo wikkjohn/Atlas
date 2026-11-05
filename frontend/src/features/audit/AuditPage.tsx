@@ -5,6 +5,7 @@ import { ErrorMessage } from "@/components/ErrorMessage";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
 import { AuditArchivePanel } from "@/features/audit/AuditArchivePanel";
+import { BackupPanel } from "@/features/audit/BackupPanel";
 import { formatTimestamp } from "@/features/dashboard/format";
 import { useAuditEvents } from "@/services/enterprise";
 
@@ -31,6 +32,7 @@ export function AuditPage() {
         description="Append-only record of security events and changes. Records cannot be edited or deleted — the database rejects it; old events move to a verifiable archive."
       />
       {can("audit:read") && <AuditArchivePanel />}
+      {can("audit:read") && <BackupPanel />}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           aria-label="Action"

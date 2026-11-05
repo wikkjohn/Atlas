@@ -55,3 +55,27 @@ export interface RetentionReview {
   due_total: number;
   last_run: { run_number: number; applied_at: string; results: Record<string, Record<string, number | null>> } | null;
 }
+
+/** Phase 87: a backup, verification, restore or recovery drill, as recorded by the CLI. */
+export interface BackupRun {
+  run_number: number;
+  kind: "backup" | "verify" | "restore" | "drill";
+  ok: boolean;
+  location: string;
+  details: {
+    measured?: { backup_s: number; rto_s: number; rpo_s: number; total_s: number };
+    backup_bytes?: number;
+    checks?: { name: string; passed: boolean; detail: string }[];
+    error?: string;
+    [key: string]: unknown;
+  };
+  started_at: string;
+  finished_at: string;
+}
+
+export interface BackupStatus {
+  latest_backup: BackupRun | null;
+  latest_drill: BackupRun | null;
+  recovery_point_age_s: number | null;
+  runs: BackupRun[];
+}

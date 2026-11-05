@@ -842,3 +842,9 @@ engine's cost function, and is flagged as an estimate.
 | POST | `/api/v1/data-retention/apply` | `retention:apply` | Delete and archive what is due → `{run_number, results}` |
 
 Every change (POST, PUT, PATCH, DELETE) by a signed-in user counts against 600 a minute (429 beyond). See `data-retention.md`.
+
+### Backups and recovery drills (Phase 87)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/backups?kind=&limit=` | `audit:read` | `{latest_backup, latest_drill, recovery_point_age_s, runs}`. `latest_drill` is the latest drill that passed. `kind` is one of backup, verify, restore or drill. Runs are taken with `python -m app.cli backup`; see `backup-recovery.md` |

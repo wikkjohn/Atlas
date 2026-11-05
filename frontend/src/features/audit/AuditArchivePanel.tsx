@@ -5,10 +5,11 @@ import { useAuth } from "@/app/auth";
 import { Button } from "@/components/Button";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { inputClass } from "@/components/Field";
+import { Pagination } from "@/components/Pagination";
 import { Panel } from "@/components/Panel";
 import { StatusPill } from "@/components/StatusPill";
 import { formatTimestamp } from "@/features/dashboard/format";
-import { useArchivedEvents, useAuditArchives, useCreateArchive, useVerifyArchive } from "@/services/governance";
+import { ARCHIVED_EVENTS_PAGE, useArchivedEvents, useAuditArchives, useCreateArchive, useVerifyArchive } from "@/services/governance";
 
 /** Phase 85: old audit events moved to compressed files, each chained to the one before. */
 export function AuditArchivePanel() {
@@ -19,7 +20,8 @@ export function AuditArchivePanel() {
   const [days, setDays] = useState("365");
   const [open, setOpen] = useState<string | null>(null);
   const [action, setAction] = useState("");
-  const events = useArchivedEvents(open, action.trim());
+  const [offset, setOffset] = useState(0);
+  const events = useArchivedEvents(open, action.trim(), offset);
   const [outcome, setOutcome] = useState<string | null>(null);
 
   return (
@@ -89,7 +91,10 @@ export function AuditArchivePanel() {
                   <Button size="sm" variant="secondary" aria-label={`Verify archive ${a.archive_number}`} disabled={verify.isPending} onClick={() => verify.mutate(a.id)}>
                     <ShieldCheck aria-hidden className="h-3.5 w-3.5" /> Verify
                   </Button>{" "}
-                  <Button size="sm" variant="ghost" aria-label={`Search archive ${a.archive_number}`} onClick={() => setOpen(open === a.id ? null : a.id)}>
+                  <Button size="sm" variant="ghost" aria-label={`Search archive ${a.archive_number}`} onClick={() => {
+                      setOpen(open === a.id ? null : a.id);
+                      setOffset(0);
+                    }}>
                     Search
                   </Button>
                 </td>
@@ -100,7 +105,11 @@ export function AuditArchivePanel() {
       )}
       {open && (
         <section aria-label="Archived events" className="mt-3 space-y-2">
-          <input aria-label="Archived action" placeholder="Action, e.g. auth.*" className={`${inputClass} w-72`} value={action} onChange={(e) => setAction(e.target.value)} />
+          <input aria-label="Archived action" placeholder="Action, e.g. auth.*" className={`${inputClass} w-72`} value={action} onChange={(e) => {
+              setAction(e.target.value);
+              setOffset(0);
+            }}
+          />
           <ErrorMessage error={events.error} />
           {events.data && (
             <>
@@ -112,6 +121,7 @@ export function AuditArchivePanel() {
                   </li>
                 ))}
               </ul>
+              <Pagination total={events.data.total} limit={ARCHIVED_EVENTS_PAGE} offset={offset} onChange={setOffset} />
             </>
           )}
         </section>

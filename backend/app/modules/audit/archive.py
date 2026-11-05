@@ -22,6 +22,7 @@ import gzip
 import hashlib
 import json
 import uuid
+import zlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,6 @@ from sqlalchemy import (
     Integer,
     String,
     Uuid,
-    delete,
     func,
     select,
     text,
@@ -155,8 +155,10 @@ def archive_before(
     db.add(archive)
     db.flush()
     db.execute(text("SET LOCAL atlas.audit_archiving = 'on'"))
+    # One array parameter, not one bind parameter an event: an IN list stops at 65,535
+    # (PR #76 review), and a backlog of old events can be larger.
     removed = db.execute(
-        delete(AuditEvent).where(AuditEvent.id.in_([e.id for e in events]))
+        text("DELETE FROM audit_events WHERE id = ANY(:ids)"), {"ids": [e.id for e in events]}
     ).rowcount
     db.execute(text("SET LOCAL atlas.audit_archiving = 'off'"))
     if removed != len(events):
@@ -190,7 +192,14 @@ def verify(db: Session, archive: AuditArchive, actor_id: uuid.UUID | None) -> di
         problems.append("the file is missing")
         sha, lines = None, None
     else:
-        sha, lines = _digest(path)
+        try:
+            sha, lines = _digest(path)
+        except (OSError, EOFError, zlib.error) as exc:
+            # A truncated or corrupted file is a failed verification, recorded as such,
+            # not an error that leaves the last "ok" in place (PR #76 review).
+            sha, lines = None, None
+            problems.append(f"the file cannot be read: {type(exc).__name__}: {exc}")
+    if sha is not None:
         if sha != archive.sha256:
             problems.append("the file's digest does not match the record")
         if lines != archive.events:

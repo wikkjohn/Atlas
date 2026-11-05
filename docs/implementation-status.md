@@ -133,9 +133,9 @@ Backup, restore and a tested recovery procedure (roadmap Milestone H, step 4). T
 | Drill, `atlas_ci` (49 MB) | All 5 checks passed; backup 6.5 s; **RTO 2.2 s** |
 | Backup tests (`tests/test_backup_recovery.py`, 7) | Pass: round trip with files; refusal of a non-empty target; tampering caught by the checks and by verification; drill timing and clean-up; runs listed, 403 without `audit:read` |
 | Authorization matrix | 479 routes (+`GET /api/v1/backups`, `audit:read`), reviewed and regenerated |
-| Backend pytest (real PostgreSQL) | BACKEND87 |
-| Frontend vitest | FRONTEND87 |
-| Playwright | E2E87 |
+| Backend pytest (real PostgreSQL) | 874 passed in 15 min 34 s (CI, commit 7f68ddb) |
+| Frontend vitest | 196 passed, 39 files (CI, commit 7f68ddb) |
+| Playwright | 81 passed in 5.6 min (CI, commit 7f68ddb) |
 
 **A bug found by the drill and fixed:**
 - The scratch database's cleanup failed after a large restore. A non-superuser's

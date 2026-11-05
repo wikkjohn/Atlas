@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.core.dependencies import DbSession
 from app.core.idempotency import (
@@ -15,7 +16,13 @@ from app.core.idempotency import (
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.modules.accounts import service
-from app.modules.accounts.models import AccountStatus, AccountType, RequestStatus
+from app.modules.accounts.models import (
+    Account,
+    AccountRequest,
+    AccountStatus,
+    AccountType,
+    RequestStatus,
+)
 from app.modules.accounts.schemas import (
     AccountOut,
     AccountRequestCreate,
@@ -25,7 +32,11 @@ from app.modules.accounts.schemas import (
     MovementOut,
     Rejection,
 )
+from app.modules.countries.models import Country
+from app.modules.customers.models import Customer
+from app.modules.identity import scopes
 from app.modules.identity.dependencies import Authorized
+from app.modules.identity.service import AuthenticatedUser
 from app.modules.ledger import service as ledger
 from app.modules.ledger.schemas import StatementLineOut
 
@@ -42,6 +53,44 @@ class StatusChange(BaseModel):
     reason: str = Field(min_length=3, max_length=300)
 
 
+# --- Scope (Phase 84): records outside the caller's countries do not exist for them --------
+
+
+def _customer_country(db, customer_id) -> str | None:
+    return db.execute(
+        select(Country.iso_country_code)
+        .join(Customer, Customer.country_id == Country.id)
+        .where(Customer.id == customer_id)
+    ).scalar_one_or_none()
+
+
+def _scope_customer(db, user: AuthenticatedUser, customer_id: uuid.UUID) -> None:
+    if user.scope.countries is not None:
+        country = _customer_country(db, customer_id)
+        if country is not None:
+            scopes.require_visible(user.scope, "Customer", country=country)
+
+
+def _scope_request(db, user: AuthenticatedUser, request_id: uuid.UUID) -> None:
+    if user.scope.countries is not None:
+        customer_id = db.execute(
+            select(AccountRequest.customer_id).where(AccountRequest.id == request_id)
+        ).scalar_one_or_none()
+        if customer_id is not None:
+            scopes.require_visible(user.scope, "Account request",
+                                   country=_customer_country(db, customer_id))  # fmt: skip
+
+
+def _scope_account(db, user: AuthenticatedUser, account_id: uuid.UUID) -> None:
+    if user.scope.countries is not None:
+        customer_id = db.execute(
+            select(Account.customer_id).where(Account.id == account_id)
+        ).scalar_one_or_none()
+        if customer_id is not None:
+            scopes.require_visible(user.scope, "Account",
+                                   country=_customer_country(db, customer_id))  # fmt: skip
+
+
 # --- Requests ------------------------------------------------------------------------------
 
 
@@ -49,11 +98,13 @@ class StatusChange(BaseModel):
 def list_requests(
     db: DbSession,
     page: PageParamsDep,
-    _: Authorized(Permission.ACCOUNTS_READ),
+    user: Authorized(Permission.ACCOUNTS_READ),
     status: RequestStatus | None = None,
     customer_id: uuid.UUID | None = None,
 ) -> Page[AccountRequestOut]:
-    items, total = service.list_requests(db, page, status=status, customer_id=customer_id)
+    items, total = service.list_requests(
+        db, page, status=status, customer_id=customer_id, countries=user.scope.countries
+    )
     return Page(
         items=service.requests_out(db, items), total=total, limit=page.limit, offset=page.offset
     )
@@ -72,6 +123,7 @@ def submit_request(
     actor: Authorized(Permission.ACCOUNTS_REQUEST),
     idempotency_key: IdempotencyKey = None,
 ):
+    _scope_customer(db, actor, body.customer_id)
     return run_idempotent(
         db,
         key=idempotency_key,
@@ -97,8 +149,9 @@ def submit_request(
 
 @requests_router.get("/{request_id}", response_model=AccountRequestOut, summary="Get a request")
 def get_request(
-    request_id: uuid.UUID, db: DbSession, _: Authorized(Permission.ACCOUNTS_READ)
+    request_id: uuid.UUID, db: DbSession, user: Authorized(Permission.ACCOUNTS_READ)
 ) -> AccountRequestOut:
+    _scope_request(db, user, request_id)
     return service.requests_out(db, [service.get_request(db, request_id)])[0]
 
 
@@ -113,6 +166,7 @@ def approve_request(
     db: DbSession,
     approver: Authorized(Permission.ACCOUNTS_APPROVE),
 ) -> ApprovalOut:
+    _scope_request(db, approver, request_id)
     account = service.approve_request(db, request_id, approver, body.note)
     return ApprovalOut(
         request=service.requests_out(db, [service.get_request(db, request_id)])[0],
@@ -129,6 +183,7 @@ def reject_request(
     db: DbSession,
     approver: Authorized(Permission.ACCOUNTS_APPROVE),
 ) -> AccountRequestOut:
+    _scope_request(db, approver, request_id)
     return service.requests_out(
         db, [service.reject_request(db, request_id, approver, body.reason)]
     )[0]
@@ -141,7 +196,7 @@ def reject_request(
 def list_accounts(
     db: DbSession,
     page: PageParamsDep,
-    _: Authorized(Permission.ACCOUNTS_READ),
+    user: Authorized(Permission.ACCOUNTS_READ),
     q: Annotated[str | None, Query(max_length=100, description="Number or customer name")] = None,
     customer_id: uuid.UUID | None = None,
     status: AccountStatus | None = None,
@@ -156,6 +211,7 @@ def list_accounts(
         status=status,
         currency=currency,
         account_type=account_type,
+        countries=user.scope.countries,
     )
     return Page(
         items=service.accounts_out(db, items), total=total, limit=page.limit, offset=page.offset
@@ -164,8 +220,9 @@ def list_accounts(
 
 @accounts_router.get("/{account_id}", response_model=AccountOut, summary="Get an account")
 def get_account(
-    account_id: uuid.UUID, db: DbSession, _: Authorized(Permission.ACCOUNTS_READ)
+    account_id: uuid.UUID, db: DbSession, user: Authorized(Permission.ACCOUNTS_READ)
 ) -> AccountOut:
+    _scope_account(db, user, account_id)
     return service.accounts_out(db, [service.get_account(db, account_id)])[0]
 
 
@@ -178,8 +235,9 @@ def list_transactions(
     account_id: uuid.UUID,
     db: DbSession,
     page: PageParamsDep,
-    _: Authorized(Permission.ACCOUNTS_READ),
+    user: Authorized(Permission.ACCOUNTS_READ),
 ) -> Page[StatementLineOut]:
+    _scope_account(db, user, account_id)
     account = service.get_account(db, account_id)
     lines, total = ledger.statement(
         db, ledger.get_ledger_account(db, account.ledger_account_id), page
@@ -215,6 +273,7 @@ def deposit(
     actor: Authorized(Permission.ACCOUNTS_TRANSACT),
     idempotency_key: RequiredIdempotencyKey,
 ):
+    _scope_account(db, actor, account_id)
     return _movement_response(
         db,
         service.deposit(
@@ -241,6 +300,7 @@ def withdraw(
     actor: Authorized(Permission.ACCOUNTS_TRANSACT),
     idempotency_key: RequiredIdempotencyKey,
 ):
+    _scope_account(db, actor, account_id)
     return _movement_response(
         db,
         service.withdraw(
@@ -265,6 +325,7 @@ def freeze_account(
     db: DbSession,
     actor: Authorized(Permission.ACCOUNTS_MANAGE),
 ) -> AccountOut:
+    _scope_account(db, actor, account_id)
     account = service.change_status(db, account_id, AccountStatus.FROZEN, actor.id, body.reason)
     return service.accounts_out(db, [account])[0]
 
@@ -276,6 +337,7 @@ def unfreeze_account(
     db: DbSession,
     actor: Authorized(Permission.ACCOUNTS_MANAGE),
 ) -> AccountOut:
+    _scope_account(db, actor, account_id)
     account = service.change_status(db, account_id, AccountStatus.OPEN, actor.id, body.reason)
     return service.accounts_out(db, [account])[0]
 
@@ -289,5 +351,6 @@ def close_account(
     db: DbSession,
     actor: Authorized(Permission.ACCOUNTS_MANAGE),
 ) -> AccountOut:
+    _scope_account(db, actor, account_id)
     account = service.change_status(db, account_id, AccountStatus.CLOSED, actor.id, body.reason)
     return service.accounts_out(db, [account])[0]

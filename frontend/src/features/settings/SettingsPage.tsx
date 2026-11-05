@@ -17,9 +17,10 @@ import { EventsPanel } from "@/features/settings/EventsPanel";
 import { JobsPanel } from "@/features/settings/JobsPanel";
 import { ObservabilityPanel } from "@/features/settings/ObservabilityPanel";
 import { SimulationHistoryPanel } from "@/features/settings/SimulationHistoryPanel";
+import { UserAccessDialog } from "@/features/settings/UserAccessDialog";
 import { useCreateUser, useRoles, useUpdateUser, useUsers } from "@/services/enterprise";
 import { useHealth, useSystemInfo, useSystemStatus } from "@/services/queries";
-import type { Role } from "@/types/enterprise";
+import type { Role, UserAccount } from "@/types/enterprise";
 
 const PAGE = 20;
 const SERVICE_ROLES = new Set(["automated_policy", "system_scheduler"]);
@@ -110,6 +111,7 @@ function UsersPanel({ roles }: { roles: Role[] }) {
   const [q, setQ] = useState("");
   const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [access, setAccess] = useState<UserAccount | null>(null);
   const users = useUsers({ kind, q: q || null, limit: PAGE, offset });
   const update = useUpdateUser();
   const people = roles.filter((r) => !SERVICE_ROLES.has(r.code));
@@ -173,6 +175,7 @@ function UsersPanel({ roles }: { roles: Role[] }) {
               <th className="px-3 py-2">Role</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Last sign-in</th>
+              {kind === "people" && <th className="px-3 py-2">Access</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -222,12 +225,28 @@ function UsersPanel({ roles }: { roles: Role[] }) {
                     </div>
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-600">{u.is_service_account ? "Cannot sign in" : formatTimestamp(u.last_login_at)}</td>
+                  {kind === "people" && (
+                    <td className="px-3 py-2 text-xs text-slate-600">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {u.mfa_enabled && <StatusPill tone="good" label="MFA" compact />}
+                        <span>
+                          {[u.scope?.countries?.join(", "), u.scope?.departments?.join(", ")].filter(Boolean).join(" · ") ||
+                            "Everywhere"}
+                        </span>
+                        {manage && (
+                          <Button size="sm" variant="ghost" aria-label={`Access of ${u.username}`} onClick={() => setAccess(u)}>
+                            Access…
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               );
             })}
             {users.data?.items.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={kind === "people" ? 5 : 4} className="px-3 py-6 text-center text-sm text-slate-500">
                   No users match.
                 </td>
               </tr>
@@ -237,6 +256,7 @@ function UsersPanel({ roles }: { roles: Role[] }) {
       </div>
       {users.data && <Pagination total={users.data.total} limit={PAGE} offset={offset} onChange={setOffset} />}
       {creating && <CreateUserDialog roles={roles} onClose={() => setCreating(false)} />}
+      {access && <UserAccessDialog user={access} onClose={() => setAccess(null)} />}
     </Panel>
   );
 }

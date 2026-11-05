@@ -76,7 +76,7 @@ def plan(db: Session, family: str, mode: str) -> tuple[list[dict[str, Any]], lis
             (
                 t
                 for _, t in sorted(tools.items())
-                if {scenario.workflow_id, scenario.workflow_template} & set(t.compatible_workflows)
+                if scenario.runs_workflow in t.compatible_workflows
             ),
             None,
         )
@@ -84,7 +84,7 @@ def plan(db: Session, family: str, mode: str) -> tuple[list[dict[str, Any]], lis
         if scenario.config.outages:
             reason = "an outage scenario: its effects come from the outage"
         elif tool is None:
-            reason = f"no tool of the family serves {scenario.workflow_id}"
+            reason = f"no tool of the family serves {scenario.runs_workflow}"
         elif mode == "ai_automated" and workload_for(scenario).automated_path is None:
             reason = "no automated decision path"
         if reason:
@@ -215,29 +215,37 @@ def create(db: Session, body: PortfolioCreate, actor_id: uuid.UUID) -> Experimen
     return portfolio
 
 
-def _missing_variants(db: Session, cell: dict, countries: list[str]) -> list[str]:
-    """Countries without the variant a templated scenario's cell would run (Phase 83)."""
+def _variant_problems(db: Session, cell: dict, countries: list[str]) -> tuple[list[str], list[str]]:
+    """Countries without the variant a templated scenario's cell would run, and countries
+    with more than one (Phase 83): a run needs exactly one."""
+    from collections import Counter
+
     from app.modules.workflows.models import WorkflowVariant
 
     template = SCENARIOS[(cell["scenario_id"], cell["scenario_version"])].workflow_template
     if template is None:
-        return []
-    have = {
+        return [], []
+    have = Counter(
         v.params.get("country_code")
         for v in db.execute(
             select(WorkflowVariant).where(WorkflowVariant.template_id == template)
         ).scalars()
-    }
-    return sorted(set(countries) - have)
+    )
+    missing = sorted(c for c in set(countries) if have[c] == 0)
+    ambiguous = sorted(c for c in set(countries) if have[c] > 1)
+    return missing, ambiguous
 
 
 def _with_variants(db: Session, cells: list[dict], countries: list[str]):
-    """Unasked-for templated scenarios without every country's variant are left out."""
+    """Unasked-for templated scenarios without exactly one variant per country are left out."""
     kept, left_out = [], []
     for cell in cells:
-        missing = _missing_variants(db, cell, countries)
+        missing, ambiguous = _variant_problems(db, cell, countries)
         if missing:
             reason = f"no variant generated for {', '.join(missing[:5])}"
+            left_out.append({"scenario_id": cell["scenario_id"], "reason": reason})
+        elif ambiguous:
+            reason = f"several variants for {', '.join(ambiguous[:5])}"
             left_out.append({"scenario_id": cell["scenario_id"], "reason": reason})
         else:
             kept.append(cell)
@@ -245,15 +253,22 @@ def _with_variants(db: Session, cells: list[dict], countries: list[str]):
 
 
 def _check_variants(db: Session, cells: list[dict], countries: list[str]) -> None:
-    """A templated scenario asked for needs each country's variant before anything runs."""
+    """A templated scenario asked for needs exactly one variant per country before anything
+    runs."""
     for cell in cells:
         template = SCENARIOS[(cell["scenario_id"], cell["scenario_version"])].workflow_template
-        missing = _missing_variants(db, cell, countries)
+        missing, ambiguous = _variant_problems(db, cell, countries)
         if missing:
             raise BusinessRuleViolation(
                 f"{cell['scenario_id']} runs each country's {template} variant; none is "
                 f"generated for {', '.join(missing[:10])}{'…' if len(missing) > 10 else ''}.",
                 {"missing_countries": missing},
+            )
+        if ambiguous:
+            raise BusinessRuleViolation(
+                f"{cell['scenario_id']} runs each country's {template} variant; there are "
+                f"several for {', '.join(ambiguous[:10])}: keep one per country.",
+                {"ambiguous_countries": ambiguous},
             )
 
 

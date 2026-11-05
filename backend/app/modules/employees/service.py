@@ -12,6 +12,8 @@ from app.core.audit import diff, record_audit_event
 from app.core.errors import BusinessRuleViolation, ConflictError, NotFoundError
 from app.core.pagination import PageParams, paginate
 from app.core.permissions import SERVICE_ROLES
+from app.core.scope import UNRESTRICTED, Scope
+from app.modules.countries.models import Country
 from app.modules.countries.service import require_active_country
 from app.modules.employees.models import (
     EMPLOYEE_NUMBER_SEQUENCE,
@@ -90,8 +92,25 @@ def list_employees(
     country_id: uuid.UUID | None = None,
     manager_id: uuid.UUID | None = None,
     employment_status: str | None = None,
+    scope: Scope = UNRESTRICTED,
 ) -> tuple[list[Employee], int]:
+    """`scope`: the caller's countries and departments (Phase 84)."""
     query = select(Employee).order_by(Employee.last_name, Employee.first_name, Employee.id)
+    if scope.countries is not None:
+        query = query.where(
+            Employee.country_id.in_(
+                select(Country.id).where(Country.iso_country_code.in_(scope.countries))
+            )
+        )
+    if scope.departments is not None:
+        query = query.where(
+            Employee.department_id.in_(
+                select(Organization.id).where(
+                    Organization.organization_type == "department",
+                    Organization.name.in_(scope.departments),
+                )
+            )
+        )
     if q:
         pattern = f"%{q.strip()}%"
         query = query.where(
@@ -318,3 +337,9 @@ def update_employee(
             metadata={"changes": changes},
         )
     return employee
+
+
+def in_scope(scope: Scope, employee: Employee) -> bool:
+    return scope.allows_country(employee.country.iso_country_code) and scope.allows_department(
+        employee.department.name
+    )

@@ -107,6 +107,33 @@ export interface CurrentUser {
   last_login_at: string | null;
   created_at: string;
   permissions: Permission[];
+  // Phase 84: the second factor, where the user may act, and this sign-in session.
+  mfa_enabled?: boolean;
+  scope?: UserScope;
+  session?: AuthSessionInfo | null;
+  mfa_enrolment_required?: boolean;
+  mfa_recovery_codes_left?: number;
+}
+
+/** Null in a dimension: not limited in it. */
+export interface UserScope {
+  countries: string[] | null;
+  departments: string[] | null;
+}
+
+export interface AuthSessionInfo {
+  id: string;
+  method: "password" | "sso";
+  provider: string | null;
+  mfa: "not_required" | "pending" | "verified" | "enrolment_required";
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  last_seen_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+  current: boolean;
 }
 
 /** A user as listed by GET /api/v1/users. */
@@ -122,6 +149,8 @@ export interface UserAccount {
   last_login_at: string | null;
   created_at: string;
   is_service_account: boolean;
+  mfa_enabled?: boolean;
+  scope?: UserScope;
 }
 
 export interface UserCreate {
@@ -132,11 +161,15 @@ export interface UserCreate {
   role: string;
 }
 
+/** Signed in, or (Phase 84) a second factor is owed: then only a challenge token. */
 export interface LoginResponse {
-  access_token: string;
+  status: "signed_in" | "mfa_required";
+  access_token: string | null;
   token_type: string;
-  expires_at: string;
-  user: CurrentUser;
+  expires_at: string | null;
+  user: CurrentUser | null;
+  challenge_token: string | null;
+  challenge_expires_at: string | null;
 }
 
 export type Region = "americas" | "europe" | "middle_east_africa" | "asia_pacific";

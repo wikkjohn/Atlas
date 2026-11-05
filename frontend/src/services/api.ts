@@ -124,6 +124,10 @@ export async function apiDownload(path: string): Promise<Blob> {
 export const apiLogin = <T>(body: unknown) =>
   send<T>("POST", "/api/v1/auth/login", { body, anonymous: true });
 
+/** Sign-in steps that happen before there is a session (MFA, SSO; Phase 84). */
+export const apiPublicPost = <T>(path: string, body: unknown = {}) =>
+  send<T>("POST", path, { body, anonymous: true });
+
 export function newIdempotencyKey(): string {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }

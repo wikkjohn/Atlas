@@ -10,6 +10,7 @@ from app.core.permissions import Permission
 from app.modules.accounts.models import AccountType
 from app.modules.accounts.schemas import Eligibility
 from app.modules.accounts.service import eligibility
+from app.modules.countries.models import Country
 from app.modules.customers import service
 from app.modules.customers.models import CustomerType, KycStatus, RiskRating
 from app.modules.customers.schemas import (
@@ -19,7 +20,9 @@ from app.modules.customers.schemas import (
     CustomerUpdate,
     PopulationGenerate,
 )
+from app.modules.identity import scopes
 from app.modules.identity.dependencies import Authorized
+from app.modules.identity.service import AuthenticatedUser
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -61,6 +64,22 @@ def generate_population(
                               requested_by=requester.username, decided_by=approver)  # fmt: skip
 
 
+def scoped_customer(
+    db, user: AuthenticatedUser, customer_id: uuid.UUID, *, for_update: bool = False
+):
+    """The customer, if within the caller's country scope (Phase 84); otherwise 404."""
+    customer = service.get_customer(db, customer_id, for_update=for_update)
+    scopes.require_visible(user.scope, "Customer", country=customer.country.iso_country_code)
+    return customer
+
+
+def _create_in_scope(db, body: CustomerCreate, actor: AuthenticatedUser):
+    if actor.scope.countries is not None:
+        country = db.get(Country, body.country_id)
+        scopes.require_in_scope(actor.scope, country=country.iso_country_code if country else None)
+    return service.create_customer(db, body, actor.id)
+
+
 @router.get(
     "/population/summary",
     summary="The customer base in numbers: segments, countries, products, history",
@@ -75,7 +94,7 @@ def population_summary(db: DbSession, _: Authorized(Permission.CUSTOMERS_READ)) 
 def list_customers(
     db: DbSession,
     page: PageParamsDep,
-    _: Authorized(Permission.CUSTOMERS_READ),
+    user: Authorized(Permission.CUSTOMERS_READ),
     q: Annotated[str | None, Query(max_length=100, description="Name or customer number")] = None,
     customer_type: CustomerType | None = None,
     country_id: uuid.UUID | None = None,
@@ -90,6 +109,7 @@ def list_customers(
         country_id=country_id,
         risk_rating=risk_rating,
         kyc_status=kyc_status,
+        countries=user.scope.countries,
     )
     return Page(
         items=[service.to_out(c) for c in items], total=total, limit=page.limit, offset=page.offset
@@ -112,15 +132,15 @@ def create_customer(
         path=request.url.path,
         payload=body,
         status_code=status.HTTP_201_CREATED,
-        operation=lambda: service.to_out(service.create_customer(db, body, actor.id)),
+        operation=lambda: service.to_out(_create_in_scope(db, body, actor)),
     )
 
 
 @router.get("/{customer_id}", response_model=CustomerOut, summary="Get a customer")
 def get_customer(
-    customer_id: uuid.UUID, db: DbSession, _: Authorized(Permission.CUSTOMERS_READ)
+    customer_id: uuid.UUID, db: DbSession, user: Authorized(Permission.CUSTOMERS_READ)
 ) -> CustomerOut:
-    return service.to_out(service.get_customer(db, customer_id))
+    return service.to_out(scoped_customer(db, user, customer_id))
 
 
 @router.patch("/{customer_id}", response_model=CustomerOut, summary="Edit customer details")
@@ -130,7 +150,7 @@ def update_customer(
     db: DbSession,
     actor: Authorized(Permission.CUSTOMERS_MANAGE),
 ) -> CustomerOut:
-    customer = service.update_customer(db, service.get_customer(db, customer_id), body, actor.id)
+    customer = service.update_customer(db, scoped_customer(db, actor, customer_id), body, actor.id)
     return service.to_out(customer)
 
 
@@ -145,7 +165,7 @@ def review_customer(
     db: DbSession,
     actor: Authorized(Permission.CUSTOMERS_REVIEW),
 ) -> CustomerOut:
-    customer = service.get_customer(db, customer_id, for_update=True)
+    customer = scoped_customer(db, actor, customer_id, for_update=True)
     return service.to_out(service.review_customer(db, customer, body, actor.id))
 
 
@@ -158,8 +178,8 @@ def check_eligibility(
     customer_id: uuid.UUID,
     account_type: AccountType,
     db: DbSession,
-    _: Authorized(Permission.ACCOUNTS_READ),
+    user: Authorized(Permission.ACCOUNTS_READ),
     currency: Annotated[str | None, Query(pattern=r"^[A-Z]{3}$")] = None,
 ) -> Eligibility:
-    customer = service.get_customer(db, customer_id)
+    customer = scoped_customer(db, user, customer_id)
     return eligibility(db, customer, account_type, currency or customer.country.default_currency)

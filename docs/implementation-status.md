@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 83.
+Last updated: Phase 84.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,61 @@ Last updated: Phase 83.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 84: what exists
+
+- **Sessions** (`auth_sessions`, migration 0056):
+  - Every sign-in opens a session, and every access token names it.
+  - A session ends on sign-out, revocation, 30 minutes idle or 12 hours, and records why.
+  - Users list and end their sessions; administrators see them and sign a user out.
+  - Deactivating a user ends their sessions.
+  - `POST /auth/refresh` issues another token for the same session.
+- **A TOTP second factor** (RFC 6238, standard library):
+  - enrolment confirmed with a code, and eight hashed one-time recovery codes;
+  - a challenge step at sign-in; no code accepted twice; five wrong codes end the sign-in;
+  - roles named in `ATLAS_MFA_REQUIRED_ROLES` may only enrol until they have a factor;
+  - administrators reset a lost factor.
+- **Simulated single sign-on:** the ATLAS Corporate Directory signs ID tokens. The bank
+  checks state (used once), nonce, signature, issuer, audience and expiry. A second factor
+  checked by the directory satisfies the bank's.
+- **Scopes** (`user_scopes`): administrators limit users to countries and departments.
+  - Customers, accounts and account requests follow the customer's country.
+  - Employees follow their country and department.
+  - Out of scope, a record answers 404 (lists filter it out), and creating one gets 403.
+  - Scope changes are audited.
+- **Screens:**
+  - the sign-in page's code step and directory sign-in;
+  - the Security page: enrolment with a simulated authenticator, recovery codes, sessions,
+    one's own scope;
+  - System Settings → Users → Access….
+  - Documented in `security.md`.
+- **Two review findings on PR #74 (Phase 83), fixed here:**
+  - A templated scenario now needs a tool declared for its template. One declared only for
+    WF-1003 used to pass the check, then the variant fell back to another tool version.
+  - A country with more than one variant is refused instead of one being picked
+    arbitrarily (runs and portfolios).
+
+## Phase 84: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 842 passed. New: 10 security tests: RFC 6238 vectors and no replay; sessions ended by sign-out, other sessions, idleness, age and deactivation; sessionless tokens and challenge tokens refused; enrolment, codes, recovery codes used once, five wrong codes; a required factor holding the session to enrolment, reset by an administrator; SSO with state reuse, a mismatched nonce, a forged token and a bad password refused, and the directory's factor accepted; country scopes on customers, accounts, deposits and account requests; department scopes on employees and hires; scope validation and scoped administrators. Also 2 tests for the PR #74 fixes. The permissions test now lists the six sign-in routes as public |
+| Generated workflow tests | 120 workflows, 1,562 cases, 0 failed (1,156.9 s) |
+| Frontend Vitest / typecheck / build | 189 passed. New: browser TOTP against the RFC vector; the code step; sign-in through the directory; enrolment held on the Security page with the simulated authenticator; the Security link; an administrator setting scopes, signing a user out and resetting their factor. Typecheck clean; build succeeds |
+| Playwright on a fresh database | 79 passed. New: a teller enrols, then signs in with a code and with a recovery code; SSO through the directory; an administrator limits a teller to GB, who then sees GB customers only |
+
+## Phase 84: known limitations
+
+- **TOTP secrets are stored unencrypted** in the database. Production would encrypt them
+  with a key kept elsewhere.
+- **No password rate limiting or lockout yet** (Milestone H, step 2).
+- **The identity provider is simulated in the API:** it signs with a key derived from the
+  bank's secret, has no published keys and does no just-in-time provisioning.
+- **Scopes reach customers, accounts, account requests and employees only.** Payments,
+  loans, cards, workflows, dashboards and the other departments are not scoped yet.
+  Dashboards show bank-wide totals to scoped users.
+- **Tokens issued before this phase stop working**, since they name no session: users sign
+  in again.
 
 ## Phase 83: what exists
 

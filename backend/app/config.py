@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # rejected in staging and production.
     jwt_secret: SecretStr = SecretStr(DEV_JWT_SECRET)
     access_token_ttl_minutes: int = Field(default=60, ge=1, le=24 * 60)
+    # Sign-in sessions (Phase 84): a session unused this long ends; none outlives the
+    # absolute limit, however often its tokens are refreshed.
+    session_idle_minutes: int = Field(default=30, ge=1, le=24 * 60)
+    session_absolute_hours: int = Field(default=12, ge=1, le=7 * 24)
+    # Roles whose users must sign in with a second factor (comma-separated role codes).
+    # Without one enrolled, such a user may only enrol.
+    mfa_required_roles: Annotated[list[str], NoDecode] = []
 
     # Background jobs (Phase 14). "inline": the API runs the jobs it queues itself (no
     # worker process needed); "worker": dedicated `python -m app.cli worker` processes do.
@@ -74,6 +81,13 @@ class Settings(BaseSettings):
             if value.strip().startswith("["):
                 return json.loads(value)
             return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("mfa_required_roles", mode="before")
+    @classmethod
+    def _split_roles(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [role.strip() for role in value.split(",") if role.strip()]
         return value
 
     @field_validator("jwt_secret", mode="before")

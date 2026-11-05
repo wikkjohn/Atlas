@@ -135,11 +135,10 @@ def _resolve_tool(
     tool = find_tool(db, tool_id, version)
     if tool.status != ToolStatus.ACTIVE:
         raise BusinessRuleViolation(f"{tool.tool_id} {tool.tool_version} is disabled.")
-    declared = {scenario.workflow_id, scenario.workflow_template} - {None}
-    if not declared & set(tool.compatible_workflows):
+    if scenario.runs_workflow not in tool.compatible_workflows:
         raise BusinessRuleViolation(
             f"{tool.tool_id} {tool.tool_version} is not declared compatible with "
-            f"{scenario.workflow_id}.",
+            f"{scenario.runs_workflow}.",
             {"compatible_workflows": tool.compatible_workflows},
         )
     return tool

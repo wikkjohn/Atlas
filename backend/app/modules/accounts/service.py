@@ -151,10 +151,13 @@ def list_requests(
     *,
     status: str | None = None,
     customer_id: uuid.UUID | None = None,
+    countries: frozenset[str] | None = None,
 ) -> tuple[list[AccountRequest], int]:
     query = select(AccountRequest).order_by(
         AccountRequest.created_at.desc(), AccountRequest.id.desc()
     )
+    if countries is not None:
+        query = query.where(AccountRequest.customer_id.in_(_customers_in(countries)))
     if status:
         query = query.where(AccountRequest.status == status)
     if customer_id:
@@ -377,6 +380,7 @@ def list_accounts(
     status: str | None = None,
     currency: str | None = None,
     account_type: str | None = None,
+    countries: frozenset[str] | None = None,
 ) -> tuple[list[Account], int]:
     # Both descending, so ix_accounts_opened_at_number serves the order backwards.
     query = select(Account).order_by(Account.opened_at.desc(), Account.account_number.desc())
@@ -399,7 +403,20 @@ def list_accounts(
         query = query.where(Account.currency == currency)
     if account_type:
         query = query.where(Account.account_type == account_type)
+    if countries is not None:
+        query = query.where(Account.customer_id.in_(_customers_in(countries)))
     return paginate(db, query, params)
+
+
+def _customers_in(countries: frozenset[str]):
+    """Customers of these countries (a caller's scope, Phase 84), as a subquery."""
+    from app.modules.countries.models import Country
+
+    return (
+        select(Customer.id)
+        .join(Country, Country.id == Customer.country_id)
+        .where(Country.iso_country_code.in_(countries))
+    )
 
 
 def _ledger_account(db: Session, account: Account) -> LedgerAccount:

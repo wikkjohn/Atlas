@@ -126,7 +126,14 @@ def _variant(db: Session, scenario: Scenario, countries: list[str] | None):
         raise SimulationSetupError(
             f"No {scenario.workflow_template} variant for {countries[0]}: generate it first."
         )
-    return max(found, key=lambda v: (v.template_version, v.definition_version))
+    if len(found) > 1:
+        # Variants are keyed by their whole parameter set, so a country can have several
+        # (two decision deadlines, say); picking one would silently change the process.
+        raise SimulationSetupError(
+            f"{len(found)} {scenario.workflow_template} variants for {countries[0]} "
+            f"({', '.join(sorted(v.workflow_id for v in found))}): keep one per country."
+        )
+    return found[0]
 
 
 def resolve_config(
@@ -149,6 +156,14 @@ def resolve_config(
     # Code workflows, or stored ones such as WF-1003 v2 (Phase 30), or — for a templated
     # scenario (Phase 83) — the template's variant for the run's one country.
     variant = _variant(db, scenario, countries)
+    if variant is not None and tool is not None and mode != "baseline":
+        if scenario.runs_workflow not in tool.compatible_workflows:
+            # The variant's AI step would refuse it and fall back to its default tool, so
+            # the run would record one tool and evaluate another.
+            raise SimulationSetupError(
+                f"{tool.tool_id} {tool.tool_version} is not declared for "
+                f"{scenario.workflow_template}, so it does not serve the variants it runs."
+            )
     if variant is not None:
         definition = store.resolve(db, variant.workflow_id, variant.definition_version)
     else:

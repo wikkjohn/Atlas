@@ -41,6 +41,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0036_manual_journals` | 50 | `manual_journals` (`manual_journal_number_seq`; four-eyes check on approval) |
 | `0037_customer_service` | 51 | `service_cases` (`service_case_number_seq`; SLA due times, breaches, complaint outcome and redress with a four-eyes check), `service_case_events` (each case's timeline) |
 | `0038_collections` | 53 | `payment_plans` (`payment_plan_number_seq`; schedule as JSONB, four-eyes check on approval, one proposed or active per loan), `loan_recoveries` (`loan_recovery_number_seq`; four-eyes check on approval) |
+| `0056_sessions_mfa_scopes` | 84 | `auth_sessions` (one per sign-in: method, provider, second-factor state, last use, expiry, revocation and reason); `users` gain the TOTP factor (`mfa_secret`, `mfa_pending_secret`, `mfa_enabled_at`, `mfa_last_step`, hashed `mfa_recovery_codes`); `sso_requests` (state, nonce, used once); `user_scopes` (country and department limits) |
 | `0046_workforce` | 69 | `employees` gains `grade` (1 to 10, checked; NULL before), `skills` (JSONB list) and `generated_from` (indexed) |
 | `0045_run_outages` | 67 | `application_outages.simulation_run_id`: a scenario's outage applies only to that run's executions and is deleted with the run |
 | `0044_app_outages` | 64 | `application_outages` (`application_outage_number_seq`; down or degraded, a window open-ended without an end and checked to end after it starts, the incident it opened) |
@@ -163,6 +164,29 @@ Partial unique indexes: one `global_bank`; one `country_subsidiary` per country.
 `id`, `username` (unique, lowercase), `email` (unique), `display_name`, `password_hash`
 (salted scrypt), `role_id` → roles, `employee_id` → employees (unique, optional),
 `is_active`, `last_login_at`, timestamps. Users are deactivated, never deleted.
+Phase 84: `mfa_secret` (the confirmed TOTP secret), `mfa_pending_secret` (awaiting a code),
+`mfa_enabled_at`, `mfa_last_step` (the last time step accepted: no code works twice),
+`mfa_recovery_codes` (jsonb list of `{hash, used_at}`, SHA-256 of the normalised code).
+
+### `auth_sessions` (Phase 84)
+
+`id` (the `sid` of every access token), `user_id` → users, `method` (password, sso),
+`provider`, `mfa` (not_required, pending, verified, enrolment_required),
+`failed_mfa_attempts`, `ip_address`, `user_agent`, `created_at`, `last_seen_at` (written at
+most once a minute), `expires_at` (12 hours by default), `revoked_at`, `revoked_reason`
+(signed_out, idle, expired, deactivated, mfa_enrolled, mfa_reset, mfa_failed,
+revoked_by_administrator). Partial index on `user_id` for active sessions.
+
+### `sso_requests` (Phase 84)
+
+`state` (primary key), `nonce`, `provider`, `created_at`, `expires_at` (10 minutes),
+`used_at`: a sign-in request to the simulated identity provider, accepted once.
+
+### `user_scopes` (Phase 84)
+
+`user_id` → users, `kind` (country, department), `value` (ISO code or department name),
+`created_by`, `created_at`; unique (`user_id`, `kind`, `value`). No rows of a kind: not
+limited in it.
 
 ### `employees` (Phase 2)
 

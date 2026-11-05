@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 85.
+Last updated: Phase 86.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,48 @@ Last updated: Phase 85.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 86: what exists
+
+- **A Security CI job** on every pull request:
+  - `pip-audit` over the backend's installed dependencies;
+  - `npm audit` (high and critical) over the frontend's;
+  - Bandit static analysis of the backend (medium severity and above);
+  - the authorization-matrix check.
+- **Bandit's four medium findings** (B608, SQL from strings) were false positives: module
+  constants and partition names. Each is marked `# nosec B608` with the reason. The 71 low
+  findings (asserts, seeded `random`, password-like names) are not gated.
+- **The authorization matrix** (`app/security/matrix.py`):
+  - Every route's requirement is read from its own dependencies: public, signed in, or one
+    permission. Each permission check records what it enforces.
+  - `tests/authorization_matrix.json` is the reviewed copy; any change fails until it is
+    regenerated with `python -m app.cli authz-matrix --write` and reviewed.
+  - `docs/authorization-matrix.md` is generated from it: 478 routes, the roles allowed on
+    each.
+- **The matrix enforced** (`tests/test_authorization_matrix.py`):
+  - Every person role tries every guarded route it lacks the permission for, with every
+    method, and must get 403 naming that permission.
+  - Every GET route it holds the permission for must pass the check.
+
+## Phase 86: verified results
+
+| Check | Result |
+| --- | --- |
+| Dependency audits | pip-audit: no known vulnerabilities in the 52 installed backend packages; npm audit: 0 vulnerabilities (all dependencies, dev included) |
+| Bandit (`-ll`) | No findings after the four B608 annotations; 0 high, 71 low unchanged |
+| Authorization matrix | 478 routes: 6 public (the sign-in routes), 19 for any signed-in user, 453 behind a permission. The enforcement test passes for all 8 person roles (10 tests) |
+| Backend pytest (real PostgreSQL) | BACKEND86 |
+
+## Phase 86: known limitations
+
+- **No SAST for the frontend** beyond TypeScript's own checks and `npm audit`.
+- **Bandit is a pattern scanner:** it does not follow data flow, and its low findings are
+  not gated.
+- **The matrix checks one permission a route; business rules are not in it.** Four eyes,
+  scopes and "not your own" are tested by their own modules' tests.
+- **The "allowed" side is checked for GET routes only.** Other methods would act; their
+  permission side is covered by the refusal sweep, and their behaviour by their modules'
+  tests.
 
 ## Phase 85: what exists
 

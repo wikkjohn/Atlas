@@ -65,6 +65,8 @@ def require(permission: Permission) -> Callable[[AuthenticatedUser], Authenticat
             )
         return user
 
+    # Read by the authorization matrix (Phase 86): which permission this route requires.
+    _check.required_permission = permission  # type: ignore[attr-defined]
     return _check
 
 

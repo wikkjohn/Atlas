@@ -646,7 +646,7 @@ def summary(db: Session) -> dict[str, Any]:
         ),
         "accounts_per_customer": holdings,
         "history": grouped(
-            f"SELECT substr(source, {len(SOURCE) + 2}), count(*) FROM "
+            f"SELECT substr(source, {len(SOURCE) + 2}), count(*) FROM "  # nosec B608
             f"journal_entries WHERE source LIKE '{SOURCE}.%' GROUP BY 1 "
             "ORDER BY 2 DESC"
         ),

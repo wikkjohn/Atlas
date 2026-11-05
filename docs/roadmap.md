@@ -351,7 +351,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       events moved to compressed archives whose SHA-256 digests form a verifiable chain;
       a retention schedule for every kind of record, reviewed, applied daily; see
       `data-retention.md`)
-- [ ] Security scanning in CI (dependencies, SAST) and an authorization test matrix
+- [x] Security scanning in CI (dependencies, SAST) and an authorization test matrix
+      (Phase 86: pip-audit, npm audit and Bandit in a Security CI job; every route's
+      permission read from the code, checked against a reviewed matrix, and enforced for
+      every role on every guarded route; see `security.md`, `authorization-matrix.md`)
 - [ ] Backup / restore and a tested recovery procedure
 - [ ] Dashboard drill-down: enterprise → country → department → workflow
 - [ ] Architecture decision records, runbooks, contributor guide
@@ -445,4 +448,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 83 (G8) | Milestone G exit: tools declared for a template serve its variants; templated scenarios run each country's variant; the overdraft assistant evaluated across 120 country workflows (720 runs) — Milestone G done | complete |
 | Phase 84 (H1) | Milestone H, step 1: sign-in sessions, a TOTP second factor, simulated SSO through the ATLAS Corporate Directory, country and department scopes | complete |
 | Phase 85 (H2) | Milestone H, step 2: rate limits and a sign-in lockout, the audit-log archive with a digest chain, the data-retention schedule reviewed and applied | complete |
-| Phase 86 (H3, proposed) | Milestone H, step 3: security scanning in CI (dependencies, SAST) and an authorization test matrix | next |
+| Phase 86 (H3) | Milestone H, step 3: dependency audits and static analysis in CI; the authorization matrix read from the routes, reviewed, and enforced for every role | complete |
+| Phase 87 (H4, proposed) | Milestone H, step 4: backup / restore and a tested recovery procedure | next |

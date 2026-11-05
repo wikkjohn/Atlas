@@ -145,3 +145,42 @@ Permissions still decide *what* a user may do; the scope decides *where*. The ru
   policy engine) are unrestricted.
 - Session tokens are kept in the browser's session storage, as before. There is no
   refresh-token rotation; the client signs in again when the access token expires.
+
+## Security scanning and the authorization matrix (Phase 86)
+
+Every pull request runs the **Security** CI job:
+
+| Check | Tool | Fails on |
+| --- | --- | --- |
+| Python dependencies | `pip-audit --skip-editable --strict` (PyPI and OSV advisories) | any known vulnerability, or a package it cannot audit |
+| Backend source | `bandit -r app -q -ll` (static analysis) | any finding of medium severity or above |
+| Route permissions | `python -m app.cli authz-matrix` | any route whose requirement differs from the reviewed matrix |
+| npm dependencies | `npm audit --audit-level=high` | a high or critical advisory |
+
+**Bandit results:**
+- At the start of Phase 86 there were no high findings, 4 medium and 71 low.
+- The four medium findings were B608 (SQL built from strings). They are false positives:
+  the strings are module constants and partition names, never request input. Each now
+  carries a `# nosec B608` with the reason beside it.
+- The low findings are not gated. They are `assert`s, `random` (the simulation is meant to
+  be pseudo-random and seeded), and names that look like passwords.
+
+**The authorization matrix** is read from the code. Every route under `/api/v1` is one of
+three kinds:
+- public: signing in, before there is a session;
+- open to any signed-in user;
+- guarded by exactly one permission through `Authorized(...)`.
+
+Each permission check records the permission it enforces, so the matrix is what the server
+does. `backend/tests/authorization_matrix.json` is the reviewed copy; adding a route, or
+changing what one requires, fails CI until it is regenerated (`--write`) and the
+difference reviewed. `authorization-matrix.md` is generated from it, with the roles that may
+call each route.
+
+`tests/test_authorization_matrix.py` enforces the matrix for every person role:
+- **Refused:** each role tries every guarded route whose permission it lacks, with every
+  method. It must get 403 naming that permission, before any handler runs.
+- **Allowed:** each role tries every GET route whose permission it holds. The permission
+  check must pass. Other methods are not tried, since they would act.
+
+At Phase 86: 478 routes; 6 public, 19 for any signed-in user, 453 behind a permission.

@@ -133,7 +133,9 @@ test("WF-1002 (stored definition): a paper-statement fee is charged only after a
 
 test("Templates: the paper-statement template's variants, a preview, and a generated workflow", async ({ browser }) => {
   const admin = await as(browser, "admin", "/workflows?tab=templates");
-  await expect(admin.getByRole("list", { name: "Templates" })).toContainText("TPL-PAPER-STATEMENT");
+  const list = admin.getByRole("list", { name: "Templates" });
+  await expect(list).toContainText("TPL-PAPER-STATEMENT");
+  await list.getByRole("button", { name: /TPL-PAPER-STATEMENT/ }).click(); // not the overdraft template, listed first
   const variants = admin.getByRole("table", { name: "Template variants" });
   await expect(variants.getByRole("row")).toHaveCount(11); // header + 10 seeded variants
 

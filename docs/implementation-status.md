@@ -150,6 +150,12 @@ Architecture decision records, runbooks and a contributor guide (roadmap Milesto
 | Frontend vitest | FRONTEND89 |
 | Playwright | E2E89 |
 
+## Phase 89: fix from the PR #79 review (Phase 88)
+
+| Finding | Fix |
+| --- | --- |
+| The drill-down ignored the catalogue registered in code (P2). Code workflows WF-0001 to WF-0004 have no stored entry, so their executions showed as *Unclassified*, and department-scoped users lost them | The attribution now resolves a stored catalogue entry first, then the registered one, as the catalogue itself does. On `atlas_ci` the seeded account openings now sit under *Customer Onboarding*. A regression test checks both the registered department and a stored override |
+
 ## Phase 89: known limitations
 
 - **The records are retrospective.** They were written from what was built, not at the

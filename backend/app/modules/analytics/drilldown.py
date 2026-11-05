@@ -6,7 +6,8 @@ department and a workflow:
 - **country:** the execution's own input (`country_code`) when it names one; otherwise the
   workflow's catalogue country, when the catalogue gives exactly one (a country variant);
   otherwise none ("Not attributed");
-- **department:** the workflow's catalogue department, or none ("Unclassified");
+- **department:** the workflow's catalogue department (a stored entry, else the one
+  registered in code), or none ("Unclassified");
 - **workflow:** the execution's workflow id.
 
 Each level groups the executions under the chosen path by the next dimension. The last
@@ -21,12 +22,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, case, func, literal, select, true
+from sqlalchemy import String, and_, case, column, func, literal, select, true, values
 from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessRuleViolation
 from app.core.scope import UNRESTRICTED, Scope
 from app.modules.countries.models import Country
+from app.modules.workflows import registry
 from app.modules.workflows.models import (
     ACTIVE_STATUSES,
     ExecutionStatus,
@@ -69,19 +71,46 @@ class Path:
         )
 
 
+def _registered():
+    """The catalogue registered in code (WF-0001 to WF-0004 and other code workflows), as an
+    inline table: their classification is not stored unless someone overrides it."""
+    from app.modules.workflows import catalog  # noqa: F401  (registers the code catalogue)
+
+    rows = [
+        (workflow_id, entry.department, entry.countries[0] if len(entry.countries) == 1 else None)
+        for workflow_id, entry in sorted(registry.registered_catalogue().items())
+    ] or [("", None, None)]  # VALUES needs a row; no workflow id is empty
+    return (
+        values(
+            column("workflow_id", String), column("department", String),
+            column("country", String), name="registered",
+        )
+        .data(rows)
+        .alias("registered")
+    )  # fmt: skip
+
+
 def _attributed():
-    """Executions with their country and department (a subquery)."""
-    e, c = WorkflowExecution, WorkflowCatalogueEntry
+    """Executions with their country and department (a subquery). The classification is
+    the stored catalogue entry when there is one, else the one registered in code, as in
+    the catalogue itself (PR #79 review)."""
+    e, c, r = WorkflowExecution, WorkflowCatalogueEntry, _registered()
     own = func.upper(e.context["input"]["country_code"].astext)
-    single = case((func.cardinality(c.countries) == 1, c.countries[1]), else_=None)
+    stored = c.workflow_id.is_not(None)
+    single = case(
+        (stored, case((func.cardinality(c.countries) == 1, c.countries[1]), else_=None)),
+        else_=r.c.country,
+    )
+    department = case((stored, c.department), else_=r.c.department)
     return (
         select(
             e.id, e.realm, e.workflow_id, e.status, e.outcome, e.started_at, e.completed_at,
             func.coalesce(func.nullif(own, ""), single).label("country"),
-            c.department.label("department"),
+            department.label("department"),
         )
         .select_from(e)
         .outerjoin(c, c.workflow_id == e.workflow_id)
+        .outerjoin(r, r.c.workflow_id == e.workflow_id)
         .subquery("attributed")
     )  # fmt: skip
 

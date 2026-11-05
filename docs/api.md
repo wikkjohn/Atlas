@@ -34,7 +34,7 @@ every endpoint follows and lists what exists.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| POST | `/api/v1/auth/login` | public | `{username, password}` → `status: signed_in` with token, expiry, user with permissions; or (a second factor enrolled) `status: mfa_required` with a 5-minute `challenge_token` and no access token. Failures are audited. |
+| POST | `/api/v1/auth/login` | public | Rate limited per account and address (429 with `Retry-After`, Phase 85); five wrong passwords in a row lock the account for 15 minutes. `{username, password}` → `status: signed_in` with token, expiry, user with permissions; or (a second factor enrolled) `status: mfa_required` with a 5-minute `challenge_token` and no access token. Failures are audited. |
 | POST | `/api/v1/auth/mfa/verify` | public | `{challenge_token, code}` (a TOTP code or a recovery code) → token and user. A code is never accepted twice; five wrong codes end the sign-in |
 | GET | `/api/v1/auth/me` | signed in | Current user and permissions; Phase 84: `mfa_enabled`, `scope` (`countries`, `departments`; null = not limited), the request's `session`, `mfa_enrolment_required`, `mfa_recovery_codes_left` |
 | POST | `/api/v1/auth/refresh` | signed in | A new access token for the same session, never valid past the session's end |
@@ -59,6 +59,7 @@ every endpoint follows and lists what exists.
 | GET | `/api/v1/users/{id}/sessions` | `users:read` | The user's sessions |
 | POST | `/api/v1/users/{id}/sessions/revoke` | `users:manage` | Sign the user out everywhere → `{revoked}` |
 | POST | `/api/v1/users/{id}/mfa/reset` | `users:manage` | Remove a lost factor and sign the user out (204); not one's own |
+| POST | `/api/v1/users/{id}/unlock` | `users:manage` | Lift a sign-in lockout (Phase 85); users carry `locked_until` |
 
 Scoped users (Phase 84): customers, accounts and account requests outside the user's countries are left out of lists and answer 404 by id (deposits, approvals and other actions alike); employees likewise by country and department. Creating a customer or hiring an employee outside the scope is refused with 403.
 
@@ -827,3 +828,17 @@ There are no write endpoints for audit events.
 Every figure is queried from the records at request time. The cost figure applies the
 default cost assumptions to every completed simulation run through the experiment
 engine's cost function, and is flagged as an estimate.
+
+### Audit-log archive and data retention (Phase 85)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/audit-archives` | `audit:read` | Archives, newest first: period, events, size, `sha256`, `previous_sha256`, last verification |
+| POST | `/api/v1/audit-archives` | `audit:archive` | `{older_than_days}` → the new archive, or null when no event is that old; 422 inside `ATLAS_AUDIT_MIN_ONLINE_DAYS` (90) |
+| GET | `/api/v1/audit-archives/{id}` | `audit:read` | One archive |
+| POST | `/api/v1/audit-archives/{id}/verify` | `audit:read` | Re-reads the file: `{ok, problems, sha256, events}`; stored with the archive and audited |
+| GET | `/api/v1/audit-archives/{id}/events?action=&entity_type=&entity_id=&limit=&offset=` | `audit:read` | The archive's events, oldest first, with the live log's filters |
+| GET | `/api/v1/data-retention` | `audit:read` | The schedule: per class rows, rows past the period, action, last run |
+| POST | `/api/v1/data-retention/apply` | `retention:apply` | Delete and archive what is due → `{run_number, results}` |
+
+Every change (POST, PUT, PATCH, DELETE) by a signed-in user counts against 600 a minute (429 beyond). See `data-retention.md`.

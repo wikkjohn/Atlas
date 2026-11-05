@@ -46,6 +46,9 @@ class User(UUIDPrimaryKey, Timestamps, Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Sign-in lockout (Phase 85): wrong passwords in a row, and until when the account is locked.
+    failed_logins: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # TOTP second factor (Phase 84): the confirmed secret, one awaiting confirmation, when it
     # was enabled, the last time step accepted (no code is accepted twice), and the hashed
     # one-time recovery codes ({"hash", "used_at"}).

@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
 
+from app.core import ratelimit
 from app.core.dependencies import DbSession, SettingsDep
 from app.core.errors import BusinessRuleViolation
 from app.core.idempotency import IdempotencyKey, run_idempotent
@@ -67,14 +68,19 @@ def login(
 ) -> LoginResponse:
     """A password sign-in. With a second factor enrolled, the answer is `mfa_required` and a
     challenge for `POST /auth/mfa/verify`; no access token is issued until then."""
+    ratelimit.hit(db, "login.ip", ratelimit.client_address(request))
+    ratelimit.hit(db, "login.user", body.username.strip().lower())
     user, sign_in = service.authenticate(db, body.username, body.password, settings, _meta(request))
     return _signed_in(db, user, sign_in)
 
 
 @auth_router.post("/mfa/verify", response_model=LoginResponse, summary="Complete a sign-in")
-def verify_mfa(body: MfaVerifyRequest, db: DbSession, settings: SettingsDep) -> LoginResponse:
+def verify_mfa(
+    body: MfaVerifyRequest, request: Request, db: DbSession, settings: SettingsDep
+) -> LoginResponse:
     """The second factor: a code from the authenticator or a one-time recovery code. Five
     wrong codes end the sign-in."""
+    ratelimit.hit(db, "mfa.ip", ratelimit.client_address(request))
     user, session, token = sessions.verify_challenge(db, body.challenge_token, body.code, settings)
     return LoginResponse(
         access_token=token.token, expires_at=token.expires_at,
@@ -83,9 +89,9 @@ def verify_mfa(body: MfaVerifyRequest, db: DbSession, settings: SettingsDep) -> 
 
 
 @auth_router.get("/me", response_model=CurrentUserOut, summary="The signed-in user")
-def me(user: CurrentUser, db: DbSession) -> CurrentUserOut:
+def me(user: CurrentUser, db: DbSession, settings: SettingsDep) -> CurrentUserOut:
     return service.current_user_out(
-        service.get_user(db, user.id), db.get(AuthSession, user.session_id)
+        service.get_user(db, user.id), db.get(AuthSession, user.session_id), settings
     )
 
 
@@ -143,7 +149,7 @@ def confirm_mfa_enrolment(
     """Turns the factor on and returns eight one-time recovery codes (shown only now). The
     other sessions are signed out; this one counts as verified."""
     codes = mfa.confirm_enrolment(
-        db, service.get_user(db, user.id), body.code, db.get(AuthSession, user.session_id)
+        db, mfa.lock(db, user.id), body.code, db.get(AuthSession, user.session_id)
     )
     sessions.revoke_all(db, user.id, "mfa_enrolled", user.id, keep=user.session_id)
     return RecoveryCodesOut(recovery_codes=codes)
@@ -155,7 +161,7 @@ def confirm_mfa_enrolment(
 def regenerate_recovery_codes(
     body: MfaCodeRequest, user: CurrentUser, db: DbSession
 ) -> RecoveryCodesOut:
-    codes = mfa.regenerate_recovery_codes(db, service.get_user(db, user.id), body.code)
+    codes = mfa.regenerate_recovery_codes(db, mfa.lock(db, user.id), body.code)
     return RecoveryCodesOut(recovery_codes=codes)
 
 
@@ -164,7 +170,7 @@ def remove_mfa(
     body: MfaCodeRequest, user: CurrentUser, db: DbSession, settings: SettingsDep
 ) -> Response:
     """Remove one's own factor with a current code. Refused when the role requires one."""
-    record = service.get_user(db, user.id)
+    record = mfa.lock(db, user.id)
     if sessions.requires_mfa(record, settings):
         raise BusinessRuleViolation("Your role requires a second factor.")
     if mfa.verify(record, body.code) is None:
@@ -182,8 +188,9 @@ def sso_providers() -> list[SsoProviderOut]:
 
 
 @auth_router.post("/sso/{provider}/start", response_model=SsoStartOut, summary="Start SSO")
-def sso_start(provider: str, db: DbSession) -> SsoStartOut:
+def sso_start(provider: str, request: Request, db: DbSession) -> SsoStartOut:
     """A sign-in request for the identity provider: `state` and `nonce`, valid 10 minutes."""
+    ratelimit.hit(db, "sso.ip", ratelimit.client_address(request))
     request = sso.start(db, provider)
     return SsoStartOut(provider=provider, state=request.state, nonce=request.nonce,
                        expires_at=request.expires_at)  # fmt: skip
@@ -194,6 +201,7 @@ def sso_callback(
     provider: str, body: SsoCallback, request: Request, db: DbSession, settings: SettingsDep
 ) -> LoginResponse:
     """Accept the provider's ID token for a pending request and sign the user in."""
+    ratelimit.hit(db, "sso.ip", ratelimit.client_address(request))
     user, sign_in = sso.callback(
         db, provider, state=body.state, id_token=body.id_token, settings=settings,
         meta=_meta(request),
@@ -206,10 +214,11 @@ def sso_callback(
     summary="The simulated directory's sign-in",
 )  # fmt: skip
 def directory_sign_in(
-    provider: str, body: DirectorySignIn, db: DbSession, settings: SettingsDep
+    provider: str, body: DirectorySignIn, request: Request, db: DbSession, settings: SettingsDep
 ) -> DirectoryResponse:
     """Stands in for the corporate identity provider: authenticates the employee and
     returns a signed ID token for the bank's callback."""
+    ratelimit.hit(db, "sso.ip", ratelimit.client_address(request))
     token = sso.directory_sign_in(
         db, provider, nonce=body.nonce, username=body.username, password=body.password,
         otp=body.otp, settings=settings,
@@ -229,6 +238,15 @@ def list_roles(db: DbSession, _: CurrentUser) -> list[RoleOut]:
         )
         for role in service.list_roles(db)
     ]
+
+
+def _require_unscoped(actor) -> None:
+    """User administration is for administrators without a scope: a scoped one could
+    otherwise mint or empower an unscoped account (PR #75 review)."""
+    if actor.scope.limited:
+        raise BusinessRuleViolation(
+            "Only an administrator without a country or department scope can manage users."
+        )
 
 
 @users_router.get("", response_model=Page[UserOut], summary="List users")
@@ -261,6 +279,7 @@ def create_user(
     actor: Authorized(Permission.USERS_MANAGE),
     idempotency_key: IdempotencyKey = None,
 ):
+    _require_unscoped(actor)
     return run_idempotent(
         db,
         key=idempotency_key,
@@ -285,6 +304,7 @@ def update_user(
     db: DbSession,
     actor: Authorized(Permission.USERS_MANAGE),
 ) -> UserOut:
+    _require_unscoped(actor)
     user = service.update_user(db, service.get_user(db, user_id), body, actor.id)
     return service.user_out(user)
 
@@ -295,8 +315,7 @@ def set_user_scopes(
 ) -> ScopeOut:
     """Limit the user to countries and departments (empty: not limited in that dimension).
     Takes effect on the user's next request."""
-    if actor.scope.limited:
-        raise BusinessRuleViolation("Only an administrator without a scope can set scopes.")
+    _require_unscoped(actor)
     scope = scopes.set_scopes(db, service.get_user(db, user_id), body.countries,
                               body.departments, actor.id)  # fmt: skip
     return ScopeOut(**scope.describe())
@@ -315,6 +334,7 @@ def user_sessions(
 def revoke_user_sessions(
     user_id: uuid.UUID, db: DbSession, actor: Authorized(Permission.USERS_MANAGE)
 ) -> dict[str, int]:
+    _require_unscoped(actor)
     return {"revoked": sessions.revoke_all(db, service.get_user(db, user_id).id,
                                            "revoked_by_administrator", actor.id)}  # fmt: skip
 
@@ -327,9 +347,19 @@ def reset_user_mfa(
 ) -> Response:
     """Remove a user's second factor (a lost device) and sign them out everywhere; they
     enrol again at their next sign-in if their role requires it. Not one's own."""
+    _require_unscoped(actor)
     user = service.get_user(db, user_id)
     if user.id == actor.id:
         raise BusinessRuleViolation("Reset your own factor from your security settings.")
     mfa.clear(db, user, actor.id, reason="reset_by_administrator")
     sessions.revoke_all(db, user.id, "mfa_reset", actor.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@users_router.post("/{user_id}/unlock", response_model=UserOut, summary="Unlock a user")
+def unlock_user(
+    user_id: uuid.UUID, db: DbSession, actor: Authorized(Permission.USERS_MANAGE)
+) -> UserOut:
+    """Lift a sign-in lockout (Phase 85) before it expires."""
+    _require_unscoped(actor)
+    return service.user_out(service.unlock_user(db, service.get_user(db, user_id), actor.id))

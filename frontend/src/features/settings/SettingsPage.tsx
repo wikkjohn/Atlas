@@ -16,9 +16,11 @@ import { HealthTiles, PlatformDetails } from "@/features/dashboard/PlatformHealt
 import { EventsPanel } from "@/features/settings/EventsPanel";
 import { JobsPanel } from "@/features/settings/JobsPanel";
 import { ObservabilityPanel } from "@/features/settings/ObservabilityPanel";
+import { RetentionPanel } from "@/features/settings/RetentionPanel";
 import { SimulationHistoryPanel } from "@/features/settings/SimulationHistoryPanel";
 import { UserAccessDialog } from "@/features/settings/UserAccessDialog";
 import { useCreateUser, useRoles, useUpdateUser, useUsers } from "@/services/enterprise";
+import { useUnlockUser } from "@/services/governance";
 import { useHealth, useSystemInfo, useSystemStatus } from "@/services/queries";
 import type { Role, UserAccount } from "@/types/enterprise";
 
@@ -114,6 +116,7 @@ function UsersPanel({ roles }: { roles: Role[] }) {
   const [access, setAccess] = useState<UserAccount | null>(null);
   const users = useUsers({ kind, q: q || null, limit: PAGE, offset });
   const update = useUpdateUser();
+  const unlock = useUnlockUser();
   const people = roles.filter((r) => !SERVICE_ROLES.has(r.code));
 
   return (
@@ -160,7 +163,7 @@ function UsersPanel({ roles }: { roles: Role[] }) {
           />
         </div>
       </div>
-      <ErrorMessage error={users.error ?? update.error} className="mb-3" />
+      <ErrorMessage error={users.error ?? update.error ?? unlock.error} className="mb-3" />
       {kind === "service" && (
         <p className="mb-3 text-xs text-slate-500">
           Service accounts act inside the platform — simulated staff and the policy engine — and can never sign in. They
@@ -211,6 +214,16 @@ function UsersPanel({ roles }: { roles: Role[] }) {
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <StatusPill tone={u.is_active ? "good" : "neutral"} label={u.is_active ? "Active" : "Inactive"} />
+                      {u.locked_until && new Date(u.locked_until) > new Date() && (
+                        <>
+                          <StatusPill tone="bad" label={`Locked until ${formatTimestamp(u.locked_until)}`} compact />
+                          {manage && (
+                            <Button size="sm" variant="ghost" aria-label={`Unlock ${u.username}`} disabled={unlock.isPending} onClick={() => unlock.mutate(u.id)}>
+                              Unlock
+                            </Button>
+                          )}
+                        </>
+                      )}
                       {manage && !self && (
                         <Button
                           size="sm"
@@ -328,6 +341,7 @@ export function SettingsPage() {
       {can("jobs:read") && <JobsPanel />}
       {can("jobs:read") && <EventsPanel />}
       {can("simulations:manage") && <SimulationHistoryPanel />}
+      {can("audit:read") && <RetentionPanel />}
       {can("users:read") && roles.data && <UsersPanel roles={roles.data} />}
       {roles.data && <RolesMatrix roles={roles.data} />}
     </div>

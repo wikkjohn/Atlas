@@ -2,6 +2,7 @@
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -25,7 +26,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.modules.identity.models import AuthSession, Role, SessionMfa, User
+from app.modules.identity.models import AuthSession, Role, User
 from app.modules.identity.schemas import (
     CurrentUserOut,
     ScopeOut,
@@ -76,6 +77,7 @@ def user_out(user: User) -> UserOut:
         is_service_account=user.password_hash == UNUSABLE_PASSWORD_HASH,
         mfa_enabled=user.mfa_secret is not None,
         scope=_scope_out(user),
+        locked_until=user.locked_until,
     )
 
 
@@ -89,12 +91,19 @@ def session_out(session: AuthSession, current: uuid.UUID | None = None) -> Sessi
     )  # fmt: skip
 
 
-def current_user_out(user: User, session: AuthSession | None = None) -> CurrentUserOut:
+def current_user_out(
+    user: User, session: AuthSession | None = None, settings: Settings | None = None
+) -> CurrentUserOut:
+    from app.config import get_settings
+    from app.modules.identity import sessions
+
     return CurrentUserOut(
         **user_out(user).model_dump(),
         permissions=sorted(p.value for p in permissions_for(user.role.code)),
         session=session_out(session, session.id) if session else None,
-        mfa_enrolment_required=bool(session and session.mfa == SessionMfa.ENROLMENT_REQUIRED),
+        mfa_enrolment_required=bool(
+            session and sessions.enrolment_owed(session, user, settings or get_settings())
+        ),
         mfa_recovery_codes_left=sum(
             1 for c in user.mfa_recovery_codes or [] if c.get("used_at") is None
         ),
@@ -124,11 +133,14 @@ def authenticate(
         select(User).where(User.username == username.strip().lower())
     ).scalar_one_or_none()
     password_ok = verify_password(password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+    now = datetime.now(UTC)
+    locked = user is not None and user.locked_until is not None and user.locked_until > now
 
-    if user is None or not password_ok or not user.is_active:
+    if user is None or not password_ok or not user.is_active or locked:
         reason = (
-            "unknown_user" if user is None else ("bad_password" if not password_ok else "inactive")
-        )
+            "unknown_user" if user is None else "locked" if locked
+            else "bad_password" if not password_ok else "inactive"
+        )  # fmt: skip
         record_audit_event(
             db,
             actor_id=user.id if user else None,
@@ -137,11 +149,32 @@ def authenticate(
             entity_id=user.id if user else None,
             metadata={"username": username[:64], "reason": reason},
         )
+        message = "Invalid username or password."
+        if locked:
+            minutes = max(1, int((user.locked_until - now).total_seconds() // 60) + 1)
+            message = (
+                "This account is locked after repeated failed sign-ins; try again in "
+                f"{minutes} minute(s) or ask an administrator to unlock it."
+            )
+        elif reason == "bad_password":
+            # Phase 85: this many wrong passwords in a row lock the account for a while.
+            user.failed_logins += 1
+            if user.failed_logins >= settings.login_lockout_attempts:
+                user.locked_until = now + timedelta(minutes=settings.login_lockout_minutes)
+                user.failed_logins = 0
+                record_audit_event(
+                    db, actor_id=None, action="auth.locked", entity_type="user",
+                    entity_id=user.id,
+                    metadata={"until": user.locked_until.isoformat(),
+                              "attempts": settings.login_lockout_attempts},
+                )  # fmt: skip
         # The failure is raised as an error, which rolls the request back; commit first so
-        # the security record survives.
+        # the security record (and the count) survives.
         db.commit()
-        raise AuthenticationError("Invalid username or password.")
+        raise AuthenticationError(message)
 
+    user.failed_logins = 0
+    user.locked_until = None
     record_audit_event(
         db, actor_id=user.id, action="auth.login", entity_type="user", entity_id=user.id,
         metadata={"method": "password"},
@@ -291,5 +324,15 @@ def update_user(db: Session, user: User, data: UserUpdate, actor_id: uuid.UUID) 
             entity_type="user",
             entity_id=user.id,
             metadata={"changes": changes},
+        )
+    return user
+
+
+def unlock_user(db: Session, user: User, actor_id: uuid.UUID) -> User:
+    if user.locked_until is not None or user.failed_logins:
+        user.locked_until = None
+        user.failed_logins = 0
+        record_audit_event(
+            db, actor_id=actor_id, action="auth.unlocked", entity_type="user", entity_id=user.id
         )
     return user

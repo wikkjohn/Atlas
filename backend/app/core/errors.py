@@ -69,6 +69,17 @@ class PermissionDeniedError(DomainError):
     code = "forbidden"
 
 
+class RateLimitedError(DomainError):
+    """Too many requests (Phase 85); `retry_after` seconds go out as the Retry-After header."""
+
+    status_code = 429
+    code = "rate_limited"
+
+    def __init__(self, message: str, retry_after: int) -> None:
+        super().__init__(message, {"retry_after_seconds": retry_after})
+        self.retry_after = retry_after
+
+
 def error_body(code: str, message: str, details: Any = None) -> dict[str, Any]:
     return {
         "error": {
@@ -84,6 +95,8 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DomainError)
     async def _domain_error(_: Request, exc: DomainError) -> JSONResponse:
         headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+        if isinstance(exc, RateLimitedError):
+            headers = {"Retry-After": str(exc.retry_after)}
         return JSONResponse(
             status_code=exc.status_code,
             content=error_body(exc.code, exc.message, exc.details),

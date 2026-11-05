@@ -346,7 +346,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       hours; a TOTP second factor with recovery codes, required per role; a simulated
       corporate identity provider with state, nonce and signed ID tokens; country and
       department scopes on customers, accounts and employees; see `security.md`)
-- [ ] Rate limiting, audit-log archive, data-retention review
+- [x] Rate limiting, audit-log archive, data-retention review
+      (Phase 85: rate limits shared by every API process, a sign-in lockout; old audit
+      events moved to compressed archives whose SHA-256 digests form a verifiable chain;
+      a retention schedule for every kind of record, reviewed, applied daily; see
+      `data-retention.md`)
 - [ ] Security scanning in CI (dependencies, SAST) and an authorization test matrix
 - [ ] Backup / restore and a tested recovery procedure
 - [ ] Dashboard drill-down: enterprise → country → department → workflow
@@ -440,4 +444,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 82 (G7) | Milestone G, step 7: reviewer behaviour calibrated from observed reviews — fitted parameters with intervals, runs that record them, per-seed draws; coverage checked on synthetic pilots; the KYC effect measured assumed and calibrated | complete |
 | Phase 83 (G8) | Milestone G exit: tools declared for a template serve its variants; templated scenarios run each country's variant; the overdraft assistant evaluated across 120 country workflows (720 runs) — Milestone G done | complete |
 | Phase 84 (H1) | Milestone H, step 1: sign-in sessions, a TOTP second factor, simulated SSO through the ATLAS Corporate Directory, country and department scopes | complete |
-| Phase 85 (H2, proposed) | Milestone H, step 2: rate limiting, audit-log archive, data-retention review | next |
+| Phase 85 (H2) | Milestone H, step 2: rate limits and a sign-in lockout, the audit-log archive with a digest chain, the data-retention schedule reviewed and applied | complete |
+| Phase 86 (H3, proposed) | Milestone H, step 3: security scanning in CI (dependencies, SAST) and an authorization test matrix | next |

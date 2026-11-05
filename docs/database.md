@@ -41,6 +41,7 @@ PostgreSQL 16 is the single system of record. All schema changes are Alembic mig
 | `0036_manual_journals` | 50 | `manual_journals` (`manual_journal_number_seq`; four-eyes check on approval) |
 | `0037_customer_service` | 51 | `service_cases` (`service_case_number_seq`; SLA due times, breaches, complaint outcome and redress with a four-eyes check), `service_case_events` (each case's timeline) |
 | `0038_collections` | 53 | `payment_plans` (`payment_plan_number_seq`; schedule as JSONB, four-eyes check on approval, one proposed or active per loan), `loan_recoveries` (`loan_recovery_number_seq`; four-eyes check on approval) |
+| `0057_ratelimit_audit_retention` | 85 | `rate_limit_counters` (fixed windows); `users.failed_logins`, `users.locked_until`; `audit_archives` (a chain of SHA-256 digests); `retention_runs`; the audit trigger now allows DELETE only while `atlas.audit_archiving = 'on'` (the archive); a daily `retention-apply` job schedule |
 | `0056_sessions_mfa_scopes` | 84 | `auth_sessions` (one per sign-in: method, provider, second-factor state, last use, expiry, revocation and reason); `users` gain the TOTP factor (`mfa_secret`, `mfa_pending_secret`, `mfa_enabled_at`, `mfa_last_step`, hashed `mfa_recovery_codes`); `sso_requests` (state, nonce, used once); `user_scopes` (country and department limits) |
 | `0046_workforce` | 69 | `employees` gains `grade` (1 to 10, checked; NULL before), `skills` (JSONB list) and `generated_from` (indexed) |
 | `0045_run_outages` | 67 | `application_outages.simulation_run_id`: a scenario's outage applies only to that run's executions and is deleted with the run |
@@ -168,6 +169,8 @@ Phase 84: `mfa_secret` (the confirmed TOTP secret), `mfa_pending_secret` (awaiti
 `mfa_enabled_at`, `mfa_last_step` (the last time step accepted: no code works twice),
 `mfa_recovery_codes` (jsonb list of `{hash, used_at}`, SHA-256 of the normalised code).
 
+Phase 85: `failed_logins` (wrong passwords in a row) and `locked_until` (the sign-in lockout).
+
 ### `auth_sessions` (Phase 84)
 
 `id` (the `sid` of every access token), `user_id` → users, `method` (password, sso),
@@ -181,6 +184,23 @@ revoked_by_administrator). Partial index on `user_id` for active sessions.
 
 `state` (primary key), `nonce`, `provider`, `created_at`, `expires_at` (10 minutes),
 `used_at`: a sign-in request to the simulated identity provider, accepted once.
+
+### `rate_limit_counters` (Phase 85)
+
+`bucket` (rule and key), `window_start`, `hits`; primary key (`bucket`, `window_start`),
+index on `window_start`. Old windows are removed by the retention run.
+
+### `audit_archives` (Phase 85)
+
+`archive_number` (identity, unique), `before` (the cut-off), `first_event_at`,
+`last_event_at`, `events`, `location` (the file in `ATLAS_AUDIT_ARCHIVE_DIR`), `bytes`,
+`sha256`, `previous_sha256` (the archive before: a chain), `created_by`, `created_at`,
+`verified_at`, `verification` (jsonb).
+
+### `retention_runs` (Phase 85)
+
+`run_number` (identity), `applied_by`, `applied_at`, `results` (jsonb: per class, deleted
+or archived).
 
 ### `user_scopes` (Phase 84)
 

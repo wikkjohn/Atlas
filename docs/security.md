@@ -26,7 +26,8 @@ never outlives it. A session that ends on idleness or age is marked so, with the
 
 Each session records its method (password or SSO), its provider, its second-factor state,
 the client's address and user agent, and when it was last used. That last use is written at
-most once a minute.
+at most once a minute, or every quarter of the idle limit when that is
+shorter.
 
 Tokens without a session are refused, including tokens issued before this phase. Tests and
 the performance suite create a session for the tokens they mint.
@@ -55,6 +56,13 @@ default) names roles that must have a factor. A user of such a role without one 
 a session marked `enrolment_required`. That session may reach only `/auth/me`,
 `/auth/logout` and the enrolment endpoints; everything else answers 403 until a factor is
 confirmed. Such a user cannot remove their factor.
+
+**Promotions:** the requirement follows the user's current role on every request, not the
+role at sign-in. A user promoted into a role that requires a factor is held to enrolment at
+once. (This was a review finding on PR #75, fixed in Phase 85.)
+
+**One code, one sign-in:** a code is checked and consumed under a lock on the user's row.
+Two overlapping requests therefore cannot both accept the same code (Phase 85).
 
 **Lost devices:** an administrator resets the factor (`POST /users/{id}/mfa/reset`), which
 also signs the user out everywhere. Administrators cannot reset their own.
@@ -106,6 +114,9 @@ Permissions still decide *what* a user may do; the scope decides *where*. The ru
 - Outside the scope a record answers 404, not 403, so its existence is not revealed.
 - Scopes are set by an unscoped administrator (`PUT /users/{id}/scopes`) and audited
   (`user.scopes_changed`, with before and after).
+- All user administration is for unscoped administrators (Phase 85: creating and editing
+  users, scopes, sessions, factor resets, unlocking). Otherwise a scoped administrator
+  could create an unscoped account.
 - They take effect on the user's next request.
 
 ## Screens
@@ -126,8 +137,7 @@ Permissions still decide *what* a user may do; the scope decides *where*. The ru
 
 - The TOTP secret is stored as is, in a column readable by the database. Production would
   encrypt it with a key outside the database.
-- There is no rate limiting or account lockout on password attempts yet (Milestone H, step
-  2). The code step does stop after five wrong codes.
+- Rate limits and a sign-in lockout were added in Phase 85: see `data-retention.md`.
 - Scopes cover customers, accounts, account requests and employees. Payments, loans, cards,
   workflows, dashboards and the other departments' pages are not scoped yet.
 - A scoped user's dashboards still show bank-wide totals.

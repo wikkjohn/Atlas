@@ -398,3 +398,47 @@ def events_dispatch(ctx: JobContext) -> dict:
 
     report = outbox.dispatch(ctx.factory, limit=int(ctx.payload.get("limit", 500)))
     return asdict(report)
+
+
+@job_kind(
+    "retention.apply",
+    description="Apply the data-retention schedule (Phase 85): delete what is past its period "
+    "and archive audit events older than a year",
+    max_attempts=2,
+    manual=True,
+)
+def retention_apply(ctx: JobContext) -> dict:
+    from app.modules.retention import service as retention
+
+    principal = _principal(ctx)
+    if not principal.can(Permission.RETENTION_APPLY):
+        raise PermanentJobError("The job's principal may not apply the retention schedule.")
+    with ctx.factory() as db, db.begin():
+        run = retention.apply(db, principal.id)
+        return {"run_number": run.run_number, "results": run.results}
+
+
+@job_kind(
+    "audit.archive",
+    description="Move audit events older than older_than_days (default 365) to the audit-log "
+    "archive (Phase 85)",
+    max_attempts=2,
+    manual=True,
+)
+def audit_archive(ctx: JobContext) -> dict:
+    from app.core.errors import DomainError
+    from app.modules.audit import archive
+
+    days = ctx.payload.get("older_than_days", 365)
+    if not isinstance(days, int) or days < 0:
+        raise PermanentJobError("older_than_days must be a whole number of days, 0 or more.")
+    principal = _principal(ctx)
+    if not principal.can(Permission.AUDIT_ARCHIVE):
+        raise PermanentJobError("The job's principal may not archive the audit log.")
+    try:
+        with ctx.factory() as db, db.begin():
+            made = archive.archive_older_than(db, days, principal.id)
+            return {"archive_number": made.archive_number if made else None,
+                    "events": made.events if made else 0}  # fmt: skip
+    except DomainError as exc:
+        raise PermanentJobError(exc.message) from exc

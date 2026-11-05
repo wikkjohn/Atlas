@@ -94,6 +94,7 @@ def directory_sign_in(
         raise AuthenticationError("The directory rejected the username or password.")
     amr = ["pwd"]
     if otp and mfa.enabled(user):
+        user = mfa.lock(db, user.id)  # one code, one sign-in
         if mfa.verify(user, otp) is None:
             db.commit()  # keep the consumed step out of reach either way
             raise AuthenticationError("The directory rejected the one-time code.")

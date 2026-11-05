@@ -40,6 +40,8 @@ class UserOut(BaseModel):
     # A system principal (simulated staff, the policy engine) that can never sign in.
     is_service_account: bool = False
     mfa_enabled: bool = False
+    # Phase 85: set while repeated wrong passwords have locked the account.
+    locked_until: datetime | None = None
     # Where the user may act (Phase 84); null in a dimension means not limited in it.
     scope: ScopeOut = Field(default_factory=ScopeOut)
 

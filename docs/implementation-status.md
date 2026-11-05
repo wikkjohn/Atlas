@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 84.
+Last updated: Phase 85.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,62 @@ Last updated: Phase 84.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 85: what exists
+
+- **Rate limits** (`app/core/ratelimit.py`, `rate_limit_counters`, migration 0057):
+  - Fixed windows counted in PostgreSQL, so every API process shares them.
+  - Sign-ins are limited per account and per address, second-factor attempts and SSO
+    steps per address, and changes per user.
+  - Over the limit: 429 with `Retry-After`.
+  - `ATLAS_RATE_LIMIT_OVERRIDES` replaces a limit; the end-to-end suite raises the sign-in
+    ones.
+- **Sign-in lockout:**
+  - Five wrong passwords in a row lock the account for 15 minutes; even the right
+    password is refused meanwhile, with a message saying why.
+  - A success resets the count; administrators can unlock sooner.
+  - Locks, failed attempts and unlocks are audited.
+- **The audit-log archive** (`audit_archives`):
+  - Events past the online period (at least 90 days) move to compressed JSON-lines files.
+    Each file is checked before the events are deleted, in the same transaction.
+  - The append-only trigger opens only for that delete.
+  - The archives chain their SHA-256 digests. Verifying re-reads the file and checks the
+    chain.
+  - Archived events can be searched with the live log's filters.
+  - The Audit Center has *Archive*, *Verify* and *Search*.
+- **The retention schedule** (`app/modules/retention`, `retention_runs`):
+  - Every kind of record is classed as delete, archive, keep or review, with its period.
+  - A live review shows how much is past its period.
+  - It is applied daily by the `retention-apply` job and on demand from System Settings.
+  - Documented and reviewed in `docs/data-retention.md`.
+- **Four review findings on PR #75 (Phase 84), fixed here:**
+  - Codes are consumed under a row lock: one code, one sign-in, even for overlapping
+    requests.
+  - A promotion into a role that requires MFA holds the session to enrolment at once.
+  - User administration needs an unscoped administrator: a scoped one could create an
+    unscoped account.
+  - Short idle limits are kept alive by activity (touched every quarter of the limit).
+
+## Phase 85: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | BACKEND85. New: 7 tests: fixed windows refusing over the limit with the right retry; a sign-in rate limit per account (429, Retry-After); five wrong passwords locking an account, the lock refusing the right password, audit and unlock; a success resetting the count and an expired lock; the audit log still refusing UPDATE and DELETE; archives moving old events, the minimum online period, the chain, search, verification of an altered file and a broken chain, and permissions; the retention review and its application through the API. Also 3 tests for the PR #75 fixes (the promotion test fails without its fix) |
+| Generated workflow tests | GEN85 |
+| Frontend Vitest / typecheck / build | VITEST85 |
+| Playwright on a fresh database | PW85 |
+
+## Phase 85: known limitations
+
+- **The archive lives on local disk.** A deployment would use WORM storage and keep the
+  digests elsewhere too.
+- **The trigger opens on a setting, not a role:** a database user who can set
+  `atlas.audit_archiving` can delete audit events.
+- **Limits count by client address,** which behind a proxy is the proxy's unless it
+  forwards the client's.
+- **The lockout can be used to lock someone out** by failing on purpose; the per-address
+  limit only slows that down.
+- **Retention reaches only the database,** not backups or archive files.
 
 ## Phase 84: what exists
 

@@ -57,7 +57,10 @@ jobs:
         run: pip install -e ".[dev]" pip-audit bandit
       - name: Known vulnerabilities in Python dependencies (pip-audit)
         working-directory: backend
-        run: pip-audit --skip-editable --strict
+        # The project itself is installed editable and is not on PyPI: audit everything else.
+        run: |
+          pip freeze --exclude-editable > /tmp/installed.txt
+          pip-audit -r /tmp/installed.txt --no-deps --disable-pip --strict
       - name: Static analysis of the backend (Bandit, medium severity and above)
         working-directory: backend
         run: bandit -r app -q -ll

@@ -152,7 +152,7 @@ Every pull request runs the **Security** CI job:
 
 | Check | Tool | Fails on |
 | --- | --- | --- |
-| Python dependencies | `pip-audit --skip-editable --strict` (PyPI and OSV advisories) | any known vulnerability, or a package it cannot audit |
+| Python dependencies | `pip-audit --strict` over `pip freeze --exclude-editable` (PyPI advisories; the project itself is not on PyPI) | any known vulnerability, or a package it cannot audit |
 | Backend source | `bandit -r app -q -ll` (static analysis) | any finding of medium severity or above |
 | Route permissions | `python -m app.cli authz-matrix` | any route whose requirement differs from the reviewed matrix |
 | npm dependencies | `npm audit --audit-level=high` | a high or critical advisory |

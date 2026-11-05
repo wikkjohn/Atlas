@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from app.core import ratelimit
 from app.core.dependencies import DbSession, SettingsDep
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.permissions import Permission, permissions_for
@@ -39,6 +40,8 @@ def get_current_user(
             "Your role requires a second factor: enrol one before continuing.",
             {"mfa_enrolment_required": True},
         )
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        ratelimit.hit(db, "writes.user", str(user.id))
     return AuthenticatedUser(
         id=user.id,
         username=user.username,

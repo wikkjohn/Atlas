@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     # Roles whose users must sign in with a second factor (comma-separated role codes).
     # Without one enrolled, such a user may only enrol.
     mfa_required_roles: Annotated[list[str], NoDecode] = []
+    # Phase 85: request rate limits (see app/core/ratelimit.py) and the sign-in lockout:
+    # this many wrong passwords in a row lock an account for `login_lockout_minutes`.
+    rate_limits_enabled: bool = True
+    login_lockout_attempts: int = Field(default=5, ge=1, le=100)
+    login_lockout_minutes: int = Field(default=15, ge=1, le=24 * 60)
+    # The audit-log archive (Phase 85): compressed JSON-lines files, one per archive, and how
+    # long events stay online at least before they may be archived.
+    audit_archive_dir: Path = Path("var/audit-archive")
+    audit_min_online_days: int = Field(default=90, ge=0)
 
     # Background jobs (Phase 14). "inline": the API runs the jobs it queues itself (no
     # worker process needed); "worker": dedicated `python -m app.cli worker` processes do.

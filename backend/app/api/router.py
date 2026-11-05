@@ -14,6 +14,7 @@ from app.modules.access.router import router as access_router
 from app.modules.accounts.router import accounts_router, requests_router
 from app.modules.ai_tools.router import router as ai_tools_router
 from app.modules.analytics.router import router as analytics_router
+from app.modules.audit.router import archives_router as audit_archives_router
 from app.modules.audit.router import router as audit_router
 from app.modules.backoffice.router import router as backoffice_router
 from app.modules.cards.router import router as cards_router
@@ -52,6 +53,7 @@ from app.modules.organizations.router import router as organizations_router
 from app.modules.payments.router import router as payments_router
 from app.modules.procurement.router import router as procurement_router
 from app.modules.retail.router import router as retail_router
+from app.modules.retention.router import router as retention_router
 from app.modules.risk.router import router as risk_router
 from app.modules.rules.router import router as rules_router
 from app.modules.trade.router import router as trade_router
@@ -129,6 +131,8 @@ for module_router in (
     comparison_router,
     analytics_router,
     audit_router,
+    audit_archives_router,
+    retention_router,
     jobs_router,
     schedules_router,
     observability_router,

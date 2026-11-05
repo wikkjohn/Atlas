@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query, Request, Response, status
 
+from app.core import ratelimit
 from app.core.dependencies import DbSession, SettingsDep
 from app.core.errors import BusinessRuleViolation
 from app.core.idempotency import IdempotencyKey, run_idempotent
@@ -67,14 +68,19 @@ def login(
 ) -> LoginResponse:
     """A password sign-in. With a second factor enrolled, the answer is `mfa_required` and a
     challenge for `POST /auth/mfa/verify`; no access token is issued until then."""
+    ratelimit.hit(db, "login.ip", ratelimit.client_address(request))
+    ratelimit.hit(db, "login.user", body.username.strip().lower())
     user, sign_in = service.authenticate(db, body.username, body.password, settings, _meta(request))
     return _signed_in(db, user, sign_in)
 
 
 @auth_router.post("/mfa/verify", response_model=LoginResponse, summary="Complete a sign-in")
-def verify_mfa(body: MfaVerifyRequest, db: DbSession, settings: SettingsDep) -> LoginResponse:
+def verify_mfa(
+    body: MfaVerifyRequest, request: Request, db: DbSession, settings: SettingsDep
+) -> LoginResponse:
     """The second factor: a code from the authenticator or a one-time recovery code. Five
     wrong codes end the sign-in."""
+    ratelimit.hit(db, "mfa.ip", ratelimit.client_address(request))
     user, session, token = sessions.verify_challenge(db, body.challenge_token, body.code, settings)
     return LoginResponse(
         access_token=token.token, expires_at=token.expires_at,
@@ -182,8 +188,9 @@ def sso_providers() -> list[SsoProviderOut]:
 
 
 @auth_router.post("/sso/{provider}/start", response_model=SsoStartOut, summary="Start SSO")
-def sso_start(provider: str, db: DbSession) -> SsoStartOut:
+def sso_start(provider: str, request: Request, db: DbSession) -> SsoStartOut:
     """A sign-in request for the identity provider: `state` and `nonce`, valid 10 minutes."""
+    ratelimit.hit(db, "sso.ip", ratelimit.client_address(request))
     request = sso.start(db, provider)
     return SsoStartOut(provider=provider, state=request.state, nonce=request.nonce,
                        expires_at=request.expires_at)  # fmt: skip
@@ -194,6 +201,7 @@ def sso_callback(
     provider: str, body: SsoCallback, request: Request, db: DbSession, settings: SettingsDep
 ) -> LoginResponse:
     """Accept the provider's ID token for a pending request and sign the user in."""
+    ratelimit.hit(db, "sso.ip", ratelimit.client_address(request))
     user, sign_in = sso.callback(
         db, provider, state=body.state, id_token=body.id_token, settings=settings,
         meta=_meta(request),
@@ -206,10 +214,11 @@ def sso_callback(
     summary="The simulated directory's sign-in",
 )  # fmt: skip
 def directory_sign_in(
-    provider: str, body: DirectorySignIn, db: DbSession, settings: SettingsDep
+    provider: str, body: DirectorySignIn, request: Request, db: DbSession, settings: SettingsDep
 ) -> DirectoryResponse:
     """Stands in for the corporate identity provider: authenticates the employee and
     returns a signed ID token for the bank's callback."""
+    ratelimit.hit(db, "sso.ip", ratelimit.client_address(request))
     token = sso.directory_sign_in(
         db, provider, nonce=body.nonce, username=body.username, password=body.password,
         otp=body.otp, settings=settings,
@@ -333,3 +342,11 @@ def reset_user_mfa(
     mfa.clear(db, user, actor.id, reason="reset_by_administrator")
     sessions.revoke_all(db, user.id, "mfa_reset", actor.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@users_router.post("/{user_id}/unlock", response_model=UserOut, summary="Unlock a user")
+def unlock_user(
+    user_id: uuid.UUID, db: DbSession, actor: Authorized(Permission.USERS_MANAGE)
+) -> UserOut:
+    """Lift a sign-in lockout (Phase 85) before it expires."""
+    return service.user_out(service.unlock_user(db, service.get_user(db, user_id), actor.id))

@@ -19,6 +19,9 @@ class Permission(StrEnum):
     USERS_READ = "users:read"
     USERS_MANAGE = "users:manage"
     AUDIT_READ = "audit:read"
+    # Phase 85: move old audit events to the audit-log archive; apply the retention schedule.
+    AUDIT_ARCHIVE = "audit:archive"
+    RETENTION_APPLY = "retention:apply"
     CUSTOMERS_READ = "customers:read"
     CUSTOMERS_MANAGE = "customers:manage"  # create customers, edit their details
     CUSTOMERS_REVIEW = "customers:review"  # KYC status and risk rating decisions
@@ -343,6 +346,8 @@ ROLE_PERMISSIONS: dict[RoleCode, frozenset[Permission]] = {
             Permission.SIMULATIONS_MANAGE,
             Permission.SERVICE_READ,
             Permission.SERVICE_HANDLE,  # the SLA sweep (Phase 51)
+            Permission.AUDIT_ARCHIVE,  # the daily retention run (Phase 85)
+            Permission.RETENTION_APPLY,
         }
     ),
 }

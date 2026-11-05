@@ -25,6 +25,7 @@ from sqlalchemy import BigInteger, DateTime, ForeignKey, Identity, Uuid, func, s
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from app.config import get_settings
 from app.core.audit import record_audit_event
 from app.core.database import Base
 
@@ -179,7 +180,15 @@ SCHEDULE: tuple[DataClass, ...] = (
 
 
 def _cutoff(item: DataClass, now: datetime) -> datetime | None:
-    return now - timedelta(days=item.days) if item.days is not None else None
+    if item.days is None:
+        return None
+    cutoff = now - timedelta(days=item.days)
+    if item.id == "audit_events":
+        # Never inside the configured minimum online period, which may be longer than the
+        # schedule's year: the archive would refuse the cut-off and roll the whole run back,
+        # deletions included (PR #76 review).
+        cutoff = min(cutoff, now - timedelta(days=get_settings().audit_min_online_days))
+    return cutoff
 
 
 def review(db: Session, now: datetime | None = None) -> dict[str, Any]:

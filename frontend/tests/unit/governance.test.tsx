@@ -168,3 +168,29 @@ describe("Backups and recovery drills (Phase 87)", () => {
     expect(screen.getByText("No backup")).toBeInTheDocument();
   });
 });
+
+describe("Archive search pagination (PR #76 review)", () => {
+  it("pages through every matching archived event", async () => {
+    const event = (n: number) => ({ id: `e${n}`, actor_id: null, action: "auth.login", entity_type: "user", entity_id: `u${n}`, timestamp: "2024-01-02T10:00:00Z", correlation_id: null, metadata: {} });
+    const api = mockApi({
+      ...healthyRoutes,
+      "GET /api/v1/audit-events": () => jsonResponse(page([])),
+      "GET /api/v1/audit-archives": () => jsonResponse([archiveRow()]),
+      "GET /api/v1/audit-archives/a1/events": (r) => {
+        const offset = Number(r.search.get("offset") ?? 0);
+        return jsonResponse({ items: [event(offset + 1)], total: 120 });
+      },
+    });
+    renderApp("/audit");
+    const table = await screen.findByRole("table", { name: "Audit archives" });
+    await userEvent.click(within(table).getByRole("button", { name: "Search archive 1" }));
+    const found = await screen.findByRole("region", { name: "Archived events" });
+    expect(await within(found).findByText(/user u1$/)).toBeInTheDocument();
+    expect(within(found).getByText("1–50 of 120")).toBeInTheDocument();
+    await userEvent.click(within(found).getByRole("button", { name: "Next" }));
+    expect(await within(found).findByText(/user u51$/)).toBeInTheDocument();
+    expect(within(found).getByText("51–100 of 120")).toBeInTheDocument();
+    const offsets = api.requests.filter((r) => r.path === "/api/v1/audit-archives/a1/events").map((r) => r.search.get("offset"));
+    expect(offsets).toEqual(expect.arrayContaining(["0", "50"]));
+  });
+});

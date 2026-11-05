@@ -143,6 +143,17 @@ Backup, restore and a tested recovery procedure (roadmap Milestone H, step 4). T
 - The error also hid the drill's result.
 - Now a plain `DROP` runs first, and a cleanup failure is reported alongside the result.
 
+## Phase 87: fixes from the PR #76 review (Phase 85)
+
+| Finding | Fix |
+| --- | --- |
+| The simulated directory bypassed the sign-in lockout (P1) | One credential check, `identity.service.verify_credentials`, serves the password form and the directory. It refuses locked accounts and counts wrong passwords. The SSO callback also refuses an account locked after its token was signed |
+| Audit archives were on each container's own filesystem (P1) | `docker-compose.yml` mounts a persistent `audit-archive` volume into both the API and the worker |
+| More than 65,535 events made the archive's `IN (…)` delete fail (P2) | One array parameter (`id = ANY(:ids)`); tested with 70,000 events |
+| A truncated or corrupt archive file made verification answer 500 (P2) | Recorded as a failed verification ("the file cannot be read"), stored and audited |
+| Archive searches showed only the first 50 matches (P2) | Offset paging in the hook and the panel |
+| A minimum online period above 365 days rolled back every retention run (P2) | The audit cut-off is never inside the minimum online period, in the review and the run |
+
 ## Phase 87: known limitations
 
 - **No point-in-time recovery:** the recovery point is the last backup (WAL archiving

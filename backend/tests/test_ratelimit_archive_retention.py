@@ -290,3 +290,112 @@ def test_the_retention_review_and_its_application(
     last = client.get("/api/v1/data-retention", headers=auth(auditor)).json()["last_run"]
     assert last["results"]["audit_events"]["archived"] >= 4
     assert db.execute(select(User).where(User.id == admin.id)).scalar_one()
+
+
+# --- Fixes from the PR #76 review (Phase 87) ---------------------------------------------------
+
+
+def _directory_sign_in(client: TestClient, username: str, password: str):
+    state = client.post("/api/v1/auth/sso/atlas-directory/start").json()
+    return client.post(
+        "/api/v1/simulated-directory/atlas-directory/sign-in",
+        json={"nonce": state["nonce"], "username": username, "password": password},
+    )
+
+
+def test_the_directory_honours_and_counts_towards_the_lockout(
+    client: TestClient, db: Session
+) -> None:
+    user = make_user(db, RoleCode.BANKING_EMPLOYEE)
+    db.commit()
+    # Wrong passwords at the directory count, and lock the account for both paths.
+    for _ in range(5):
+        assert _directory_sign_in(client, user.username, "wrong-password-x").status_code == 401
+    db.refresh(user)
+    assert user.locked_until is not None
+    refused = _directory_sign_in(client, user.username, PASSWORD)
+    assert refused.status_code == 401 and "locked" in refused.json()["error"]["message"]
+    assert _login(client, user.username, PASSWORD).status_code == 401
+    failures = db.execute(
+        select(AuditEvent).where(
+            AuditEvent.action == "sso.directory_login_failed",
+            AuditEvent.entity_id == str(user.id),
+        )
+    ).scalars().all()  # fmt: skip
+    assert {f.event_metadata["reason"] for f in failures} == {"bad_password", "locked"}
+    assert all(f.event_metadata["provider"] == "atlas-directory" for f in failures)
+
+
+def test_a_token_signed_before_the_lock_is_refused_at_the_callback(
+    client: TestClient, db: Session
+) -> None:
+    user = make_user(db, RoleCode.BANKING_EMPLOYEE)
+    db.commit()
+    state = client.post("/api/v1/auth/sso/atlas-directory/start").json()
+    token = client.post(
+        "/api/v1/simulated-directory/atlas-directory/sign-in",
+        json={"nonce": state["nonce"], "username": user.username, "password": PASSWORD},
+    ).json()["id_token"]
+    user.locked_until = datetime.now(UTC) + timedelta(minutes=10)
+    db.commit()
+    callback = client.post(
+        "/api/v1/auth/sso/atlas-directory/callback",
+        json={"state": state["state"], "id_token": token},
+    )
+    assert callback.status_code == 401 and "locked" in callback.json()["error"]["message"]
+
+
+def test_more_events_than_bind_parameters_archive_in_one_go(db: Session, archive_dir) -> None:
+    # 70,000 events: an IN list of their ids would pass PostgreSQL's 65,535 parameters.
+    db.execute(
+        text(
+            "INSERT INTO audit_events (id, action, entity_type, entity_id, timestamp, metadata)"
+            " SELECT gen_random_uuid(), 'test.backlog', 'test', g::text,"
+            " timestamp '2016-01-01' + g * interval '1 second', '{}'::jsonb"
+            " FROM generate_series(1, 70000) AS g"
+        )
+    )
+    made = archive.archive_before(db, datetime(2016, 6, 1, tzinfo=UTC), None)
+    assert made is not None and made.events >= 70_000
+    left = db.execute(
+        select(func.count()).select_from(AuditEvent).where(AuditEvent.action == "test.backlog")
+    ).scalar_one()
+    assert left == 0
+
+
+def test_a_corrupt_archive_is_recorded_as_a_failed_verification(
+    client: TestClient, db: Session, archive_dir
+) -> None:
+    auditor = make_user(db, RoleCode.AUDITOR)
+    _old_events(db, 20, datetime(2015, 1, 1, tzinfo=UTC), action="test.corrupt")
+    made = archive.archive_before(db, datetime(2015, 6, 1, tzinfo=UTC), None)
+    db.commit()
+    path = archive_dir / made.location
+    path.write_bytes(path.read_bytes()[: path.stat().st_size // 2])  # truncated
+    result = client.post(f"/api/v1/audit-archives/{made.id}/verify", headers=auth(auditor))
+    assert result.status_code == 200
+    body = result.json()
+    assert body["ok"] is False and "cannot be read" in " ".join(body["problems"])
+    db.refresh(made)
+    assert made.verification is not None and made.verification["ok"] is False
+
+
+def test_retention_respects_a_longer_minimum_online_period(
+    db: Session, archive_dir, monkeypatch
+) -> None:
+    from app.modules.retention import service as retention
+
+    monkeypatch.setattr(get_settings(), "audit_min_online_days", 400)
+    now = datetime.now(UTC)
+    kept = _old_events(db, 2, now - timedelta(days=380), action="test.kept")
+    gone = _old_events(db, 2, now - timedelta(days=420), action="test.gone")
+    run = retention.apply(db, None, now=now)  # used to be refused, rolling the run back
+    assert run.results["audit_events"]["archived"] >= 2
+    live = set(
+        db.execute(
+            select(AuditEvent.id).where(AuditEvent.id.in_([e.id for e in kept + gone]))
+        ).scalars()
+    )
+    assert live == {e.id for e in kept}
+    due = next(c for c in retention.review(db, now)["classes"] if c["id"] == "audit_events")
+    assert due["cutoff"].startswith((now - timedelta(days=400)).date().isoformat())

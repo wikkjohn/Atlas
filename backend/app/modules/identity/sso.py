@@ -24,13 +24,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.core.audit import record_audit_event
 from app.core.errors import AuthenticationError, NotFoundError
-from app.core.security import DUMMY_PASSWORD_HASH, TOKEN_ISSUER, verify_password
+from app.core.security import TOKEN_ISSUER
 from app.modules.identity import mfa, sessions
 from app.modules.identity.models import SessionMethod, SsoRequest, User
 
@@ -79,19 +78,14 @@ def directory_sign_in(
     otp: str | None, settings: Settings,
 ) -> str:  # fmt: skip
     """The simulated directory: authenticate the employee and sign an ID token."""
+    from app.modules.identity.service import verify_credentials
+
     info = _provider(provider)
-    user = db.execute(
-        select(User).where(User.username == username.strip().lower())
-    ).scalar_one_or_none()
-    password_ok = verify_password(password, user.password_hash if user else DUMMY_PASSWORD_HASH)
-    if user is None or not password_ok or not user.is_active:
-        record_audit_event(
-            db, actor_id=user.id if user else None, action="sso.directory_login_failed",
-            entity_type="user", entity_id=user.id if user else None,
-            metadata={"provider": provider, "username": username[:64]},
-        )  # fmt: skip
-        db.commit()
-        raise AuthenticationError("The directory rejected the username or password.")
+    user = verify_credentials(
+        db, username, password, settings, failure_action="sso.directory_login_failed",
+        failure_message="The directory rejected the username or password.",
+        metadata={"provider": provider},
+    )  # fmt: skip
     amr = ["pwd"]
     if otp and mfa.enabled(user):
         user = mfa.lock(db, user.id)  # one code, one sign-in
@@ -143,6 +137,11 @@ def callback(
     if user is None or not user.is_active or user.email != claims.get("email"):
         db.commit()
         raise AuthenticationError("No active user matches this directory account.")
+    from app.modules.identity.service import is_locked
+
+    if is_locked(user):  # locked after the directory signed the token (PR #76 review)
+        db.commit()
+        raise AuthenticationError("This account is locked after repeated failed sign-ins.")
     record_audit_event(
         db, actor_id=user.id, action="auth.login", entity_type="user", entity_id=user.id,
         metadata={"method": "sso", "provider": provider, "amr": claims.get("amr", [])},

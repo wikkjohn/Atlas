@@ -29,11 +29,14 @@ export function useVerifyArchive() {
   });
 }
 
-export function useArchivedEvents(id: string | null, action: string) {
-  const params = new URLSearchParams({ limit: "50" });
+export const ARCHIVED_EVENTS_PAGE = 50;
+
+/** One page of an archive's matching events (PR #76 review: every match is reachable). */
+export function useArchivedEvents(id: string | null, action: string, offset = 0) {
+  const params = new URLSearchParams({ limit: String(ARCHIVED_EVENTS_PAGE), offset: String(offset) });
   if (action) params.set("action", action);
   return useQuery({
-    queryKey: ["audit-archives", id, "events", action],
+    queryKey: ["audit-archives", id, "events", action, offset],
     queryFn: () =>
       apiGet<{ items: ArchivedEvent[]; total: number }>(`/api/v1/audit-archives/${id}/events?${params}`),
     enabled: Boolean(id),

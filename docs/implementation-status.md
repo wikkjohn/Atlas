@@ -105,7 +105,17 @@ Last updated: Phase 82.
   `python -m app.cli calibration-pilot` (a synthetic pilot of known parameters); *Reviewer
   calibration* on the Experiments page (fitted against assumed, with intervals; upload of
   reviews); the series form's reviewer options.
-- **PR #72 (Phase 81)** had no review comments; CI passed on the first run.
+- **Five review findings on PR #72 (Phase 81), fixed here:**
+  - The same runs re-evaluated under other cost assumptions were counted as new matched
+    workloads, inflating significance. Each set of cost assumptions is now its own
+    benchmark, and within one a workload counts once per tool.
+  - The benchmark's risk tier is now the tier of the thresholds applied, approved
+    versions included.
+  - A tool named with and without its version is now refused as a duplicate.
+  - Generated series, replicate and portfolio-cell names stay within 200 characters
+    (the replicate case predates Phase 81).
+  - The head-to-head now refreshes when a started comparison's series finish.
+  CI on PR #72 passed on the first run.
 
 ## Phase 82: verified results
 
@@ -113,7 +123,7 @@ Last updated: Phase 82.
 | --- | --- |
 | Backend pytest (real PostgreSQL) | PYTEST_RESULT |
 | Generated workflow tests | GEN_RESULT |
-| Frontend Vitest / typecheck / build | VITEST_RESULT |
+| Frontend Vitest / typecheck / build | 183 passed (new: calibrated reviewers shown against the assumptions with intervals; reviews uploaded as comma-separated lines; JSON or CSV parsing; the series form's reviewer options; the head-to-head refreshing when a comparison's series finish) / clean / built |
 | Playwright on a fresh database | PW_RESULT |
 | Coverage of the fit's 95 % intervals over 1,000 synthetic pilots of 400 reviews | 95.2–97.4 % for all seven parameters |
 | KYC assistant, assisted, 5 seeds, reviewers assumed / calibrated / drawn (development database, 30 runs in 245 s) | labour −32.7 % / −31.8 % / −30.9 % relative; −3.2 h / −4.4 h / −4.3 h a run; accuracy and false approvals unchanged in all three |

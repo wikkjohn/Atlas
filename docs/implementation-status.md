@@ -124,9 +124,9 @@ The dashboard drill-down (roadmap Milestone H, step 5); see
 | `atlas_exit` (36,686 executions) | Every level under 0.65 s; 121 country groups (120 countries and "not attributed") |
 | Drill-down tests (`tests/test_drilldown.py`, 5) | Pass. They cover the four levels with exact counts, rates, open tasks, step order and outcomes; the unattributed and unclassified groups; history and period filters; country and department scopes; the API's scope, validation and sign-in |
 | Frontend drill-down tests (2) | Pass. They walk from the bank to a workflow and back by breadcrumb, check the filters reach the API, and show the scope note |
-| Backend pytest (real PostgreSQL) | BACKEND88 |
-| Frontend vitest | FRONTEND88 |
-| Playwright | E2E88 |
+| Backend pytest (real PostgreSQL) | 879 passed in 11 min 0 s (CI, commit 85b7f19) |
+| Frontend vitest | 198 passed, 40 files (CI, commit 85b7f19) |
+| Playwright | 82 passed in 3.5 min (CI, commit 85b7f19) |
 
 ## Phase 88: known limitations
 

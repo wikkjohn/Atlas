@@ -121,10 +121,10 @@ Last updated: Phase 82.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
+| Backend pytest (real PostgreSQL) | 824 passed. New: 5 calibration tests covering:<br>• Wilson and lognormal against known values<br>• the fit recovering the parameters it was drawn from, with about 95 % coverage over 200 pilots<br>• what the reviews cannot support staying assumed<br>• deterministic draws that vary by seed<br>• runs through the API simulating the calibrated reviewers for baseline and candidate alike, reruns reproducing exactly, `calibrated: false` and per-seed draws, supersession, refusals<br>Also 2 new comparison tests for the PR #72 fixes: a separate benchmark per cost-assumption set (fails on the old pooling), the applied risk tier, duplicates after version resolution, and bounded names |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (1,164.0 s, alongside the backend suite) |
 | Frontend Vitest / typecheck / build | 183 passed (new: calibrated reviewers shown against the assumptions with intervals; reviews uploaded as comma-separated lines; JSON or CSV parsing; the series form's reviewer options; the head-to-head refreshing when a comparison's series finish) / clean / built |
-| Playwright on a fresh database | PW_RESULT |
+| Playwright on a fresh database | 76 passed (new: a researcher calibrates the leave reviewers from 40 observed reviews and sees the fit) |
 | Coverage of the fit's 95 % intervals over 1,000 synthetic pilots of 400 reviews | 95.2–97.4 % for all seven parameters |
 | KYC assistant, assisted, 5 seeds, reviewers assumed / calibrated / drawn (development database, 30 runs in 245 s) | labour −32.7 % / −31.8 % / −30.9 % relative; −3.2 h / −4.4 h / −4.3 h a run; accuracy and false approvals unchanged in all three |
 

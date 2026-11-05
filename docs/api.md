@@ -751,7 +751,11 @@ reported as failed with an "Interrupted" reason. See [simulation.md](simulation.
 | GET | `/api/v1/ai-tools/{id}` | `ai_tools:read` | |
 | PATCH | `/api/v1/ai-tools/{id}` | `ai_tools:manage` | `{status: active | disabled}` — everything else is immutable |
 | POST | `/api/v1/ai-tools/{id}/invoke` | `ai_tools:invoke` + the tool's `permissions` | `{action, input}` → the recorded invocation (its `status` says whether it succeeded, failed, timed out or broke a schema). A disabled tool or an action not granted → **403**, and the refused call is still recorded |
-| GET | `/api/v1/ai-tools/invocations?tool=&status=&execution_id=&simulation_run_id=` | `ai_tools:read` | Recorded invocations, newest first |
+| GET | `/api/v1/ai-tools/invocations?tool=&status=&execution_id=&simulation_run_id=` | `ai_tools:read` | Recorded invocations, newest first; each with `record_hash` and, for hosted models, `transcript` (Phase 79) |
+| GET | `/api/v1/ai-tools/audit/verify?tool_record_id=` | `ai_tools:read` | Recomputes every invocation's record hash (Phase 79): `{checked, valid, unhashed, mismatched, mismatched_ids, status: intact | altered}` |
+| GET | `/api/v1/ai-tools/{id}/runs` | `ai_tools:read` | Simulation runs that called the tool, newest first, with call counts |
+| GET | `/api/v1/ai-tools/{id}/bias?run_id=&min_group=` | `ai_tools:read` | Recommendations across segments (Phase 79): per attribute the groups' rates, the test (equal opportunity or demographic parity), p and Holm-adjusted p, four-fifths rule, finding; `status` clear, flagged or insufficient_data |
+| GET | `/api/v1/ai-tools/{id}/drift?reference_run_id=&current_run_id=` or `?split_at=` | `ai_tools:read` | Behaviour against a reference (Phase 79): recommendation shares, PSI and chi-square p; confidence (Welch); error rate; input segments; overall status. 422 without windows |
 
 ### Experiments and benchmarks
 

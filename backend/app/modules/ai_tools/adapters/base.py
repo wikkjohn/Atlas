@@ -29,6 +29,8 @@ class ToolResult(BaseModel):
 
     output: dict[str, Any]
     usage: dict[str, Any] = Field(default_factory=dict)
+    # What a hosted model was sent and answered (Phase 79), kept for the audit.
+    transcript: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class ToolError(Exception):
         *,
         retryable: bool = False,
         usage: dict[str, Any] | None = None,
+        transcript: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -62,6 +65,7 @@ class ToolError(Exception):
         self.retryable = retryable
         # What a failed call still used (a hosted model bills refused and cut-off answers).
         self.usage = usage or {}
+        self.transcript = transcript
 
 
 class AIToolAdapter(ABC):

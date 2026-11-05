@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request, status
@@ -8,7 +9,7 @@ from app.core.errors import PermissionDeniedError
 from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
-from app.modules.ai_tools import service
+from app.modules.ai_tools import guardrails, service
 from app.modules.ai_tools.models import InvocationStatus, ToolStatus
 from app.modules.ai_tools.schemas import (
     ActionOut,
@@ -89,6 +90,15 @@ def register_tool(
     )
 
 
+@router.get("/audit/verify", summary="Recompute every invocation's record hash (Phase 79)")
+def verify_audit(
+    db: DbSession,
+    _: Authorized(Permission.AI_TOOLS_READ),
+    tool_record_id: uuid.UUID | None = None,
+) -> dict:
+    return guardrails.verify_audit(db, tool_record_id=tool_record_id)
+
+
 @router.get("/{tool_record_id}", response_model=ToolOut, summary="A registered tool version")
 def get_tool(
     tool_record_id: uuid.UUID, db: DbSession, _: Authorized(Permission.AI_TOOLS_READ)
@@ -134,3 +144,70 @@ def invoke(
         db.commit()
         raise PermissionDeniedError(record.error["message"], record.error)
     return service.invocation_out(record)
+
+
+# --- Guardrails (Phase 79) ---------------------------------------------------------------------
+
+
+@router.get("/{tool_record_id}/runs", summary="Simulation runs in which the tool was called")
+def tool_runs(
+    tool_record_id: uuid.UUID, db: DbSession, _: Authorized(Permission.AI_TOOLS_READ)
+) -> list[dict]:
+    from sqlalchemy import func, select
+
+    from app.modules.ai_tools.models import AIToolInvocation
+    from app.simulation.models import SimulationRun
+
+    rows = db.execute(
+        select(
+            SimulationRun.id,
+            SimulationRun.run_number,
+            SimulationRun.mode,
+            SimulationRun.created_at,
+            func.count(),
+        )  # fmt: skip
+        .join(AIToolInvocation, AIToolInvocation.simulation_run_id == SimulationRun.id)
+        .where(AIToolInvocation.tool_record_id == tool_record_id)
+        .group_by(SimulationRun.id)
+        .order_by(SimulationRun.run_number.desc())
+        .limit(100)
+    ).all()
+    return [
+        {
+            "id": str(r[0]),
+            "run_number": r[1],
+            "mode": r[2],
+            "created_at": r[3].isoformat(),
+            "calls": r[4],
+        }  # fmt: skip
+        for r in rows
+    ]
+
+
+@router.get("/{tool_record_id}/bias", summary="Recommendations across segments (Phase 79)")
+def tool_bias(
+    tool_record_id: uuid.UUID,
+    db: DbSession,
+    _: Authorized(Permission.AI_TOOLS_READ),
+    run_id: uuid.UUID | None = None,
+    min_group: Annotated[int, Query(ge=5, le=10_000)] = guardrails.MIN_GROUP,
+) -> dict:
+    return guardrails.bias(db, tool_record_id, run_id=run_id, min_group=min_group)
+
+
+@router.get("/{tool_record_id}/drift", summary="Behaviour now against a reference (Phase 79)")
+def tool_drift(
+    tool_record_id: uuid.UUID,
+    db: DbSession,
+    _: Authorized(Permission.AI_TOOLS_READ),
+    reference_run_id: uuid.UUID | None = None,
+    current_run_id: uuid.UUID | None = None,
+    split_at: datetime | None = None,
+) -> dict:
+    return guardrails.drift(
+        db,
+        tool_record_id,
+        reference_run_id=reference_run_id,
+        current_run_id=current_run_id,
+        split_at=split_at,
+    )

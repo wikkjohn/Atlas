@@ -389,7 +389,7 @@ indexed) links executions a simulation drove. Since Phase 15 these tables are pa
 | Table | Contents |
 | --- | --- |
 | `ai_tools` | One row per tool version (unique `tool_id`, `tool_version`): `tool_name`, `provider`, `description`, `adapter`, `input_schema`, `output_schema`, `allowed_actions`, `permissions`, `compatible_workflows`, `configuration` (jsonb), `status` (active, disabled), `created_by`, `created_at`, `updated_at`, `family` (product line, Phase 78) |
-| `ai_tool_invocations` | Every call: `tool_record_id`, `tool_id`, `tool_version`, `action`, `status` (succeeded, failed, timeout, invalid_input, invalid_output, blocked), `input`, `output`, `error`, `duration_ms`, `usage`, `invoked_by`, `execution_id`, `simulation_run_id`, `occurred_at` (business time), `created_at` |
+| `ai_tool_invocations` | Every call: `tool_record_id`, `tool_id`, `tool_version`, `action`, `status` (succeeded, failed, timeout, invalid_input, invalid_output, blocked), `input`, `output`, `error`, `duration_ms`, `usage`, `invoked_by`, `execution_id`, `simulation_run_id`, `occurred_at` (business time), `created_at`, `transcript` (jsonb: a hosted model's exact request and answer) and `record_hash` (SHA-256 of the canonical record), both Phase 79, migration 0053 |
 
 Phase 6 also adds `simulation_runs.mode` (baseline, ai_assisted, ai_automated),
 `tool_record_id`, `batch_id` (suite), and `simulation_case_results.ai_recommendation`,

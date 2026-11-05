@@ -12,6 +12,7 @@ import { Pagination } from "@/components/Pagination";
 import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { SyntheticDataBadge } from "@/components/SyntheticDataBadge";
+import { GuardrailsPanel } from "@/features/ai-lab/GuardrailsPanel";
 import { usageCost } from "@/features/ai-lab/usage";
 import { formatTimestamp } from "@/features/dashboard/format";
 import {
@@ -889,6 +890,7 @@ function ToolDetail({ id }: { id: string }) {
                 <th className="px-3 py-2">Result</th>
                 <th className="px-3 py-2 text-right">Cost</th>
                 <th className="px-3 py-2">Source</th>
+                <th className="px-3 py-2">Record hash</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -905,16 +907,27 @@ function ToolDetail({ id }: { id: string }) {
                       : typeof i.error?.message === "string"
                         ? i.error.message
                         : "—"}
+                    {i.transcript && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[11px] text-slate-500">Prompt and answer</summary>
+                        <pre className="mt-1 max-h-64 max-w-xl overflow-auto text-[11px] whitespace-pre-wrap text-slate-600">
+                          {JSON.stringify(i.transcript, null, 2)}
+                        </pre>
+                      </details>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right text-xs">{usageCost(i.usage)}</td>
                   <td className="px-3 py-2 text-xs text-slate-500">
                     {i.simulation_run_id ? "Simulation" : i.execution_id ? "Workflow" : "Test console"}
                   </td>
+                  <td className="px-3 py-2 font-mono text-[11px] text-slate-500" title={i.record_hash ?? undefined}>
+                    {i.record_hash ? i.record_hash.slice(0, 12) : "—"}
+                  </td>
                 </tr>
               ))}
               {invocations.data?.items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-500">
+                  <td colSpan={7} className="px-3 py-6 text-center text-sm text-slate-500">
                     No invocations yet.
                   </td>
                 </tr>
@@ -926,6 +939,8 @@ function ToolDetail({ id }: { id: string }) {
           <Pagination total={invocations.data.total} limit={INVOCATIONS_PAGE} offset={offset} onChange={setOffset} />
         )}
       </section>
+
+      <GuardrailsPanel id={t.id} />
     </div>
   );
 }

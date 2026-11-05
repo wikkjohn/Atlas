@@ -1,7 +1,17 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPatch, apiPost, query, useIdempotencyKey } from "@/services/api";
-import type { AiAction, AiAdapter, AiTool, Invocation, ToolCreate } from "@/types/aiTools";
+import type {
+  AiAction,
+  AiAdapter,
+  AiTool,
+  AuditVerification,
+  BiasReport,
+  DriftReport,
+  Invocation,
+  ToolCreate,
+  ToolRun,
+} from "@/types/aiTools";
 import type { Page } from "@/types/enterprise";
 import type { SimulationRunSummary, StartSuite } from "@/types/simulations";
 
@@ -48,6 +58,38 @@ export const useInvocations = (tool: string | null, offset: number, limit: numbe
     enabled: Boolean(tool),
     placeholderData: keepPreviousData,
   });
+
+// --- Guardrails (Phase 79) ---
+
+export const useToolRuns = (id: string) =>
+  useQuery({
+    queryKey: ["ai-tools", id, "runs"],
+    queryFn: () => apiGet<ToolRun[]>(`/api/v1/ai-tools/${id}/runs`),
+  });
+
+export const useToolBias = (id: string, runId: string | null) =>
+  useQuery({
+    queryKey: ["ai-tools", id, "bias", runId],
+    queryFn: () => apiGet<BiasReport>(`/api/v1/ai-tools/${id}/bias${query({ run_id: runId })}`),
+    placeholderData: keepPreviousData,
+  });
+
+export const useToolDrift = (id: string, referenceRunId: string | null, currentRunId: string | null) =>
+  useQuery({
+    queryKey: ["ai-tools", id, "drift", referenceRunId, currentRunId],
+    queryFn: () =>
+      apiGet<DriftReport>(
+        `/api/v1/ai-tools/${id}/drift${query({ reference_run_id: referenceRunId, current_run_id: currentRunId })}`,
+      ),
+    enabled: Boolean(referenceRunId && currentRunId && referenceRunId !== currentRunId),
+    placeholderData: keepPreviousData,
+  });
+
+export function useVerifyAudit(id: string) {
+  return useMutation({
+    mutationFn: () => apiGet<AuditVerification>(`/api/v1/ai-tools/audit/verify${query({ tool_record_id: id })}`),
+  });
+}
 
 export const useSuiteRuns = (batchId: string | null) =>
   useQuery({

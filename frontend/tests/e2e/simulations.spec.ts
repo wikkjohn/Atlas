@@ -146,6 +146,15 @@ test("AI Innovation Lab: try the KYC assistant, see a blocked action, run A/B/C 
       timeout: 180_000,
     });
   }
+  // Guardrails (Phase 79): the two AI runs give drift, every recorded call checks out.
+  await page.reload();
+  const guardrails = details.getByRole("region", { name: "Guardrails" });
+  await expect(guardrails.getByRole("table", { name: "Drift measures" })).toBeVisible();
+  await expect(guardrails.getByRole("region", { name: "Bias across segments" })).toBeVisible();
+  await guardrails.getByRole("button", { name: "Verify records" }).click();
+  await expect(guardrails.getByText(/records match their hash/)).toBeVisible();
+  await expect(guardrails.getByRole("region", { name: "Audit" }).getByText("Intact")).toBeVisible();
+
   // Each run opens in the Simulation Center with its full results.
   await runs.getByRole("link", { name: "C — AI automated tasks" }).click();
   await expect(page.getByRole("region", { name: "AI tool behaviour" })).toBeVisible();

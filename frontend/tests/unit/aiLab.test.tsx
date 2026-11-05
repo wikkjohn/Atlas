@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { AiAction, AiAdapter, AiTool, Invocation } from "@/types/aiTools";
+import type { AiAction, AiAdapter, AiTool, BiasReport, DriftReport, Invocation, ToolRun } from "@/types/aiTools";
 import type { Scenario, SimulationRunDetail } from "@/types/simulations";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
@@ -76,6 +76,8 @@ const invocation = (partial: Partial<Invocation>): Invocation => ({
   invoked_by: "user-1",
   execution_id: null,
   simulation_run_id: null,
+  transcript: null,
+  record_hash: "3f2a9c1b7e4d5a6b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b",
   occurred_at: "2026-10-28T09:00:00Z",
   created_at: "2026-10-28T09:00:00Z",
   ...partial,
@@ -147,6 +149,59 @@ const run = (id: string, n: number, mode: SimulationRunDetail["mode"], accuracy:
   shard_progress: [],
 });
 
+const toolRuns: ToolRun[] = [
+  { id: "run-b", run_number: 8, mode: "ai_assisted", created_at: "2026-10-29T09:00:00Z", calls: 40 },
+  { id: "run-a", run_number: 5, mode: "ai_assisted", created_at: "2026-10-28T09:00:00Z", calls: 38 },
+];
+
+const biasReport: BiasReport = {
+  tool_id: tool.tool_id,
+  tool_version: "1.0.0",
+  run_id: null,
+  recommendations: 78,
+  with_ground_truth: 78,
+  min_group: 20,
+  attributes: [
+    {
+      attribute: "country",
+      groups: [
+        { group: "GB", n: 40, approve_rate: 0.95, reject_rate: 0.05, escalate_rate: 0, should_approve: 40, false_rejections: 2, false_rejection_rate: 0.05, should_reject: 0, false_approval_rate: null },
+        { group: "JP", n: 40, approve_rate: 0.5, reject_rate: 0.5, escalate_rate: 0, should_approve: 40, false_rejections: 20, false_rejection_rate: 0.5, should_reject: 0, false_approval_rate: null },
+      ],
+      excluded_groups: ["SG"],
+      approval_ratio: 0.526316,
+      false_rejection_gap: 0.45,
+      test: "equal_opportunity",
+      p_value: 0.000004,
+      p_adjusted: 0.000004,
+      finding: "disparity",
+      four_fifths_rule: false,
+    },
+  ],
+  flagged: ["country"],
+  status: "flagged",
+  method: "Segment attributes from the inputs.",
+};
+
+const driftReport: DriftReport = {
+  tool_id: tool.tool_id,
+  tool_version: "1.0.0",
+  windows: { reference_run_id: "run-a", current_run_id: "run-b" },
+  reference: { calls: 38, errors: 0 },
+  current: { calls: 40, errors: 1 },
+  recommendations: {
+    shares: { approve: { reference: 0.8, current: 0.5 }, reject: { reference: 0.2, current: 0.5 } },
+    psi: 0.4159,
+    p_value: 0.006,
+    status: "significant",
+  },
+  confidence: { reference_mean: 0.81, current_mean: 0.79, p_value: 0.4 },
+  error_rate: { reference: 0, current: 0.025, p_value: 0.33 },
+  inputs: [{ attribute: "country", psi: 0.02, p_value: 0.8, status: "stable" }],
+  status: "significant",
+  method: "Population Stability Index.",
+};
+
 const routes = {
   ...healthyRoutes,
   "GET /api/v1/ai-tools": () => jsonResponse(page([tool])),
@@ -161,6 +216,11 @@ const routes = {
         invocation({ id: "inv-2", usage: { cost_usd: 0.0108, input_tokens: 1200, output_tokens: 300 } }),
       ]),
     ),
+  "GET /api/v1/ai-tools/tool-1/runs": () => jsonResponse(toolRuns),
+  "GET /api/v1/ai-tools/tool-1/bias": () => jsonResponse(biasReport),
+  "GET /api/v1/ai-tools/tool-1/drift": () => jsonResponse(driftReport),
+  "GET /api/v1/ai-tools/audit/verify": () =>
+    jsonResponse({ checked: 120, valid: 119, unhashed: 4, mismatched: 1, mismatched_ids: ["inv-9"], status: "altered" }),
   "GET /api/v1/simulations/scenarios": () => jsonResponse([scenarioV2]),
   "GET /api/v1/workflows": () => jsonResponse([{ workflow_id: "WF-0001", name: "Retail Account Opening", version: 2, versions: [1, 2], description: "", business_owner: "", trigger_type: "api", step_count: 21 }]),
 };
@@ -177,6 +237,40 @@ describe("AI Innovation Lab", () => {
     expect(within(invocations).getByText("Blocked")).toBeInTheDocument();
     expect(within(invocations).getByText("Not permitted")).toBeInTheDocument();
     expect(within(invocations).getByText("$0.0108 · 1,500 tokens")).toBeInTheDocument();
+  });
+
+  it("shows bias, drift and the record audit for a tool", async () => {
+    const api = mockApi(routes);
+    renderApp("/ai-lab?tool=tool-1");
+    const guardrails = await screen.findByRole("region", { name: "Guardrails" });
+
+    const bias = await within(guardrails).findByRole("table", { name: "Bias by country" });
+    expect(within(bias).getByText("Disparity")).toBeInTheDocument();
+    expect(within(bias).getByText(/below four-fifths/)).toBeInTheDocument();
+    expect(within(bias).getByText(/left out: SG/)).toBeInTheDocument();
+    expect(within(bias).getByRole("row", { name: /JP/ })).toHaveTextContent("50.0 %");
+
+    // The newest run is compared against the oldest by default.
+    const drift = await within(guardrails).findByRole("table", { name: "Drift measures" });
+    expect(within(drift).getByRole("row", { name: /Recommendations/ })).toHaveTextContent("Significant");
+    expect(within(drift).getByRole("row", { name: /Inputs: country/ })).toHaveTextContent("Stable");
+    const driftRequest = api.requests.find((r) => r.path === "/api/v1/ai-tools/tool-1/drift");
+    expect(driftRequest?.search.get("reference_run_id")).toBe("run-a");
+    expect(driftRequest?.search.get("current_run_id")).toBe("run-b");
+
+    await userEvent.selectOptions(within(guardrails).getByLabelText("Calls"), "run-b");
+    await waitFor(() =>
+      expect(api.requests.some((r) => r.path === "/api/v1/ai-tools/tool-1/bias" && r.search.get("run_id") === "run-b")).toBe(true),
+    );
+
+    const audit = within(guardrails).getByRole("region", { name: "Audit" });
+    await userEvent.click(within(audit).getByRole("button", { name: "Verify records" }));
+    expect(await within(audit).findByText(/119 of 120 records match/)).toBeInTheDocument();
+    expect(within(audit).getByRole("list", { name: "Altered records" })).toHaveTextContent("inv-9");
+    expect(api.requests.find((r) => r.path === "/api/v1/ai-tools/audit/verify")?.search.get("tool_record_id")).toBe(
+      "tool-1",
+    );
+    expect(screen.getByRole("table", { name: "Invocations" })).toHaveTextContent("3f2a9c1b7e4d");
   });
 
   it("validates a registration and never offers forbidden actions", async () => {

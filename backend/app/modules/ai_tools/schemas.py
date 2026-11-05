@@ -99,3 +99,5 @@ class InvocationOut(BaseModel):
     simulation_run_id: uuid.UUID | None
     occurred_at: datetime
     created_at: datetime
+    transcript: dict[str, Any] | None = None
+    record_hash: str | None = None

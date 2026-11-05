@@ -122,6 +122,10 @@ class AIToolInvocation(UUIDPrimaryKey, Base):
     )
     # Business time of the call (simulated time inside simulations).
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Audit (Phase 79): what a hosted model was sent and answered, word for word, and a
+    # SHA-256 of the whole record taken when it was written (None before Phase 79).
+    transcript: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    record_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

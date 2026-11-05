@@ -353,6 +353,7 @@ export interface PortfolioCreate {
   employees: number;
   seed: number;
   replicates: number;
+  scenario_ids?: string[];
 }
 
 // --- Scenario thresholds (Phase 80) -----------------------------------------------------------

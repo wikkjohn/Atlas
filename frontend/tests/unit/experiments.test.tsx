@@ -708,16 +708,18 @@ describe("Portfolios", () => {
     await userEvent.clear(countries);
     await userEvent.type(countries, "GB, GB");
     await userEvent.click(screen.getByRole("button", { name: "Run portfolio" }));
-    expect(within(form).getByText("1 – 10 different country codes, e.g. GB, US.")).toBeInTheDocument();
+    expect(within(form).getByText("1 – 150 different country codes, e.g. GB, US.")).toBeInTheDocument();
     expect(api.requests.some((r) => r.method === "POST")).toBe(false);
     await userEvent.clear(countries);
     await userEvent.type(countries, "gb, sg");
+    await userEvent.type(within(form).getByLabelText("Only these scenarios (optional)"), "retail-overdrafts-country");
     await userEvent.click(screen.getByRole("button", { name: "Run portfolio" }));
     await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
     expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
       family: "agb-review-assistants",
       candidate_mode: "ai_assisted",
       countries: ["GB", "SG"],
+      scenario_ids: ["retail-overdrafts-country"],
       replicates: 3,
     });
   });

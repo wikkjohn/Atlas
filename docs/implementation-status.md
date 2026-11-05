@@ -111,10 +111,10 @@ Last updated: Phase 80.
 
 | Check | Result |
 | --- | --- |
-| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
-| Generated workflow tests | GEN_RESULT |
+| Backend pytest (real PostgreSQL) | 813 passed. New: 3 tests covering: every AI scenario has a tier (an outage variant its base's) and the tiers are ordered, medium being the former defaults; thresholds take effect only when someone else approves them (the proposer and a researcher refused, one pending proposal at a time, supersession, a rejection needs a reason, audit events); experiments use and record their scenario's thresholds, a request's own win, the report names the source, and a stored result re-judged under a stricter approved version changes nothing stored; and the portfolio API test now checks per-cell thresholds and re-judging |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (711.7 s, alongside the backend suite) |
 | Frontend Vitest / typecheck / build | 178 passed (new: the scenario's thresholds shown in the new-experiment form, none sent by default and the researcher's own sent when chosen; thresholds by scenario with tier and source, proposing with tier defaults and a required rationale, approving another's proposal; a portfolio re-judged by tier) / clean / built |
-| Playwright on a fresh database | PW_RESULT |
+| Playwright on a fresh database | 74 passed (new: a researcher proposes thresholds for leave requests and cannot decide them; an administrator approves them) |
 | The Phase 78 portfolio re-judged under scenario thresholds (development database, 342 experiments, 5.9 s) | 6 of 57 cells successful (9 under one standard): critical 3 of 12 (was 6; card fraud alerts fails at 1 % false approvals), high 3 of 21, medium 0 of 21, low 0 of 3; every failure on the compliance criterion |
 
 ## Phase 80: known limitations

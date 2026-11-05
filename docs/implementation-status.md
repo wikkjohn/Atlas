@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 86.
+Last updated: Phase 87.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,73 @@ Last updated: Phase 86.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 87: what exists
+
+Backup, restore and a tested recovery procedure (roadmap Milestone H, step 4). The runbook is
+[backup-recovery.md](backup-recovery.md).
+
+- **Backups** (`app/modules/backup/service.py`, `python -m app.cli backup create`):
+  - `pg_dump` in custom format, the audit-log and simulation-history archive files, and a
+    manifest;
+  - the manifest and the dump are read in one exported snapshot (repeatable read,
+    `pg_dump --snapshot`), so they agree while the bank keeps running;
+  - the manifest records the schema revision, the row counts of 11 key tables, the
+    ledger's totals, the newest audit event, the archive chain's head, and each file's
+    SHA-256.
+- **Verification** (`backup verify`): digests and sizes, the dump's table of contents, the
+  files archive's members. A backup that fails is never restored.
+- **Restore** (`backup restore`):
+  - only into an empty database, unless `--force`;
+  - in one transaction, or `--jobs N` in parallel;
+  - the archive files go into an empty directory, with a safe extraction filter.
+- **Five checks against the manifest** after every restore:
+  - schema revision;
+  - row counts;
+  - ledger balances (debits = credits, no unbalanced entry, the same totals);
+  - newest audit event;
+  - the audit archive chain (every file's digest and every link).
+- **The recovery drill** (`backup drill`):
+  - backs up the live database and restores it into a scratch database;
+  - runs the checks, measures RTO and RPO, and drops the scratch database;
+  - refuses the live database's own name, and any name that is not a plain identifier.
+- **The record:**
+  - `backup_runs` (migration 0058) and the audit log record every backup, verification
+    and drill, failed ones included;
+  - `GET /api/v1/backups` (`audit:read`) reports them;
+  - the Audit page shows a *Backups and recovery drills* panel: the latest backup, the
+    latest passing drill with its RTO, the recovery point's age, and the recent runs.
+
+## Phase 87: verified results
+
+| Check | Result |
+| --- | --- |
+| Drill, `atlas_exit` (1.2 GB, 1,320,873 rows in the key tables), 4 restore jobs | All 5 checks passed; backup 20.4 s (166 MB); **RTO 18.8 s**; RPO 41 s at the end |
+| Drill, `atlas_exit`, 1 restore job | All 5 checks passed; backup 20.2 s; **RTO 39.2 s** |
+| Drill, `atlas_ci` (49 MB) | All 5 checks passed; backup 6.5 s; **RTO 2.2 s** |
+| Backup tests (`tests/test_backup_recovery.py`, 7) | Pass: round trip with files; refusal of a non-empty target; tampering caught by the checks and by verification; drill timing and clean-up; runs listed, 403 without `audit:read` |
+| Authorization matrix | 479 routes (+`GET /api/v1/backups`, `audit:read`), reviewed and regenerated |
+| Backend pytest (real PostgreSQL) | BACKEND87 |
+| Frontend vitest | FRONTEND87 |
+| Playwright | E2E87 |
+
+**A bug found by the drill and fixed:**
+- The scratch database's cleanup failed after a large restore. A non-superuser's
+  `DROP DATABASE … WITH (FORCE)` may not terminate autovacuum.
+- The error also hid the drill's result.
+- Now a plain `DROP` runs first, and a cleanup failure is reported alongside the result.
+
+## Phase 87: known limitations
+
+- **No point-in-time recovery:** the recovery point is the last backup (WAL archiving
+  would be the next step).
+- **Backups are neither encrypted nor copied off the host.**
+- **Nothing schedules backups.** The platform records and reports them; the operator's
+  scheduler (cron) runs `backup create` and `backup drill`. The runbook gives the
+  recommended schedule and retention.
+- **A logical restore rebuilds every index,** so the restore time grows with the data.
+- **The drill restores onto the same server:** it proves the backup and the procedure,
+  not a second site. Redis is not backed up (caches only).
 
 ## Phase 86: what exists
 

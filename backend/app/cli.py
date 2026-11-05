@@ -18,6 +18,8 @@
     python -m app.cli workflows import-template my-template.json        # store a template
     python -m app.cli workflows generate TPL-PAPER-STATEMENT --grid grid.json  # variants
     python -m app.cli workflows test --all --output workflow-tests.json # generated tests
+    python -m app.cli backup create --output var/backups                # a verified backup
+    python -m app.cli backup drill                                      # tested recovery
 """
 
 import argparse
@@ -967,6 +969,65 @@ def _authz_matrix(args: argparse.Namespace) -> int:
     return 0
 
 
+def _backup(args: argparse.Namespace) -> int:
+    """Phase 87: back up, verify, restore, or run the recovery drill."""
+    from datetime import UTC, datetime
+    from pathlib import Path
+
+    from app.modules.backup import service as backup
+
+    settings = get_settings()
+
+    def emit(result: dict) -> None:
+        print(json.dumps(result, indent=1, default=str))
+
+    def save(kind: str, ok: bool, location: str, details: dict, started: datetime) -> None:
+        with get_sessionmaker()() as db:
+            run = backup.record(
+                db, kind, ok=ok, location=location, details=details, started_at=started
+            )
+            db.commit()
+            print(f"Recorded as backup run {run.run_number}.", file=sys.stderr)
+
+    started = datetime.now(UTC)
+    try:
+        if args.action == "create":
+            path = backup.create(Path(args.output), settings)
+            manifest = backup.read_manifest(path)
+            details = {k: manifest[k] for k in ("snapshot_at", "row_counts", "files", "timings")}
+            save("backup", True, str(path), details, started)
+            print(path)
+            return 0
+        if args.action == "verify":
+            result = backup.verify(Path(args.backup))
+            emit(result)
+            save("verify", result["ok"], args.backup, result, started)
+            return 0 if result["ok"] else 1
+        if args.action == "restore":
+            if not args.target:
+                print("--target (a database URL) is required.", file=sys.stderr)
+                return 2
+            result = backup.restore(
+                Path(args.backup), args.target, force=args.force, jobs=args.jobs,
+                files_root=Path(args.files_root) if args.files_root else None,
+            )  # fmt: skip
+            emit(result)
+            return 0 if result["ok"] else 1
+        result = backup.drill(
+            Path(args.output), settings, scratch_database=args.scratch_database,
+            keep=args.keep, jobs=args.jobs,
+        )  # fmt: skip
+        emit(result)
+        save("drill", result["ok"], result["backup"], result, started)
+        return 0 if result["ok"] else 1
+    except backup.BackupError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        if args.action in ("create", "drill"):
+            save(args.action if args.action == "drill" else "backup", False,
+                 getattr(args, "output", ""), {"error": str(exc)}, started)  # fmt: skip
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1227,6 +1288,31 @@ def main(argv: list[str] | None = None) -> int:
         help="Phase 83: generate the overdraft workflow's variant for every active country",
     )
     country_variants.set_defaults(handler=_country_variants)
+
+    backup_parser = commands.add_parser(
+        "backup", help="Back up, verify, restore, or run the recovery drill (Phase 87)"
+    )
+    backup_actions = backup_parser.add_subparsers(dest="action", required=True)
+    backup_create = backup_actions.add_parser("create", help="Take a backup into a new directory")
+    backup_create.add_argument("--output", default="var/backups", help="Parent directory")
+    backup_verify = backup_actions.add_parser("verify", help="Check a backup without restoring")
+    backup_verify.add_argument("backup", help="The backup directory")
+    backup_restore = backup_actions.add_parser(
+        "restore", help="Restore a backup into an empty database, then check it"
+    )
+    backup_restore.add_argument("backup", help="The backup directory")
+    backup_restore.add_argument("--target", help="The target database URL")
+    backup_restore.add_argument("--files-root", help="Where to put the archive directories")
+    backup_restore.add_argument("--force", action="store_true", help="Replace what is there")
+    backup_restore.add_argument("--jobs", type=int, default=1, help="Parallel restore jobs")
+    backup_drill = backup_actions.add_parser(
+        "drill", help="Back up, restore into a scratch database, check, and time it"
+    )
+    backup_drill.add_argument("--output", default="var/backups", help="Parent directory")
+    backup_drill.add_argument("--scratch-database", default="atlas_drill")
+    backup_drill.add_argument("--keep", action="store_true", help="Keep the scratch database")
+    backup_drill.add_argument("--jobs", type=int, default=1, help="Parallel restore jobs")
+    backup_parser.set_defaults(handler=_backup)
 
     authz = commands.add_parser(
         "authz-matrix",

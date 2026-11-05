@@ -6,6 +6,7 @@ from app.modules.access import models as access  # noqa: F401
 from app.modules.accounts import models as accounts  # noqa: F401
 from app.modules.ai_tools import models as ai_tools  # noqa: F401
 from app.modules.backoffice import models as backoffice  # noqa: F401
+from app.modules.backup import models as backup  # noqa: F401
 from app.modules.cards import models as cards  # noqa: F401
 from app.modules.clearing import models as clearing  # noqa: F401
 from app.modules.collections import models as collections  # noqa: F401

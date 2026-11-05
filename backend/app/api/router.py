@@ -17,6 +17,7 @@ from app.modules.analytics.router import router as analytics_router
 from app.modules.audit.router import archives_router as audit_archives_router
 from app.modules.audit.router import router as audit_router
 from app.modules.backoffice.router import router as backoffice_router
+from app.modules.backup.router import router as backups_router
 from app.modules.cards.router import router as cards_router
 from app.modules.clearing.router import router as clearing_router
 from app.modules.collections.router import router as collections_router
@@ -133,6 +134,7 @@ for module_router in (
     audit_router,
     audit_archives_router,
     retention_router,
+    backups_router,
     jobs_router,
     schedules_router,
     observability_router,

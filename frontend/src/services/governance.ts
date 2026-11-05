@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet, apiPost } from "@/services/api";
 import type { UserAccount } from "@/types/enterprise";
-import type { ArchivedEvent, ArchiveVerification, AuditArchive, RetentionReview } from "@/types/governance";
+import type { ArchivedEvent, ArchiveVerification, AuditArchive, BackupStatus, RetentionReview } from "@/types/governance";
 
 export function useAuditArchives() {
   return useQuery({ queryKey: ["audit-archives"], queryFn: () => apiGet<AuditArchive[]>("/api/v1/audit-archives") });
@@ -65,4 +65,9 @@ export function useUnlockUser() {
     mutationFn: (id: string) => apiPost<UserAccount>(`/api/v1/users/${id}/unlock`, {}),
     onSuccess: () => void client.invalidateQueries({ queryKey: ["users"] }),
   });
+}
+
+/** Phase 87: backups and recovery drills (taken with the CLI; the API only reports them). */
+export function useBackups() {
+  return useQuery({ queryKey: ["backups"], queryFn: () => apiGet<BackupStatus>("/api/v1/backups?limit=10") });
 }

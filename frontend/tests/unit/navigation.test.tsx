@@ -18,6 +18,7 @@ describe("Application shell", () => {
     const links = within(nav).getAllByRole("link").map((link) => link.textContent);
     expect(links).toEqual([
       "Overview",
+      "Drill-down",
       "Organization",
       "Countries",
       "Employees",

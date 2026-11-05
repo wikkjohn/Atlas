@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 87.
+Last updated: Phase 88.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,64 @@ Last updated: Phase 87.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 88: what exists
+
+The dashboard drill-down (roadmap Milestone H, step 5); see
+[dashboard-drilldown.md](dashboard-drilldown.md).
+
+- **The query** (`app/modules/analytics/drilldown.py`):
+  - every workflow execution is attributed to a country (its input's `country_code`, else
+    its workflow's single catalogue country), a department (the catalogue's) and its
+    workflow;
+  - each level groups the executions under the chosen path by the next dimension;
+  - figures at every level: executions, completed, failed, in progress, failure rate, open
+    approvals and human tasks, average duration, last start;
+  - at the workflow level, steps (runs, failures, waiting, average and 95th-percentile
+    duration) and outcomes;
+  - filters: live or simulated history, and a period in days;
+  - unattributed and unclassified executions form their own groups (`none`).
+- **Scopes:** a scoped user sees only executions inside the scope. Executions without the
+  scoped attribute are left out, so totals are never bank-wide for them.
+- **API:** `GET /api/v1/analytics/drilldown` (`analytics:read`). The authorization matrix
+  now has 480 routes.
+- **Screen:** *Drill-down* in the navigation, linked from the Overview:
+  - breadcrumbs;
+  - history and period selectors;
+  - a table per level whose rows open the next level;
+  - steps and outcomes at the workflow level;
+  - a note when the view is scoped;
+  - its place in the URL.
+
+## Phase 88: verified results
+
+| Check | Result |
+| --- | --- |
+| 1,000,000 synthetic executions (3,000,000 step runs; 120 countries, 12 departments, 240 workflows) | Enterprise 1.07 s, country 1.01 s, department 0.55 s, workflow 0.25 s (median of 3) |
+| `atlas_exit` (36,686 executions) | Every level under 0.65 s; 121 country groups (120 countries and "not attributed") |
+| Drill-down tests (`tests/test_drilldown.py`, 5) | Pass. They cover the four levels with exact counts, rates, open tasks, step order and outcomes; the unattributed and unclassified groups; history and period filters; country and department scopes; the API's scope, validation and sign-in |
+| Frontend drill-down tests (2) | Pass. They walk from the bank to a workflow and back by breadcrumb, check the filters reach the API, and show the scope note |
+| Backend pytest (real PostgreSQL) | 879 passed in 11 min 0 s (CI, commit 85b7f19) |
+| Frontend vitest | 198 passed, 40 files (CI, commit 85b7f19) |
+| Playwright | 82 passed in 3.5 min (CI, commit 85b7f19) |
+
+## Phase 88: fixes from the PR #78 review (Phase 87)
+
+| Finding | Fix |
+| --- | --- |
+| The image did not create `/app/var/audit-archive`, so the new volume was root-owned and unwritable (P1) | The Dockerfile creates and chowns `audit-archive` (and `backups`) beside `simulation-archive` |
+| A simulation-history restore deleting its archive while a backup ran could leave the backup with neither the rows nor the files (P1) | An advisory lock, `atlas.archive_files` (`app/core/locks.py`). A backup holds it shared from before its snapshot until the files are packed, and `restore_run` takes it exclusively before deleting |
+| A non-empty files destination was refused only after the database was restored (P2) | The destination is checked with the database preflight, before anything is written |
+
+## Phase 88: known limitations
+
+- **Attribution is computed per query.** The enterprise and country levels read every
+  execution: about a second at a million. A stored country and department on each
+  execution would allow an index.
+- **Workflow executions only.** Domain records (payments, accounts and so on) are not in the
+  drill-down.
+- **Simulated durations are in simulated time.**
+- **Totals for a period, not trends over time.**
 
 ## Phase 87: what exists
 

@@ -20,6 +20,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.core import locks
 from app.core.permissions import RoleCode
 from app.modules.backup import service as backup
 from tests.conftest import TEST_DATABASE_URL
@@ -210,3 +211,45 @@ def test_runs_are_recorded_and_listed(client: TestClient, db: Session) -> None:
     employee = make_user(db, RoleCode.BANKING_EMPLOYEE)
     refused = client.get("/api/v1/backups", headers=auth(employee))
     assert refused.status_code == 403
+
+
+# --- Fixes from the PR #78 review (Phase 88) ---------------------------------------------
+
+
+def _can_lock_exclusively() -> bool:
+    engine = create_engine(SOURCE)
+    try:
+        with engine.begin() as conn:
+            return bool(
+                conn.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtext(:n))"),
+                    {"n": locks.ARCHIVE_FILES},
+                ).scalar_one()
+            )
+    finally:
+        engine.dispose()
+
+
+def test_a_backup_snapshot_keeps_archive_files_from_being_deleted() -> None:
+    assert _can_lock_exclusively()
+    with backup._snapshot(SOURCE):
+        # restore_run takes this lock exclusively before deleting a restored archive.
+        assert not _can_lock_exclusively()
+    assert _can_lock_exclusively()
+
+
+def test_a_bad_files_destination_is_refused_before_the_database_is_touched(taken, tmp_path) -> None:
+    name = f"atlas_backup_pre_{os.getpid()}"
+    backup._recreate_database(SOURCE, name)
+    try:
+        occupied = tmp_path / "occupied"
+        occupied.mkdir()
+        (occupied / "something").write_text("x")
+        with pytest.raises(backup.BackupError, match="is not empty"):
+            backup.restore(taken, SOURCE.set(database=name), files_root=occupied)
+        # Nothing was restored, so a retry with a good destination works.
+        assert backup._public_tables(SOURCE.set(database=name)) == 0
+        result = backup.restore(taken, SOURCE.set(database=name), files_root=tmp_path / "ok")
+        assert result["ok"]
+    finally:
+        backup.drop_database(SOURCE, name)

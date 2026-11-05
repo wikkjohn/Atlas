@@ -37,6 +37,7 @@ const MortgagesPage = lazy(() => import("@/features/mortgages/MortgagesPage").th
 const CardsPage = lazy(() => import("@/features/cards/CardsPage").then((m) => ({ default: m.CardsPage })));
 const RetailPage = lazy(() => import("@/features/retail/RetailPage").then((m) => ({ default: m.RetailPage })));
 const FxPage = lazy(() => import("@/features/fx/FxPage").then((m) => ({ default: m.FxPage })));
+const DrilldownPage = lazy(() => import("@/features/dashboard/DrilldownPage").then((m) => ({ default: m.DrilldownPage })));
 const SecurityPage = lazy(() => import("@/features/security/SecurityPage").then((m) => ({ default: m.SecurityPage })));
 const SettingsPage = lazy(() => import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const SimulationCenterPage = lazy(() => import("@/features/simulations/SimulationCenterPage").then((m) => ({ default: m.SimulationCenterPage })));
@@ -54,6 +55,7 @@ export function AppRoutes() {
         }
       >
         <Route index element={<OverviewPage />} />
+        <Route path="drilldown" element={<DrilldownPage />} />
         <Route path="organization" element={<OrganizationPage />} />
         <Route path="countries" element={<CountriesPage />} />
         <Route path="employees" element={<EmployeesPage />} />

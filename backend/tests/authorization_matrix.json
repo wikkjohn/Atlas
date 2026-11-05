@@ -27,6 +27,7 @@
  "GET /api/v1/ai-tools/{tool_record_id}/drift": "ai_tools:read",
  "POST /api/v1/ai-tools/{tool_record_id}/invoke": "ai_tools:invoke",
  "GET /api/v1/ai-tools/{tool_record_id}/runs": "ai_tools:read",
+ "GET /api/v1/analytics/drilldown": "analytics:read",
  "GET /api/v1/analytics/overview": "analytics:read",
  "GET /api/v1/audit-archives": "audit:read",
  "POST /api/v1/audit-archives": "audit:archive",

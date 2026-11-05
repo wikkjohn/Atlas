@@ -12,6 +12,7 @@ import {
   House,
   Globe2,
   LayoutDashboard,
+  Network,
   type LucideIcon,
   PiggyBank,
   Ship,
@@ -48,10 +49,11 @@ export interface NavItem {
 }
 
 /** Screens up to this phase are live; later ones are shown disabled with their phase. */
-export const IMPLEMENTED_PHASE = 61;
+export const IMPLEMENTED_PHASE = 88;
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard, phase: 1 },
+  { label: "Drill-down", path: "/drilldown", icon: Network, phase: 88, permission: "analytics:read" },
   {
     label: "Organization",
     path: "/organization",

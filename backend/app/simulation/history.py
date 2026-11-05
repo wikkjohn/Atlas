@@ -37,6 +37,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
+from app.core import locks
 from app.core.audit import record_audit_event
 from app.core.errors import BusinessRuleViolation, ConflictError, NotFoundError
 from app.modules.accounts.models import Account
@@ -513,8 +514,12 @@ def restore_run(
             metadata={"run_number": run.run_number, "location": record.location},
         )
         db.flush()
-    # The rows are back in the database; the files are no longer the only copy.
-    shutil.rmtree(directory, ignore_errors=True)
+    # The rows are back in the database; the files are no longer the only copy. A backup in
+    # progress may have taken its snapshot before the rows committed, so wait for it to pack
+    # the files first (PR #78 review).
+    with factory() as db, db.begin():
+        locks.hold_exclusive(db, locks.ARCHIVE_FILES)
+        shutil.rmtree(directory, ignore_errors=True)
     return record
 
 

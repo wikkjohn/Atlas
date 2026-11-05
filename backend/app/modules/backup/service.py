@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 
 from app import __version__
 from app.config import Settings
+from app.core import locks
 from app.core.audit import record_audit_event
 from app.core.errors import BusinessRuleViolation
 from app.modules.backup.models import BackupKind, BackupRun
@@ -182,10 +183,26 @@ def _snapshot(url: URL) -> Iterator[tuple[Connection, str]]:
         with engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn:
             with conn.begin():
                 conn.execute(text("SET TRANSACTION READ ONLY"))
+                # No archive file the snapshot refers to may be deleted until the files are
+                # packed (PR #78 review): a restored run's archive is removed only after
+                # its rows commit, which this snapshot may not see.
+                locks.hold_shared(conn, locks.ARCHIVE_FILES)
                 snapshot = conn.execute(text("SELECT pg_export_snapshot()")).scalar_one()
                 yield conn, snapshot
     finally:
         engine.dispose()
+
+
+def _pack_files(path: Path, settings: Settings) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    with tarfile.open(path, "w:gz") as archive:
+        for name, directory in _archive_dirs(settings).items():
+            directory = Path(directory)
+            files = sorted(p for p in directory.rglob("*") if p.is_file())
+            counts[name] = len(files)
+            for file in files:
+                archive.add(file, arcname=f"{name}/{file.relative_to(directory).as_posix()}")
+    return counts
 
 
 def create(destination: Path, settings: Settings, *, database_url: str | None = None) -> Path:
@@ -205,17 +222,11 @@ def create(destination: Path, settings: Settings, *, database_url: str | None = 
              f"--snapshot={snapshot}", f"--file={target / DUMP}"],
             url,
         )  # fmt: skip
-    timings["database_s"] = round(time.perf_counter() - clock, 3)
-    clock = time.perf_counter()
-    file_counts: dict[str, int] = {}
-    with tarfile.open(target / FILES, "w:gz") as archive:
-        for name, directory in _archive_dirs(settings).items():
-            directory = Path(directory)
-            files = sorted(p for p in directory.rglob("*") if p.is_file())
-            file_counts[name] = len(files)
-            for path in files:
-                archive.add(path, arcname=f"{name}/{path.relative_to(directory).as_posix()}")
-    timings["files_s"] = round(time.perf_counter() - clock, 3)
+        timings["database_s"] = round(time.perf_counter() - clock, 3)
+        clock = time.perf_counter()
+        # Still inside the snapshot's transaction, so its archive-files lock is held.
+        file_counts = _pack_files(target / FILES, settings)
+        timings["files_s"] = round(time.perf_counter() - clock, 3)
     manifest = {
         "format": FORMAT,
         "created_at": started.isoformat(),
@@ -314,11 +325,17 @@ def _restore_list(backup: Path, url: URL, workdir: Path) -> Path:
     return path
 
 
-def _extract(backup: Path, files_root: Path, *, force: bool) -> dict[str, int]:
-    files_root = Path(files_root)
+def _check_files_root(files_root: Path, *, force: bool) -> None:
+    if files_root.exists() and not files_root.is_dir():
+        raise BackupError(f"{files_root} is not a directory.")
     if files_root.exists() and any(files_root.iterdir()) and not force:
         raise BackupError(f"{files_root} is not empty; restore the files into an empty "
                           "directory, or pass force.")  # fmt: skip
+
+
+def _extract(backup: Path, files_root: Path, *, force: bool) -> dict[str, int]:
+    files_root = Path(files_root)
+    _check_files_root(files_root, force=force)
     files_root.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
     with tarfile.open(backup / FILES, "r:gz") as archive:
@@ -410,6 +427,10 @@ def restore(
     if not verification["ok"]:
         raise BackupError("The backup failed verification: " + "; ".join(verification["problems"]))
     manifest = read_manifest(backup)
+    # Every destination is checked before anything is written, so a refused restore leaves
+    # the target as it was (PR #78 review).
+    if files_root is not None:
+        _check_files_root(Path(files_root), force=force)
     existing = _public_tables(url)
     if existing and not force:
         raise BackupError(f"The target database {url.database} has {existing} tables; restore "

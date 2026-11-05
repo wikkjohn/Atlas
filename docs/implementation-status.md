@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 88.
+Last updated: Phase 89.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,84 @@ Last updated: Phase 88.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 89: what exists
+
+Architecture decision records, runbooks and a contributor guide (roadmap Milestone H, step 6).
+**This completes Milestone H.**
+
+- **Twelve decision records** in [adr/](adr/README.md), written after the fact from the code,
+  the phase history and the measurements. Each has context, decision, consequences and
+  evidence (files and tests), and its status. The decisions:
+  - a modular monolith;
+  - PostgreSQL as the only system of record;
+  - money in minor units;
+  - one ledger writer re-checked by the database;
+  - the append-only audit log and its archive chain;
+  - workflows as versioned data;
+  - simulation through the real engine;
+  - the event outbox;
+  - AI tools behind one contract;
+  - one permission per route and the reviewed matrix;
+  - sessions, TOTP and simulated SSO;
+  - backups checked against a manifest.
+
+  There is also a template, and a rule to supersede records rather than rewrite them.
+- **Nine runbooks** in [runbooks/](runbooks/README.md). Each has symptoms, checks, actions,
+  verification and escalation, with a severity. They cover:
+  - an unhealthy API;
+  - restoring from a backup;
+  - stalled jobs;
+  - a failed reconciliation;
+  - sign-in problems (lockouts, lost authenticators, compromised sessions);
+  - an audit archive failing verification;
+  - dead event deliveries;
+  - simulation history growth;
+  - a failed Security CI job.
+- **`CONTRIBUTING.md`:**
+  - setup, and the module layout;
+  - the rules the platform relies on, and where each is enforced;
+  - adding a route (the authorization matrix);
+  - the checks to run before pushing;
+  - pull-request and review-finding practice;
+  - the phase report format;
+  - when to write a decision record or a runbook.
+- **A documentation test** (`backend/tests/test_documentation.py`):
+  - every record and runbook has its sections and is in its index, and records are
+    numbered consecutively;
+  - in 29 documents, every relative link and repository path named exists;
+  - every `python -m app.cli` command and sub-action exists (by its own `--help`);
+  - every `/api/v1` route named is in the reviewed authorization matrix;
+  - it tests itself against invented routes, commands and paths.
+- **Corrected while writing:** `architecture.md` described a core event dispatcher
+  (`app/core/events.py`) that no longer exists. It now describes the outbox that replaced
+  it. The documentation test found the stale path.
+
+## Phase 89: verified results
+
+| Check | Result |
+| --- | --- |
+| Documentation test (`tests/test_documentation.py`) | 90 passed. It covers 29 documents: 32 routes, 28 CLI commands, 85 paths and 64 links named, all of which exist |
+| Every runbook's routes and commands | Checked against the authorization matrix and the CLI. The audit action names and schedule names were checked against the code and the database |
+| Backend pytest (real PostgreSQL) | 972 passed in 17 min 5 s (CI, commit 44f0cdb; 90 of them the documentation test) |
+| Frontend vitest | 198 passed, 40 files (CI, commit 44f0cdb) |
+| Playwright | 82 passed in 3.9 min (CI, commit 44f0cdb) |
+
+## Phase 89: fix from the PR #79 review (Phase 88)
+
+| Finding | Fix |
+| --- | --- |
+| The drill-down ignored the catalogue registered in code (P2). Code workflows WF-0001 to WF-0004 have no stored entry, so their executions showed as *Unclassified*, and department-scoped users lost them | The attribution now resolves a stored catalogue entry first, then the registered one, as the catalogue itself does. On `atlas_ci` the seeded account openings now sit under *Customer Onboarding*. A regression test checks both the registered department and a stored override |
+
+## Phase 89: known limitations
+
+- **The records are retrospective.** They were written from what was built, not at the
+  moment of each decision, so alternatives considered are stated briefly.
+- **The runbooks are not rehearsed as incidents.** Their commands and routes are checked to
+  exist, and the recovery drill is exercised, but no game day has walked through them.
+- **The documentation test checks names, not meaning.** A runbook could name a real route
+  for the wrong purpose; review is still needed.
+- **`api.md` is not in the checked set.** Its examples use literal ids in paths.
 
 ## Phase 88: what exists
 

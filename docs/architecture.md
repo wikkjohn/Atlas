@@ -1,5 +1,8 @@
 # Architecture
 
+The decisions behind this shape are recorded in [adr/](adr/README.md); what to do when
+something fails is in [runbooks/](runbooks/README.md).
+
 ATLAS Global Bank is a **modular monolith**: one deployable backend, one database and one
 web application, divided internally into modules with explicit boundaries. That keeps local
 development and transactional correctness simple while leaving a clear path to extract a
@@ -41,10 +44,11 @@ Each module package contains:
 - `service.py`: the module's public interface; other modules call this, never its tables
 - `router.py`: HTTP endpoints that delegate to the service
 
-Cross-module calls go through service interfaces. Cross-module side effects (for example
-"account opened" → "post opening ledger entry") go through the shared event dispatcher in
-`app/core/events.py`, so a module can later be extracted behind a message bus without
-rewriting its callers.
+Cross-module calls go through service interfaces. Cross-module side effects between
+departments go through the durable outbox in `app/modules/events` (Phase 74): an event is
+published in the same transaction as the change, and delivered at least once to each
+subscribing department. A module can therefore later be extracted behind a message bus
+without rewriting its callers. See [ADR 0008](adr/0008-outbox-for-departmental-events.md).
 
 ### Shared foundation (one of each)
 

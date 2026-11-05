@@ -133,3 +133,8 @@ def catalogue_of(workflow_id: str) -> Catalogue | None:
 
 def all_catalogue() -> list[Catalogue]:
     return list(_CATALOGUE.values())
+
+
+def registered_catalogue() -> dict[str, Catalogue]:
+    """Each code workflow's registered classification, by workflow id."""
+    return dict(_CATALOGUE)

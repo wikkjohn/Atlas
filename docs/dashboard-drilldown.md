@@ -34,11 +34,13 @@ Executions do not record a country or department. They are attributed when queri
 
 - **Country:** the first that applies:
   1. the execution's own input `country_code`;
-  2. otherwise the workflow's catalogue country, when the catalogue gives exactly one (a
-     country variant);
+  2. otherwise the workflow's catalogue country (stored, else registered in code), when the
+     catalogue gives exactly one (a country variant);
   3. otherwise none. These executions are grouped as **Not attributed**.
-- **Department:** the workflow's catalogue department. Without one, the execution is
-  grouped as **Unclassified**.
+- **Department:** the workflow's catalogue department. That is the stored catalogue entry
+  when there is one, else the classification registered in code. Code workflows such as
+  WF-0001 to WF-0004 have only the registered one (PR #79 review). Without either, the
+  execution is grouped as **Unclassified**.
 - **Workflow:** the execution's workflow id, labelled with its latest version's name.
 
 The *Not attributed* and *Unclassified* groups can be opened like any other (`none` in the

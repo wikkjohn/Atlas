@@ -184,3 +184,29 @@ def test_the_api_applies_the_permission_and_the_callers_scope(
     assert invalid.status_code == 422
     # Every person role holds analytics:read; without a session there is nothing.
     assert client.get("/api/v1/analytics/drilldown").status_code == 401
+
+
+def test_code_workflows_use_their_registered_catalogue(db: Session, bank) -> None:
+    """PR #79 review: WF-0001 has no stored catalogue entry; its department is the one
+    registered in code. A stored entry, when there is one, wins."""
+    from app.modules.workflows import catalog  # noqa: F401
+    from app.modules.workflows.registry import catalogue_of
+
+    department = catalogue_of("WF-0001").department
+    record = WorkflowDefinitionRecord(
+        workflow_id="WF-0001", version=9001, name="Account opening (test version)",
+        definition={}, content_hash=uuid.uuid4().hex * 2,
+    )  # fmt: skip
+    db.add(record)
+    db.flush()
+    _execution(db, record, bank, country="KE")
+    kenya = drilldown(db, Path(country="KE"), now=NOW)
+    assert department in {r["key"] for r in kenya["breakdown"]}
+    scoped = drilldown(db, Path(country="KE"), scope=Scope(departments=frozenset({department})),
+                       now=NOW)  # fmt: skip
+    assert scoped["summary"]["executions"] >= 1  # no longer lost to a department scope
+
+    db.add(WorkflowCatalogueEntry(workflow_id="WF-0001", department=OTHER, countries=[]))
+    db.flush()
+    overridden = drilldown(db, Path(country="KE"), now=NOW)
+    assert department not in {r["key"] for r in overridden["breakdown"]}

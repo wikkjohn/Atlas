@@ -381,7 +381,7 @@ indexed) links executions a simulation drove. Since Phase 15 these tables are pa
 
 | Table | Contents |
 | --- | --- |
-| `simulation_runs` | `run_number` (identity), `scenario_id`, `scenario_version`, `workflow_id`, `workflow_version`, `profile`, `seed`, `config` (jsonb: the fully resolved configuration incl. dataset fingerprint), `config_hash`, `software_version`, `status` (queued, running, completed, failed), `failure_reason`, `created_by`, `created_at`, `started_at`, `completed_at`, `heartbeat_at`, `progress` (jsonb), `results` (jsonb), `result_digest`, `simulated_start`, `simulated_end`, `wall_ms`, `staff_unit_id` (the team employing the run's simulated staff) |
+| `simulation_runs` | `run_number` (identity), `scenario_id`, `scenario_version`, `workflow_id`, `workflow_version`, `profile`, `seed`, `config` (jsonb: the fully resolved configuration incl. dataset fingerprint; for a templated scenario, Phase 83, `workflow_variant` = `{template_id, template_version, country_code}` and `workflow_id` is that country's variant), `config_hash`, `software_version`, `status` (queued, running, completed, failed), `failure_reason`, `created_by`, `created_at`, `started_at`, `completed_at`, `heartbeat_at`, `progress` (jsonb), `results` (jsonb), `result_digest`, `simulated_start`, `simulated_end`, `wall_ms`, `staff_unit_id` (the team employing the run's simulated staff) |
 | `simulation_case_results` | One row per case (unique `run_id`, `case_index`): `execution_id`, `kind` and `expected_outcome` (ground truth), `status`, `outcome`, `risk_rating`, `flags`, `manual_reviews`, `review_seconds`, `queue_wait_seconds`, `overdue_tasks`, `arrived_at`, `completed_at`, `cycle_seconds`, `path` (completed step ids) |
 
 ### AI Innovation Lab tables (Phase 6)

@@ -275,7 +275,7 @@ backfills it, the seed sets it). A **portfolio** (`POST /api/v1/experiment-portf
 *New portfolio* on the Experiments page) evaluates the family wherever it applies:
 
 - **Cells.** Every scenario with AI modes that one of the family's active tools serves,
-  in each chosen country (1 to 10), is a cell; each cell is a repeated-seed series. The
+  in each chosen country (1 to 150), is a cell; each cell is a repeated-seed series. The
   plan (`GET /api/v1/experiment-portfolios/plan?family=`) lists the cells and the
   scenarios left out, with why: no tool of the family serves the workflow, no automated
   decision path (for the automated mode), or an outage scenario. At most 600 experiments

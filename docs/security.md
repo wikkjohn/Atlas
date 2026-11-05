@@ -142,7 +142,7 @@ Permissions still decide *what* a user may do; the scope decides *where*. The ru
   locked account is refused there and at the SSO callback (Phase 87).
 - Scopes cover customers, accounts, account requests and employees. Payments, loans, cards,
   workflows, dashboards and the other departments' pages are not scoped yet.
-- A scoped user's dashboards still show bank-wide totals.
+- A scoped user's Overview still shows bank-wide totals; the drill-down (Phase 88) is limited to the scope.
 - Scopes and the second factor apply to people; service principals (simulated staff, the
   policy engine) are unrestricted.
 - Session tokens are kept in the browser's session storage, as before. There is no

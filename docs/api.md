@@ -848,3 +848,9 @@ Every change (POST, PUT, PATCH, DELETE) by a signed-in user counts against 600 a
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/v1/backups?kind=&limit=` | `audit:read` | `{latest_backup, latest_drill, recovery_point_age_s, runs}`. `latest_drill` is the latest drill that passed. `kind` is one of backup, verify, restore or drill. Runs are taken with `python -m app.cli backup`; see `backup-recovery.md` |
+
+### Dashboard drill-down (Phase 88)
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/analytics/drilldown?country=&department=&workflow_id=&realm=&days=` | `analytics:read` | One place in enterprise → country → department → workflow. Returns `summary`, `path`, and `breakdown` one level down; at a workflow, `steps` and `outcomes` instead. `none` selects the unattributed or unclassified group. `realm` is `all`, `live` or `simulation`. A scoped caller sees only their scope. See `dashboard-drilldown.md` |

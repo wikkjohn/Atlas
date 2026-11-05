@@ -199,6 +199,11 @@ export function OverviewPage() {
               </Link>{" "}
               waiting for an authorized person.
             </p>
+            <p className="mt-2 text-xs text-slate-600">
+              <Link to="/drilldown" className="font-medium text-navy-700 hover:underline">
+                Drill down by country, department and workflow
+              </Link>
+            </p>
           </Panel>
 
           <Panel title="Recent simulation runs">

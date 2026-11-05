@@ -112,6 +112,7 @@ export function mockApi(routes: Routes) {
 }
 
 const ALL_PERMISSIONS: Permission[] = [
+  "analytics:read",
   "countries:read",
   "countries:manage",
   "organizations:read",

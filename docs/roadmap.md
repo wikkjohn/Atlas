@@ -360,7 +360,10 @@ for the factory, a simulation workload and at least one AI tool candidate.
       restore must reproduce; verification, restore into an empty database, five checks
       against the manifest; a timed recovery drill recorded with its RTO and RPO; see
       `backup-recovery.md`)
-- [ ] Dashboard drill-down: enterprise → country → department → workflow
+- [x] Dashboard drill-down: enterprise → country → department → workflow
+      (Phase 88: executions attributed to a country, a department and a workflow; figures and
+      a breakdown at each level, steps and outcomes at the last; live or simulated history,
+      a period; scoped users see only their scope; see `dashboard-drilldown.md`)
 - [ ] Architecture decision records, runbooks, contributor guide
 
 ## Order
@@ -454,4 +457,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 85 (H2) | Milestone H, step 2: rate limits and a sign-in lockout, the audit-log archive with a digest chain, the data-retention schedule reviewed and applied | complete |
 | Phase 86 (H3) | Milestone H, step 3: dependency audits and static analysis in CI; the authorization matrix read from the routes, reviewed, and enforced for every role | complete |
 | Phase 87 (H4) | Milestone H, step 4: backups from one snapshot with a manifest, verification, restore checked against the manifest (revision, row counts, ledger, audit log and archive chain), a timed recovery drill | complete |
-| Phase 88 (H5, proposed) | Milestone H, step 5: dashboard drill-down — enterprise → country → department → workflow | next |
+| Phase 88 (H5) | Milestone H, step 5: the dashboard drill-down — enterprise → country → department → workflow, with step and outcome detail, history and period filters, scoped to the user | complete |
+| Phase 89 (H6, proposed) | Milestone H, step 6: architecture decision records, runbooks, contributor guide | next |

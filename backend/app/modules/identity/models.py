@@ -7,12 +7,14 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -81,6 +83,9 @@ class AuthSession(Base):
         CheckConstraint("method IN ('password', 'sso')", name="method"),
         CheckConstraint(
             "mfa IN ('not_required', 'pending', 'verified', 'enrolment_required')", name="mfa"
+        ),
+        Index(
+            "ix_auth_sessions_user_active", "user_id", postgresql_where=text("revoked_at IS NULL")
         ),
     )
 

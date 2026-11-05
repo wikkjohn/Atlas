@@ -11,7 +11,16 @@ from app.core.permissions import ROLE_PERMISSIONS, Permission, RoleCode
 from app.modules.identity.models import Role
 from tests.factories import auth, make_employee, make_org_tree, make_user
 
-PUBLIC_ROUTES = {("POST", "/api/v1/auth/login")}
+# Signing in happens before there is a session: the password, the second-factor step, and
+# single sign-on through the simulated directory (Phase 84). Each checks its own proof.
+PUBLIC_ROUTES = {
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/mfa/verify"),
+    ("GET", "/api/v1/auth/sso/providers"),
+    ("POST", "/api/v1/auth/sso/{provider}/start"),
+    ("POST", "/api/v1/auth/sso/{provider}/callback"),
+    ("POST", "/api/v1/simulated-directory/{provider}/sign-in"),
+}
 
 
 def test_every_role_is_defined_in_code_and_database(db: Session) -> None:

@@ -117,7 +117,7 @@ Last updated: Phase 86.
 | Dependency audits | pip-audit: no known vulnerabilities in the 52 installed backend packages; npm audit: 0 vulnerabilities (all dependencies, dev included) |
 | Bandit (`-ll`) | No findings after the four B608 annotations; 0 high, 71 low unchanged |
 | Authorization matrix | 478 routes: 6 public (the sign-in routes), 19 for any signed-in user, 453 behind a permission. The enforcement test passes for all 8 person roles (10 tests) |
-| Backend pytest (real PostgreSQL) | BACKEND86 |
+| Backend pytest (real PostgreSQL) | 862 passed in 15 min 46 s (CI, commit 3fcbad1) |
 
 ## Phase 86: known limitations
 

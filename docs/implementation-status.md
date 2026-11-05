@@ -128,8 +128,8 @@ Last updated: Phase 85.
 | Check | Result |
 | --- | --- |
 | Backend pytest (real PostgreSQL) | BACKEND85. New: 7 tests: fixed windows refusing over the limit with the right retry; a sign-in rate limit per account (429, Retry-After); five wrong passwords locking an account, the lock refusing the right password, audit and unlock; a success resetting the count and an expired lock; the audit log still refusing UPDATE and DELETE; archives moving old events, the minimum online period, the chain, search, verification of an altered file and a broken chain, and permissions; the retention review and its application through the API. Also 3 tests for the PR #75 fixes (the promotion test fails without its fix) |
-| Generated workflow tests | GEN85 |
-| Frontend Vitest / typecheck / build | VITEST85 |
+| Generated workflow tests | Green in CI on PR #76 (the workflow-factory job); not re-run locally this phase |
+| Frontend Vitest / typecheck / build | 193 passed (CI on PR #76; locally 193 on an idle machine, where a run under load from parallel suites timed out in 24 unrelated tests that pass alone). New: archiving, verifying and searching archives; the retention schedule applied; the lockout message; unlocking a user. Typecheck clean; build succeeds |
 | Playwright on a fresh database | 81 passed. New: five wrong passwords lock a teller out until an administrator unlocks them; the retention schedule reviewed and applied, and archiving from the Audit Center |
 
 ## Phase 85: known limitations

@@ -24,6 +24,13 @@ def templates() -> list[dict[str, Any]]:
     return sorted(found, key=lambda d: (d["template_id"], d["version"]))
 
 
+def template(template_id: str, version: int = 1) -> dict[str, Any]:
+    """One example template by its id and version."""
+    return next(
+        d for d in templates() if (d["template_id"], d["version"]) == (template_id, version)
+    )
+
+
 # The variants `seed-demo` generates: one paper-statement workflow per country of the demo
 # bank and per retail product.
 DEMO_GENERATION = {

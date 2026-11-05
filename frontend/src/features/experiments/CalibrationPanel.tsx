@@ -93,6 +93,8 @@ export function parseObservations(text: string): ReviewObservation[] {
     .filter((cells) => cells.length >= 3 && !Number.isNaN(Number(cells[0])))
     .map(([m, truth, decision, ai]) => {
       if (!decisions.has(truth) || !decisions.has(decision)) throw new Error(`Not approve/reject: ${truth}, ${decision}`);
+      // An empty fourth cell means no advice was shown; anything else must be a recommendation.
+      if (ai && !decisions.has(ai)) throw new Error(`Not an AI recommendation (approve/reject or empty): ${ai}`);
       return {
         minutes: Number(m),
         truth: truth as "approve" | "reject",

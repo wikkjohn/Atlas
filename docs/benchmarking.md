@@ -275,7 +275,7 @@ backfills it, the seed sets it). A **portfolio** (`POST /api/v1/experiment-portf
 *New portfolio* on the Experiments page) evaluates the family wherever it applies:
 
 - **Cells.** Every scenario with AI modes that one of the family's active tools serves,
-  in each chosen country (1 to 10), is a cell; each cell is a repeated-seed series. The
+  in each chosen country (1 to 150), is a cell; each cell is a repeated-seed series. The
   plan (`GET /api/v1/experiment-portfolios/plan?family=`) lists the cells and the
   scenarios left out, with why: no tool of the family serves the workflow, no automated
   decision path (for the automated mode), or an outage scenario. At most 600 experiments
@@ -323,6 +323,61 @@ Measured on the development database: the 19 AGB rule-based review assistants
   average the assistants still cut false approvals by 45 % against the baseline.
 - With 40 cases a run, 27 of 57 cells were not significant on their own over 3 seeds; the
   family's effect is clear only across workflows.
+
+## Milestone G exit: one tool across 120 country workflows (Phase 83)
+
+**One tool, many workflows.** A tool can be declared compatible with a workflow template as
+well as with workflows (`compatible_workflows` may name `TPL-…` ids). It then serves every
+variant generated from that template.
+
+**Each country runs its own workflow.** A scenario can name a `workflow_template`. Each of
+its runs then executes the variant generated for the run's single country, and records the
+variant in `config.workflow_variant`. A run for a country without a variant is refused.
+
+**The exit setup:**
+- `TPL-OVERDRAFT-REQUEST` is WF-1003 v2 as a template, with parameters `country_code` and
+  the credit decision's deadline. `python -m app.cli country-variants` generates one variant
+  per active country.
+- The overdraft affordability assistant 1.1.0 is declared for the template.
+- The scenario `retail-overdrafts-country` runs the variants.
+- A portfolio takes up to 150 countries and an optional `scenario_ids` filter. In it, each
+  cell of a templated scenario counts as its variant's own workflow.
+
+**Measured** on a dedicated database (`atlas_exit`: demo seed, all 120 countries launched,
+120 variants WF-3000 to WF-3119):
+- The assistant was run AI-assisted in every country's workflow.
+- 3 seeds (83–85), 40 cases and 20 staff per run: 120 cells, 360 experiments, 720 runs, in
+  6,385 s (106 min).
+
+| Across 120 workflows (120 countries, 1 department) | Baseline → assisted | Mean change per workflow (95 % interval) | Adjusted p | Cells better / worse / neither |
+| --- | --- | --- | --- | --- |
+| Labour time | 10.83 h → 6.50 h a run | −40.0 % (−40.0 % to −40.0 %) | < 0.001 | 120 / 0 / 0 |
+| Cost per completed case | | −38.3 % (−38.3 % to −38.3 %) | < 0.001 | 120 / 0 / 0 |
+| Processing time | | −40.0 % (−40.0 % to −40.0 %) | < 0.001 | 120 / 0 / 0 |
+| Accuracy | 91.7 % → 94.2 % | +2.7 % (+2.7 % to +2.7 %) | < 0.001 | 0 / 0 / 120 |
+| False rejection rate | 9.4 % → 1.5 % | −84.0 % | < 0.001 | 0 / 0 / 120 |
+| False approval rate | 6.1 % → 12.2 % | +100 % | < 0.001 | 0 / 0 / 120 |
+
+- **The tool works in every country's workflow.** Every call went to the assistant at
+  1.1.0, and every cell was significantly faster and cheaper by its own series.
+- **It doubles false approvals.** This is its documented blind spot: it approves customers
+  who are overdrawn most days. It does remove most false rejections.
+- **Verdict not successful: 0 of 120 cells met every criterion on every seed.**
+  - The compliance thresholds failed in 240 of 360 replicate evaluations.
+  - Correctness failed in 120 of 360.
+- **Read the interval with care.** For each seed, all 120 workflows gave exactly the same
+  results, so the 95 % interval has zero width.
+  - The variants differ only in name, owner, catalogue and decision deadline. The
+    workload's cases do not depend on the country, and no case reaches the deadline.
+  - So the 120 workflows are not 120 independent pieces of evidence: the evidence is 3
+    seeds of one process.
+  - The exit shows that the platform evaluates one tool across 120 workflows, each run as
+    its own workflow, with intervals and adjusted significance. It does not show that the
+    effect generalises across countries.
+- **Input limits.** The first full run failed for Colombia. The template's `limit` cap,
+  copied from WF-1003 (10^9 minor units), was below twice the largest overdraft in 17
+  currencies (LBP, LAK, IDR, UZS, KHR, COP and others). The template now allows 10^13, and
+  the run was repeated on template version 2.
 
 ## Reports
 

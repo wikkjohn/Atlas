@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 82.
+Last updated: Phase 83.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -87,6 +87,62 @@ Last updated: Phase 82.
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 83: what exists
+
+- **One tool, many workflows.** A tool's `compatible_workflows` may name a workflow
+  template (`TPL-…`). The tool then serves every variant generated from it (`serves()` in
+  `ai_tools/service.py`), when registered and when a stored workflow asks for it.
+- **Templated scenarios:**
+  - A scenario may name a `workflow_template`. Its runs execute the variant generated for
+    the run's single country, and record it in `config.workflow_variant`.
+  - A run for no country, several countries, or a country without a variant is refused.
+  - `retail-overdrafts-country` is the first such scenario.
+- **The template and its variants:**
+  - `TPL-OVERDRAFT-REQUEST` is WF-1003 v2 as a template, with the country and the credit
+    decision's deadline as parameters.
+  - `python -m app.cli country-variants` generates a variant for every active country.
+  - The seed registers the overdraft assistant 1.1.0, declared for WF-1003 and the
+    template.
+- **Portfolios:**
+  - Up to 150 countries, and an optional `scenario_ids` filter.
+  - Each cell of a templated scenario counts as its variant's own workflow.
+  - A requested templated scenario without a variant for a country is refused (422). When
+    the scenario was not requested, it is left out with the reason.
+  - The portfolio form has the new fields.
+- **The template's input limit:** the `limit` cap is 10^13 minor units. WF-1003's 10^9 is
+  below twice the largest overdraft in 17 currencies.
+- **Five review findings on PR #73 (Phase 82), fixed here:**
+  - Implausible fits are refused: reviewer sigma above 2, or an AI time factor outside
+    0.05–10.
+  - Accuracy with right advice is left assumed below 5 such reviews.
+  - Per-seed draws of the AI time factor use the assisted mean's own uncertainty.
+  - Calibrations pinned from another scenario are refused.
+  - The review upload rejects an AI recommendation that is not approve, reject or empty.
+
+## Phase 83: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 830 passed. New: 3 exit tests: a template-wide tool serving the variants (and a workflow-only version not serving them), a run executing Japan's own variant with refusals, a 2-country portfolio through the API (2 workflows, every call to 1.1.0, the 422, unrequested scenarios left out), and the template taking every currency's largest overdraft (fails on the old cap). 3 new calibration tests for the PR #73 fixes. The template tests now choose their example template by id |
+| Generated workflow tests | 120 workflows, 1,562 cases, 0 failed (1,214.5 s) |
+| Frontend Vitest / typecheck / build | 183 passed / clean / built |
+| Playwright on a fresh database | 76 passed. Two tests were updated for the seed's second overdraft-assistant version and second template |
+| Milestone G exit (dedicated database, 120 countries, 3 seeds, 40 cases) | 120 workflows, 360 experiments, 720 runs in 6,385 s. Labour −40.0 %, cost per case −38.3 %, false rejections 9.4 % → 1.5 %, false approvals 6.1 % → 12.2 %, all adjusted p < 0.001. 0 of 120 cells successful (compliance thresholds and correctness). See `benchmarking.md` |
+
+## Phase 83: known limitations
+
+- **Near-copies, not 120 processes.** The variants differ only in name, owner, catalogue
+  and decision deadline. For each seed, all 120 gave identical results, so the intervals
+  have zero width: the evidence is three seeds of one process, repeated.
+- **The country does not reach the cases.** The overdraft workload's decisions do not
+  depend on the customer's country, and no case waits long enough to reach the deadline.
+- **One templated scenario.** Other workloads still run their base workflow in every
+  country.
+- **WF-1003 itself keeps its 10^9 cap.** Runs of the base workflow in high-denomination
+  currencies would hit it; only the template was widened.
+- **The exit ran on template version 2 on its database.** Template versions are
+  immutable, so the fixed document was imported there as v2. The repository file stays v1.
 
 ## Phase 82: what exists
 

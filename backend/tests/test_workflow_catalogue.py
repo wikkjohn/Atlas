@@ -172,7 +172,8 @@ def test_code_workflows_are_classified_and_searchable(db: Session) -> None:
 
 
 def test_facets_count_what_each_choice_would_give(db: Session, author) -> None:
-    template = copy.deepcopy(examples.templates()[-1])  # v2 classifies its variants
+    # v2 classifies its variants
+    template = copy.deepcopy(examples.template("TPL-PAPER-STATEMENT", 2))
     assert template["version"] == 2 and "catalogue" in template["body"]
     template.update(template_id="TPL-TEST-CATALOGUE", version=1, id_range=[7200, 7209])
     templates.import_template(db, template, author.id)

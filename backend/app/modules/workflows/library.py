@@ -4799,7 +4799,9 @@ def _experiment_tool(ctx: StepContext):
     if not chosen:
         return None
     tool = ctx.db.get(AITool, uuid.UUID(chosen))
-    if tool is None or ctx.execution.workflow_id not in tool.compatible_workflows:
+    from app.modules.ai_tools.service import serves
+
+    if tool is None or not serves(ctx.db, tool, ctx.execution.workflow_id):
         return None
     return tool
 

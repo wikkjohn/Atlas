@@ -428,8 +428,10 @@ def reassess_portfolio(db: Session, portfolio) -> dict[str, Any] | None:
         rows.append(
             {
                 "scenario_id": member.scenario_id,
-                "workflow_id": scenario.workflow_id,
-                "department": portfolio_service.department(db, scenario.workflow_id),
+                "workflow_id": portfolio_service.cell_workflow(db, member, scenario),
+                "department": portfolio_service.department(
+                    db, portfolio_service.cell_workflow(db, member, scenario)
+                ),
                 "country": member.country,
                 "tool_id": member.tool_id,
                 "series_number": member.series_number,

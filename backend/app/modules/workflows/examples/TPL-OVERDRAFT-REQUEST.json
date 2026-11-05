@@ -1,0 +1,261 @@
+{
+  "template_id": "TPL-OVERDRAFT-REQUEST",
+  "version": 1,
+  "name": "Arranged overdraft request (per country)",
+  "description": "WF-1003 v2 as a template: one arranged-overdraft workflow per country, owned by its retail bank, in its currency, with its own deadline for the credit decision and the same advisory AI review. The Milestone G exit (Phase 83) evaluates one tool across these.",
+  "id_range": [
+    3000,
+    3999
+  ],
+  "parameters": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "country_code",
+      "decision_seconds"
+    ],
+    "properties": {
+      "country_code": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$"
+      },
+      "decision_seconds": {
+        "type": "integer",
+        "minimum": 3600,
+        "maximum": 604800,
+        "description": "How long the credit decision may wait before it is flagged"
+      }
+    }
+  },
+  "example": {
+    "country_code": "GB",
+    "decision_seconds": 172800
+  },
+  "body": {
+    "name": "Arranged Overdraft Request — {{country.name}}",
+    "description": "Arranged overdrafts for current accounts in {{country.name}}, in {{country.currency}}: the customer and account are checked, the account's recent history is read, the AGB Overdraft Affordability Assistant reviews the request (advisory), and a colleague with account-approval authority decides within {{decision_seconds}} seconds. Generated from TPL-OVERDRAFT-REQUEST (Phase 83): the process of WF-1003 v2, one workflow per country.",
+    "business_owner": "Retail Banking ({{country.code}})",
+    "trigger_type": "api",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "customer_number",
+        "account_number",
+        "limit"
+      ],
+      "properties": {
+        "customer_number": {
+          "type": "string",
+          "pattern": "^CUS-[0-9]{7,}$"
+        },
+        "account_number": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 34
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000000000000,
+          "examples": [
+            50000
+          ],
+          "description": "The overdraft wanted, in minor units of the account's currency (0 removes it)"
+        }
+      }
+    },
+    "presentation": {
+      "subject_path": "find_customer.name",
+      "risk_path": "find_customer.risk_rating"
+    },
+    "start": "assign_key",
+    "steps": [
+      {
+        "id": "assign_key",
+        "type": "service_task",
+        "name": "Assign case reference",
+        "handler": "core.business_key",
+        "params": {
+          "path": "input.account_number",
+          "prefix": "ODR-"
+        },
+        "next": "find_customer"
+      },
+      {
+        "id": "find_customer",
+        "type": "service_task",
+        "name": "Find the customer",
+        "handler": "customers.lookup",
+        "params": {
+          "customer_number_path": "input.customer_number"
+        },
+        "retry": {
+          "max_attempts": 1,
+          "backoff_seconds": 0
+        },
+        "on_failure": "rejected",
+        "next": "find_account"
+      },
+      {
+        "id": "find_account",
+        "type": "service_task",
+        "name": "Check the account is the customer's",
+        "handler": "accounts.lookup",
+        "params": {
+          "account_number_path": "input.account_number",
+          "customer_id_path": "find_customer.customer_id"
+        },
+        "retry": {
+          "max_attempts": 1,
+          "backoff_seconds": 0
+        },
+        "on_failure": "notify_refused",
+        "next": "profile"
+      },
+      {
+        "id": "profile",
+        "type": "service_task",
+        "name": "Read the account's recent history",
+        "handler": "retail.account_profile",
+        "params": {
+          "account_number_path": "input.account_number"
+        },
+        "next": "ai_review"
+      },
+      {
+        "id": "ai_review",
+        "type": "ai_task",
+        "name": "AI affordability review (advisory)",
+        "handler": "ai.review",
+        "params": {
+          "tool_id": "agb-overdraft-affordability-assistant",
+          "action": "recommend_decision",
+          "payload": {
+            "limit": "input.limit",
+            "profile": "profile"
+          }
+        },
+        "next": "credit_decision"
+      },
+      {
+        "id": "credit_decision",
+        "type": "approval",
+        "name": "Decide the overdraft",
+        "description": "A colleague with account-approval authority decides (four-eyes).",
+        "approval": {
+          "permissions": [
+            "accounts:approve"
+          ],
+          "distinct_from": [
+            "initiator"
+          ]
+        },
+        "timeout": {
+          "after_seconds": "{{decision_seconds}}",
+          "action": "flag"
+        },
+        "transitions": [
+          {
+            "to": "set_limit",
+            "when": {
+              "path": "credit_decision.approved",
+              "op": "truthy"
+            }
+          }
+        ],
+        "next": "notify_declined"
+      },
+      {
+        "id": "set_limit",
+        "type": "service_task",
+        "name": "Set the overdraft limit",
+        "handler": "retail.set_overdraft",
+        "params": {
+          "account_number_path": "input.account_number",
+          "limit_path": "input.limit"
+        },
+        "retry": {
+          "max_attempts": 1,
+          "backoff_seconds": 0
+        },
+        "on_failure": "notify_refused",
+        "next": "notify_arranged"
+      },
+      {
+        "id": "notify_arranged",
+        "type": "service_task",
+        "name": "Tell the customer",
+        "handler": "customers.notify",
+        "params": {
+          "customer_id_path": "find_customer.customer_id",
+          "subject": "Your overdraft",
+          "body": "Dear {find_customer.name}, the overdraft on account {input.account_number} is now {set_limit.overdraft_limit} (minor units of {set_limit.currency})."
+        },
+        "next": "approved"
+      },
+      {
+        "id": "notify_declined",
+        "type": "service_task",
+        "name": "Tell the customer it was declined",
+        "handler": "customers.notify",
+        "params": {
+          "customer_id_path": "find_customer.customer_id",
+          "subject": "Your overdraft request",
+          "body": "Dear {find_customer.name}, we cannot arrange this overdraft on account {input.account_number}."
+        },
+        "next": "declined"
+      },
+      {
+        "id": "notify_refused",
+        "type": "service_task",
+        "name": "Explain why it could not be done",
+        "handler": "customers.notify",
+        "params": {
+          "customer_id_path": "find_customer.customer_id",
+          "subject": "Your request",
+          "body": "Dear {find_customer.name}, we could not complete your request: {_failure.message}"
+        },
+        "next": "refused"
+      },
+      {
+        "id": "approved",
+        "type": "completion",
+        "name": "Overdraft arranged",
+        "outcome": "approved"
+      },
+      {
+        "id": "declined",
+        "type": "completion",
+        "name": "Declined",
+        "outcome": "rejected"
+      },
+      {
+        "id": "refused",
+        "type": "completion",
+        "name": "Could not be done",
+        "outcome": "rejected"
+      },
+      {
+        "id": "rejected",
+        "type": "completion",
+        "name": "Unknown customer",
+        "outcome": "rejected"
+      }
+    ],
+    "catalogue": {
+      "department": "Retail Banking",
+      "countries": [
+        "{{country_code}}"
+      ],
+      "products": [
+        "current"
+      ],
+      "tags": [
+        "overdrafts",
+        "credit",
+        "ai-assisted"
+      ]
+    }
+  }
+}

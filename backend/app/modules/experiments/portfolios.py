@@ -73,7 +73,11 @@ def plan(db: Session, family: str, mode: str) -> tuple[list[dict[str, Any]], lis
     cells, skipped = [], []
     for scenario_id, scenario in sorted(latest.items()):
         tool = next(
-            (t for _, t in sorted(tools.items()) if scenario.workflow_id in t.compatible_workflows),
+            (
+                t
+                for _, t in sorted(tools.items())
+                if {scenario.workflow_id, scenario.workflow_template} & set(t.compatible_workflows)
+            ),
             None,
         )
         reason = None
@@ -126,6 +130,17 @@ def department(db: Session, workflow_id: str) -> str | None:
 
 def create(db: Session, body: PortfolioCreate, actor_id: uuid.UUID) -> ExperimentPortfolio:
     cells, skipped = plan(db, body.family, body.candidate_mode)
+    if body.scenario_ids is not None:
+        unknown = sorted(set(body.scenario_ids) - {c["scenario_id"] for c in cells})
+        if unknown:
+            raise BusinessRuleViolation(
+                "Not scenarios this family serves.", {"scenario_ids": unknown, "skipped": skipped}
+            )
+        cells = [c for c in cells if c["scenario_id"] in body.scenario_ids]
+        _check_variants(db, cells, body.countries)  # asked for: a missing variant is an error
+    else:
+        cells, left_out = _with_variants(db, cells, body.countries)
+        skipped = skipped + left_out
     if not cells:
         raise BusinessRuleViolation(
             f"No active tool of the family '{body.family}' serves a scenario with AI modes.",
@@ -200,6 +215,48 @@ def create(db: Session, body: PortfolioCreate, actor_id: uuid.UUID) -> Experimen
     return portfolio
 
 
+def _missing_variants(db: Session, cell: dict, countries: list[str]) -> list[str]:
+    """Countries without the variant a templated scenario's cell would run (Phase 83)."""
+    from app.modules.workflows.models import WorkflowVariant
+
+    template = SCENARIOS[(cell["scenario_id"], cell["scenario_version"])].workflow_template
+    if template is None:
+        return []
+    have = {
+        v.params.get("country_code")
+        for v in db.execute(
+            select(WorkflowVariant).where(WorkflowVariant.template_id == template)
+        ).scalars()
+    }
+    return sorted(set(countries) - have)
+
+
+def _with_variants(db: Session, cells: list[dict], countries: list[str]):
+    """Unasked-for templated scenarios without every country's variant are left out."""
+    kept, left_out = [], []
+    for cell in cells:
+        missing = _missing_variants(db, cell, countries)
+        if missing:
+            reason = f"no variant generated for {', '.join(missing[:5])}"
+            left_out.append({"scenario_id": cell["scenario_id"], "reason": reason})
+        else:
+            kept.append(cell)
+    return kept, left_out
+
+
+def _check_variants(db: Session, cells: list[dict], countries: list[str]) -> None:
+    """A templated scenario asked for needs each country's variant before anything runs."""
+    for cell in cells:
+        template = SCENARIOS[(cell["scenario_id"], cell["scenario_version"])].workflow_template
+        missing = _missing_variants(db, cell, countries)
+        if missing:
+            raise BusinessRuleViolation(
+                f"{cell['scenario_id']} runs each country's {template} variant; none is "
+                f"generated for {', '.join(missing[:10])}{'…' if len(missing) > 10 else ''}.",
+                {"missing_countries": missing},
+            )
+
+
 def cells(db: Session, portfolio: ExperimentPortfolio) -> list[ExperimentSeries]:
     return list(
         db.execute(
@@ -214,6 +271,17 @@ def run_ids(db: Session, portfolio: ExperimentPortfolio) -> list[uuid.UUID]:
     return [r for s in cells(db, portfolio) for r in series_service.run_ids(db, s)]
 
 
+def cell_workflow(db: Session, member: ExperimentSeries, scenario: Scenario) -> str:
+    """The workflow a cell's runs executed: the scenario's, or — for a templated scenario —
+    its country's variant (Phase 83), so each variant counts as its own workflow."""
+    if scenario.workflow_template is None:
+        return scenario.workflow_id
+    first = series_service.replicates(db, member)[:1]
+    if not first:
+        return scenario.workflow_id
+    return simulations.get_run(db, first[0].baseline_run_id).workflow_id
+
+
 def compute(db: Session, portfolio: ExperimentPortfolio, members: list[ExperimentSeries]):
     rows = []
     for s in members:
@@ -221,8 +289,8 @@ def compute(db: Session, portfolio: ExperimentPortfolio, members: list[Experimen
         rows.append(
             {
                 "scenario_id": s.scenario_id,
-                "workflow_id": scenario.workflow_id,
-                "department": department(db, scenario.workflow_id),
+                "workflow_id": cell_workflow(db, s, scenario),
+                "department": department(db, cell_workflow(db, s, scenario)),
                 "country": s.country,
                 "tool_id": s.tool_id,
                 "series_number": s.series_number,

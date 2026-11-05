@@ -44,7 +44,7 @@ class AIAssistanceModel(BaseModel):
     result, so a reader can see — and change — what the simulated benefit rests on.
     """
 
-    review_time_factor: float = Field(default=0.6, gt=0, le=2)  # share of the usual time
+    review_time_factor: float = Field(default=0.6, gt=0, le=10)  # share of the usual time
     accuracy_when_ai_correct: float = Field(default=0.99, ge=0, le=1)
     accuracy_when_ai_wrong: float = Field(default=0.80, ge=0, le=1)  # automation bias
 
@@ -126,6 +126,9 @@ class Scenario(BaseModel):
     workload: str = "retail_onboarding"
     workflow_id: str
     workflow_version: int = Field(ge=1)  # pinned: a scenario version never changes meaning
+    # Phase 83: a template whose variant for the run's one country is the workflow run
+    # (`workflow_id` is then the process it was templated from). None: `workflow_id` itself.
+    workflow_template: str | None = Field(default=None, pattern=r"^TPL-[A-Z0-9-]+$")
     simulated_start: datetime  # fixed, so simulated timestamps are reproducible
     config: ScenarioConfig
 
@@ -300,6 +303,27 @@ register_scenario(
             staff_mix={"teller": 0.5, "manager": 0.5},
             ai_assistance=AIAssistanceModel(),
         ),
+    )
+)
+
+# The Milestone G exit (Phase 83): the same overdraft requests, each run through its
+# country's own workflow — the variant of TPL-OVERDRAFT-REQUEST generated for that country —
+# so one tool can be evaluated across one workflow per country.
+register_scenario(
+    Scenario(
+        scenario_id="retail-overdrafts-country",
+        version=1,
+        name="Arranged overdraft requests, each country's workflow",
+        description="The arranged-overdraft workload of retail-overdrafts, run in one country "
+        "at a time through that country's variant of TPL-OVERDRAFT-REQUEST (its own "
+        "workflow, owner and decision deadline), with customers and staff from that country. "
+        "Choose one country per run (Phase 83).",
+        workload="retail_overdrafts",
+        workflow_id="WF-1003",
+        workflow_version=2,
+        workflow_template="TPL-OVERDRAFT-REQUEST",
+        simulated_start=datetime(2026, 4, 7, 9, 0, tzinfo=UTC),
+        config=get_scenario("retail-overdrafts", 1).config.model_copy(deep=True),
     )
 )
 

@@ -221,7 +221,14 @@ function NewPortfolioDialog({ onClose, onCreated }: { onClose: () => void; onCre
   const [applications, setApplications] = useState("40");
   const [employees, setEmployees] = useState("20");
   const [replicates, setReplicates] = useState("3");
+  // Phase 83: optionally only some scenarios (e.g. retail-overdrafts-country, whose cells
+  // each run their country's own workflow).
+  const [scenarios, setScenarios] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const scenarioIds = scenarios
+    .split(/[\s,]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
   const codes = countries
     .split(/[\s,]+/)
     .map((c) => c.trim().toUpperCase())
@@ -234,9 +241,10 @@ function NewPortfolioDialog({ onClose, onCreated }: { onClose: () => void; onCre
     name: name.trim().length >= 3 ? null : "At least 3 characters.",
     family: family.trim().length >= 3 ? null : "A tool family.",
     countries:
-      codes.length >= 1 && codes.length <= 10 && codes.every((c) => /^[A-Z]{2}$/.test(c)) && new Set(codes).size === codes.length
+      codes.length >= 1 && codes.length <= 150 && codes.every((c) => /^[A-Z]{2}$/.test(c)) && new Set(codes).size === codes.length
         ? null
-        : "1 – 10 different country codes, e.g. GB, US.",
+        : "1 – 150 different country codes, e.g. GB, US.",
+    scenarios: scenarioIds.every((id) => /^[a-z0-9-]+$/.test(id)) ? null : "Scenario ids, e.g. retail-overdrafts-country.",
     applications: whole(applications, 5, 10000) ? null : "5 – 10,000.",
     employees: whole(employees, 3, 500) ? null : "3 – 500.",
     replicates: whole(replicates, 2, 30) ? null : "2 – 30 seeds.",
@@ -257,6 +265,7 @@ function NewPortfolioDialog({ onClose, onCreated }: { onClose: () => void; onCre
         employees: Number(employees),
         seed: 42,
         replicates: Number(replicates),
+        ...(scenarioIds.length > 0 ? { scenario_ids: scenarioIds } : {}),
       },
       { onSuccess: (p) => onCreated(p.id) },
     );
@@ -285,6 +294,13 @@ function NewPortfolioDialog({ onClose, onCreated }: { onClose: () => void; onCre
           </Field>
           <Field label="Countries" error={show("countries")}>
             {(p) => <input {...p} className={inputClass} value={countries} onChange={(e) => setCountries(e.target.value)} />}
+          </Field>
+          <Field
+            label="Only these scenarios (optional)"
+            error={show("scenarios")}
+            hint="A templated scenario runs each country's own workflow; its variants must be generated."
+          >
+            {(p) => <input {...p} className={inputClass} value={scenarios} onChange={(e) => setScenarios(e.target.value)} />}
           </Field>
           <div className="grid grid-cols-3 gap-2 sm:col-span-2">
             <Field label="Cases" error={show("applications")}>

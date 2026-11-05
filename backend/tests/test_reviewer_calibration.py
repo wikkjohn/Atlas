@@ -1,5 +1,6 @@
 """Phase 82: reviewer behaviour calibrated from observed reviews instead of fixed."""
 
+import math
 import random
 import uuid
 
@@ -160,3 +161,73 @@ def test_runs_simulate_the_calibrated_reviewers(api: TestClient, db: Session, la
     assert api.post("/api/v1/reviewer-calibrations", json=body, headers=auditor).status_code == 403
     assert api.get("/api/v1/reviewer-calibrations", headers=auditor).status_code == 200
     assert db.execute(select(SimulationRun)).first() is not None
+
+
+# --- Review findings on PR #73 -----------------------------------------------------------------
+
+
+def _reviews(n: int, minutes: float, ai: str | None, truth: str = "approve", right: bool = True):
+    wrong = "reject" if truth == "approve" else "approve"
+    return [{"minutes": minutes * (1 + 0.1 * (i % 5)), "truth": truth,
+             "decision": truth if right else wrong, "ai_recommendation": ai}
+            for i in range(n)]  # fmt: skip
+
+
+def test_unobserved_and_unsupported_parameters_are_never_invented() -> None:
+    # Every recommendation wrong: accuracy with right advice is not fitted, drawn or not.
+    observations = _reviews(40, 10, None) + _reviews(30, 8, "reject")
+    fitted = calibration.fit(observations, ai_capable=True)
+    assert fitted["ai_assistance"]["accuracy_when_ai_correct"] is None
+    assert any("right recommendation" in n for n in fitted["notes"])
+    for rng in (None, random.Random(1)):
+        assert (
+            calibration.parameters(fitted, rng)["ai_assistance"]["accuracy_when_ai_correct"] is None
+        )
+    # A time share outside what the simulation supports is refused, not clamped.
+    with pytest.raises(ValueError, match="outside what the simulation supports"):
+        calibration.fit(_reviews(40, 10, None) + _reviews(30, 120, "approve"), ai_capable=True)
+    # Up to ten times as long is simulated as fitted.
+    slow = calibration.fit(_reviews(40, 10, None) + _reviews(30, 30, "approve"), ai_capable=True)
+    factor = slow["ai_assistance"]["review_time_factor"]["estimate"]
+    assert factor == pytest.approx(3, rel=0.01)
+    assert calibration.parameters(slow, None)["ai_assistance"]["review_time_factor"] == factor
+
+
+def test_the_assisted_time_is_drawn_from_its_own_uncertainty() -> None:
+    # 30 unassisted reviews, 3,000 assisted: the assisted mean is known far more precisely,
+    # and drawing the ratio independently would have counted the unassisted noise twice.
+    observations = calibration.pilot(
+        n=30,
+        seed=4,
+        mean_minutes=18,
+        sigma=0.6,
+        accuracy=0.95,
+        accuracy_should_reject=0.8,
+        assisted_share=0.0,
+    )
+    observations += [o for o in calibration.pilot(n=3000, seed=5, mean_minutes=18, sigma=0.6,
+                                                  accuracy=0.95, accuracy_should_reject=0.8,
+                                                  assisted_share=1.0)]  # fmt: skip
+    fitted = calibration.fit(observations, ai_capable=True)
+    logs = []
+    for s in range(2000):
+        p = calibration.parameters(fitted, random.Random(s))
+        logs.append(
+            math.log(p["reviewer"]["mean_minutes"] * p["ai_assistance"]["review_time_factor"])
+        )
+    mean = sum(logs) / len(logs)
+    variance = sum((x - mean) ** 2 for x in logs) / (len(logs) - 1)
+    assert variance == pytest.approx(fitted["_draw"]["log_mean_ai_se"] ** 2, rel=0.2)
+
+
+def test_pinned_calibrations_must_belong_to_the_scenario(db: Session) -> None:
+    from app.simulation.scenarios import get_scenario
+
+    actor = make_user(db, RoleCode.AI_RESEARCHER)
+    record = calibration.calibrate(
+        db, scenario=get_scenario("recall-triage"), step_id="approval", source="Synthetic test",
+        observations=_reviews(40, 10, None), actor_id=actor.id,
+    )  # fmt: skip
+    with pytest.raises(ValueError, match="belong to another scenario"):
+        calibration.for_run(db, get_scenario("order-review"), seed=1, ids=[str(record.id)])
+    assert calibration.for_run(db, get_scenario("recall-triage"), seed=1, ids=[str(record.id)])

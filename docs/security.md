@@ -126,8 +126,7 @@ Permissions still decide *what* a user may do; the scope decides *where*. The ru
 
 - The TOTP secret is stored as is, in a column readable by the database. Production would
   encrypt it with a key outside the database.
-- There is no rate limiting or account lockout on password attempts yet (Milestone H, step
-  2). The code step does stop after five wrong codes.
+- Rate limits and a sign-in lockout were added in Phase 85: see `data-retention.md`.
 - Scopes cover customers, accounts, account requests and employees. Payments, loans, cards,
   workflows, dashboards and the other departments' pages are not scoped yet.
 - A scoped user's dashboards still show bank-wide totals.

@@ -1,8 +1,10 @@
 import { Fragment, useState } from "react";
 
+import { useAuth } from "@/app/auth";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { PageHeader } from "@/components/PageHeader";
 import { Pagination } from "@/components/Pagination";
+import { AuditArchivePanel } from "@/features/audit/AuditArchivePanel";
 import { formatTimestamp } from "@/features/dashboard/format";
 import { useAuditEvents } from "@/services/enterprise";
 
@@ -10,6 +12,7 @@ const PAGE_SIZE = 50;
 const ENTITY_TYPES = ["", "user", "country", "organization", "employee"];
 
 export function AuditPage() {
+  const { can } = useAuth();
   const [action, setAction] = useState("");
   const [entityType, setEntityType] = useState("");
   const [offset, setOffset] = useState(0);
@@ -25,8 +28,9 @@ export function AuditPage() {
     <>
       <PageHeader
         title="Audit Center"
-        description="Append-only record of security events and changes. Records cannot be edited or deleted — the database rejects it."
+        description="Append-only record of security events and changes. Records cannot be edited or deleted — the database rejects it; old events move to a verifiable archive."
       />
+      {can("audit:read") && <AuditArchivePanel />}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           aria-label="Action"

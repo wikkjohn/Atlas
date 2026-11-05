@@ -15,6 +15,10 @@ The limits are per bucket:
 | `mfa.ip` | client address | 30 second-factor attempts a 15 minutes |
 | `sso.ip` | client address | 60 single sign-on steps a 15 minutes |
 | `writes.user` | user | 600 changes (POST, PUT, PATCH, DELETE) a minute |
+
+`ATLAS_RATE_LIMIT_OVERRIDES` (JSON, rule → limit) replaces a limit: the end-to-end suite
+raises the sign-in limits, since it signs the same demo users in many times from one
+address.
 """
 
 from dataclasses import dataclass
@@ -67,9 +71,12 @@ def _window_start(now: datetime, window: timedelta) -> datetime:
 
 def hit(db: Session, rule_name: str, key: str, now: datetime | None = None) -> int:
     """Count one request against `rule_name` for `key`; refuse it (429) over the limit."""
-    if not get_settings().rate_limits_enabled:
+    settings = get_settings()
+    if not settings.rate_limits_enabled:
         return 0
     rule = RULES[rule_name]
+    if rule_name in settings.rate_limit_overrides:
+        rule = Rule(settings.rate_limit_overrides[rule_name], rule.window, rule.what)
     now = now or datetime.now(UTC)
     start = _window_start(now, rule.window)
     bucket = f"{rule_name}:{key}"[:200]

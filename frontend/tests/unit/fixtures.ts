@@ -122,6 +122,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "users:read",
   "users:manage",
   "audit:read",
+  "audit:archive",
+  "retention:apply",
   "customers:read",
   "customers:manage",
   "customers:review",

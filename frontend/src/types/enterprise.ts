@@ -11,6 +11,8 @@ export type Permission =
   | "users:read"
   | "users:manage"
   | "audit:read"
+  | "audit:archive"
+  | "retention:apply"
   | "customers:read"
   | "customers:manage"
   | "customers:review"
@@ -150,6 +152,8 @@ export interface UserAccount {
   created_at: string;
   is_service_account: boolean;
   mfa_enabled?: boolean;
+  /** Phase 85: set while repeated wrong passwords have locked the account. */
+  locked_until?: string | null;
   scope?: UserScope;
 }
 

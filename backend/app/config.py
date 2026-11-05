@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     # Phase 85: request rate limits (see app/core/ratelimit.py) and the sign-in lockout:
     # this many wrong passwords in a row lock an account for `login_lockout_minutes`.
     rate_limits_enabled: bool = True
+    # Per-rule limits replacing the defaults, e.g. '{"login.user": 50}' (JSON).
+    rate_limit_overrides: dict[str, int] = {}
     login_lockout_attempts: int = Field(default=5, ge=1, le=100)
     login_lockout_minutes: int = Field(default=15, ge=1, le=24 * 60)
     # The audit-log archive (Phase 85): compressed JSON-lines files, one per archive, and how

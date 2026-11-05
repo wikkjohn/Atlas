@@ -4,7 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 // Both servers are started automatically unless they are already running.
 const backendCommand =
   process.env.ATLAS_E2E_BACKEND_COMMAND ??
-  "cd ../backend && .venv/bin/uvicorn app.main:app --port 8000";
+  // The suite signs the same demo users in many times from one address: raise the
+  // sign-in rate limits (Phase 85), which stay on for everything else.
+  `cd ../backend && ATLAS_RATE_LIMIT_OVERRIDES='{"login.user":100000,"login.ip":100000}' .venv/bin/uvicorn app.main:app --port 8000`;
 
 export default defineConfig({
   testDir: "./tests/e2e",

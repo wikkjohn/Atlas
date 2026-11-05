@@ -29,6 +29,7 @@ describe("Audit Center", () => {
   it("explains when access is denied by the API", async () => {
     mockApi({
       ...healthyRoutes,
+      "GET /api/v1/audit-archives": () => jsonResponse([]),
       "GET /api/v1/audit-events": () =>
         jsonResponse(
           {

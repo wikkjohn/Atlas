@@ -219,9 +219,10 @@ export function LoginPage() {
               )}
             </Field>
             {error !== null &&
-              (error instanceof ApiError && error.status === 401 ? (
+              (error instanceof ApiError && (error.status === 401 || error.status === 429) ? (
                 <p role="alert" className="text-sm text-rose-600">
-                  Invalid username or password.
+                  {/* The server's own words: a lockout or a rate limit says so (Phase 85). */}
+                  {error.message.startsWith("Request failed") ? "Invalid username or password." : error.message}
                 </p>
               ) : (
                 <ErrorMessage error={error} />

@@ -316,7 +316,12 @@ for the factory, a simulation workload and at least one AI tool candidate.
       and answer, with verification; PSI with chi-square gating, Welch and two-proportion
       tests between runs; equal opportunity, demographic parity and the four-fifths rule
       across input segments, Holm-adjusted; see `ai-testing.md`)
-- [ ] Scenario-specific success thresholds
+- [x] Scenario-specific success thresholds
+      (Phase 80: risk tiers with built-in thresholds for every AI scenario, versioned
+      thresholds proposed by one person and approved by a risk approver, resolution and
+      provenance on every experiment, re-judging stored results; the Phase 78 portfolio
+      under scenario thresholds: 6 of 57 cells successful, 9 under one standard; see
+      `benchmarking.md`)
 - [ ] Tool comparison across all benchmarks
 - [ ] Calibrate reviewer-behaviour assumptions instead of fixing them
 - [ ] **Exit:** one tool evaluated across 100+ workflows with statistical confidence
@@ -413,4 +418,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 77 (G2) | Milestone G, step 2: repeated-seed series — per-metric paired differences, Student-t intervals, Holm-adjusted significance; API, Experiments page; measured on the KYC assistant | complete |
 | Phase 78 (G3) | Milestone G, step 3: experiment portfolios — tool families, cells per scenario and country, workflow-level pooling, department and country breakdowns; the review-assistant family measured on 19 workflows | complete |
 | Phase 79 (G4) | Milestone G, step 4: guardrails — hashed call records and stored prompts with verification, drift between runs, bias across segments; Guardrails section in the AI lab | complete |
-| Phase 80 (G5, proposed) | Milestone G, step 5: scenario-specific success thresholds | next |
+| Phase 80 (G5) | Milestone G, step 5: scenario-specific success thresholds — risk tiers, approved versions with four eyes, provenance on every experiment, stored results re-judged; the Phase 78 portfolio measured under them | complete |
+| Phase 81 (G6, proposed) | Milestone G, step 6: tool comparison across all benchmarks | next |

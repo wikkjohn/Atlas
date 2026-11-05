@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 79.
+Last updated: Phase 80.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -84,6 +84,51 @@ Last updated: Phase 79.
 | 77 | AI laboratory, step 2: repeated-seed series with confidence intervals and significance tests ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 78 | AI laboratory, step 3: experiment portfolios across workflows, departments and countries ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 79 | AI laboratory, step 4: guardrails — record audit, drift and bias across segments ([ai-testing.md](ai-testing.md)) | **Complete** |
+| 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
+
+## Phase 80: what exists
+
+- **Risk tiers** (`experiments/thresholds.py`): critical, high, medium (the former single
+  defaults) and low, each with thresholds; every scenario with AI modes has a tier and a
+  reason, an outage variant its base scenario's.
+- **Approved versions** (`scenario_thresholds`, migration 0054): proposed by one person
+  (`experiments:run`) with a rationale, approved or rejected by a risk approver
+  (`risk:approve`) who is someone else (enforced by the service and a database check);
+  approval supersedes the previous version, one active per scenario, all audited.
+- **Resolution and provenance:** an experiment, series or portfolio cell without thresholds
+  of its own is judged by its scenario's (approved version, else tier default); the
+  values and `thresholds_source` are stored with it, and the report states the source.
+- **Re-judging:** an experiment or a whole portfolio re-evaluated from stored raw
+  measurements under the thresholds in force now, nothing stored.
+- **API and page:** `/api/v1/scenario-thresholds` (overview, history, propose, approve,
+  reject), `.../under-scenario-thresholds` for experiments and portfolios; *Scenario
+  thresholds* on the Experiments page; the new-experiment form uses the scenario's
+  thresholds unless the researcher sets their own; the experiment view shows the source
+  and checks against today's thresholds; a portfolio is re-judged per tier.
+- **PR #70 (Phase 79)** had no review comments; CI passed on the first run.
+
+## Phase 80: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Generated workflow tests | GEN_RESULT |
+| Frontend Vitest / typecheck / build | 178 passed (new: the scenario's thresholds shown in the new-experiment form, none sent by default and the researcher's own sent when chosen; thresholds by scenario with tier and source, proposing with tier defaults and a required rationale, approving another's proposal; a portfolio re-judged by tier) / clean / built |
+| Playwright on a fresh database | PW_RESULT |
+| The Phase 78 portfolio re-judged under scenario thresholds (development database, 342 experiments, 5.9 s) | 6 of 57 cells successful (9 under one standard): critical 3 of 12 (was 6; card fraud alerts fails at 1 % false approvals), high 3 of 21, medium 0 of 21, low 0 of 3; every failure on the compliance criterion |
+
+## Phase 80: known limitations
+
+- **Absolute limits, not "better than the baseline":** in 17 of 19 workloads the
+  simulated reviewers themselves exceed the false-approval limits (8–31 %); whether a tool
+  that halves that should pass is a policy choice the thresholds do not make.
+- **Coarse rates from small runs:** about nine should-reject cases a 40-case run, so one
+  wrong approval moves the rate by 11 points; a cell needs every seed to pass.
+- **Tier values are illustrative:** chosen for the synthetic bank, not calibrated to any
+  real risk appetite or regulation.
+- **No expiry or periodic review** of approved thresholds, and no thresholds per country.
+- **Re-judging is on request** and is not stored; stored verdicts keep the thresholds they
+  were made under.
 
 ## Phase 79: what exists
 

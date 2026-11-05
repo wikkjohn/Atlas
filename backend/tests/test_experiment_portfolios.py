@@ -170,6 +170,20 @@ def test_a_portfolio_runs_every_cell_and_pools_them(api: TestClient, db: Session
     assert portfolios.compute(db, record, portfolios.cells(db, record)) == stats
     listed = api.get("/api/v1/experiment-portfolios", headers=headers).json()
     assert [p["portfolio_number"] for p in listed["items"]] == [portfolio["portfolio_number"]]
+    # Phase 80: each cell is judged by its own scenario's thresholds (both are critical-tier),
+    # and re-judging under the thresholds in force now gives the same verdicts.
+    assert portfolio["configuration"]["thresholds_source"] == {"source": "scenario_per_cell"}
+    tiers = {
+        c.configuration["thresholds_source"]["risk_tier"] for c in portfolios.cells(db, record)
+    }
+    assert tiers == {"critical"}
+    again = api.get(
+        f"/api/v1/experiment-portfolios/{portfolio['id']}/under-scenario-thresholds",
+        headers=headers,
+    ).json()
+    assert again["cell_verdicts"] == stats["cell_verdicts"]
+    assert again["verdict"] == portfolio["verdict"] and again["by_tier"]["critical"]["cells"] == 4
+    assert all(c["verdict"] == c["stored_verdict"] for c in again["cells"])
 
 
 def test_refusals(api: TestClient, db: Session, monkeypatch) -> None:  # noqa: F811

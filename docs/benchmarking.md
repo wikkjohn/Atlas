@@ -73,7 +73,7 @@ any worsening from a zero baseline counts).
 
 A candidate is **successful** only if every criterion holds:
 
-| Criterion | Rule (default threshold) |
+| Criterion | Rule (medium-tier threshold; see the scenario thresholds below) |
 | --- | --- |
 | Equivalent workloads | identical workload and applications; the baseline is a baseline-mode run |
 | Measurable improvement | ≥ 5 % better on processing time, labour time or cost per case |
@@ -85,6 +85,70 @@ A candidate is **successful** only if every criterion holds:
 The conclusion names the changes, every regression and every failed criterion, and ends
 with a recommendation (a controlled pilot with real-world validation, or do not
 proceed) that restates that the figures are simulated estimates.
+
+## Scenario-specific thresholds (Phase 80)
+
+The defaults above were one standard for every scenario: a 5 % false-approval rate judged
+a fraud screen and a leave request alike. Since Phase 80 (`app/modules/experiments/
+thresholds.py`) each scenario is judged by thresholds that fit its risk.
+
+**Risk tiers.** Every scenario with AI modes has a tier and a stated reason (an outage
+variant has its base scenario's). The tiers' built-in thresholds (illustrative, not any
+real bank's risk appetite):
+
+| Tier | Scenarios | False approvals ≤ | False rejections ≤ | Accuracy drop ≤ | Errors ≤ |
+| --- | --- | --- | --- | --- | --- |
+| Critical: financial crime, fraud, sanctions | retail onboarding (KYC), domestic payments, card fraud alerts, AML alert triage | 1 % | 10 % | 0 | 2 % |
+| High: credit, market, conduct, reporting | personal loans, mortgages, covenant breaches, rating overrides, journal review, order review, discrepant presentations | 3 % | 8 % | 0.5 pt | 3 % |
+| Medium: costly but correctable (the former defaults) | overdrafts, payment plans, complaint redress, deal confirmations, recall triage, invoice payments, change approvals | 5 % | 5 % | 0.5 pt | 5 % |
+| Low: internal, reversible | leave requests | 10 % | 10 % | 2 pt | 5 % |
+
+The minimum improvement (5 %) and the other criteria are the same in every tier. A tier
+tolerates more false rejections where it tolerates fewer false approvals: friction is the
+price of a stricter control.
+
+**Approved versions.** A scenario may have stored thresholds of its own
+(`scenario_thresholds`): one person proposes a version (`experiments:run`) with a tier and
+a rationale; a risk approver (`risk:approve`), who must be someone else, approves or
+rejects it (a rejection needs a reason). Approving supersedes the previous version; at most
+one is active per scenario; every step is in the audit log.
+
+**Resolution.** An experiment, series or portfolio cell that does not give thresholds is
+judged by its scenario's: the approved version, else the tier's defaults. Thresholds given
+in a request still win. The resolved values are stored with the experiment, together with
+`thresholds_source` (`scenario` with its version, `tier_default`, or `request`), so a
+later change to the scenario's thresholds never changes a stored verdict; the report says
+which applied.
+
+**Re-judging stored results.** `GET /api/v1/experiments/{id}/under-scenario-thresholds`
+and `GET /api/v1/experiment-portfolios/{id}/under-scenario-thresholds` re-evaluate from the
+stored raw measurements under the thresholds in force now, recompute the series and
+portfolio statistics, and store nothing.
+
+**Measured: the Phase 78 portfolio re-judged** (19 workflows × GB, US, JP × 3 seeds, the
+review assistants, AI-assisted; recomputed in 5.9 s):
+
+| Tier | Cells | Successful (one standard) | Successful (scenario thresholds) |
+| --- | --- | --- | --- |
+| Critical | 12 | 6 | 3 |
+| High | 21 | 3 | 3 |
+| Medium | 21 | 0 | 0 |
+| Low | 3 | 0 | 0 |
+| **All** | **57** | **9** | **6** |
+
+Card fraud alerts lost its three cells (false approvals 3.3 % on average, above the
+critical 1 %); nothing else changed. Every failure, in every tier, is on the compliance
+criterion. Two findings:
+
+- **The baseline would fail too.** In 17 of the 19 workloads the simulated human
+  reviewers approve 8–31 % of the cases that should be rejected (leave requests 20 %,
+  invoice payments 31 %; KYC and personal loans 0 %); the assistants cut that to 0–16 %. An absolute limit asks the tool to meet a standard the
+  people it supports do not; whether "better than today's reviewers" should be enough is
+  a policy decision, not a statistical one, and the thresholds do not make it.
+- **Small runs make the rates coarse.** With 40 cases a run, a workload has about nine
+  cases that should be rejected, so one wrong approval moves the rate by 11 points. Leave
+  requests averages 8.2 % false approvals, inside the low tier's 10 %, yet two of its three
+  seeds land at 11.1 % and 13.6 %, and a cell needs every seed to pass.
 
 ## Reproducibility
 

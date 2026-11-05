@@ -36,7 +36,8 @@ export interface ExperimentCreate {
   employees: number;
   seed: number;
   costs: CostAssumptions;
-  thresholds: SuccessThresholds;
+  // Omitted: the scenario's thresholds apply (Phase 80).
+  thresholds?: SuccessThresholds;
 }
 
 export interface RunRef {
@@ -139,7 +140,7 @@ export interface Measurement {
 }
 
 export interface ExperimentDetail extends ExperimentSummary {
-  configuration: { costs: CostAssumptions; thresholds: SuccessThresholds };
+  configuration: { costs: CostAssumptions; thresholds: SuccessThresholds; thresholds_source?: ThresholdsSource };
   configuration_hash: string;
   measurements: Measurement[];
   evaluation: Evaluation | null;
@@ -349,4 +350,90 @@ export interface PortfolioCreate {
   employees: number;
   seed: number;
   replicates: number;
+}
+
+// --- Scenario thresholds (Phase 80) -----------------------------------------------------------
+
+export type RiskTier = "critical" | "high" | "medium" | "low";
+export const RISK_TIERS: RiskTier[] = ["critical", "high", "medium", "low"];
+
+export interface ThresholdsSource {
+  source: "scenario" | "tier_default" | "request" | "scenario_per_cell";
+  scenario_id?: string;
+  risk_tier?: RiskTier;
+  version?: number;
+  record_id?: string | null;
+}
+
+export interface ThresholdVersion {
+  id: string;
+  scenario_id: string;
+  version: number;
+  risk_tier: RiskTier;
+  thresholds: SuccessThresholds;
+  rationale: string;
+  status: "proposed" | "active" | "superseded" | "rejected";
+  proposed_by_username: string | null;
+  proposed_at: string;
+  decided_by_username: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+export interface ScenarioThresholdRow {
+  scenario_id: string;
+  name: string;
+  workflow_id: string;
+  risk_tier: RiskTier;
+  default_tier: RiskTier;
+  default_rationale: string;
+  source: "scenario" | "tier_default";
+  version: number;
+  thresholds: SuccessThresholds;
+  rationale: string;
+  pending: ThresholdVersion | null;
+}
+
+export interface ThresholdOverview {
+  tiers: Record<RiskTier, SuccessThresholds & { description: string }>;
+  scenarios: ScenarioThresholdRow[];
+}
+
+export interface ThresholdProposal {
+  scenario_id: string;
+  risk_tier: RiskTier;
+  thresholds?: SuccessThresholds;
+  rationale: string;
+}
+
+export interface ExperimentReassessment {
+  experiment_id: string;
+  scenario_id: string;
+  thresholds_source: ThresholdsSource;
+  thresholds: SuccessThresholds;
+  stored_thresholds: SuccessThresholds;
+  stored_verdict: Verdict;
+  verdict: Verdict;
+  changed: boolean;
+  failed_criteria: string[];
+}
+
+export interface PortfolioReassessment {
+  portfolio_id: string;
+  stored_cell_verdicts: { successful: number; not_successful: number } | null;
+  stored_verdict: Verdict | null;
+  cell_verdicts: { successful: number; not_successful: number };
+  verdict: Verdict;
+  by_tier: Partial<Record<RiskTier, { cells: number; successful: number; before: number }>>;
+  cells: {
+    scenario_id: string;
+    country: string | null;
+    risk_tier: RiskTier;
+    stored_verdict: Verdict | null;
+    verdict: Verdict;
+    replicates_successful: number;
+    replicates: number;
+    failed_criteria: string[];
+  }[];
+  method: string;
 }

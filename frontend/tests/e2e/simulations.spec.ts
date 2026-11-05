@@ -307,3 +307,28 @@ test("Organization: an administrator launches Kenya and its subsidiary is genera
   await expect(details.getByText("Generated (subsidiary-blueprint/1)")).toBeVisible();
   await expect(details.getByText("KES")).toBeVisible();
 });
+
+test("Scenario thresholds (Phase 80): a researcher proposes, an administrator approves", async ({ browser }) => {
+  const researcher = await browser.newPage();
+  await signIn(researcher, "researcher", "/experiments");
+  const table = researcher.getByRole("table", { name: "Thresholds by scenario" });
+  const leave = table.getByRole("row", { name: /Leave requests/ });
+  await expect(leave).toContainText("Low");
+  await leave.getByRole("button", { name: "Propose" }).click();
+  const form = researcher.getByRole("form", { name: "Propose thresholds" });
+  await form.getByLabel("Risk tier").selectOption("medium");
+  await form.getByLabel("Rationale").fill("Clashing holidays leave branches short-staffed: treat leave as medium risk.");
+  await researcher.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(leave).toContainText("(medium) proposed by researcher");
+  // The proposer cannot decide it.
+  await expect(leave.getByText("Your proposal: someone else decides.")).toBeVisible();
+  await expect(leave.getByRole("button", { name: "Approve" })).toHaveCount(0);
+
+  const admin = await browser.newPage();
+  await signIn(admin, "admin", "/experiments");
+  const adminLeave = admin.getByRole("table", { name: "Thresholds by scenario" }).getByRole("row", { name: /Leave requests/ });
+  await adminLeave.getByRole("button", { name: "Approve" }).click();
+  await expect(adminLeave).toContainText(/Approved v\d+/);
+  await expect(adminLeave).toContainText("Medium");
+  await expect(adminLeave).toContainText("5%");
+});

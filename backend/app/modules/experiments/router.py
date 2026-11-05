@@ -10,7 +10,7 @@ from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.jobs import engine as jobs
-from app.modules.experiments import portfolios, report, series, service
+from app.modules.experiments import portfolios, report, series, service, thresholds
 from app.modules.experiments.models import ExperimentStatus
 from app.modules.experiments.schemas import (
     BenchmarkRow,
@@ -25,6 +25,8 @@ from app.modules.experiments.schemas import (
     SeriesCreate,
     SeriesDetail,
     SeriesSummary,
+    ThresholdDecision,
+    ThresholdProposal,
 )
 from app.modules.identity.dependencies import Authorized
 from app.simulation.router import SessionFactory, launch_idempotent
@@ -33,6 +35,7 @@ experiments_router = APIRouter(prefix="/experiments", tags=["experiments"])
 series_router = APIRouter(prefix="/experiment-series", tags=["experiments"])
 portfolio_router = APIRouter(prefix="/experiment-portfolios", tags=["experiments"])
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["experiments"])
+thresholds_router = APIRouter(prefix="/scenario-thresholds", tags=["experiments"])
 
 
 @experiments_router.get("", response_model=Page[ExperimentSummary], summary="Experiments")
@@ -128,6 +131,19 @@ def re_evaluate(
     experiment_id: uuid.UUID, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
 ) -> ReEvaluation:
     return service.re_evaluate(db, service.get(db, experiment_id))
+
+
+@experiments_router.get(
+    "/{experiment_id}/under-scenario-thresholds",
+    summary="The evaluation recomputed under the scenario's thresholds in force now (Phase 80)",
+)
+def under_scenario_thresholds(
+    experiment_id: uuid.UUID, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
+) -> dict:
+    result = thresholds.reassess(db, service.get(db, experiment_id))
+    if result is None:
+        raise ConflictError("The experiment has not been evaluated yet.")
+    return result
 
 
 @experiments_router.get(
@@ -308,3 +324,76 @@ def get_portfolio(
     portfolio_id: uuid.UUID, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
 ) -> PortfolioDetail:
     return portfolios.detail(db, portfolios.get(db, portfolio_id))
+
+
+@portfolio_router.get(
+    "/{portfolio_id}/under-scenario-thresholds",
+    summary="The portfolio's cells re-judged under each scenario's thresholds (Phase 80)",
+)
+def portfolio_under_scenario_thresholds(
+    portfolio_id: uuid.UUID, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
+) -> dict:
+    result = thresholds.reassess_portfolio(db, portfolios.get(db, portfolio_id))
+    if result is None:
+        raise ConflictError("The portfolio has not completed yet.")
+    return result
+
+
+# --- Scenario thresholds (Phase 80) ------------------------------------------------------------
+
+
+@thresholds_router.get("", summary="The success thresholds in force for every AI scenario")
+def list_thresholds(db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)) -> dict:
+    return {
+        "tiers": {
+            tier: {"description": thresholds.TIER_DESCRIPTIONS[tier], **t.model_dump(mode="json")}
+            for tier, t in thresholds.TIERS.items()
+        },
+        "scenarios": thresholds.overview(db),
+    }
+
+
+@thresholds_router.get("/{scenario_id}/history", summary="A scenario's threshold versions")
+def threshold_history(
+    scenario_id: str, db: DbSession, _: Authorized(Permission.EXPERIMENTS_READ)
+) -> list[dict]:
+    return thresholds.history(db, scenario_id)
+
+
+@thresholds_router.post(
+    "", status_code=status.HTTP_201_CREATED, summary="Propose a scenario's thresholds"
+)
+def propose_thresholds(
+    body: ThresholdProposal, db: DbSession, actor: Authorized(Permission.EXPERIMENTS_RUN)
+) -> dict:
+    record = thresholds.propose(
+        db,
+        scenario_id=body.scenario_id,
+        risk_tier=body.risk_tier,
+        thresholds=body.thresholds,
+        rationale=body.rationale,
+        actor_id=actor.id,
+    )
+    return thresholds.version_out(db, record)
+
+
+@thresholds_router.post(
+    "/{record_id}/approve", summary="Approve proposed thresholds (not one's own); they apply"
+)
+def approve_thresholds(
+    record_id: uuid.UUID,
+    body: ThresholdDecision,
+    db: DbSession,
+    actor: Authorized(Permission.RISK_APPROVE),
+) -> dict:
+    return thresholds.version_out(db, thresholds.approve(db, record_id, actor.id, body.note))
+
+
+@thresholds_router.post("/{record_id}/reject", summary="Reject proposed thresholds")
+def reject_thresholds(
+    record_id: uuid.UUID,
+    body: ThresholdDecision,
+    db: DbSession,
+    actor: Authorized(Permission.RISK_APPROVE),
+) -> dict:
+    return thresholds.version_out(db, thresholds.reject(db, record_id, actor.id, body.note))

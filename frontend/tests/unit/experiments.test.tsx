@@ -2,7 +2,17 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { AiTool } from "@/types/aiTools";
-import type { BenchmarkRow, Comparison, ExperimentDetail, PortfolioDetail, PortfolioMetric, SeriesDetail, SeriesMetric } from "@/types/experiments";
+import type {
+  BenchmarkRow,
+  Comparison,
+  ExperimentDetail,
+  PortfolioDetail,
+  PortfolioMetric,
+  PortfolioReassessment,
+  SeriesDetail,
+  SeriesMetric,
+  ThresholdOverview,
+} from "@/types/experiments";
 import { DEFAULT_COSTS, DEFAULT_THRESHOLDS } from "@/types/experiments";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
@@ -244,8 +254,74 @@ const portfolio: PortfolioDetail = {
   },
 };
 
+// Phase 80: thresholds per scenario.
+const tierThresholds = (fa: number, fr: number) => ({ ...DEFAULT_THRESHOLDS, max_false_approval_rate: fa, max_false_rejection_rate: fr });
+const thresholdOverview: ThresholdOverview = {
+  tiers: {
+    critical: { ...tierThresholds(0.01, 0.1), description: "Financial crime, fraud or sanctions." },
+    high: { ...tierThresholds(0.03, 0.08), description: "Credit, market, conduct or reporting risk." },
+    medium: { ...DEFAULT_THRESHOLDS, description: "Costly but correctable." },
+    low: { ...tierThresholds(0.1, 0.1), description: "Internal, reversible decisions." },
+  },
+  scenarios: [
+    {
+      scenario_id: "retail-onboarding",
+      name: "Retail account onboarding (AI experiments)",
+      workflow_id: "WF-0001",
+      risk_tier: "critical",
+      default_tier: "critical",
+      default_rationale: "Know-your-customer.",
+      source: "tier_default",
+      version: 0,
+      thresholds: tierThresholds(0.01, 0.1),
+      rationale: "Know-your-customer.",
+      pending: null,
+    },
+    {
+      scenario_id: "leave-requests",
+      name: "Leave requests (human resources)",
+      workflow_id: "WF-1044",
+      risk_tier: "low",
+      default_tier: "low",
+      default_rationale: "A day off granted in error is easily corrected.",
+      source: "scenario",
+      version: 1,
+      thresholds: tierThresholds(0.1, 0.1),
+      rationale: "Approved: leave is reversible.",
+      pending: {
+        id: "thr-2",
+        scenario_id: "leave-requests",
+        version: 2,
+        risk_tier: "medium",
+        thresholds: DEFAULT_THRESHOLDS,
+        rationale: "Holiday clashes cost more than we thought.",
+        status: "proposed",
+        proposed_by_username: "researcher",
+        proposed_at: "2026-11-05T09:00:00Z",
+        decided_by_username: null,
+        decided_at: null,
+        decision_note: null,
+      },
+    },
+  ],
+};
+
+const reassessment: PortfolioReassessment = {
+  portfolio_id: "pf-1",
+  stored_cell_verdicts: { successful: 9, not_successful: 48 },
+  stored_verdict: "not_successful",
+  cell_verdicts: { successful: 6, not_successful: 51 },
+  verdict: "not_successful",
+  by_tier: { critical: { cells: 12, successful: 3, before: 6 }, low: { cells: 3, successful: 0, before: 0 } },
+  cells: [
+    { scenario_id: "card-fraud-alerts", country: "GB", risk_tier: "critical", stored_verdict: "successful", verdict: "not_successful", replicates_successful: 2, replicates: 3, failed_criteria: ["compliance_thresholds"] },
+  ],
+  method: "Each replicate re-evaluated from its stored raw measurements.",
+};
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/scenario-thresholds": () => jsonResponse(thresholdOverview),
   "GET /api/v1/experiment-portfolios": () => jsonResponse(page([portfolio])),
   "GET /api/v1/experiment-portfolios/pf-1": () => jsonResponse(portfolio),
   "GET /api/v1/experiment-series": () => jsonResponse(page([series])),
@@ -298,8 +374,77 @@ describe("Experiments", () => {
       employees: 25,
       seed: 42,
       costs: { reviewer_cost_per_minute: 1.1, ai_cost_per_invocation: 0.04, currency_label: "USD (illustrative)" },
-      thresholds: { max_false_approval_rate: 0.05, max_policy_violations: 0 },
     });
+    // By default the scenario's thresholds apply, so none are sent.
+    expect(body).not.toHaveProperty("thresholds");
+  });
+
+  it("shows the scenario's thresholds, or sends the experiment's own", async () => {
+    const api = mockApi({
+      ...routes,
+      "POST /api/v1/experiments": () => jsonResponse({ ...experiment, id: "exp-4", status: "running", evaluation: null }, 202),
+    });
+    renderApp("/experiments");
+    await userEvent.click(await screen.findByRole("button", { name: "New experiment" }));
+    const form = await screen.findByRole("form", { name: "New experiment" });
+    expect(await within(form).findByLabelText("Scenario thresholds in force")).toHaveTextContent("Critical risk");
+    expect(within(form).getByLabelText("Scenario thresholds in force")).toHaveTextContent("False approvals ≤ 1.0%");
+    await userEvent.click(within(form).getByLabelText("Use the scenario's thresholds"));
+    // Starting from the scenario's values.
+    const falseApprovals = within(form).getByLabelText("Maximum false approval rate");
+    expect(falseApprovals).toHaveValue(0.01);
+    await userEvent.clear(falseApprovals);
+    await userEvent.type(falseApprovals, "0.02");
+    await userEvent.click(screen.getByRole("button", { name: "Run experiment" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
+      thresholds: { max_false_approval_rate: 0.02, max_false_rejection_rate: 0.1 },
+    });
+   });
+
+  it("lists thresholds by scenario, proposes new ones and decides another's proposal", async () => {
+    const api = mockApi({
+      ...routes,
+      "POST /api/v1/scenario-thresholds": () => jsonResponse({ ...thresholdOverview.scenarios[1].pending, id: "thr-3" }, 201),
+      "POST /api/v1/scenario-thresholds/thr-2/approve": () => jsonResponse({ ...thresholdOverview.scenarios[1].pending, status: "active" }),
+    });
+    renderApp("/experiments");
+    const table = await screen.findByRole("table", { name: "Thresholds by scenario" });
+    const onboarding = within(table).getByRole("row", { name: /Retail account onboarding/ });
+    expect(onboarding).toHaveTextContent("Critical");
+    expect(onboarding).toHaveTextContent("Tier default");
+    const leave = within(table).getByRole("row", { name: /Leave requests/ });
+    expect(leave).toHaveTextContent("Approved v1");
+    expect(leave).toHaveTextContent("v2 (medium) proposed by researcher");
+    await userEvent.click(within(leave).getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/scenario-thresholds/thr-2/approve")).toBe(true));
+
+    await userEvent.click(within(onboarding).getByRole("button", { name: "Propose" }));
+    const form = await screen.findByRole("form", { name: "Propose thresholds" });
+    await userEvent.selectOptions(within(form).getByLabelText("Risk tier"), "high");
+    expect(within(form).getByLabelText("Maximum false approval rate")).toHaveValue(0.03);
+    await userEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+    expect(within(form).getByText("Say why, in at least 20 characters.")).toBeInTheDocument();
+    await userEvent.type(within(form).getByLabelText("Rationale"), "Onboarding errors are caught by later monitoring.");
+    await userEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST" && r.path === "/api/v1/scenario-thresholds")).toBe(true));
+    expect(api.requests.find((r) => r.path === "/api/v1/scenario-thresholds" && r.method === "POST")?.body).toMatchObject({
+      scenario_id: "retail-onboarding",
+      risk_tier: "high",
+      thresholds: { max_false_approval_rate: 0.03, max_false_rejection_rate: 0.08 },
+    });
+  });
+
+  it("re-judges a portfolio's cells by each scenario's thresholds", async () => {
+    const api = mockApi({ ...routes, "GET /api/v1/experiment-portfolios/pf-1/under-scenario-thresholds": () => jsonResponse(reassessment) });
+    renderApp("/experiments");
+    const section = await screen.findByRole("region", { name: "Under scenario thresholds" });
+    await userEvent.click(within(section).getByRole("button", { name: "Judge each cell by its scenario's thresholds" }));
+    expect(await within(section).findByText(/6 of 1 cells successful \(stored: 9\)/)).toBeInTheDocument();
+    const tiers = within(section).getByRole("table", { name: "Cells by risk tier" });
+    expect(within(tiers).getByRole("row", { name: /Critical/ })).toHaveTextContent("1236");
+    expect(within(section).getByText(/card-fraud-alerts \(GB\) → Not successful/)).toBeInTheDocument();
+    expect(api.requests.some((r) => r.path.endsWith("/under-scenario-thresholds"))).toBe(true);
   });
 
   it("sends the tool version that was chosen, not the newest one", async () => {

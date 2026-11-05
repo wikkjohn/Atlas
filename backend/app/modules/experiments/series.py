@@ -56,7 +56,9 @@ def create(
     if check_idle:
         simulations.reap_stale(db)
         simulations._ensure_idle(db)  # once: the series' own runs then queue behind each other
-    config, config_hash = service._config(body.costs, body.thresholds)
+    config, config_hash = service._scenario_config(
+        db, body.scenario_id, body.costs, body.thresholds
+    )
     series = ExperimentSeries(
         name=body.name.strip(),
         scenario_id=body.scenario_id,

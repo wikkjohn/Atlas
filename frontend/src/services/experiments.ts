@@ -6,14 +6,19 @@ import type {
   BenchmarkRow,
   ExperimentCreate,
   ExperimentDetail,
+  ExperimentReassessment,
   ExperimentSummary,
   PortfolioCreate,
   PortfolioDetail,
+  PortfolioReassessment,
   PortfolioSummary,
   ReEvaluation,
   SeriesCreate,
   SeriesDetail,
   SeriesSummary,
+  ThresholdOverview,
+  ThresholdProposal,
+  ThresholdVersion,
 } from "@/types/experiments";
 
 const POLL_MS = 2000;
@@ -129,5 +134,42 @@ export function useCreatePortfolio() {
       void client.invalidateQueries({ queryKey: ["experiments"] });
       void client.invalidateQueries({ queryKey: ["simulations"] });
     },
+  });
+}
+
+// --- Scenario thresholds (Phase 80) ----------------------------------------------------------
+
+export const useScenarioThresholds = () =>
+  useQuery({
+    queryKey: ["experiments", "scenario-thresholds"],
+    queryFn: () => apiGet<ThresholdOverview>("/api/v1/scenario-thresholds"),
+  });
+
+export function useProposeThresholds() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ThresholdProposal) => apiPost<ThresholdVersion>("/api/v1/scenario-thresholds", body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["experiments", "scenario-thresholds"] }),
+  });
+}
+
+export function useDecideThresholds() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, decision, note }: { id: string; decision: "approve" | "reject"; note: string }) =>
+      apiPost<ThresholdVersion>(`/api/v1/scenario-thresholds/${id}/${decision}`, { note }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["experiments", "scenario-thresholds"] }),
+  });
+}
+
+export function useExperimentReassessment(id: string) {
+  return useMutation({
+    mutationFn: () => apiGet<ExperimentReassessment>(`/api/v1/experiments/${id}/under-scenario-thresholds`),
+  });
+}
+
+export function usePortfolioReassessment(id: string) {
+  return useMutation({
+    mutationFn: () => apiGet<PortfolioReassessment>(`/api/v1/experiment-portfolios/${id}/under-scenario-thresholds`),
   });
 }

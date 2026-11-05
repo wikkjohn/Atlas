@@ -26,7 +26,8 @@ class ExperimentCreate(BaseModel):
         default=None, pattern=r"^[A-Z]{2}$", description="One active country (Phase 78)"
     )
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
-    thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
+    # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
+    thresholds: SuccessThresholds | None = None
 
 
 class ExperimentFromRuns(BaseModel):
@@ -36,7 +37,8 @@ class ExperimentFromRuns(BaseModel):
     baseline_run_id: uuid.UUID
     candidate_run_id: uuid.UUID
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
-    thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
+    # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
+    thresholds: SuccessThresholds | None = None
 
 
 class RunRef(BaseModel):
@@ -142,7 +144,8 @@ class SeriesCreate(BaseModel):
         default=None, pattern=r"^[A-Z]{2}$", description="One active country (Phase 78)"
     )
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
-    thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
+    # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
+    thresholds: SuccessThresholds | None = None
 
     @field_validator("seeds")
     @classmethod
@@ -205,7 +208,8 @@ class PortfolioCreate(BaseModel):
     replicates: int = Field(default=3, ge=2, le=MAX_REPLICATES)
     confidence: float = Field(default=0.95, ge=0.8, le=0.99)
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
-    thresholds: SuccessThresholds = Field(default_factory=SuccessThresholds)
+    # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
+    thresholds: SuccessThresholds | None = None
 
     @field_validator("countries")
     @classmethod
@@ -244,3 +248,21 @@ class PortfolioDetail(PortfolioSummary):
     configuration: dict[str, Any]
     statistics: dict[str, Any] | None
     series: list[SeriesSummary]
+
+
+# --- Scenario thresholds (Phase 80) ------------------------------------------------------------
+
+
+class ThresholdProposal(BaseModel):
+    """Propose a scenario's success thresholds; a risk approver (someone else) decides."""
+
+    scenario_id: str = Field(min_length=3, max_length=64)
+    risk_tier: Literal["critical", "high", "medium", "low"]
+    thresholds: SuccessThresholds | None = Field(
+        default=None, description="Defaults to the risk tier's built-in thresholds"
+    )
+    rationale: str = Field(min_length=20, max_length=4000)
+
+
+class ThresholdDecision(BaseModel):
+    note: str = Field(default="", max_length=2000)

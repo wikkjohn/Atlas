@@ -120,6 +120,8 @@ function NewSeriesDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   const [seed, setSeed] = useState("101");
   const [replicates, setReplicates] = useState("5");
   const [confidence, setConfidence] = useState("0.95");
+  const [calibrated, setCalibrated] = useState(true);
+  const [draws, setDraws] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   const whole = (raw: string, low: number, high: number) => {
@@ -154,6 +156,8 @@ function NewSeriesDialog({ onClose, onCreated }: { onClose: () => void; onCreate
         seed: Number(seed),
         replicates: Number(replicates),
         confidence: Number(confidence),
+        calibrated,
+        calibration_draws: calibrated && draws,
       },
       { onSuccess: (s) => onCreated(s.id) },
     );
@@ -235,6 +239,17 @@ function NewSeriesDialog({ onClose, onCreated }: { onClose: () => void; onCreate
             </Field>
           </div>
         </div>
+        <fieldset className="space-y-1 rounded-lg border border-slate-200 p-3 text-xs text-slate-700">
+          <legend className="px-1 font-semibold">Reviewers</legend>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={calibrated} onChange={(e) => setCalibrated(e.target.checked)} />
+            Use calibrated reviewers where the scenario has a calibration (otherwise its stated assumptions)
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" disabled={!calibrated} checked={calibrated && draws} onChange={(e) => setDraws(e.target.checked)} />
+            Draw each seed's reviewer parameters from their uncertainty
+          </label>
+        </fieldset>
       </form>
       <ErrorMessage error={create.error} className="mt-3" />
       <div className="mt-4 flex justify-end gap-2">

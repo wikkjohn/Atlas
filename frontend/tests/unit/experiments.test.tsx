@@ -11,9 +11,11 @@ import type {
   PortfolioReassessment,
   SeriesDetail,
   SeriesMetric,
+  ReviewerCalibration,
   ThresholdOverview,
   ToolComparison,
 } from "@/types/experiments";
+import { parseObservations } from "@/features/experiments/CalibrationPanel";
 import { DEFAULT_COSTS, DEFAULT_THRESHOLDS } from "@/types/experiments";
 
 import { authRoutes, employeeUser, healthyRoutes, jsonResponse, mockApi, page } from "./fixtures";
@@ -333,6 +335,7 @@ const toolComparison: ToolComparison = {
       scenario_id: "retail-onboarding",
       scenario_version: 2,
       candidate_mode: "ai_assisted",
+      cost_assumptions: "0123456789ab",
       risk_tier: "critical",
       tools: [
         { tool: "kyc@1.0.0", tool_id: "kyc", tool_version: "1.0.0", rank: 1, experiments: 5, successful: 5, successful_stored: 5, preferred_in: 1, not_preferred_in: 0, mean_relative_change: { labour_hours: -0.35 } },
@@ -351,8 +354,46 @@ const toolComparison: ToolComparison = {
   ],
 };
 
+// Phase 82: reviewers calibrated from observed reviews.
+const est = (estimate: number, low: number, high: number) => ({ estimate, low, high });
+const calibrationRecord: ReviewerCalibration = {
+  id: "cal-1",
+  calibration_number: 1,
+  scenario_id: "retail-onboarding",
+  step_id: "account_approval",
+  source: "SYNTHETIC pilot study, seed 82",
+  observation_count: 400,
+  data_digest: "d".repeat(64),
+  status: "active",
+  fitted: {
+    confidence: 0.95,
+    observations: 400,
+    unassisted: 211,
+    assisted: 189,
+    reviewer: {
+      mean_minutes: est(20.27, 18.31, 22.44),
+      sigma: est(0.61, 0.56, 0.68),
+      accuracy: est(0.966, 0.92, 0.986),
+      accuracy_should_reject: est(0.82, 0.71, 0.9),
+    },
+    ai_assistance: {
+      review_time_factor: est(0.7, 0.61, 0.81),
+      accuracy_when_ai_correct: est(0.99, 0.97, 1),
+      accuracy_when_ai_wrong: est(0.56, 0.37, 0.73),
+    },
+    notes: [],
+  },
+  assumption: {
+    reviewer: { mean_minutes: 12, sigma: 0.5, accuracy: 0.97, accuracy_should_reject: null },
+    ai_assistance: { review_time_factor: 0.6, accuracy_when_ai_correct: 0.99, accuracy_when_ai_wrong: 0.8 },
+  },
+  created_by_username: "researcher",
+  created_at: "2026-11-05T10:00:00Z",
+};
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/reviewer-calibrations": () => jsonResponse([calibrationRecord]),
   "GET /api/v1/tool-comparison": () => jsonResponse(toolComparison),
   "GET /api/v1/scenario-thresholds": () => jsonResponse(thresholdOverview),
   "GET /api/v1/experiment-portfolios": () => jsonResponse(page([portfolio])),
@@ -597,7 +638,43 @@ describe("Repeated-seed series", () => {
       seed: 101,
       replicates: 8,
       confidence: 0.95,
+      calibrated: true,
+      calibration_draws: false,
     });
+  });
+
+  it("shows calibrated reviewers against the assumptions and fits new reviews", async () => {
+    const api = mockApi({ ...routes, "POST /api/v1/reviewer-calibrations": () => jsonResponse({ ...calibrationRecord, id: "cal-2" }, 201) });
+    renderApp("/experiments");
+    const table = await screen.findByRole("table", { name: "Fitted against assumed, calibration 1" });
+    const time = within(table).getByRole("row", { name: /Mean review time/ });
+    expect(time).toHaveTextContent("20.3 min");
+    expect(time).toHaveTextContent("18.3 min – 22.4 min");
+    expect(time).toHaveTextContent("12.0 min");
+    // Without a separate assumption, should-reject accuracy is the one accuracy.
+    expect(within(table).getByRole("row", { name: /should reject/ })).toHaveTextContent("97.0%");
+    expect(within(table).getByRole("row", { name: /AI is wrong/ })).toHaveTextContent("80.0%");
+
+    await userEvent.click(screen.getByRole("button", { name: "Calibrate reviewers" }));
+    const form = await screen.findByRole("form", { name: "Calibrate reviewers" });
+    await userEvent.type(within(form).getByLabelText("Source"), "Branch time study");
+    await userEvent.type(within(form).getByLabelText("Reviews"), "minutes,truth,decision,ai{enter}14.5,approve,approve,reject{enter}9,reject,approve,");
+    await userEvent.click(screen.getByRole("button", { name: "Fit and activate" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toEqual({
+      scenario_id: "retail-onboarding",
+      step_id: "account_approval",
+      source: "Branch time study",
+      observations: [
+        { minutes: 14.5, truth: "approve", decision: "approve", ai_recommendation: "reject" },
+        { minutes: 9, truth: "reject", decision: "approve", ai_recommendation: null },
+      ],
+    });
+  });
+
+  it("reads reviews as JSON or comma-separated lines", () => {
+    expect(parseObservations('[{"minutes":3,"truth":"approve","decision":"reject","ai_recommendation":null}]')).toHaveLength(1);
+    expect(() => parseObservations("5,maybe,approve")).toThrow("Not approve/reject");
   });
 });
 
@@ -681,6 +758,28 @@ describe("Benchmarking", () => {
     const pair = within(benchmark).getByRole("table", { name: "fault@1.0.0 against kyc@1.0.0" });
     expect(within(pair).getByRole("row", { name: /Simulated labour time/ })).toHaveTextContent("B better");
     expect(within(pair).getByRole("row", { name: /Simulated labour time/ })).toHaveTextContent("+14.2%");
+  });
+
+  it("refreshes the head-to-head once the comparison's series have finished", async () => {
+    const fault = { ...tool, id: "tool-9", tool_id: "kyc-fault-injector", tool_name: "KYC Fault Injector" };
+    let state: "running" | "completed" = "running";
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/ai-tools": () => jsonResponse(page([tool, fault])),
+      "GET /api/v1/experiment-series": () => jsonResponse(page([{ ...series, id: "c-1", status: state }, { ...series, id: "c-2", status: state }])),
+      "POST /api/v1/tool-comparison/runs": () => jsonResponse({ series: [{ ...series, id: "c-1", status: "running" }, { ...series, id: "c-2", status: "running" }] }, 202),
+    });
+    renderApp("/benchmarking");
+    await userEvent.click(await screen.findByRole("button", { name: "Compare tools" }));
+    const form = await screen.findByRole("form", { name: "Compare tools" });
+    await userEvent.click(within(form).getByLabelText(/AGB Intelligent KYC Assistant/));
+    await userEvent.click(within(form).getByLabelText(/KYC Fault Injector/));
+    await userEvent.click(screen.getByRole("button", { name: "Start comparison" }));
+    expect(await screen.findByText(/Comparison running: 0 of 2 series finished/)).toBeInTheDocument();
+    const before = api.requests.filter((r) => r.path === "/api/v1/tool-comparison").length;
+    state = "completed";
+    await waitFor(() => expect(screen.queryByText(/Comparison running/)).not.toBeInTheDocument(), { timeout: 5000 });
+    await waitFor(() => expect(api.requests.filter((r) => r.path === "/api/v1/tool-comparison").length).toBeGreaterThan(before));
   });
 
   it("starts a comparison of several tools on the same seeds", async () => {

@@ -63,6 +63,7 @@ from app.modules.workflows.router import (
 )
 from app.observability.router import metrics_router
 from app.observability.router import router as observability_router
+from app.simulation.router import calibrations_router
 from app.simulation.router import router as simulations_router
 
 api_router = APIRouter(prefix="/api")
@@ -112,6 +113,7 @@ for module_router in (
     executions_router,
     tasks_router,
     simulations_router,
+    calibrations_router,
     ai_tools_router,
     experiments_router,
     series_router,

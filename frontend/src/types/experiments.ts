@@ -263,6 +263,9 @@ export interface SeriesCreate {
   seed: number;
   replicates: number;
   confidence: number;
+  // Phase 82: calibrated reviewers (default) and per-seed draws of their parameters.
+  calibrated?: boolean;
+  calibration_draws?: boolean;
 }
 
 // --- Portfolios (Phase 78) -------------------------------------------------------------------
@@ -488,6 +491,7 @@ export interface Benchmark {
   scenario_id: string;
   scenario_version: number;
   candidate_mode: "ai_assisted" | "ai_automated";
+  cost_assumptions: string;
   risk_tier: RiskTier;
   tools: RankedTool[];
   pairs: ToolPair[];
@@ -525,4 +529,49 @@ export interface ToolComparisonStart {
   employees: number;
   seed: number;
   replicates: number;
+}
+
+// --- Reviewer calibration (Phase 82) -----------------------------------------------------------
+
+export interface Estimate {
+  estimate: number | null;
+  low: number | null;
+  high: number | null;
+  n?: number;
+  successes?: number;
+}
+
+export interface CalibrationFit {
+  confidence: number;
+  observations: number;
+  unassisted: number;
+  assisted: number;
+  reviewer: { mean_minutes: Estimate; sigma: Estimate; accuracy: Estimate; accuracy_should_reject: Estimate | null };
+  ai_assistance: { review_time_factor: Estimate; accuracy_when_ai_correct: Estimate; accuracy_when_ai_wrong: Estimate | null } | null;
+  notes: string[];
+}
+
+export interface ReviewerCalibration {
+  id: string;
+  calibration_number: number;
+  scenario_id: string;
+  step_id: string;
+  source: string;
+  observation_count: number;
+  data_digest: string;
+  status: "active" | "superseded";
+  fitted: CalibrationFit;
+  assumption: {
+    reviewer?: { mean_minutes: number; sigma: number; accuracy: number; accuracy_should_reject: number | null };
+    ai_assistance?: { review_time_factor: number; accuracy_when_ai_correct: number; accuracy_when_ai_wrong: number } | null;
+  };
+  created_by_username: string | null;
+  created_at: string;
+}
+
+export interface ReviewObservation {
+  minutes: number;
+  truth: "approve" | "reject";
+  decision: "approve" | "reject";
+  ai_recommendation: "approve" | "reject" | null;
 }

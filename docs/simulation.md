@@ -247,6 +247,75 @@ Measured on the development database: 300 cases, 12 employees, seed 2030.
 - **The degraded gateway** only adds latency to steps: the payments' p95 cycle time is 0.565 h
   against 0.557 h.
 
+## Calibrated reviewers (Phase 82)
+
+The simulated reviewers' behaviour — review time, accuracy, and how an AI recommendation
+changes both — used to be stated assumptions in each scenario (`ReviewerModel`,
+`AIAssistanceModel`). A **calibration** (`app/simulation/calibration.py`) estimates them
+from observed reviews of one review step instead. Each observation is: how long the review
+took, the right decision, the reviewer's decision, and the AI recommendation shown (none,
+approve or reject).
+
+| Parameter | Estimate | Interval (95 %) | Needs |
+| --- | --- | --- | --- |
+| Mean review time and its spread (sigma) | lognormal, maximum likelihood | Cox's method for the mean; chi-square for sigma | 30 reviews without AI advice |
+| Accuracy on cases that should be approved / rejected | proportions | Wilson | 10 of each, else one pooled accuracy |
+| Time with AI advice, as a share of the time without | ratio of the lognormal means | delta method | 30 reviews with a recommendation |
+| Accuracy when the AI was right / wrong (automation bias) | proportions | Wilson | 30 with a recommendation; 5 with a wrong one |
+
+What the reviews cannot support stays the scenario's assumption, and the calibration says
+so. `ReviewerModel.accuracy_should_reject` (new, optional) lets a reviewer be better at one
+kind of case than the other.
+
+- **Recording one.** `POST /api/v1/reviewer-calibrations` (`experiments:run`; *Calibrate
+  reviewers* on the Experiments page) fits the reviews and makes the result the step's
+  active calibration; the previous one is superseded and kept with its observations and
+  their digest. `python -m app.cli calibration-pilot` records one from a **synthetic**
+  pilot study of known parameters (labelled as such) to check the fit.
+- **Using it.** New runs of the scenario simulate its active calibrations (`calibrated`,
+  default true, on runs, suites, experiments, series, portfolios and comparisons). The run
+  stores the calibrated reviewers in its scenario configuration and the calibration in
+  `config.calibration`, so a calibrated run is a different model from an assumed one and a
+  rerun simulates exactly the same reviewers whatever is active later.
+- **Uncertainty.** With `calibration_draws`, each seed's reviewers are drawn from the
+  parameters' sampling distributions (sigma² from its chi-square distribution, the log-mean
+  from its normal one, proportions from their Jeffreys posteriors), deterministically from
+  the calibration and the seed, so a seed's baseline and candidate share them. A series then
+  varies the reviewers as well as the cases.
+
+**Does the fit recover the truth?** 1,000 synthetic pilots of 400 reviews (about half with
+AI advice), drawn from mean 18 minutes, sigma 0.6, accuracy 0.95 / 0.80, AI time share
+0.7, accuracy 0.98 with right advice and 0.55 with wrong: the 95 % intervals covered the
+true value 95.2 % (mean time), 95.4 % (sigma), 95.4 % and 96.3 % (accuracies), 96.0 %
+(time share), 97.4 % and 96.1 % (accuracy with right and wrong advice) of the time —
+Wilson intervals are slightly conservative near 1.
+
+**Measured** on the development database: the KYC assistant, AI-assisted, retail
+onboarding, seeds 91–95, 40 cases and 20 staff, with the account-approval reviewers
+assumed (12 minutes, 0.97) or calibrated from one synthetic pilot (seed 82: 20.3 minutes,
+interval 18.3–22.4; accuracy 0.966 / 0.82; time share 0.70; 0.56 with wrong advice) — 30
+runs in 245 s:
+
+| Reviewers | Baseline labour a run | Labour change (95 % interval) | Relative |
+| --- | --- | --- | --- |
+| Assumed | 9.8 h | −3.2 h (−3.7 to −2.8) | −32.7 % |
+| Calibrated | 13.9 h | −4.4 h (−5.3 to −3.5) | −31.8 % |
+| Calibrated, drawn per seed | 14.0 h | −4.3 h (−4.9 to −3.8) | −30.9 % |
+
+- **The relative saving barely moved; the absolute one scaled with review time.** Slower
+  reviews make the same share of time worth more hours.
+- **Accuracy and false approvals did not change at all**, in any of the three. The fitted
+  accuracy on should-approve cases (0.966) is next to the assumption (0.97) and each
+  decision reuses its case's random number, so few decisions flip; only about three cases
+  in 40 should be rejected; and the assistant is almost never wrong, so the lower accuracy
+  with wrong advice is never exercised. A calibration matters where the workload reaches
+  the behaviour it changes.
+- **Drawing the reviewers did not widen the interval** at five seeds: the reviewers'
+  uncertainty (about ±10 % on review time) moves baseline and candidate together and is
+  small next to the variation between workloads.
+- **This pilot's interval missed the true mean** (18.3–22.4 against 18): the one-in-twenty
+  case the coverage study predicts, and a reminder that one study is one draw.
+
 ## Reproducibility
 
 The same scenario version, dataset, seed, configuration and software version produce the

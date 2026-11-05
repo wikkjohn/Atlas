@@ -50,6 +50,12 @@ class StartSimulation(BaseModel):
     tool_version: str | None = Field(
         default=None, max_length=40, description="Defaults to the highest active version"
     )
+    # Calibrated reviewer behaviour (Phase 82): the scenario's active calibrations, or its
+    # stated assumptions; `calibration_draws` draws each seed's parameters from their
+    # uncertainty; `calibration_ids` pins exact calibrations (reproductions).
+    calibrated: bool = True
+    calibration_draws: bool = False
+    calibration_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
     shards: int = Field(
         default=1,
         ge=1,
@@ -98,6 +104,12 @@ class StartSuite(BaseModel):
         pattern=r"^[A-Z]{2}$",
         description="Only this active country's customers and staff (Phase 78)",
     )
+    # Calibrated reviewer behaviour (Phase 82): the scenario's active calibrations, or its
+    # stated assumptions; `calibration_draws` draws each seed's parameters from their
+    # uncertainty; `calibration_ids` pins exact calibrations (reproductions).
+    calibrated: bool = True
+    calibration_draws: bool = False
+    calibration_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
 
 
 class Reproduction(BaseModel):
@@ -217,3 +229,38 @@ class CaseResultOut(BaseModel):
     ai_recommendation: str | None
     ai_status: str | None
     automated: bool
+
+
+# --- Reviewer calibration (Phase 82) -----------------------------------------------------------
+
+
+class ReviewObservation(BaseModel):
+    """One observed review: how long it took, the right and the actual decision, and the AI
+    recommendation the reviewer saw (None: none shown)."""
+
+    minutes: float = Field(gt=0, le=60 * 24 * 7)
+    truth: Literal["approve", "reject"]
+    decision: Literal["approve", "reject"]
+    ai_recommendation: Literal["approve", "reject"] | None = None
+
+
+class CalibrationCreate(BaseModel):
+    scenario_id: str = Field(min_length=3, max_length=64)
+    step_id: str = Field(min_length=2, max_length=64)
+    source: str = Field(min_length=5, max_length=2000, description="Where the reviews come from")
+    observations: list[ReviewObservation] = Field(min_length=1, max_length=20_000)
+
+
+class CalibrationSummary(BaseModel):
+    id: uuid.UUID
+    calibration_number: int
+    scenario_id: str
+    step_id: str
+    source: str
+    observation_count: int
+    data_digest: str
+    status: str
+    fitted: dict[str, Any]
+    assumption: dict[str, Any]
+    created_by_username: str | None
+    created_at: datetime

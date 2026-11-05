@@ -25,6 +25,9 @@ class ExperimentCreate(BaseModel):
     country: str | None = Field(
         default=None, pattern=r"^[A-Z]{2}$", description="One active country (Phase 78)"
     )
+    # Phase 82: the scenario's calibrated reviewers (or its assumptions); draws per seed.
+    calibrated: bool = True
+    calibration_draws: bool = False
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
     # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
     thresholds: SuccessThresholds | None = None
@@ -143,6 +146,9 @@ class SeriesCreate(BaseModel):
     country: str | None = Field(
         default=None, pattern=r"^[A-Z]{2}$", description="One active country (Phase 78)"
     )
+    # Phase 82: the scenario's calibrated reviewers (or its assumptions); draws per seed.
+    calibrated: bool = True
+    calibration_draws: bool = False
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
     # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
     thresholds: SuccessThresholds | None = None
@@ -207,6 +213,9 @@ class PortfolioCreate(BaseModel):
     seed: int = Field(default=42, ge=0, le=MAX_SEED, description="The first seed of each cell")
     replicates: int = Field(default=3, ge=2, le=MAX_REPLICATES)
     confidence: float = Field(default=0.95, ge=0.8, le=0.99)
+    # Phase 82: the scenario's calibrated reviewers (or its assumptions); draws per seed.
+    calibrated: bool = True
+    calibration_draws: bool = False
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
     # None: the scenario's thresholds (Phase 80); given: these, recorded as the request's.
     thresholds: SuccessThresholds | None = None
@@ -289,6 +298,9 @@ class ToolComparisonStart(BaseModel):
     seed: int = Field(default=42, ge=0, le=MAX_SEED, description="The first seed")
     replicates: int = Field(default=3, ge=2, le=MAX_REPLICATES)
     country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    # Phase 82: the scenario's calibrated reviewers (or its assumptions); draws per seed.
+    calibrated: bool = True
+    calibration_draws: bool = False
     costs: CostAssumptions = Field(default_factory=CostAssumptions)
 
 

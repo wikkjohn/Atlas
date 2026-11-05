@@ -700,7 +700,10 @@ out of the task inbox, the metrics and the `run_due` timer sweep; each carries i
 | GET | `/api/v1/simulations/{id}` | `simulations:read` | Configuration, software version, config hash, progress, results, result digest, failure reason and `reproductions` (other completed runs with the same scenario, seed, configuration and software, and whether their results match) |
 | GET | `/api/v1/simulations/{id}/cases?kind=&mismatched=` | `simulations:read` | Per-case results next to their ground truth |
 | POST | `/api/v1/simulations/{id}/rerun` | `simulations:run` | Same scenario version, profile, sizes, seed, mode and tool (202); idempotent |
-| POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`); idempotent |
+| POST | `/api/v1/simulations/suites` | `simulations:run` | `{scenario_id, scenario_version?, profile (small/custom), seed, applications?, employees?, modes, tool_id, tool_version?, calibrated?, calibration_draws?}`: one run per mode on the same seed and workload, executed one after another (202, returns the runs with their shared `batch_id`); idempotent |
+| GET | `/api/v1/reviewer-calibrations?scenario_id=&status=` | `simulations:read` | Reviewer calibrations (Phase 82), newest first: per scenario and review step the fitted parameters with intervals, the scenario's assumption beside them, notes on what stays assumed |
+| POST | `/api/v1/reviewer-calibrations` | `experiments:run` | `{scenario_id, step_id, source, observations: [{minutes, truth, decision, ai_recommendation?}] (≤ 20,000)}` → **201**: fitted and made the step's active calibration (the previous one superseded); 422 for an unknown step or under 30 reviews without AI advice |
+| GET | `/api/v1/reviewer-calibrations/{id}` | `simulations:read` | One calibration |
 
 `POST /api/v1/simulations` also takes `staffing_department_id` (Phase 55; custom profile,
 instead of `employees`): the run hires as many staff as that department has available on

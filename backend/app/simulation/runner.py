@@ -69,7 +69,7 @@ from app.simulation.models import (
     SimulationShard,
     SimulationStatus,
 )
-from app.simulation.scenarios import MAX_SHARDS, MODES, Scenario, get_scenario
+from app.simulation.scenarios import MAX_SHARDS, MODES, Scenario, ScenarioConfig, get_scenario
 from app.simulation.workloads import STAFF_ROLES, SyntheticCase, history_time, workload_for
 
 logger = logging.getLogger("atlas.simulation")
@@ -116,6 +116,7 @@ def resolve_config(
     shards: int = 1,
     countries: list[str] | None = None,
     staffing: dict[str, Any] | None = None,
+    calibration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The complete configuration of a run; stored with it and hashed to compare runs.
     `countries` limits the dataset to some active countries (Phase 28); staff are then hired
@@ -179,6 +180,11 @@ def resolve_config(
         # The dataset the run draws on: active countries decide where applicants live.
         "dataset": dataset,
     }
+    if calibration is not None:
+        # Calibrated reviewers (Phase 82): the simulated behaviour itself, so it is part of
+        # the scenario configuration (and the hash): a calibrated run is a different model.
+        config["scenario"] = calibration["scenario"]
+        config["calibration"] = {k: v for k, v in calibration.items() if k != "scenario"}
     if staffing is not None:
         # Sized from HR (Phase 55): the department's capacity on the simulated day, part of
         # the configuration so a run staffed differently is a different run.
@@ -266,6 +272,7 @@ def create_run(
     countries: list[str] | None = None,
     staffing: dict[str, Any] | None = None,
     rolling_archive: int | None = None,
+    calibration: dict[str, Any] | None = None,
 ) -> SimulationRun:
     """Record a queued run. `rolling_archive`: archive the history of every that many
     finished cases while the run goes on (the enterprise profile does by default)."""
@@ -290,6 +297,7 @@ def create_run(
         shards=shards,
         countries=countries,
         staffing=staffing,
+        calibration=calibration,
     )
     if rolling_archive is not None:
         # Where the history goes, not what is simulated: left out of the hash, so a run with
@@ -385,6 +393,10 @@ class _Simulation:
         self.scenario = scenario
         self.workload = workload_for(scenario)
         self.config = scenario.config
+        if run.config.get("calibration"):
+            # Calibrated reviewer behaviour (Phase 82): the run's own stored configuration,
+            # so a reproduction simulates the same reviewers whatever is active now.
+            self.config = ScenarioConfig.model_validate(run.config["scenario"])
         # When the pre-existing customers of the population opened their accounts.
         self.history_at = history_time(scenario.simulated_start)
         self.ai_mode = run.config.get("ai_mode")  # None: the scenario has no AI modes
@@ -845,6 +857,8 @@ class _Simulation:
         ai = (context.get(self.workload.ai_step) or {}) if self.workload.ai_step else {}
         recommendation = ai.get("recommendation") if ai.get("available") else None
         time_factor, accuracy = 1.0, model.accuracy
+        if truth == "reject" and model.accuracy_should_reject is not None:
+            accuracy = model.accuracy_should_reject
         assist = self.config.ai_assistance
         if assist is not None and recommendation in ("approve", "reject"):
             time_factor = assist.review_time_factor

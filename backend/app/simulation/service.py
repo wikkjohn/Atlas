@@ -222,6 +222,23 @@ def _hr_staffing(db: Session, body: StartSimulation) -> dict | None:
     return staffing
 
 
+def _calibration(db: Session, scenario, body) -> dict | None:
+    """The reviewers a run simulates (Phase 82): calibrated, drawn, pinned or assumed."""
+    from app.simulation import calibration
+
+    try:
+        return calibration.for_run(
+            db,
+            scenario,
+            seed=body.seed,
+            calibrated=body.calibrated,
+            draw=body.calibration_draws,
+            ids=[str(i) for i in body.calibration_ids] if body.calibration_ids else None,
+        )
+    except ValueError as exc:
+        raise BusinessRuleViolation(str(exc)) from exc
+
+
 def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> SimulationRun:
     staffing = _hr_staffing(db, body)
     if staffing is not None:
@@ -244,6 +261,7 @@ def start_run(db: Session, body: StartSimulation, actor_id: uuid.UUID) -> Simula
         countries=[body.country] if body.country else None,
         staffing=staffing,
         rolling_archive=body.rolling_archive,
+        calibration=_calibration(db, scenario, body),
     )
 
 
@@ -259,6 +277,8 @@ def start_suite(
     if check_idle:
         _ensure_idle(db)
     batch_id = uuid.uuid4()
+    # The same reviewers for every mode of the seed, so baseline and AI stay paired.
+    calibration = _calibration(db, scenario, body)
     return [
         runner.create_run(
             db,
@@ -272,6 +292,7 @@ def start_suite(
             tool=tool,
             batch_id=batch_id,
             countries=[body.country] if body.country else None,
+            calibration=calibration,
         )
         for mode in modes
     ]
@@ -292,6 +313,10 @@ def rerun_body(run: SimulationRun) -> StartSimulation:
         tool_version=tool.get("tool_version"),
         shards=run.config.get("shards", 1),
         country=run.config["dataset"].get("staff_country"),
+        # Exactly the reviewers it simulated (Phase 82), whatever is active now.
+        calibrated=bool(run.config.get("calibration")),
+        calibration_draws=bool((run.config.get("calibration") or {}).get("draw")),
+        calibration_ids=(run.config.get("calibration") or {}).get("ids"),
     )
 
 

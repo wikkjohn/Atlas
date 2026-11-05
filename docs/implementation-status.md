@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 81.
+Last updated: Phase 82.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -86,6 +86,60 @@ Last updated: Phase 81.
 | 79 | AI laboratory, step 4: guardrails — record audit, drift and bias across segments ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
+| 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 82: what exists
+
+- **Calibration** (`simulation/calibration.py`, `reviewer_calibrations`, migration 0055):
+  observed reviews of a review step fitted to review time (lognormal), accuracy on cases
+  that should be approved and rejected, and the AI's effect (time share, accuracy with right
+  and wrong advice), each with a 95 % interval; what the reviews cannot support stays
+  assumed, and is noted. One active calibration per step; superseded ones keep their reviews.
+- **Runs use it:** new runs simulate the scenario's active calibrations (`calibrated`, on by
+  default, through suites, experiments, series, portfolios and comparisons) and store them in
+  their configuration; reruns simulate the same reviewers. `calibration_draws` draws each
+  seed's reviewers from the fit's uncertainty, the same for a seed's baseline and candidate.
+- **Reviewer model:** `accuracy_should_reject`, optional, for reviewers better at one kind
+  of case than the other.
+- **API, CLI and page:** `/api/v1/reviewer-calibrations` (list, create, detail);
+  `python -m app.cli calibration-pilot` (a synthetic pilot of known parameters); *Reviewer
+  calibration* on the Experiments page (fitted against assumed, with intervals; upload of
+  reviews); the series form's reviewer options.
+- **Five review findings on PR #72 (Phase 81), fixed here:**
+  - The same runs re-evaluated under other cost assumptions were counted as new matched
+    workloads, inflating significance. Each set of cost assumptions is now its own
+    benchmark, and within one a workload counts once per tool.
+  - The benchmark's risk tier is now the tier of the thresholds applied, approved
+    versions included.
+  - A tool named with and without its version is now refused as a duplicate.
+  - Generated series, replicate and portfolio-cell names stay within 200 characters
+    (the replicate case predates Phase 81).
+  - The head-to-head now refreshes when a started comparison's series finish.
+  CI on PR #72 passed on the first run.
+
+## Phase 82: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 824 passed. New: 5 calibration tests covering:<br>• Wilson and lognormal against known values<br>• the fit recovering the parameters it was drawn from, with about 95 % coverage over 200 pilots<br>• what the reviews cannot support staying assumed<br>• deterministic draws that vary by seed<br>• runs through the API simulating the calibrated reviewers for baseline and candidate alike, reruns reproducing exactly, `calibrated: false` and per-seed draws, supersession, refusals<br>Also 2 new comparison tests for the PR #72 fixes: a separate benchmark per cost-assumption set (fails on the old pooling), the applied risk tier, duplicates after version resolution, and bounded names |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (1,164.0 s, alongside the backend suite) |
+| Frontend Vitest / typecheck / build | 183 passed (new: calibrated reviewers shown against the assumptions with intervals; reviews uploaded as comma-separated lines; JSON or CSV parsing; the series form's reviewer options; the head-to-head refreshing when a comparison's series finish) / clean / built |
+| Playwright on a fresh database | 76 passed (new: a researcher calibrates the leave reviewers from 40 observed reviews and sees the fit) |
+| Coverage of the fit's 95 % intervals over 1,000 synthetic pilots of 400 reviews | 95.2–97.4 % for all seven parameters |
+| KYC assistant, assisted, 5 seeds, reviewers assumed / calibrated / drawn (development database, 30 runs in 245 s) | labour −32.7 % / −31.8 % / −30.9 % relative; −3.2 h / −4.4 h / −4.3 h a run; accuracy and false approvals unchanged in all three |
+
+## Phase 82: known limitations
+
+- **No real observations:** the bank is synthetic, so every calibration so far comes from a
+  generated pilot; the method is checked, not the behaviour of real reviewers.
+- **The AI's effect is fitted per step but applies scenario-wide:** a scenario has one
+  AI-assistance model, taken from its latest calibration that fits one.
+- **Independence assumed:** reviews are treated as independent; several reviews by one
+  reviewer, or learning over time, are not modelled.
+- **Draws did not widen intervals at five seeds;** more seeds, or larger parameter
+  uncertainty, would be needed to see the effect.
+- **Accuracy changes are only visible where the workload reaches them:** in retail
+  onboarding few cases should be rejected and the assistant is rarely wrong.
 
 ## Phase 81: what exists
 

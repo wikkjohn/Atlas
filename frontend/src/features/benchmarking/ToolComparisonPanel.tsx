@@ -1,5 +1,6 @@
 import { GitCompare } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { useAuth } from "@/app/auth";
 import { Button } from "@/components/Button";
@@ -12,7 +13,7 @@ import { MODE_NAMES } from "@/features/experiments/ExperimentResults";
 import { pValue } from "@/features/experiments/SeriesPanel";
 import { TIER_TONE } from "@/features/experiments/ThresholdsPanel";
 import { useAiTools } from "@/services/aiTools";
-import { useStartComparison, useToolComparison } from "@/services/experiments";
+import { useSeriesList, useStartComparison, useToolComparison } from "@/services/experiments";
 import { humanize } from "@/services/format";
 import { useScenarios } from "@/services/simulations";
 import type { Benchmark, PairOutcome, ToolPair } from "@/types/experiments";
@@ -85,6 +86,7 @@ function BenchmarkView({ benchmark }: { benchmark: Benchmark }) {
           {b.scenario_id} v{b.scenario_version} · {MODE_NAMES[b.candidate_mode]}
         </h4>
         <StatusPill tone={TIER_TONE[b.risk_tier]} label={`${humanize(b.risk_tier)} risk`} />
+        <span className="text-[11px] text-slate-500">cost assumptions {b.cost_assumptions}</span>
       </div>
       <table aria-label={`Ranking on ${b.scenario_id}`} className="min-w-full text-sm">
         <thead className="text-left text-xs text-slate-500">
@@ -121,7 +123,7 @@ function BenchmarkView({ benchmark }: { benchmark: Benchmark }) {
   );
 }
 
-function CompareDialog({ onClose }: { onClose: () => void }) {
+function CompareDialog({ onClose, onStarted }: { onClose: () => void; onStarted: (seriesIds: string[]) => void }) {
   const tools = useAiTools();
   const scenarios = useScenarios();
   const start = useStartComparison();
@@ -171,7 +173,12 @@ function CompareDialog({ onClose }: { onClose: () => void }) {
         seed: Number(seed),
         replicates: Number(replicates),
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: (started) => {
+          onStarted(started.series.map((s) => s.id));
+          onClose();
+        },
+      },
     );
   };
   return (
@@ -262,6 +269,19 @@ export function ToolComparisonPanel() {
   const { can } = useAuth();
   const comparison = useToolComparison();
   const [comparing, setComparing] = useState(false);
+  // The comparison's runs happen in the background: follow its series (the list polls
+  // while any is running) and refresh the head-to-head once they have all finished.
+  const [watching, setWatching] = useState<string[]>([]);
+  const seriesList = useSeriesList();
+  const client = useQueryClient();
+  const followed = (seriesList.data?.items ?? []).filter((s) => watching.includes(s.id));
+  const running = watching.length > 0 && (followed.length < watching.length || followed.some((s) => s.status === "running"));
+  useEffect(() => {
+    if (watching.length > 0 && !running) {
+      setWatching([]);
+      void client.invalidateQueries({ queryKey: ["experiments", "tool-comparison"] });
+    }
+  }, [watching, running, client]);
   const c = comparison.data;
   return (
     <Panel
@@ -276,6 +296,12 @@ export function ToolComparisonPanel() {
       }
     >
       <ErrorMessage error={comparison.error} />
+      {running && (
+        <p role="status" className="mb-2 text-xs text-slate-600">
+          Comparison running: {followed.filter((s) => s.status !== "running").length} of {watching.length} series finished.
+          The head-to-head updates when all have.
+        </p>
+      )}
       {c && (
         <div className="space-y-4">
           {c.benchmarks.length === 0 ? (
@@ -315,14 +341,14 @@ export function ToolComparisonPanel() {
                 </table>
               </div>
               {c.benchmarks.map((b) => (
-                <BenchmarkView key={`${b.scenario_id}-${b.scenario_version}-${b.candidate_mode}`} benchmark={b} />
+                <BenchmarkView key={`${b.scenario_id}-${b.scenario_version}-${b.candidate_mode}-${b.cost_assumptions}`} benchmark={b} />
               ))}
             </>
           )}
           <p className="text-[11px] text-slate-500">Method: {c.method}</p>
         </div>
       )}
-      {comparing && <CompareDialog onClose={() => setComparing(false)} />}
+      {comparing && <CompareDialog onClose={() => setComparing(false)} onStarted={setWatching} />}
     </Panel>
   );
 }

@@ -127,3 +127,19 @@ def test_one_tool_across_each_countrys_workflow(api: TestClient, db: Session) ->
         {"scenario_id": "retail-overdrafts-country", "reason": "no variant generated for GB"}
     ]
     assert portfolios._with_variants(db, [cell], ["US", "JP"]) == ([cell], [])
+
+
+def test_the_template_takes_every_countrys_largest_overdraft(db: Session) -> None:
+    """The workload asks for up to twice a product's ceiling; in Lebanese pounds or
+    Indonesian rupiah that is far above WF-1003's 10^9 minor units."""
+    from app.modules.countries.models import Country
+    from app.modules.retail.models import RetailProduct
+    from app.modules.retail.service import max_overdraft
+
+    document = json.loads((HERE / f"{TEMPLATE}.json").read_text())
+    cap = document["body"]["input_schema"]["properties"]["limit"]["maximum"]
+    products = [p for p in db.execute(select(RetailProduct)).scalars() if p.max_overdraft_usd]
+    currencies = set(db.execute(select(Country.default_currency)).scalars())
+    assert products and len(currencies) > 90  # 120 countries, 93 currencies
+    largest = max(2 * max_overdraft(p, c) for p in products for c in currencies)
+    assert largest > 10**9 and largest <= cap

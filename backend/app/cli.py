@@ -894,7 +894,7 @@ def _country_variants(args: argparse.Namespace) -> int:
         ]
         report = templates.generate(db, "TPL-OVERDRAFT-REQUEST", params, actor)
         db.commit()
-        counts = {k: report.count(k) for k in ("created", "unchanged", "invalid")}
+        counts = {k: report.count(k) for k in ("created", "updated", "unchanged", "invalid")}
         print(f"{len(codes)} countries: {counts}")
     return 0 if report.valid else 1
 

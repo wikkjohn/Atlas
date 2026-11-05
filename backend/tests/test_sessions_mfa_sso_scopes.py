@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -455,3 +455,84 @@ def test_a_department_scope_limits_employees(client: TestClient, db: Session, sc
     cleared = client.put(f"/api/v1/users/{hr.id}/scopes", json={}, headers=admin)
     assert cleared.json() == {"countries": None, "departments": None}
     assert len(client.get("/api/v1/employees?limit=200", headers=headers).json()["items"]) >= 2
+
+
+# --- PR #75 review fixes ------------------------------------------------------------------------
+
+
+def test_a_promotion_into_a_role_that_requires_mfa_holds_the_session(
+    app, client: TestClient, db: Session
+) -> None:
+    settings = get_settings().model_copy(update={"mfa_required_roles": ["platform_administrator"]})
+    app.dependency_overrides[get_settings] = lambda: settings
+    user = make_user(db, RoleCode.BANKING_EMPLOYEE)
+    admin = make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)
+    db.commit()
+    headers = _bearer(_login(client, user)["access_token"])
+    assert client.get("/api/v1/customers", headers=headers).status_code == 200
+    admin_headers = auth(admin)  # the administrator's own session has its factor verified
+    db.execute(
+        text("UPDATE auth_sessions SET mfa = 'verified' WHERE user_id = :id"), {"id": admin.id}
+    )
+    db.commit()
+    promoted = client.patch(
+        f"/api/v1/users/{user.id}", json={"role": "platform_administrator"}, headers=admin_headers
+    )
+    assert promoted.status_code == 200
+    # The session was "not required" at sign-in; the new role requires a factor now.
+    held = client.get("/api/v1/users", headers=headers)
+    assert held.status_code == 403 and "enrol" in held.text
+    assert client.get("/api/v1/auth/me", headers=headers).json()["mfa_enrolment_required"]
+
+
+def test_scoped_administrators_cannot_manage_users(client: TestClient, db: Session) -> None:
+    make_org_tree(db)
+    admin = make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)
+    scoped = make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)
+    other = make_user(db, RoleCode.BANKING_EMPLOYEE)
+    db.commit()
+    assert (
+        client.put(
+            f"/api/v1/users/{scoped.id}/scopes", json={"countries": ["US"]}, headers=auth(admin)
+        ).status_code
+        == 200
+    )
+    headers = auth(scoped)
+    db.commit()
+    created = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "username": "escape.hatch",
+            "email": "escape@atlasbank.example",
+            "display_name": "Escape",
+            "password": PASSWORD,
+            "role": "platform_administrator",
+        },
+    )
+    assert created.status_code == 422 and "without a country or department scope" in created.text
+    for method, path, body in (
+        ("patch", f"/api/v1/users/{other.id}", {"role": "platform_administrator"}),
+        ("post", f"/api/v1/users/{other.id}/unlock", None),
+        ("post", f"/api/v1/users/{other.id}/sessions/revoke", None),
+        ("post", f"/api/v1/users/{other.id}/mfa/reset", None),
+    ):
+        response = getattr(client, method)(
+            path, headers=headers, **({"json": body} if body else {})
+        )
+        assert response.status_code == 422, (path, response.text)
+
+
+def test_a_short_idle_limit_is_kept_alive_by_activity(app, client: TestClient, db: Session) -> None:
+    settings = get_settings().model_copy(update={"session_idle_minutes": 1})
+    app.dependency_overrides[get_settings] = lambda: settings
+    user = make_user(db, RoleCode.BANKING_EMPLOYEE)
+    db.commit()
+    headers = _bearer(_login(client, user)["access_token"])
+    session = db.execute(select(AuthSession).where(AuthSession.user_id == user.id)).scalar_one()
+    for _ in range(3):  # each request 40 seconds after the last: within one minute, always
+        session.last_seen_at = datetime.now(UTC) - timedelta(seconds=40)
+        db.commit()
+        assert client.get("/api/v1/auth/me", headers=headers).status_code == 200
+        db.refresh(session)
+        assert datetime.now(UTC) - session.last_seen_at < timedelta(seconds=5)

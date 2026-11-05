@@ -26,7 +26,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.modules.identity.models import AuthSession, Role, SessionMfa, User
+from app.modules.identity.models import AuthSession, Role, User
 from app.modules.identity.schemas import (
     CurrentUserOut,
     ScopeOut,
@@ -91,12 +91,19 @@ def session_out(session: AuthSession, current: uuid.UUID | None = None) -> Sessi
     )  # fmt: skip
 
 
-def current_user_out(user: User, session: AuthSession | None = None) -> CurrentUserOut:
+def current_user_out(
+    user: User, session: AuthSession | None = None, settings: Settings | None = None
+) -> CurrentUserOut:
+    from app.config import get_settings
+    from app.modules.identity import sessions
+
     return CurrentUserOut(
         **user_out(user).model_dump(),
         permissions=sorted(p.value for p in permissions_for(user.role.code)),
         session=session_out(session, session.id) if session else None,
-        mfa_enrolment_required=bool(session and session.mfa == SessionMfa.ENROLMENT_REQUIRED),
+        mfa_enrolment_required=bool(
+            session and sessions.enrolment_owed(session, user, settings or get_settings())
+        ),
         mfa_recovery_codes_left=sum(
             1 for c in user.mfa_recovery_codes or [] if c.get("used_at") is None
         ),

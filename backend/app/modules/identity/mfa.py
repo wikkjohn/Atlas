@@ -16,6 +16,18 @@ from app.core.errors import BusinessRuleViolation
 from app.modules.identity.models import AuthSession, SessionMfa, User
 
 
+def lock(db: Session, user_id) -> User:
+    """The user's row, locked and re-read for the rest of the transaction: checking and
+    consuming a code is then atomic, so two overlapping requests cannot both accept one."""
+    from sqlalchemy import select
+
+    db.flush()
+    return db.execute(
+        select(User).where(User.id == user_id).with_for_update(of=User)
+        .execution_options(populate_existing=True)
+    ).scalar_one()  # fmt: skip
+
+
 def enabled(user: User) -> bool:
     return user.mfa_secret is not None
 

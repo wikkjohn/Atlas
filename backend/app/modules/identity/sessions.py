@@ -60,6 +60,14 @@ def requires_mfa(user: User, settings: Settings) -> bool:
     return user.role.code in settings.mfa_required_roles
 
 
+def enrolment_owed(session: AuthSession, user: User, settings: Settings) -> bool:
+    """The session may only enrol: at sign-in, or since — a user promoted into a role that
+    requires a factor is held to it at once, whatever the session said (PR #75 review)."""
+    if session.mfa == SessionMfa.ENROLMENT_REQUIRED:
+        return True
+    return session.mfa == SessionMfa.NOT_REQUIRED and requires_mfa(user, settings)
+
+
 def access_token(
     session: AuthSession, settings: Settings, now: datetime | None = None
 ) -> IssuedToken:
@@ -187,7 +195,10 @@ def validate(db: Session, claims: TokenClaims, settings: Settings) -> AuthSessio
         raise AuthenticationError(_MESSAGES[reason])
     if session.mfa == SessionMfa.PENDING:
         raise AuthenticationError("The second factor has not been verified.")
-    if now - session.last_seen_at >= TOUCH_INTERVAL:
+    # Never less often than a quarter of the idle limit, so a short limit still lets
+    # activity keep the session alive (PR #75 review).
+    touch = min(TOUCH_INTERVAL, timedelta(minutes=settings.session_idle_minutes) / 4)
+    if now - session.last_seen_at >= touch:
         session.last_seen_at = now
     return session
 
@@ -203,7 +214,7 @@ def verify_challenge(
         or session.mfa != SessionMfa.PENDING
     ):  # fmt: skip
         raise AuthenticationError("This sign-in can no longer be completed; sign in again.")
-    user = db.get(User, session.user_id)
+    user = mfa.lock(db, session.user_id)  # one code, one sign-in
     if user is None or not user.is_active:
         raise AuthenticationError("User account is not active.")
     kind = mfa.verify(user, code)

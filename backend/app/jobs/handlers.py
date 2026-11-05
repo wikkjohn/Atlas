@@ -178,6 +178,20 @@ def execute_experiment_portfolio(ctx: JobContext) -> dict:
 
 
 @job_kind(
+    "tool_comparison.execute",
+    description="Run every series of a tool comparison, then each series' statistics",
+    max_attempts=1,
+)
+def execute_tool_comparison(ctx: JobContext) -> dict:
+    from app.modules.experiments import comparison
+
+    series_ids = [uuid.UUID(s) for s in ctx.payload["series_ids"]]
+    run_ids = [uuid.UUID(r) for r in ctx.payload["run_ids"]]
+    comparison.execute(ctx.factory, series_ids, run_ids)
+    return {"series": len(series_ids), "runs": len(run_ids)}
+
+
+@job_kind(
     "system.ping",
     description="Does nothing: shows that a worker is picking up jobs",
     max_attempts=1,

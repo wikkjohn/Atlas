@@ -12,6 +12,7 @@ import type {
   SeriesDetail,
   SeriesMetric,
   ThresholdOverview,
+  ToolComparison,
 } from "@/types/experiments";
 import { DEFAULT_COSTS, DEFAULT_THRESHOLDS } from "@/types/experiments";
 
@@ -319,8 +320,40 @@ const reassessment: PortfolioReassessment = {
   method: "Each replicate re-evaluated from its stored raw measurements.",
 };
 
+// Phase 81: tools compared on matched workloads.
+const pairMetric = (metric: string, label: string, a: number, b: number, p: number, finding: "a_better" | "b_better" | "no_significant_difference") => ({
+  metric, label, unit: "hours", better: "lower" as const, n: 5, a_mean: a, b_mean: b, mean_difference: a - b,
+  relative_difference: (a - b) / b, ci_low: null, ci_high: null, p_value: p, p_adjusted: p, identical: a === b, finding,
+});
+const toolComparison: ToolComparison = {
+  confidence: 0.95,
+  method: "Matched workloads, paired t-tests, Holm.",
+  benchmarks: [
+    {
+      scenario_id: "retail-onboarding",
+      scenario_version: 2,
+      candidate_mode: "ai_assisted",
+      risk_tier: "critical",
+      tools: [
+        { tool: "kyc@1.0.0", tool_id: "kyc", tool_version: "1.0.0", rank: 1, experiments: 5, successful: 5, successful_stored: 5, preferred_in: 1, not_preferred_in: 0, mean_relative_change: { labour_hours: -0.35 } },
+        { tool: "kyc@1.1.0", tool_id: "kyc", tool_version: "1.1.0", rank: 1, experiments: 5, successful: 5, successful_stored: 5, preferred_in: 1, not_preferred_in: 0, mean_relative_change: { labour_hours: -0.35 } },
+        { tool: "fault@1.0.0", tool_id: "fault", tool_version: "1.0.0", rank: 3, experiments: 5, successful: 0, successful_stored: 0, preferred_in: 0, not_preferred_in: 2, mean_relative_change: { labour_hours: -0.28 } },
+      ],
+      pairs: [
+        { a: "kyc@1.0.0", b: "kyc@1.1.0", matched_workloads: 5, seeds: [81, 82, 83, 84, 85], outcome: "identical", a_better_on: [], b_better_on: [], metrics: [pairMetric("labour_hours", "Simulated labour time", 6, 6, 1, "no_significant_difference")] },
+        { a: "fault@1.0.0", b: "kyc@1.0.0", matched_workloads: 5, seeds: [81, 82, 83, 84, 85], outcome: "b_preferred", a_better_on: [], b_better_on: ["labour_hours"], metrics: [pairMetric("labour_hours", "Simulated labour time", 6.85, 6, 0.033, "b_better")] },
+      ],
+    },
+  ],
+  scoreboard: [
+    { tool: "kyc@1.0.0", tool_id: "kyc", tool_version: "1.0.0", benchmarks: 1, ranked_first: 1, experiments: 5, successful: 5, preferred: 1, not_preferred: 0, trade_off: 0, no_difference: 0, identical: 1, too_few_matched: 0 },
+    { tool: "fault@1.0.0", tool_id: "fault", tool_version: "1.0.0", benchmarks: 1, ranked_first: 0, experiments: 5, successful: 0, preferred: 0, not_preferred: 2, trade_off: 0, no_difference: 0, identical: 0, too_few_matched: 0 },
+  ],
+};
+
 const routes = {
   ...healthyRoutes,
+  "GET /api/v1/tool-comparison": () => jsonResponse(toolComparison),
   "GET /api/v1/scenario-thresholds": () => jsonResponse(thresholdOverview),
   "GET /api/v1/experiment-portfolios": () => jsonResponse(page([portfolio])),
   "GET /api/v1/experiment-portfolios/pf-1": () => jsonResponse(portfolio),
@@ -627,5 +660,49 @@ describe("Benchmarking", () => {
     const quality = screen.getByRole("region", { name: "Quality indicators" });
     expect(within(quality).getByText("False approval rate (of should-reject cases)")).toBeInTheDocument();
     expect(within(quality).getByText("Regression")).toBeInTheDocument();
+  });
+
+  it("ranks tools on matched workloads and shows each head-to-head", async () => {
+    mockApi(routes);
+    renderApp("/benchmarking");
+    const board = await screen.findByRole("table", { name: "Scoreboard across benchmarks" });
+    expect(within(board).getByRole("row", { name: /fault@1.0.0/ })).toHaveTextContent("0 / 2");
+    const ranking = screen.getByRole("table", { name: "Ranking on retail-onboarding" });
+    // Tools nothing separates share a rank.
+    expect(within(ranking).getAllByText("#1")).toHaveLength(2);
+    expect(within(ranking).getByRole("row", { name: /fault@1.0.0/ })).toHaveTextContent("#3");
+    const benchmark = screen.getByRole("region", { name: "Benchmark retail-onboarding" });
+    expect(within(benchmark).getByText("Identical results")).toBeInTheDocument();
+    expect(within(benchmark).getByText("kyc@1.0.0 preferred")).toBeInTheDocument();
+    const pair = within(benchmark).getByRole("table", { name: "fault@1.0.0 against kyc@1.0.0" });
+    expect(within(pair).getByRole("row", { name: /Simulated labour time/ })).toHaveTextContent("B better");
+    expect(within(pair).getByRole("row", { name: /Simulated labour time/ })).toHaveTextContent("+14.2%");
+  });
+
+  it("starts a comparison of several tools on the same seeds", async () => {
+    const fault = { ...tool, id: "tool-9", tool_id: "kyc-fault-injector", tool_name: "KYC Fault Injector" };
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/ai-tools": () => jsonResponse(page([tool, fault])),
+      "POST /api/v1/tool-comparison/runs": () => jsonResponse({ series: [series, series] }, 202),
+    });
+    renderApp("/benchmarking");
+    await userEvent.click(await screen.findByRole("button", { name: "Compare tools" }));
+    const form = await screen.findByRole("form", { name: "Compare tools" });
+    await userEvent.click(within(form).getByLabelText(/AGB Intelligent KYC Assistant/));
+    await userEvent.click(screen.getByRole("button", { name: "Start comparison" }));
+    expect(within(form).getByText("Choose 2 to 5 tools.")).toBeInTheDocument();
+    await userEvent.click(within(form).getByLabelText(/KYC Fault Injector/));
+    await userEvent.click(screen.getByRole("button", { name: "Start comparison" }));
+    await waitFor(() => expect(api.requests.some((r) => r.method === "POST")).toBe(true));
+    expect(api.requests.find((r) => r.method === "POST")?.body).toMatchObject({
+      scenario_id: "retail-onboarding",
+      tools: [
+        { tool_id: "agb-intelligent-kyc-assistant", tool_version: "1.0.0" },
+        { tool_id: "kyc-fault-injector", tool_version: "1.0.0" },
+      ],
+      candidate_mode: "ai_assisted",
+      replicates: 3,
+    });
   });
 });

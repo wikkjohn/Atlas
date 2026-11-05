@@ -19,6 +19,8 @@ import type {
   ThresholdOverview,
   ThresholdProposal,
   ThresholdVersion,
+  ToolComparison,
+  ToolComparisonStart,
 } from "@/types/experiments";
 
 const POLL_MS = 2000;
@@ -171,5 +173,27 @@ export function useExperimentReassessment(id: string) {
 export function usePortfolioReassessment(id: string) {
   return useMutation({
     mutationFn: () => apiGet<PortfolioReassessment>(`/api/v1/experiment-portfolios/${id}/under-scenario-thresholds`),
+  });
+}
+
+// --- Tool comparison (Phase 81) --------------------------------------------------------------
+
+export const useToolComparison = () =>
+  useQuery({
+    queryKey: ["experiments", "tool-comparison"],
+    queryFn: () => apiGet<ToolComparison>("/api/v1/tool-comparison"),
+  });
+
+export function useStartComparison() {
+  const client = useQueryClient();
+  const once = useIdempotencyKey();
+  return useMutation({
+    mutationFn: (body: ToolComparisonStart) =>
+      apiPost<{ series: SeriesSummary[] }>("/api/v1/tool-comparison/runs", body, once.key()),
+    onSuccess: () => {
+      once.renew();
+      void client.invalidateQueries({ queryKey: ["experiments"] });
+      void client.invalidateQueries({ queryKey: ["simulations"] });
+    },
   });
 }

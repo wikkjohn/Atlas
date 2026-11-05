@@ -437,3 +437,92 @@ export interface PortfolioReassessment {
   }[];
   method: string;
 }
+
+// --- Tool comparison (Phase 81) ---------------------------------------------------------------
+
+export type PairOutcome = "a_preferred" | "b_preferred" | "trade_off" | "no_difference" | "identical" | "too_few_matched";
+
+export interface PairMetric {
+  metric: string;
+  label: string;
+  unit: string;
+  better: "lower" | "higher";
+  n: number;
+  a_mean: number | null;
+  b_mean: number | null;
+  mean_difference: number | null;
+  relative_difference: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  p_value: number | null;
+  p_adjusted: number | null;
+  identical: boolean;
+  finding: "a_better" | "b_better" | "no_significant_difference" | "too_few_matched";
+}
+
+export interface ToolPair {
+  a: string;
+  b: string;
+  matched_workloads: number;
+  seeds: number[];
+  outcome: PairOutcome;
+  a_better_on: string[];
+  b_better_on: string[];
+  metrics: PairMetric[];
+}
+
+export interface RankedTool {
+  tool: string;
+  tool_id: string;
+  tool_version: string;
+  rank: number;
+  experiments: number;
+  successful: number;
+  successful_stored: number;
+  preferred_in: number;
+  not_preferred_in: number;
+  mean_relative_change: Record<string, number | null>;
+}
+
+export interface Benchmark {
+  scenario_id: string;
+  scenario_version: number;
+  candidate_mode: "ai_assisted" | "ai_automated";
+  risk_tier: RiskTier;
+  tools: RankedTool[];
+  pairs: ToolPair[];
+}
+
+export interface ScoreboardRow {
+  tool: string;
+  tool_id: string;
+  tool_version: string;
+  benchmarks: number;
+  ranked_first: number;
+  experiments: number;
+  successful: number;
+  preferred: number;
+  not_preferred: number;
+  trade_off: number;
+  no_difference: number;
+  identical: number;
+  too_few_matched: number;
+}
+
+export interface ToolComparison {
+  benchmarks: Benchmark[];
+  scoreboard: ScoreboardRow[];
+  confidence: number;
+  method: string;
+}
+
+export interface ToolComparisonStart {
+  name: string;
+  scenario_id: string;
+  tools: { tool_id: string; tool_version: string | null }[];
+  candidate_mode: "ai_assisted" | "ai_automated";
+  applications: number;
+  employees: number;
+  seed: number;
+  replicates: number;
+}

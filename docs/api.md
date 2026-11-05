@@ -782,6 +782,8 @@ reported as failed with an "Interrupted" reason. See [simulation.md](simulation.
 | POST | `/api/v1/experiments/{id}/re-evaluate` | `experiments:read` | Recomputes from the stored raw measurements: `{stored_digest, recomputed_digest, matches}` |
 | GET | `/api/v1/experiments/{id}/report?format=markdown|json` | `experiments:read` | Downloadable proof-of-concept report; 409 until evaluated |
 | GET | `/api/v1/benchmarks` | `experiments:read` | Completed experiments by tool version and configuration: counts, successes, median relative changes, latest verdict |
+| GET | `/api/v1/tool-comparison?scenario_id=&tool=` | `experiments:read` | Tools compared on matched workloads (Phase 81): per benchmark (scenario version and mode) the ranked tools (successful under the scenario's thresholds now, head-to-heads won and lost; ties share a rank) and every pair (matched workloads and seeds, per metric the means, mean difference, interval, Holm-adjusted p and finding; outcome); a `scoreboard` across benchmarks. Without filters only benchmarks with two or more tools; `tool` is `tool_id@tool_version`. Derived, nothing stored |
+| POST | `/api/v1/tool-comparison/runs` | `experiments:run` | `{name, scenario_id, scenario_version?, tools: [{tool_id, tool_version?}] (2–5, distinct), candidate_mode, applications, employees, seed, replicates (2–30), country?, costs?}` → **202** `{series}`: one series per tool on the same seeds, run in one job; 409 while another run is active; idempotent |
 
 See [benchmarking.md](benchmarking.md) for metrics, costs and criteria.
 

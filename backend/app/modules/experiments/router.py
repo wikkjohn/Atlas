@@ -10,7 +10,7 @@ from app.core.idempotency import IdempotencyKey, run_idempotent
 from app.core.pagination import Page, PageParamsDep
 from app.core.permissions import Permission
 from app.jobs import engine as jobs
-from app.modules.experiments import portfolios, report, series, service, thresholds
+from app.modules.experiments import comparison, portfolios, report, series, service, thresholds
 from app.modules.experiments.models import ExperimentStatus
 from app.modules.experiments.schemas import (
     BenchmarkRow,
@@ -27,6 +27,8 @@ from app.modules.experiments.schemas import (
     SeriesSummary,
     ThresholdDecision,
     ThresholdProposal,
+    ToolComparisonRuns,
+    ToolComparisonStart,
 )
 from app.modules.identity.dependencies import Authorized
 from app.simulation.router import SessionFactory, launch_idempotent
@@ -36,6 +38,7 @@ series_router = APIRouter(prefix="/experiment-series", tags=["experiments"])
 portfolio_router = APIRouter(prefix="/experiment-portfolios", tags=["experiments"])
 benchmarks_router = APIRouter(prefix="/benchmarks", tags=["experiments"])
 thresholds_router = APIRouter(prefix="/scenario-thresholds", tags=["experiments"])
+comparison_router = APIRouter(prefix="/tool-comparison", tags=["experiments"])
 
 
 @experiments_router.get("", response_model=Page[ExperimentSummary], summary="Experiments")
@@ -397,3 +400,58 @@ def reject_thresholds(
     actor: Authorized(Permission.RISK_APPROVE),
 ) -> dict:
     return thresholds.version_out(db, thresholds.reject(db, record_id, actor.id, body.note))
+
+
+# --- Tool comparison (Phase 81) ----------------------------------------------------------------
+
+
+@comparison_router.get("", summary="Tools compared on matched workloads across all benchmarks")
+def compare_tools(
+    db: DbSession,
+    _: Authorized(Permission.EXPERIMENTS_READ),
+    scenario_id: Annotated[str | None, Query(max_length=64)] = None,
+    tool: Annotated[str | None, Query(max_length=110, description="tool_id@tool_version")] = None,
+) -> dict:
+    return comparison.compare(db, scenario_id=scenario_id, tool=tool)
+
+
+@comparison_router.post(
+    "/runs",
+    response_model=ToolComparisonRuns,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Run several tools on the same scenario and seeds: one series per tool",
+)
+def start_comparison(
+    body: ToolComparisonStart,
+    request: Request,
+    db: DbSession,
+    actor: Authorized(Permission.EXPERIMENTS_RUN),
+    tasks: BackgroundTasks,
+    factory: SessionFactory,
+    idempotency_key: IdempotencyKey = None,
+):
+    def create():
+        created = comparison.start(db, body, actor.id)
+        job = jobs.enqueue(
+            db,
+            "tool_comparison.execute",
+            {
+                "series_ids": [str(s.id) for s in created],
+                "run_ids": [str(r) for s in created for r in series.run_ids(db, s)],
+            },  # fmt: skip
+            created_by=actor.id,
+        )
+        return ToolComparisonRuns(series=[series.summary(db, s) for s in created]), [job.id]
+
+    def schedule(job_ids: list) -> None:
+        jobs.dispatch(tasks, factory, job_ids)
+
+    return launch_idempotent(
+        db,
+        request,
+        key=idempotency_key,
+        actor_id=actor.id,
+        payload=body,
+        create=create,
+        schedule=schedule,
+    )

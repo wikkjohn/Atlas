@@ -266,3 +266,31 @@ class ThresholdProposal(BaseModel):
 
 class ThresholdDecision(BaseModel):
     note: str = Field(default="", max_length=2000)
+
+
+# --- Tool comparison (Phase 81) ----------------------------------------------------------------
+
+
+class ComparedTool(BaseModel):
+    tool_id: str = Field(max_length=64)
+    tool_version: str | None = Field(default=None, max_length=40)
+
+
+class ToolComparisonStart(BaseModel):
+    """Run several tools on the same scenario, seeds and sizes: one series per tool."""
+
+    name: str = Field(min_length=3, max_length=200)
+    scenario_id: str = Field(min_length=3, max_length=64)
+    scenario_version: int | None = Field(default=None, ge=1)
+    tools: list[ComparedTool] = Field(min_length=2, max_length=5)
+    candidate_mode: Literal["ai_assisted", "ai_automated"] = "ai_assisted"
+    applications: int = Field(default=40, ge=5, le=MAX_CUSTOM_APPLICATIONS)
+    employees: int = Field(default=12, ge=3, le=MAX_CUSTOM_EMPLOYEES)
+    seed: int = Field(default=42, ge=0, le=MAX_SEED, description="The first seed")
+    replicates: int = Field(default=3, ge=2, le=MAX_REPLICATES)
+    country: str | None = Field(default=None, pattern=r"^[A-Z]{2}$")
+    costs: CostAssumptions = Field(default_factory=CostAssumptions)
+
+
+class ToolComparisonRuns(BaseModel):
+    series: list[SeriesSummary]

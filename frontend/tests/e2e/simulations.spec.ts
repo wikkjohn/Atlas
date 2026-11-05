@@ -332,3 +332,28 @@ test("Scenario thresholds (Phase 80): a researcher proposes, an administrator ap
   await expect(adminLeave).toContainText("Medium");
   await expect(adminLeave).toContainText("5%");
 });
+
+test("Benchmarking (Phase 81): two KYC tools compared head-to-head on the same seeds", async ({ page }) => {
+  test.setTimeout(240_000);
+  await signIn(page, "researcher", "/benchmarking");
+  await page.getByRole("button", { name: "Compare tools" }).click();
+  const form = page.getByRole("form", { name: "Compare tools" });
+  await form.getByLabel(/AGB Intelligent KYC Assistant/).check();
+  await form.getByLabel(/KYC Fault Injector/).check();
+  await form.getByLabel("Cases").fill("15");
+  await form.getByLabel("Staff").fill("5");
+  await form.getByLabel("First seed").fill(String(1 + Math.floor(Math.random() * 1_000_000)));
+  await form.getByLabel("Seeds").fill("2");
+  await page.getByRole("button", { name: "Start comparison" }).click();
+  await expect(form).toBeHidden();
+  // The runs happen in the background; the head-to-head appears once both series are done.
+  const pair = page
+    .getByRole("region", { name: "Benchmark retail-onboarding" })
+    .getByText(/agb-intelligent-kyc-assistant@1\.0\.0 vs\. B kyc-fault-injector@1\.0\.0|kyc-fault-injector@1\.0\.0 vs\. B agb-intelligent-kyc-assistant@1\.0\.0/)
+    .first();
+  await expect(async () => {
+    await page.reload();
+    await expect(pair).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 200_000, intervals: [5_000] });
+  await expect(page.getByRole("table", { name: "Scoreboard across benchmarks" })).toContainText("kyc-fault-injector@1.0.0");
+});

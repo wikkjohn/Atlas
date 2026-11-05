@@ -322,7 +322,12 @@ for the factory, a simulation workload and at least one AI tool candidate.
       provenance on every experiment, re-judging stored results; the Phase 78 portfolio
       under scenario thresholds: 6 of 57 cells successful, 9 under one standard; see
       `benchmarking.md`)
-- [ ] Tool comparison across all benchmarks
+- [x] Tool comparison across all benchmarks
+      (Phase 81: tools, and versions of a tool, compared only on matched workloads with
+      paired, Holm-adjusted tests; ranks per benchmark under the scenario's thresholds, ties
+      shared; a scoreboard across benchmarks; one series per tool on the same seeds in one
+      job; KYC 1.0.0 and a tuned 1.1.0 were identical on every seed, both preferred over the
+      fault injector; see `benchmarking.md`)
 - [ ] Calibrate reviewer-behaviour assumptions instead of fixing them
 - [ ] **Exit:** one tool evaluated across 100+ workflows with statistical confidence
 
@@ -419,4 +424,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 78 (G3) | Milestone G, step 3: experiment portfolios — tool families, cells per scenario and country, workflow-level pooling, department and country breakdowns; the review-assistant family measured on 19 workflows | complete |
 | Phase 79 (G4) | Milestone G, step 4: guardrails — hashed call records and stored prompts with verification, drift between runs, bias across segments; Guardrails section in the AI lab | complete |
 | Phase 80 (G5) | Milestone G, step 5: scenario-specific success thresholds — risk tiers, approved versions with four eyes, provenance on every experiment, stored results re-judged; the Phase 78 portfolio measured under them | complete |
-| Phase 81 (G6, proposed) | Milestone G, step 6: tool comparison across all benchmarks | next |
+| Phase 81 (G6) | Milestone G, step 6: tool comparison across all benchmarks — matched workloads, paired head-to-heads, tie-aware ranks under the scenario's thresholds, a scoreboard; comparisons run on the same seeds; KYC versions and the fault injector measured | complete |
+| Phase 82 (G7, proposed) | Milestone G, step 7: calibrate reviewer-behaviour assumptions instead of fixing them | next |

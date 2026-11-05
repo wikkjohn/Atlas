@@ -143,7 +143,14 @@ function ProposeDialog({
   );
 }
 
-function PendingDecision({ pending }: { pending: ThresholdVersion }) {
+// Every limit, so an approver sees exactly what a proposal would put in force.
+const ALL_LIMITS: { key: keyof SuccessThresholds; short: string; share: boolean }[] = [
+  ...LIMIT_FIELDS.map((f) => ({ key: f.key, short: f.short, share: true })),
+  { key: "regression_tolerance", short: "Regression tolerance", share: true },
+  { key: "max_policy_violations", short: "Policy violations", share: false },
+];
+
+function PendingDecision({ pending, current }: { pending: ThresholdVersion; current: SuccessThresholds }) {
   const { can, user } = useAuth();
   const decide = useDecideThresholds();
   const [note, setNote] = useState("");
@@ -153,6 +160,28 @@ function PendingDecision({ pending }: { pending: ThresholdVersion }) {
       <p className="text-xs text-amber-800">
         v{pending.version} ({pending.risk_tier}) proposed by {pending.proposed_by_username}: {pending.rationale}
       </p>
+      <table aria-label={`Proposed version ${pending.version}`} className="text-[11px]">
+        <thead className="text-left text-slate-500">
+          <tr>
+            <th className="pr-3 font-medium">Limit</th>
+            <th className="pr-3 text-right font-medium">Proposed</th>
+            <th className="pr-3 text-right font-medium">In force</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ALL_LIMITS.map((l) => {
+            const show = (v: number) => (l.share ? share(v) : String(v));
+            const changed = pending.thresholds[l.key] !== current[l.key];
+            return (
+              <tr key={l.key} className={changed ? "font-semibold text-amber-900" : "text-slate-600"}>
+                <td className="pr-3">{l.short}</td>
+                <td className="pr-3 text-right">{show(pending.thresholds[l.key])}</td>
+                <td className="pr-3 text-right">{show(current[l.key])}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
       {can("risk:approve") && !mine && (
         <div className="flex flex-wrap items-center gap-1">
           <input
@@ -222,7 +251,7 @@ export function ThresholdsPanel() {
                     <td className="px-3 py-2">
                       <div className="font-medium text-slate-900">{r.name}</div>
                       <div className="text-xs text-slate-500">{r.rationale}</div>
-                      {r.pending && <PendingDecision pending={r.pending} />}
+                      {r.pending && <PendingDecision pending={r.pending} current={r.thresholds} />}
                     </td>
                     <td className="px-3 py-2">
                       <StatusPill tone={TIER_TONE[r.risk_tier]} label={humanize(r.risk_tier)} />

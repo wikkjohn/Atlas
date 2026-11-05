@@ -102,7 +102,12 @@ Last updated: Phase 81.
   *Head-to-head* on the Benchmarking page (scoreboard, rankings, each pair's metrics,
   *Compare tools*); the old leaderboard is now *All experiments by tool*, marked as not a
   comparison.
-- **PR #71 (Phase 80)** had no review comments; CI passed on the first run.
+- **Two review findings on PR #71 (Phase 80), fixed here:** a decision on proposed
+  thresholds now locks and re-reads the proposal (and the active version it supersedes),
+  so two approvers acting at once cannot both decide it, nor an approval racing a
+  rejection leave the scenario with no active version; and the approver now sees every
+  proposed limit beside the one in force, instead of only the limits in force. CI on
+  PR #71 passed on the first run.
 
 ## Phase 81: verified results
 

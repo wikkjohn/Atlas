@@ -449,6 +449,10 @@ describe("Experiments", () => {
     const leave = within(table).getByRole("row", { name: /Leave requests/ });
     expect(leave).toHaveTextContent("Approved v1");
     expect(leave).toHaveTextContent("v2 (medium) proposed by researcher");
+    // The approver sees what the proposal would put in force, against what is in force.
+    const proposed = within(leave).getByRole("table", { name: "Proposed version 2" });
+    expect(within(proposed).getByRole("row", { name: /False approvals/ })).toHaveTextContent("5%10%");
+    expect(within(proposed).getByRole("row", { name: /Policy violations/ })).toHaveTextContent("00");
     await userEvent.click(within(leave).getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/scenario-thresholds/thr-2/approve")).toBe(true));
 

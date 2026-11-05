@@ -2,11 +2,13 @@
 
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.audit import AuditEvent
+from app.core.errors import ConflictError
 from app.core.permissions import RoleCode
 from app.modules.experiments import thresholds
 from app.modules.experiments.assumptions import SuccessThresholds
@@ -140,3 +142,22 @@ def test_experiments_use_and_record_their_scenarios_thresholds(
     assert later["configuration"]["thresholds_source"]["version"] == 1
     assert later["evaluation"]["verdict"] == "not_successful"
     assert db.get(ScenarioThresholdVersion, uuid.UUID(again["thresholds_source"]["record_id"]))
+
+
+def test_a_decision_rereads_the_proposal_under_a_lock(db: Session) -> None:
+    """Two approvers at once: the second must see the first's decision, not a stale row."""
+    researcher = make_user(db, RoleCode.AI_RESEARCHER)
+    record = thresholds.propose(
+        db, scenario_id="leave-requests", risk_tier="low", thresholds=None, rationale=WHY,
+        actor_id=researcher.id,
+    )  # fmt: skip
+    assert record.status == "proposed"  # held in this session's identity map
+    # Another transaction rejects it in the meantime.
+    db.execute(
+        text("UPDATE scenario_thresholds SET status = 'rejected' WHERE id = :id"),
+        {"id": record.id},
+    )
+    approver = make_user(db, RoleCode.GLOBAL_EXECUTIVE)
+    with pytest.raises(ConflictError, match="rejected"):
+        thresholds.approve(db, record.id, approver.id)
+    assert thresholds.active(db, "leave-requests") is None

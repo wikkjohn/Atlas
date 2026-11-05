@@ -19,6 +19,7 @@ import {
   MODE_NAMES,
   VerdictPill,
 } from "@/features/experiments/ExperimentResults";
+import { CalibrationPanel } from "@/features/experiments/CalibrationPanel";
 import { PortfolioPanel } from "@/features/experiments/PortfolioPanel";
 import { SeriesPanel } from "@/features/experiments/SeriesPanel";
 import { LIMIT_FIELDS, sourceLabel, ThresholdsPanel, TIER_TONE } from "@/features/experiments/ThresholdsPanel";
@@ -525,6 +526,9 @@ export function ExperimentsPage() {
       </div>
       <div className="mt-6">
         <ThresholdsPanel />
+      </div>
+      <div className="mt-6">
+        <CalibrationPanel />
       </div>
       {creating && (
         <NewExperimentDialog

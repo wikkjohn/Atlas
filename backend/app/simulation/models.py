@@ -236,3 +236,41 @@ class SimulationShard(UUIDPrimaryKey, Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     wall_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ReviewerCalibration(UUIDPrimaryKey, Base):
+    """Reviewer behaviour fitted from observed reviews (Phase 82), for one review step of a
+    scenario: review time, accuracy on cases that should be approved and on those that
+    should be rejected, and — from reviews with an AI recommendation shown — how the
+    recommendation changes them. The observations are kept, so the fit is recomputable.
+    New runs of the scenario use the active calibration instead of the stated assumption."""
+
+    __tablename__ = "reviewer_calibrations"
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'superseded')", name="status_valid"),
+        Index(
+            "uq_reviewer_calibrations_one_active",
+            "scenario_id",
+            "step_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    calibration_number: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), nullable=False, unique=True
+    )
+    scenario_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    step_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    observations: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    observation_count: Mapped[int] = mapped_column(nullable=False)
+    data_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    fitted: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

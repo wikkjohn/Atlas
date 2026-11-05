@@ -16,6 +16,8 @@ from app.modules.identity.dependencies import Authorized
 from app.simulation import history, service
 from app.simulation.models import SimulationRun, SimulationStatus
 from app.simulation.schemas import (
+    CalibrationCreate,
+    CalibrationSummary,
     CaseResultOut,
     HistoryOverview,
     ProfileOut,
@@ -299,3 +301,101 @@ def restore_history(
     run = service.get_run(db, run_id)
     history.check_restorable(run)
     return _queue_history_job(db, "simulation.restore_history", run, actor.id, tasks, factory)
+
+
+# --- Reviewer calibration (Phase 82) -----------------------------------------------------------
+
+calibrations_router = APIRouter(prefix="/reviewer-calibrations", tags=["simulations"])
+
+
+def _calibration_out(db: Session, record) -> CalibrationSummary:
+    from app.modules.identity.models import User
+    from app.simulation import calibration
+    from app.simulation.scenarios import get_scenario
+
+    scenario = get_scenario(record.scenario_id)
+    creator = db.get(User, record.created_by)
+    return CalibrationSummary(
+        id=record.id,
+        calibration_number=record.calibration_number,
+        scenario_id=record.scenario_id,
+        step_id=record.step_id,
+        source=record.source,
+        observation_count=record.observation_count,
+        data_digest=record.data_digest,
+        status=record.status,
+        fitted=calibration.public(record.fitted),
+        assumption=calibration.assumption(scenario, record.step_id)
+        if scenario and record.step_id in scenario.config.reviewers
+        else {},
+        created_by_username=creator.username if creator else None,
+        created_at=record.created_at,
+    )
+
+
+@calibrations_router.get(
+    "", response_model=list[CalibrationSummary], summary="Reviewer calibrations, newest first"
+)
+def list_calibrations(
+    db: DbSession,
+    _: Authorized(Permission.SIMULATIONS_READ),
+    scenario_id: Annotated[str | None, Query(max_length=64)] = None,
+    status_filter: Annotated[
+        str | None, Query(alias="status", pattern="^(active|superseded)$")
+    ] = None,
+) -> list[CalibrationSummary]:
+    from sqlalchemy import select
+
+    from app.simulation.models import ReviewerCalibration
+
+    query = select(ReviewerCalibration).order_by(ReviewerCalibration.calibration_number.desc())
+    if scenario_id:
+        query = query.where(ReviewerCalibration.scenario_id == scenario_id)
+    if status_filter:
+        query = query.where(ReviewerCalibration.status == status_filter)
+    return [_calibration_out(db, r) for r in db.execute(query.limit(200)).scalars()]
+
+
+@calibrations_router.post(
+    "",
+    response_model=CalibrationSummary,
+    status_code=status.HTTP_201_CREATED,
+    summary="Fit a review step's reviewers from observed reviews; becomes the active one",
+)
+def create_calibration(
+    body: CalibrationCreate, db: DbSession, actor: Authorized(Permission.EXPERIMENTS_RUN)
+) -> CalibrationSummary:
+    from app.core.errors import BusinessRuleViolation, NotFoundError
+    from app.simulation import calibration
+    from app.simulation.scenarios import get_scenario
+
+    scenario = get_scenario(body.scenario_id)
+    if scenario is None:
+        raise NotFoundError(f"Scenario '{body.scenario_id}' not found.")
+    try:
+        record = calibration.calibrate(
+            db,
+            scenario=scenario,
+            step_id=body.step_id,
+            source=body.source,
+            observations=[o.model_dump() for o in body.observations],
+            actor_id=actor.id,
+        )
+    except ValueError as exc:
+        raise BusinessRuleViolation(str(exc)) from exc
+    return _calibration_out(db, record)
+
+
+@calibrations_router.get(
+    "/{calibration_id}", response_model=CalibrationSummary, summary="One reviewer calibration"
+)
+def get_calibration(
+    calibration_id: uuid.UUID, db: DbSession, _: Authorized(Permission.SIMULATIONS_READ)
+) -> CalibrationSummary:
+    from app.core.errors import NotFoundError
+    from app.simulation.models import ReviewerCalibration
+
+    record = db.get(ReviewerCalibration, calibration_id)
+    if record is None:
+        raise NotFoundError("Reviewer calibration not found.")
+    return _calibration_out(db, record)

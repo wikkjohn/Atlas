@@ -39,6 +39,16 @@ from app.simulation.schemas import MAX_SEED
 logger = logging.getLogger("atlas.experiments")
 
 
+NAME_LIMIT = 200  # experiments, series and portfolios alike
+
+
+def bounded(base: str, suffix: str, limit: int = NAME_LIMIT) -> str:
+    """A generated name within the limit: the base shortened, never the suffix that tells
+    the generated records apart. A series' own name leaves room for its seeds."""
+    room = limit - len(suffix)
+    return (base if len(base) <= room else base[: max(0, room - 1)].rstrip() + "…") + suffix
+
+
 def create(
     db: Session,
     body: SeriesCreate,
@@ -88,12 +98,14 @@ def create(
             "costs",
             "thresholds",
             "country",
+            "calibrated",
+            "calibration_draws",
         }  # fmt: skip
     )
     for seed in seeds:
         experiment = service.create(
             db,
-            ExperimentCreate(name=f"{series.name} · seed {seed}", seed=seed, **fields),
+            ExperimentCreate(name=bounded(series.name, f" · seed {seed}"), seed=seed, **fields),
             actor_id,
             series_id=series.id,
             check_idle=False,

@@ -357,3 +357,22 @@ test("Benchmarking (Phase 81): two KYC tools compared head-to-head on the same s
   }).toPass({ timeout: 200_000, intervals: [5_000] });
   await expect(page.getByRole("table", { name: "Scoreboard across benchmarks" })).toContainText("kyc-fault-injector@1.0.0");
 });
+
+test("Reviewer calibration (Phase 82): a researcher fits leave reviewers from observed reviews", async ({ page }) => {
+  await signIn(page, "researcher", "/experiments");
+  await page.getByRole("button", { name: "Calibrate reviewers" }).click();
+  const form = page.getByRole("form", { name: "Calibrate reviewers" });
+  await form.getByLabel("Scenario").fill("leave-requests");
+  await form.getByLabel("Review step").fill("approval");
+  await form.getByLabel("Source").fill("Synthetic time study for the end-to-end test");
+  // 40 reviews without AI advice: 8 minutes and right, every fifth one 16 minutes and wrong.
+  const lines = Array.from({ length: 40 }, (_, i) =>
+    i % 5 === 0 ? `16,${i % 2 ? "reject" : "approve"},${i % 2 ? "approve" : "reject"},` : `8,approve,approve,`,
+  );
+  await form.getByLabel("Reviews").fill(lines.join("\n"));
+  await page.getByRole("button", { name: "Fit and activate" }).click();
+  await expect(form).toBeHidden();
+  const fitted = page.getByRole("region", { name: /Calibration #\d+/ }).filter({ hasText: "leave-requests" }).first();
+  await expect(fitted).toContainText("40 reviews (40 without AI, 0 with)");
+  await expect(fitted.getByRole("row", { name: /Accuracy, should approve/ })).toContainText("%");
+});

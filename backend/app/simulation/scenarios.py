@@ -32,6 +32,9 @@ class ReviewerModel(BaseModel):
     mean_minutes: float = Field(gt=0)
     sigma: float = Field(default=0.5, ge=0, le=2)  # lognormal spread
     accuracy: float = Field(default=0.95, ge=0, le=1)  # P(decision matches ground truth)
+    # On cases that should be rejected, when it differs (Phase 82: calibrated reviewers
+    # can be better at one than the other). None: `accuracy` for both, as before.
+    accuracy_should_reject: float | None = Field(default=None, ge=0, le=1)
 
 
 class AIAssistanceModel(BaseModel):

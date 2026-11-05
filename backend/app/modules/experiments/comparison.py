@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.errors import BusinessRuleViolation
+from app.modules.ai_tools.service import find_tool
 from app.modules.experiments import series as series_service
 from app.modules.experiments import thresholds
 from app.modules.experiments.measurements import canonical_hash
@@ -72,15 +73,12 @@ def _records(db: Session, scenario_id: str | None) -> list[dict[str, Any]]:
         base = baselines.get(experiment.id)
         if base is None:
             continue
-        match = canonical_hash(
-            {
-                "workload": base["workload"],
-                "cases": base["case_fingerprint"],
-                "costs": experiment.configuration.get("costs"),
-            }
-        )
+        match = canonical_hash({"workload": base["workload"], "cases": base["case_fingerprint"]})
+        # Cost assumptions separate benchmarks, not workloads: the same runs re-evaluated
+        # under other costs are not new evidence, so they must never be pooled.
+        costs = canonical_hash(experiment.configuration.get("costs"))[:12]
         records.append({"experiment": experiment, "evaluation": evaluation, "match": match,
-                        "seed": base["workload"]["seed"]})  # fmt: skip
+                        "seed": base["workload"]["seed"], "costs": costs})  # fmt: skip
     return records
 
 
@@ -172,16 +170,17 @@ def compare(db: Session, scenario_id: str | None = None, tool: str | None = None
     benchmarks: dict[tuple, dict[str, dict[str, dict]]] = {}
     for record in _records(db, scenario_id):
         e = record["experiment"]
-        key = (e.scenario_id, e.scenario_version, e.candidate_mode)
+        key = (e.scenario_id, e.scenario_version, e.candidate_mode, record["costs"])
         # The latest experiment of a tool on a workload stands for it.
         benchmarks.setdefault(key, {}).setdefault(_tool(e), {})[record["match"]] = record
     out, board = [], {}
-    for (sid, version, mode), tools in sorted(benchmarks.items()):
+    for (sid, version, mode, costs), tools in sorted(benchmarks.items()):
         if tool is not None and tool not in tools:
             continue
         if tool is None and len(tools) < 2 and scenario_id is None:
             continue
-        tier, _ = thresholds.tier_of(sid)
+        # The tier of the thresholds actually applied (an approved version may change it).
+        tier = thresholds.resolve(db, sid)[1]["risk_tier"]
         ranked = []
         for name, by_match in tools.items():
             records = list(by_match.values())
@@ -236,7 +235,8 @@ def compare(db: Session, scenario_id: str | None = None, tool: str | None = None
         for t in ranked:
             t["rank"] = 1 + sum(standing(o) < standing(t) for o in ranked)
         out.append({"scenario_id": sid, "scenario_version": version, "candidate_mode": mode,
-                     "risk_tier": tier, "tools": ranked, "pairs": pairs})  # fmt: skip
+                    "cost_assumptions": costs, "risk_tier": tier, "tools": ranked,
+                    "pairs": pairs})  # fmt: skip
         for t in ranked:
             row = board.setdefault(t["tool"], {
                 "tool": t["tool"], "tool_id": t["tool_id"], "tool_version": t["tool_version"],
@@ -265,8 +265,10 @@ def compare(db: Session, scenario_id: str | None = None, tool: str | None = None
         "scoreboard": scoreboard,
         "confidence": CONFIDENCE,
         "method": "Two tools are compared on a benchmark (scenario version and mode) only on "
-        "matched workloads: identical workload, baseline cases and cost assumptions, so the "
-        "tool is the only difference. Per metric, the differences of the candidates' values "
+        "matched workloads: identical workload and baseline cases, under the same cost "
+        "assumptions (each set of assumptions is its own benchmark, so re-evaluating runs "
+        "under other costs never adds evidence), so the tool is the only difference. "
+        "Per metric, the differences of the candidates' values "
         f"get a paired t-test; Holm's adjustment across metrics; significant below "
         f"{1 - CONFIDENCE:.2f}. A tool is preferred when it is significantly better on at "
         "least one metric and worse on none; a trade-off when both; identical when every value "
@@ -285,7 +287,9 @@ MAX_TOOLS = 5
 def start(db: Session, body, actor_id: uuid.UUID) -> list[ExperimentSeries]:
     """One repeated-seed series per tool on the same scenario, seeds and sizes, so every
     pair of tools is matched on every seed."""
-    tools = [(t.tool_id, t.tool_version) for t in body.tools]
+    # Versions resolved first: a tool named without a version is its highest active one,
+    # which may be the same as another entry naming that version.
+    tools = [(t.tool_id, find_tool(db, t.tool_id, t.tool_version).tool_version) for t in body.tools]
     if len(set(tools)) != len(tools):
         raise BusinessRuleViolation("Each tool version may be compared only once.")
     simulations.reap_stale(db)
@@ -296,7 +300,7 @@ def start(db: Session, body, actor_id: uuid.UUID) -> list[ExperimentSeries]:
             series_service.create(
                 db,
                 SeriesCreate(
-                    name=f"{body.name} · {tool_id} {tool_version or ''}".strip(),
+                    name=series_service.bounded(body.name, f" · {tool_id} {tool_version}"),
                     scenario_id=body.scenario_id,
                     scenario_version=body.scenario_version,
                     tool_id=tool_id,
@@ -309,6 +313,8 @@ def start(db: Session, body, actor_id: uuid.UUID) -> list[ExperimentSeries]:
                     replicates=body.replicates,
                     country=body.country,
                     costs=body.costs,
+                    calibrated=body.calibrated,
+                    calibration_draws=body.calibration_draws,
                 ),
                 actor_id,
                 check_idle=False,

@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from app.core.permissions import RoleCode
 from app.modules.ai_tools.schemas import ToolCreate
 from app.modules.ai_tools.service import register_tool
-from app.modules.experiments import comparison
+from app.modules.experiments import comparison, thresholds
+from app.modules.experiments import series as series_service
 from app.seed import DEMO_AI_TOOLS
 from tests.factories import auth, make_org_tree, make_user
 from tests.test_experiments import api, factory  # noqa: F401  (fixtures)
@@ -152,3 +153,64 @@ def test_a_comparison_runs_every_tool_on_the_same_seeds(api: TestClient, db: Ses
     db.commit()
     assert api.get("/api/v1/tool-comparison", headers=auditor).status_code == 200
     assert api.post("/api/v1/tool-comparison/runs", json=body, headers=auditor).status_code == 403
+
+    # Re-evaluating the same runs under other costs is a separate benchmark, never extra
+    # evidence: the original pair still has its 2 matched workloads.
+    replicates = [
+        r
+        for s in series[:2]
+        for r in api.get(f"/api/v1/experiment-series/{s['id']}", headers=headers).json()[
+            "experiments"
+        ]
+    ]
+    for i, replicate in enumerate(replicates):
+        variant = {
+            "name": f"KYC under other costs {i}",
+            "baseline_run_id": replicate["baseline"]["id"],
+            "candidate_run_id": replicate["candidate"]["id"],
+            "costs": {"notes": "a variant"},
+        }
+        assert (
+            api.post("/api/v1/experiments/from-runs", json=variant, headers=headers).status_code
+            == 201
+        )
+    again = api.get("/api/v1/tool-comparison?scenario_id=retail-onboarding", headers=headers).json()
+    assert len(again["benchmarks"]) == 2
+    original = next(
+        b for b in again["benchmarks"] if b["cost_assumptions"] == bench["cost_assumptions"]
+    )
+    assert all(p["matched_workloads"] == 2 for p in original["pairs"])
+    variant_bench = next(b for b in again["benchmarks"] if b is not original)
+    assert sorted(t["tool"] for t in variant_bench["tools"]) == [
+        "agb-intelligent-kyc-assistant@1.0.0", "agb-intelligent-kyc-assistant@1.1.0"
+    ]  # fmt: skip
+    assert [p["matched_workloads"] for p in variant_bench["pairs"]] == [2]
+
+    # The tier shown is the tier of the thresholds applied, approved versions included.
+    record = thresholds.propose(
+        db, scenario_id="retail-onboarding", risk_tier="medium", thresholds=None,
+        rationale="Onboarding is monitored after opening: medium risk.",
+        actor_id=make_user(db, RoleCode.AI_RESEARCHER).id,
+    )  # fmt: skip
+    thresholds.approve(db, record.id, make_user(db, RoleCode.GLOBAL_EXECUTIVE).id)
+    db.commit()
+    tiers = api.get("/api/v1/tool-comparison?scenario_id=retail-onboarding", headers=headers)
+    assert {b["risk_tier"] for b in tiers.json()["benchmarks"]} == {"medium"}
+
+    # The same tool twice, once by its highest active version and once without one.
+    same = api.post(
+        "/api/v1/tool-comparison/runs",
+        json={**body, "tools": [{"tool_id": "agb-intelligent-kyc-assistant"},
+                                {"tool_id": "agb-intelligent-kyc-assistant",
+                                 "tool_version": "1.1.0"}]},
+        headers=headers,
+    )  # fmt: skip
+    assert same.status_code == 422 and "only once" in same.text
+
+
+def test_generated_names_stay_within_the_limit() -> None:
+    long = "x" * 200
+    for suffix in (" · seed 2147483647", " · agb-intelligent-kyc-assistant 1.1.0", ""):
+        name = series_service.bounded(long, suffix)
+        assert len(name) <= 200 and name.endswith(suffix)
+    assert series_service.bounded("short", " · seed 1") == "short · seed 1"

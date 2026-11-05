@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 81.
+Last updated: Phase 82.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -86,6 +86,50 @@ Last updated: Phase 81.
 | 79 | AI laboratory, step 4: guardrails — record audit, drift and bias across segments ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
+| 82 | AI laboratory, step 7: reviewer behaviour calibrated from observed reviews ([simulation.md](simulation.md)) | **Complete** |
+
+## Phase 82: what exists
+
+- **Calibration** (`simulation/calibration.py`, `reviewer_calibrations`, migration 0055):
+  observed reviews of a review step fitted to review time (lognormal), accuracy on cases
+  that should be approved and rejected, and the AI's effect (time share, accuracy with right
+  and wrong advice), each with a 95 % interval; what the reviews cannot support stays
+  assumed, and is noted. One active calibration per step; superseded ones keep their reviews.
+- **Runs use it:** new runs simulate the scenario's active calibrations (`calibrated`, on by
+  default, through suites, experiments, series, portfolios and comparisons) and store them in
+  their configuration; reruns simulate the same reviewers. `calibration_draws` draws each
+  seed's reviewers from the fit's uncertainty, the same for a seed's baseline and candidate.
+- **Reviewer model:** `accuracy_should_reject`, optional, for reviewers better at one kind
+  of case than the other.
+- **API, CLI and page:** `/api/v1/reviewer-calibrations` (list, create, detail);
+  `python -m app.cli calibration-pilot` (a synthetic pilot of known parameters); *Reviewer
+  calibration* on the Experiments page (fitted against assumed, with intervals; upload of
+  reviews); the series form's reviewer options.
+- **PR #72 (Phase 81)** had no review comments; CI passed on the first run.
+
+## Phase 82: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | PYTEST_RESULT |
+| Generated workflow tests | GEN_RESULT |
+| Frontend Vitest / typecheck / build | VITEST_RESULT |
+| Playwright on a fresh database | PW_RESULT |
+| Coverage of the fit's 95 % intervals over 1,000 synthetic pilots of 400 reviews | 95.2–97.4 % for all seven parameters |
+| KYC assistant, assisted, 5 seeds, reviewers assumed / calibrated / drawn (development database, 30 runs in 245 s) | labour −32.7 % / −31.8 % / −30.9 % relative; −3.2 h / −4.4 h / −4.3 h a run; accuracy and false approvals unchanged in all three |
+
+## Phase 82: known limitations
+
+- **No real observations:** the bank is synthetic, so every calibration so far comes from a
+  generated pilot; the method is checked, not the behaviour of real reviewers.
+- **The AI's effect is fitted per step but applies scenario-wide:** a scenario has one
+  AI-assistance model, taken from its latest calibration that fits one.
+- **Independence assumed:** reviews are treated as independent; several reviews by one
+  reviewer, or learning over time, are not modelled.
+- **Draws did not widen intervals at five seeds;** more seeds, or larger parameter
+  uncertainty, would be needed to see the effect.
+- **Accuracy changes are only visible where the workload reaches them:** in retail
+  onboarding few cases should be rejected and the assistant is rarely wrong.
 
 ## Phase 81: what exists
 

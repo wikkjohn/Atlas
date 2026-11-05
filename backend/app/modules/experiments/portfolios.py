@@ -172,7 +172,9 @@ def create(db: Session, body: PortfolioCreate, actor_id: uuid.UUID) -> Experimen
             series_service.create(
                 db,
                 SeriesCreate(
-                    name=f"{portfolio.name} · {cell['scenario_id']} · {country}",
+                    name=series_service.bounded(
+                        portfolio.name, f" · {cell['scenario_id']} · {country}"
+                    ),
                     scenario_id=cell["scenario_id"],
                     scenario_version=cell["scenario_version"],
                     tool_id=cell["tool_id"],
@@ -186,6 +188,8 @@ def create(db: Session, body: PortfolioCreate, actor_id: uuid.UUID) -> Experimen
                     country=country,
                     costs=body.costs,
                     thresholds=body.thresholds,
+                    calibrated=body.calibrated,
+                    calibration_draws=body.calibration_draws,
                 ),
                 actor_id,
                 portfolio_id=portfolio.id,

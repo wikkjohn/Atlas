@@ -19,6 +19,8 @@ import type {
   ThresholdOverview,
   ThresholdProposal,
   ThresholdVersion,
+  ReviewerCalibration,
+  ReviewObservation,
   ToolComparison,
   ToolComparisonStart,
 } from "@/types/experiments";
@@ -195,5 +197,22 @@ export function useStartComparison() {
       void client.invalidateQueries({ queryKey: ["experiments"] });
       void client.invalidateQueries({ queryKey: ["simulations"] });
     },
+  });
+}
+
+// --- Reviewer calibration (Phase 82) ---------------------------------------------------------
+
+export const useCalibrations = () =>
+  useQuery({
+    queryKey: ["experiments", "calibrations"],
+    queryFn: () => apiGet<ReviewerCalibration[]>("/api/v1/reviewer-calibrations"),
+  });
+
+export function useCreateCalibration() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { scenario_id: string; step_id: string; source: string; observations: ReviewObservation[] }) =>
+      apiPost<ReviewerCalibration>("/api/v1/reviewer-calibrations", body),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["experiments", "calibrations"] }),
   });
 }

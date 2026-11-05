@@ -88,6 +88,8 @@ def create(
             tool_id=body.tool_id,
             tool_version=body.tool_version,
             country=body.country,
+            calibrated=body.calibrated,
+            calibration_draws=body.calibration_draws,
             **sizes,
         ),
         actor_id,

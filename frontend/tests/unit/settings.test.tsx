@@ -318,4 +318,27 @@ describe("System Settings users and roles", () => {
     await userEvent.click(within(stuck).getByRole("button", { name: /Retry/ }));
     await waitFor(() => expect(api.requests.some((r) => r.method === "POST" && r.path.endsWith("/dl-1/retry"))).toBe(true));
   });
+  it("lets an administrator limit a user's countries, end their sessions and reset their factor (Phase 84)", async () => {
+    const api = mockApi({
+      ...routes,
+      "GET /api/v1/users": () => jsonResponse(page([account({ mfa_enabled: true, scope: { countries: null, departments: null } })])),
+      "GET /api/v1/users/u2/sessions": () => jsonResponse([]),
+      "PUT /api/v1/users/u2/scopes": () => jsonResponse({ countries: ["GB", "IE"], departments: null }),
+      "POST /api/v1/users/u2/sessions/revoke": () => jsonResponse({ revoked: 2 }),
+      "POST /api/v1/users/u2/mfa/reset": () => new Response(null, { status: 204 }),
+    });
+    renderApp("/settings");
+    const users = await screen.findByRole("table", { name: "Users" });
+    expect(await within(users).findByText("Everywhere")).toBeInTheDocument();
+    await userEvent.click(within(users).getByRole("button", { name: "Access of teller" }));
+    const dialog = await screen.findByRole("dialog", { name: "Access of teller" });
+    await userEvent.type(within(dialog).getByLabelText("Countries (ISO codes, comma-separated)"), "gb, IE");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save scopes" }));
+    expect(await within(dialog).findByRole("status")).toHaveTextContent("Saved: GB, IE; all departments.");
+    expect(api.requests.find((r) => r.method === "PUT")?.body).toEqual({ countries: ["gb", "IE"], departments: [] });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Sign out everywhere" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reset authenticator (lost device)" }));
+    await waitFor(() => expect(api.requests.some((r) => r.path === "/api/v1/users/u2/mfa/reset")).toBe(true));
+    expect(api.requests.some((r) => r.path === "/api/v1/users/u2/sessions/revoke")).toBe(true);
+  });
 });

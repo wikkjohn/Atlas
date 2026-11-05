@@ -86,6 +86,12 @@ module's models so Alembic and tests see the complete schema.
   Passwords are hashed with salted scrypt. Each request re-loads the user, so deactivation
   and role changes apply to existing tokens immediately. Unknown usernames are verified
   against a dummy hash so timing does not reveal which accounts exist.
+- **Sessions, second factor, SSO and scopes (Phase 84):** every token names a sign-in
+  session (`auth_sessions`) checked on each request; a TOTP second factor (stdlib RFC 6238)
+  is asked for after the password; a simulated corporate identity provider signs ID tokens
+  the bank verifies; users can be limited to countries and departments
+  (`AuthenticatedUser.scope`, applied in the customer, account and employee routers).
+  See `security.md`.
 - **Authorization (Phase 2):** `app/core/permissions.py` maps each of the eight roles to a
   set of permissions; it is versioned with the code and the `roles` table holds role
   identity. Routers declare `Authorized(Permission.X)`; there is no unauthenticated path to

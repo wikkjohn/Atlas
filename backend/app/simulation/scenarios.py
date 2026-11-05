@@ -132,6 +132,12 @@ class Scenario(BaseModel):
     simulated_start: datetime  # fixed, so simulated timestamps are reproducible
     config: ScenarioConfig
 
+    @property
+    def runs_workflow(self) -> str:
+        """What a tool must be declared for: the template when the runs execute its variants
+        (a tool declared only for the base workflow does not serve them), else the workflow."""
+        return self.workflow_template or self.workflow_id
+
 
 class Profile(BaseModel):
     profile_id: str

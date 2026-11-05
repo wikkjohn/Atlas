@@ -341,7 +341,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
 
 ## Milestone H — Platform hardening (alongside the others)
 
-- [ ] Simulated SSO, MFA, session management, scoped permissions (country / department)
+- [x] Simulated SSO, MFA, session management, scoped permissions (country / department)
+      (Phase 84: sign-in sessions that end on sign-out, revocation, 30 minutes idle or 12
+      hours; a TOTP second factor with recovery codes, required per role; a simulated
+      corporate identity provider with state, nonce and signed ID tokens; country and
+      department scopes on customers, accounts and employees; see `security.md`)
 - [ ] Rate limiting, audit-log archive, data-retention review
 - [ ] Security scanning in CI (dependencies, SAST) and an authorization test matrix
 - [ ] Backup / restore and a tested recovery procedure
@@ -435,4 +439,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 81 (G6) | Milestone G, step 6: tool comparison across all benchmarks — matched workloads, paired head-to-heads, tie-aware ranks under the scenario's thresholds, a scoreboard; comparisons run on the same seeds; KYC versions and the fault injector measured | complete |
 | Phase 82 (G7) | Milestone G, step 7: reviewer behaviour calibrated from observed reviews — fitted parameters with intervals, runs that record them, per-seed draws; coverage checked on synthetic pilots; the KYC effect measured assumed and calibrated | complete |
 | Phase 83 (G8) | Milestone G exit: tools declared for a template serve its variants; templated scenarios run each country's variant; the overdraft assistant evaluated across 120 country workflows (720 runs) — Milestone G done | complete |
-| Phase 84 (H1, proposed) | Milestone H, step 1: simulated SSO, MFA, session management, permissions scoped by country and department | next |
+| Phase 84 (H1) | Milestone H, step 1: sign-in sessions, a TOTP second factor, simulated SSO through the ATLAS Corporate Directory, country and department scopes | complete |
+| Phase 85 (H2, proposed) | Milestone H, step 2: rate limiting, audit-log archive, data-retention review | next |

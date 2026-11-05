@@ -5,7 +5,7 @@ import { useAuth } from "@/app/auth";
 import { BackendUnavailable } from "@/components/BackendUnavailable";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { status, retry } = useAuth();
+  const { status, retry, user } = useAuth();
   const location = useLocation();
   if (status === "checking") {
     return (
@@ -23,6 +23,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }
   if (status === "anonymous") {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  }
+  // Phase 84: a role that requires a second factor may only enrol until it has one.
+  if (user?.mfa_enrolment_required && location.pathname !== "/security") {
+    return <Navigate to="/security" replace />;
   }
   return <>{children}</>;
 }

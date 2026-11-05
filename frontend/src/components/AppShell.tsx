@@ -1,4 +1,4 @@
-import { LogOut, Menu, X } from "lucide-react";
+import { LogOut, Menu, ShieldCheck, X } from "lucide-react";
 import { useState, Suspense } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 
@@ -108,6 +108,14 @@ function UserMenu() {
         <div className="text-xs font-medium text-slate-800">{user.display_name}</div>
         <div className="text-[11px] text-slate-500">{user.role_name}</div>
       </div>
+      <NavLink
+        to="/security"
+        aria-label="Security"
+        title="Security: second factor and sessions"
+        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+      >
+        <ShieldCheck className="h-4 w-4" />
+      </NavLink>
       <button
         type="button"
         onClick={() => logout()}

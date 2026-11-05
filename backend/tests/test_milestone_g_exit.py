@@ -143,3 +143,65 @@ def test_the_template_takes_every_countrys_largest_overdraft(db: Session) -> Non
     assert products and len(currencies) > 90  # 120 countries, 93 currencies
     largest = max(2 * max_overdraft(p, c) for p in products for c in currencies)
     assert largest > 10**9 and largest <= cap
+
+
+def test_a_tool_declared_only_for_the_base_workflow_is_refused(db: Session) -> None:
+    """PR #74 review: such a tool passed the check, then the variant's AI step fell back to
+    its default tool, so the run recorded one version and evaluated another."""
+    from app.core.errors import BusinessRuleViolation
+    from app.simulation import service as simulations
+
+    _setup(db, ("JP",))
+    scenario = get_scenario("retail-overdrafts-country")
+    narrow = find_tool(db, "agb-overdraft-affordability-assistant", "1.0.0")
+    creator = make_user(db, RoleCode.AI_RESEARCHER)
+    try:
+        simulations._resolve_tool(db, scenario, ["ai_assisted"], narrow.tool_id, "1.0.0")
+    except BusinessRuleViolation as exc:
+        assert "TPL-OVERDRAFT-REQUEST" in str(exc)
+    else:
+        raise AssertionError("1.0.0 serves WF-1003 only")
+    assert simulations._resolve_tool(db, scenario, ["ai_assisted"], narrow.tool_id, "1.1.0")
+    try:
+        create_run(db, scenario, profile="custom", applications=5, employees=4, seed=3,
+                   created_by=creator.id, mode="ai_assisted", tool=narrow,
+                   countries=["JP"])  # fmt: skip
+    except SimulationSetupError as exc:
+        assert "not declared for TPL-OVERDRAFT-REQUEST" in str(exc)
+    else:
+        raise AssertionError("a direct run must refuse it too")
+
+
+def test_a_country_with_two_variants_is_refused_not_guessed(db: Session) -> None:
+    """PR #74 review: variants are keyed by their whole parameter set, so a country can have
+    two (two deadlines); the run picked one arbitrarily."""
+    from app.core.errors import BusinessRuleViolation
+
+    _setup(db, ("GB", "JP"))
+    admin = make_user(db, RoleCode.PLATFORM_ADMINISTRATOR)
+    report = templates.generate(
+        db, TEMPLATE, [{"country_code": "GB", "decision_seconds": 172_800}], admin.id
+    )
+    assert report.count("created") == 1
+    scenario = get_scenario("retail-overdrafts-country")
+    try:
+        create_run(db, scenario, profile="custom", applications=5, employees=4, seed=3,
+                   created_by=admin.id, countries=["GB"])  # fmt: skip
+    except SimulationSetupError as exc:
+        assert "2 TPL-OVERDRAFT-REQUEST variants for GB" in str(exc)
+    else:
+        raise AssertionError("two GB variants must not be chosen between silently")
+    jp = create_run(db, scenario, profile="custom", applications=5, employees=4, seed=3,
+                    created_by=admin.id, countries=["JP"])  # fmt: skip
+    assert jp.workflow_id.startswith("WF-3")
+    cell = {"scenario_id": "retail-overdrafts-country", "scenario_version": 1}
+    assert portfolios._with_variants(db, [cell], ["GB", "JP"]) == (
+        [],
+        [{"scenario_id": "retail-overdrafts-country", "reason": "several variants for GB"}],
+    )
+    try:
+        portfolios._check_variants(db, [cell], ["GB"])
+    except BusinessRuleViolation as exc:
+        assert "several for GB" in str(exc)
+    else:
+        raise AssertionError("a requested scenario must be refused before anything runs")

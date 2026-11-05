@@ -37,6 +37,7 @@ const MortgagesPage = lazy(() => import("@/features/mortgages/MortgagesPage").th
 const CardsPage = lazy(() => import("@/features/cards/CardsPage").then((m) => ({ default: m.CardsPage })));
 const RetailPage = lazy(() => import("@/features/retail/RetailPage").then((m) => ({ default: m.RetailPage })));
 const FxPage = lazy(() => import("@/features/fx/FxPage").then((m) => ({ default: m.FxPage })));
+const SecurityPage = lazy(() => import("@/features/security/SecurityPage").then((m) => ({ default: m.SecurityPage })));
 const SettingsPage = lazy(() => import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage })));
 const SimulationCenterPage = lazy(() => import("@/features/simulations/SimulationCenterPage").then((m) => ({ default: m.SimulationCenterPage })));
 const WorkflowExplorerPage = lazy(() => import("@/features/workflows/WorkflowExplorerPage").then((m) => ({ default: m.WorkflowExplorerPage })));
@@ -85,6 +86,7 @@ export function AppRoutes() {
         <Route path="benchmarking" element={<BenchmarkingPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="security" element={<SecurityPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

@@ -12,6 +12,8 @@ import {
 import {
   apiGet,
   apiLogin,
+  apiPost,
+  apiPublicPost,
   BackendUnreachableError,
   setAccessToken,
   setUnauthorizedHandler,
@@ -33,12 +35,21 @@ interface AuthContextValue {
   user: CurrentUser | null;
   /** Why the last session ended, shown on the sign-in page. */
   notice: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  /** Resolves to a challenge token when a second factor is owed (Phase 84). */
+  login: (username: string, password: string) => Promise<SignInStep>;
+  /** Complete a sign-in with an authenticator or recovery code. */
+  verifyMfa: (challengeToken: string, code: string) => Promise<void>;
+  /** Finish a single sign-on with the identity provider's ID token. */
+  completeSso: (provider: string, state: string, idToken: string) => Promise<SignInStep>;
+  /** Re-read the signed-in user (after enrolling a factor, for instance). */
+  refreshUser: () => Promise<void>;
   logout: (notice?: string) => void;
   /** Re-verify a stored session after the API was unreachable. */
   retry: () => void;
   can: (permission: Permission) => boolean;
 }
+
+export type SignInStep = { done: true } | { done: false; challengeToken: string };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -73,6 +84,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(
     (reason?: string) => {
+      // Signing out by choice ends the session on the server too; an expired or revoked
+      // one (a reason is given) has already ended there.
+      if (!reason) void apiPost("/api/v1/auth/logout", {}).catch(() => undefined);
       setAccessToken(null);
       writeStored(null);
       setUser(null);
@@ -123,14 +137,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [expiresAt, logout]);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const response = await apiLogin<LoginResponse>({ username, password });
+  const establish = useCallback((response: LoginResponse): SignInStep => {
+    if (response.status === "mfa_required" || !response.access_token || !response.user) {
+      return { done: false, challengeToken: response.challenge_token ?? "" };
+    }
     setAccessToken(response.access_token);
-    writeStored({ token: response.access_token, expiresAt: response.expires_at });
+    writeStored({ token: response.access_token, expiresAt: response.expires_at ?? "" });
     setExpiresAt(response.expires_at);
     setUser(response.user);
     setNotice(null);
     setStatus("authenticated");
+    return { done: true };
+  }, []);
+
+  const login = useCallback(
+    async (username: string, password: string) =>
+      establish(await apiLogin<LoginResponse>({ username, password })),
+    [establish],
+  );
+
+  const verifyMfa = useCallback(
+    async (challengeToken: string, code: string) => {
+      establish(
+        await apiPublicPost<LoginResponse>("/api/v1/auth/mfa/verify", {
+          challenge_token: challengeToken,
+          code,
+        }),
+      );
+    },
+    [establish],
+  );
+
+  const completeSso = useCallback(
+    async (provider: string, state: string, idToken: string) =>
+      establish(
+        await apiPublicPost<LoginResponse>(`/api/v1/auth/sso/${provider}/callback`, {
+          state,
+          id_token: idToken,
+        }),
+      ),
+    [establish],
+  );
+
+  const refreshUser = useCallback(async () => {
+    setUser(await apiGet<CurrentUser>("/api/v1/auth/me"));
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -139,6 +189,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       notice,
       login,
+      verifyMfa,
+      completeSso,
+      refreshUser,
       logout,
       retry: () => {
         setStatus("checking");
@@ -146,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       can: (permission) => Boolean(user?.permissions.includes(permission)),
     }),
-    [status, user, notice, login, logout],
+    [status, user, notice, login, verifyMfa, completeSso, refreshUser, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

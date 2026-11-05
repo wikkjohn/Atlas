@@ -9,7 +9,7 @@ every endpoint follows and lists what exists.
 | Concern | Rule |
 | --- | --- |
 | Versioning | Business endpoints live under `/api/v1/`. Platform health endpoints live under `/api/` so infrastructure probes stay stable. |
-| Authentication | `Authorization: Bearer <access token>` from `POST /api/v1/auth/login`. Tokens are HS256 JWTs (default lifetime 60 minutes). The user is re-loaded on every request, so deactivation and role changes apply immediately. |
+| Authentication | `Authorization: Bearer <access token>` from `POST /api/v1/auth/login` (or, Phase 84, the MFA and SSO steps below). Tokens are HS256 JWTs (default lifetime 60 minutes) that name their sign-in session: a session that is signed out, revoked, unused for 30 minutes or older than 12 hours ends its tokens at once. The user is re-loaded on every request, so deactivation and role changes apply immediately. See `security.md`. |
 | Authorization | Each endpoint requires one permission (below). Checked on the server; 403 names the missing permission in `details.required_permission`. |
 | Errors | `{"error": {"code", "message", "details", "correlation_id"}}`. Codes: `unauthorized` (401), `forbidden` (403), `not_found` (404), `conflict` (409), `validation_error` (422, malformed input, `details` lists fields), `business_rule_violation` (422, well-formed but breaks a rule), `internal_error` (500, no internal detail). |
 | Correlation | Send `X-Correlation-ID` (≤128 chars of `A-Za-z0-9._:-`) or one is generated. It is echoed in the response, logged, and stored on audit events. |
@@ -34,13 +34,33 @@ every endpoint follows and lists what exists.
 
 | Method | Path | Permission | Notes |
 | --- | --- | --- | --- |
-| POST | `/api/v1/auth/login` | public | `{username, password}` → token, expiry, user with permissions. Failures are audited. |
-| GET | `/api/v1/auth/me` | signed in | Current user and permissions |
+| POST | `/api/v1/auth/login` | public | `{username, password}` → `status: signed_in` with token, expiry, user with permissions; or (a second factor enrolled) `status: mfa_required` with a 5-minute `challenge_token` and no access token. Failures are audited. |
+| POST | `/api/v1/auth/mfa/verify` | public | `{challenge_token, code}` (a TOTP code or a recovery code) → token and user. A code is never accepted twice; five wrong codes end the sign-in |
+| GET | `/api/v1/auth/me` | signed in | Current user and permissions; Phase 84: `mfa_enabled`, `scope` (`countries`, `departments`; null = not limited), the request's `session`, `mfa_enrolment_required`, `mfa_recovery_codes_left` |
+| POST | `/api/v1/auth/refresh` | signed in | A new access token for the same session, never valid past the session's end |
+| POST | `/api/v1/auth/logout` | signed in | Ends the session (204) |
+| GET | `/api/v1/auth/sessions` | signed in | My sessions, active first: method, provider, second-factor state, last use, end and why; `current` |
+| DELETE | `/api/v1/auth/sessions/{id}` | signed in | End one of my sessions |
+| POST | `/api/v1/auth/sessions/revoke-others` | signed in | End all my other sessions → `{revoked}` |
+| POST | `/api/v1/auth/mfa/enrol` | signed in | A new TOTP secret and `otpauth://` URI, pending until confirmed |
+| POST | `/api/v1/auth/mfa/confirm` | signed in | `{code}` → eight one-time recovery codes (shown once); signs out the other sessions |
+| POST | `/api/v1/auth/mfa/recovery-codes` | signed in | `{code}` (a current TOTP code) → new recovery codes |
+| POST | `/api/v1/auth/mfa/remove` | signed in | `{code}`; 422 when the role requires a factor |
+| GET | `/api/v1/auth/sso/providers` | public | The identity providers (one, simulated: `atlas-directory`) |
+| POST | `/api/v1/auth/sso/{provider}/start` | public | `{state, nonce, expires_at}`: a sign-in request, valid 10 minutes, used once |
+| POST | `/api/v1/simulated-directory/{provider}/sign-in` | public | The simulated identity provider: `{nonce, username, password, otp?}` → `{id_token}` (signed; `amr` includes `otp` when a code was checked) |
+| POST | `/api/v1/auth/sso/{provider}/callback` | public | `{state, id_token}` → like login. Refused (401) for an unknown, used or expired state, a bad signature, issuer, audience or expiry, or a nonce mismatch |
 | GET | `/api/v1/roles` | signed in | Roles and the permissions each grants |
 | GET | `/api/v1/users?kind=people|service&q=` | `users:read` | Paginated; `is_service_account` marks system principals (simulated staff, the policy engine) that cannot sign in |
 | POST | `/api/v1/users` | `users:manage` | Password ≥ 12 characters; idempotent |
 | GET | `/api/v1/users/{id}` | `users:read` | |
-| PATCH | `/api/v1/users/{id}` | `users:manage` | `display_name`, `role`, `is_active`; administrators cannot demote or deactivate themselves; service accounts keep their role (deactivating the policy engine switches automated approvals off); service roles cannot be given to people |
+| PATCH | `/api/v1/users/{id}` | `users:manage` | `display_name`, `role`, `is_active`; administrators cannot demote or deactivate themselves; service accounts keep their role (deactivating the policy engine switches automated approvals off); service roles cannot be given to people; deactivating ends the user's sessions |
+| PUT | `/api/v1/users/{id}/scopes` | `users:manage` | `{countries, departments}` (Phase 84; empty = not limited); unknown codes or departments 422; an administrator who is scoped cannot set scopes |
+| GET | `/api/v1/users/{id}/sessions` | `users:read` | The user's sessions |
+| POST | `/api/v1/users/{id}/sessions/revoke` | `users:manage` | Sign the user out everywhere → `{revoked}` |
+| POST | `/api/v1/users/{id}/mfa/reset` | `users:manage` | Remove a lost factor and sign the user out (204); not one's own |
+
+Scoped users (Phase 84): customers, accounts and account requests outside the user's countries are left out of lists and answer 404 by id (deposits, approvals and other actions alike); employees likewise by country and department. Creating a customer or hiring an employee outside the scope is refused with 403.
 
 ### Countries
 

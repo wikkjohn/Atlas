@@ -31,6 +31,7 @@ from app.modules.experiments.schemas import (
     ReEvaluation,
     RunRef,
 )
+from app.modules.experiments.thresholds import thresholds_for
 from app.modules.identity.models import User
 from app.simulation import runner
 from app.simulation import service as simulations
@@ -42,9 +43,17 @@ logger = logging.getLogger("atlas.experiments")
 HEADLINE = ("labour_hours", "cost_per_completed_case", "processing_time_hours", "accuracy")
 
 
-def _config(costs, thresholds) -> tuple[dict[str, Any], str]:
+def _config(costs, thresholds, source: dict[str, Any] | None = None) -> tuple[dict[str, Any], str]:
     config = EvaluationConfig(costs=costs, thresholds=thresholds).model_dump(mode="json")
+    if source is not None:
+        # Where the thresholds came from (Phase 80): the scenario, its tier or the request.
+        config["thresholds_source"] = source
     return config, canonical_hash(config)
+
+
+def _scenario_config(db: Session, scenario_id: str, costs, given) -> tuple[dict[str, Any], str]:
+    values, source = thresholds_for(db, scenario_id, given)
+    return _config(costs, values, source)
 
 
 # --- Creation ---------------------------------------------------------------------------------
@@ -85,7 +94,7 @@ def create(
         check_idle=check_idle,
     )
     baseline, candidate = runs
-    config, config_hash = _config(body.costs, body.thresholds)
+    config, config_hash = _scenario_config(db, candidate.scenario_id, body.costs, body.thresholds)
     tool = candidate.config["ai_tool"]
     experiment = Experiment(
         name=body.name.strip(),
@@ -134,7 +143,7 @@ def create_from_runs(db: Session, body: ExperimentFromRuns, actor_id: uuid.UUID)
             "The runs did not process equivalent workloads, so they cannot be compared.",
             {"differences": differences or ["generated cases"]},
         )
-    config, config_hash = _config(body.costs, body.thresholds)
+    config, config_hash = _scenario_config(db, candidate.scenario_id, body.costs, body.thresholds)
     tool = candidate.config.get("ai_tool") or {}
     experiment = Experiment(
         name=body.name.strip(),

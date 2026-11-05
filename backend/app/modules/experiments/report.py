@@ -29,6 +29,22 @@ def _change(row: dict[str, Any]) -> str:
     return f"{rel:+.1%}{flag}"
 
 
+def _source(configuration: dict) -> str:
+    """Where the thresholds came from (Phase 80)."""
+    source = configuration.get("thresholds_source") or {}
+    kind = source.get("source")
+    if kind == "scenario":
+        return (
+            f"{source['scenario_id']}'s approved thresholds, version {source['version']}, "
+            f"{source['risk_tier']} risk"
+        )
+    if kind == "tier_default":
+        return f"defaults for {source['scenario_id']}'s risk tier, {source['risk_tier']}"
+    if kind == "request":
+        return "set for this experiment"
+    return "the bank's defaults"
+
+
 def markdown(e: ExperimentDetail) -> str:
     if e.evaluation is None:
         raise ValueError("Only evaluated experiments have a report.")
@@ -123,7 +139,7 @@ def markdown(e: ExperimentDetail) -> str:
         f"- Thresholds: false approvals ≤ {thresholds['max_false_approval_rate']:.1%}, false "
         f"rejections ≤ {thresholds['max_false_rejection_rate']:.1%}, errors ≤ "
         f"{thresholds['max_error_rate']:.1%} of cases, policy violations ≤ "
-        f"{thresholds['max_policy_violations']}",
+        f"{thresholds['max_policy_violations']} ({_source(e.configuration)})",
         "",
         "## Success criteria",
         "",

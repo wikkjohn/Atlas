@@ -22,6 +22,7 @@ from app.core.pagination import PageParams, paginate
 from app.modules.ai_tools.models import AITool, ToolStatus
 from app.modules.experiments import series as series_service
 from app.modules.experiments import service
+from app.modules.experiments.measurements import canonical_hash
 from app.modules.experiments.models import (
     ExperimentPortfolio,
     ExperimentSeries,
@@ -139,7 +140,16 @@ def create(db: Session, body: PortfolioCreate, actor_id: uuid.UUID) -> Experimen
         )
     simulations.reap_stale(db)
     simulations._ensure_idle(db)  # once: the portfolio's runs then queue behind each other
-    config, config_hash = service._config(body.costs, body.thresholds)
+    if body.thresholds is not None:
+        config, config_hash = service._config(body.costs, body.thresholds, {"source": "request"})
+    else:
+        # Each cell is judged by its own scenario's thresholds (Phase 80).
+        config = {
+            "costs": body.costs.model_dump(mode="json"),
+            "thresholds": None,
+            "thresholds_source": {"source": "scenario_per_cell"},
+        }
+        config_hash = canonical_hash(config)
     seeds = [body.seed + i for i in range(body.replicates)]
     portfolio = ExperimentPortfolio(
         name=body.name.strip(),

@@ -21,8 +21,17 @@ import {
 } from "@/features/experiments/ExperimentResults";
 import { PortfolioPanel } from "@/features/experiments/PortfolioPanel";
 import { SeriesPanel } from "@/features/experiments/SeriesPanel";
+import { LIMIT_FIELDS, sourceLabel, ThresholdsPanel, TIER_TONE } from "@/features/experiments/ThresholdsPanel";
 import { useAiTools } from "@/services/aiTools";
-import { downloadReport, useCreateExperiment, useExperiment, useExperiments, useReEvaluate } from "@/services/experiments";
+import {
+  downloadReport,
+  useCreateExperiment,
+  useExperiment,
+  useExperimentReassessment,
+  useExperiments,
+  useReEvaluate,
+  useScenarioThresholds,
+} from "@/services/experiments";
 import { humanize } from "@/services/format";
 import { useScenarios } from "@/services/simulations";
 import {
@@ -101,6 +110,10 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
     Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, String(DEFAULT_THRESHOLDS[f.key])])),
   );
   const [currency, setCurrency] = useState(DEFAULT_COSTS.currency_label);
+  // Phase 80: by default the scenario's own thresholds apply.
+  const scenarioThresholds = useScenarioThresholds();
+  const inForce = scenarioThresholds.data?.scenarios.find((r) => r.scenario_id === (scenario?.scenario_id ?? scenarioId));
+  const [ownThresholds, setOwnThresholds] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   // Keyed by registered record so the chosen version is the one sent.
   const selectedTool = compatible.find((t) => t.id === toolId) ?? compatible[0];
@@ -120,7 +133,9 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
     employees: Number(employees) >= 3 && Number(employees) <= 500 && Number.isInteger(Number(employees)) ? null : "3 – 500.",
     seed: Number.isInteger(Number(seed)) && Number(seed) >= 0 && seed.trim() !== "" ? null : "A whole number ≥ 0.",
     ...Object.fromEntries(COST_FIELDS.map((f) => [f.key, numberError(f.key, costs[f.key] ?? "")])),
-    ...Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, numberError(f.key, thresholds[f.key] ?? "")])),
+    ...(ownThresholds
+      ? Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, numberError(f.key, thresholds[f.key] ?? "")]))
+      : {}),
   };
   const valid = Object.values(errors).every((e) => e === null);
   const show = (key: string) => (submitted ? errors[key] : null);
@@ -145,9 +160,13 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
           ...Object.fromEntries(COST_FIELDS.map((f) => [f.key, Number(costs[f.key])])),
           currency_label: currency,
         },
-        thresholds: Object.fromEntries(
-          THRESHOLD_FIELDS.map((f) => [f.key, Number(thresholds[f.key])]),
-        ) as unknown as SuccessThresholds,
+        ...(ownThresholds
+          ? {
+              thresholds: Object.fromEntries(
+                THRESHOLD_FIELDS.map((f) => [f.key, Number(thresholds[f.key])]),
+              ) as unknown as SuccessThresholds,
+            }
+          : {}),
       },
       { onSuccess: (e) => onCreated(e.id) },
     );
@@ -238,7 +257,28 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
         </fieldset>
         <details className="rounded-lg border border-slate-200 p-3">
           <summary className="cursor-pointer text-xs font-semibold text-slate-700">Success thresholds</summary>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="mt-3 flex items-center gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={!ownThresholds}
+              onChange={(e) => {
+                setOwnThresholds(!e.target.checked);
+                if (!e.target.checked && inForce)
+                  setThresholds(Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, String(inForce.thresholds[f.key])])));
+              }}
+            />
+            Use the scenario's thresholds
+          </label>
+          {!ownThresholds && inForce && (
+            <p aria-label="Scenario thresholds in force" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              <StatusPill tone={TIER_TONE[inForce.risk_tier]} label={`${humanize(inForce.risk_tier)} risk`} />
+              {LIMIT_FIELDS.slice(0, 4)
+                .map((f) => `${f.short} ≤ ${(inForce.thresholds[f.key] * 100).toFixed(1)}%`)
+                .join(" · ")}
+              {inForce.source === "scenario" ? ` (approved v${inForce.version})` : " (tier default)"}
+            </p>
+          )}
+          <div className={ownThresholds ? "mt-3 grid gap-3 sm:grid-cols-2" : "hidden"}>
             {THRESHOLD_FIELDS.map((f) => (
               <Field key={f.key} label={f.label} error={show(f.key)}>
                 {(p) => (
@@ -274,6 +314,7 @@ function NewExperimentDialog({ onClose, onCreated }: { onClose: () => void; onCr
 function ExperimentView({ id }: { id: string }) {
   const experiment = useExperiment(id);
   const reEvaluate = useReEvaluate(id);
+  const reassess = useExperimentReassessment(id);
   const [downloadError, setDownloadError] = useState<unknown>(null);
   const e = experiment.data;
   if (experiment.error) return <ErrorMessage error={experiment.error} />;
@@ -298,6 +339,7 @@ function ExperimentView({ id }: { id: string }) {
             {e.tool_id} {e.tool_version} · {MODE_NAMES[e.candidate_mode]} vs. A — Baseline · {e.scenario_id} v
             {e.scenario_version} · configuration <span className="font-mono">{e.configuration_hash.slice(0, 12)}</span>
           </p>
+          <p className="mt-0.5 text-xs text-slate-500">Thresholds: {sourceLabel(e.configuration.thresholds_source)}</p>
         </div>
         {e.evaluation && (
           <div className="flex flex-wrap gap-2">
@@ -310,6 +352,9 @@ function ExperimentView({ id }: { id: string }) {
             <Button size="sm" variant="secondary" disabled={reEvaluate.isPending} onClick={() => reEvaluate.mutate()}>
               <RotateCcw aria-hidden className="h-3.5 w-3.5" /> Re-evaluate
             </Button>
+            <Button size="sm" variant="secondary" disabled={reassess.isPending} onClick={() => reassess.mutate()}>
+              Against today's thresholds
+            </Button>
             <Link
               to={`/benchmarking?experiment=${e.id}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
@@ -319,7 +364,17 @@ function ExperimentView({ id }: { id: string }) {
           </div>
         )}
       </div>
-      <ErrorMessage error={downloadError ?? reEvaluate.error} />
+      <ErrorMessage error={downloadError ?? reEvaluate.error ?? reassess.error} />
+      {reassess.data && (
+        <p role="status" aria-label="Under the scenario's current thresholds" className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          Under {sourceLabel(reassess.data.thresholds_source).toLowerCase()}: <VerdictPill verdict={reassess.data.verdict} />
+          {reassess.data.changed
+            ? ` — the stored verdict was ${humanize(reassess.data.stored_verdict)}.`
+            : " — the same as the stored verdict."}
+          {reassess.data.failed_criteria.length > 0 && ` Fails: ${reassess.data.failed_criteria.map(humanize).join(", ")}.`}
+          {" "}Nothing is rewritten.
+        </p>
+      )}
       {reEvaluate.data && (
         <p role="status" className="text-xs text-slate-600">
           {reEvaluate.data.matches
@@ -467,6 +522,9 @@ export function ExperimentsPage() {
       </div>
       <div className="mt-6">
         <PortfolioPanel />
+      </div>
+      <div className="mt-6">
+        <ThresholdsPanel />
       </div>
       {creating && (
         <NewExperimentDialog

@@ -32,6 +32,7 @@ from app.modules.experiments.router import (
     experiments_router,
     portfolio_router,
     series_router,
+    thresholds_router,
 )
 from app.modules.finance.router import router as finance_router
 from app.modules.fx.router import router as fx_router
@@ -114,6 +115,7 @@ for module_router in (
     experiments_router,
     series_router,
     portfolio_router,
+    thresholds_router,
     benchmarks_router,
     analytics_router,
     audit_router,

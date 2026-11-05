@@ -10,9 +10,10 @@ import { Panel } from "@/components/Panel";
 import { StatusPill, type Tone } from "@/components/StatusPill";
 import { MODE_NAMES, VerdictPill } from "@/features/experiments/ExperimentResults";
 import { pValue } from "@/features/experiments/SeriesPanel";
-import { useCreatePortfolio, usePortfolio, usePortfolios } from "@/services/experiments";
+import { TIER_TONE } from "@/features/experiments/ThresholdsPanel";
+import { useCreatePortfolio, usePortfolio, usePortfolioReassessment, usePortfolios } from "@/services/experiments";
 import { humanize } from "@/services/format";
-import type { ExperimentStatus, PortfolioMetric } from "@/types/experiments";
+import { type ExperimentStatus, type PortfolioMetric, RISK_TIERS } from "@/types/experiments";
 
 const STATUS_TONE: Record<ExperimentStatus, Tone> = { running: "warn", completed: "good", failed: "bad" };
 const FINDING: Record<PortfolioMetric["finding"], { label: string; tone: Tone }> = {
@@ -23,6 +24,64 @@ const FINDING: Record<PortfolioMetric["finding"], { label: string; tone: Tone }>
 };
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
 const DEFAULT_FAMILY = "agb-review-assistants";
+
+/** The cells re-judged under each scenario's thresholds in force now (Phase 80). */
+function UnderScenarioThresholds({ id }: { id: string }) {
+  const reassess = usePortfolioReassessment(id);
+  const r = reassess.data;
+  return (
+    <section aria-label="Under scenario thresholds" className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={reassess.isPending} onClick={() => reassess.mutate()}>
+          Judge each cell by its scenario's thresholds
+        </Button>
+        {r && (
+          <span className="flex items-center gap-2 text-xs text-slate-600">
+            {r.cell_verdicts.successful} of {r.cells.length} cells successful (stored:{" "}
+            {r.stored_cell_verdicts?.successful ?? "—"}) <VerdictPill verdict={r.verdict} />
+          </span>
+        )}
+      </div>
+      <ErrorMessage error={reassess.error} />
+      {r && (
+        <>
+          <table aria-label="Cells by risk tier" className="text-xs">
+            <thead className="text-left text-slate-500">
+              <tr>
+                <th className="pr-4 py-1">Risk tier</th>
+                <th className="pr-4 py-1 text-right">Cells</th>
+                <th className="pr-4 py-1 text-right">Successful now</th>
+                <th className="pr-4 py-1 text-right">Stored</th>
+              </tr>
+            </thead>
+            <tbody>
+              {RISK_TIERS.filter((t) => r.by_tier[t]).map((t) => (
+                <tr key={t}>
+                  <td className="pr-4 py-1">
+                    <StatusPill tone={TIER_TONE[t]} label={humanize(t)} />
+                  </td>
+                  <td className="pr-4 py-1 text-right">{r.by_tier[t]?.cells}</td>
+                  <td className="pr-4 py-1 text-right">{r.by_tier[t]?.successful}</td>
+                  <td className="pr-4 py-1 text-right">{r.by_tier[t]?.before}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {r.cells.some((c) => c.verdict !== c.stored_verdict) && (
+            <p className="text-xs text-slate-600">
+              Changed:{" "}
+              {r.cells
+                .filter((c) => c.verdict !== c.stored_verdict)
+                .map((c) => `${c.scenario_id} (${c.country}) → ${humanize(c.verdict)}`)
+                .join("; ")}
+            </p>
+          )}
+          <p className="text-[11px] text-slate-500">{r.method}</p>
+        </>
+      )}
+    </section>
+  );
+}
 
 function PortfolioView({ id }: { id: string }) {
   const portfolio = usePortfolio(id);
@@ -134,6 +193,7 @@ function PortfolioView({ id }: { id: string }) {
             </div>
           )}
           <p className="text-xs text-slate-500">Method: {stats.method}</p>
+          <UnderScenarioThresholds id={p.id} />
         </>
       )}
       {skipped.length > 0 && (

@@ -10,11 +10,13 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Identity,
+    Index,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -209,3 +211,46 @@ class ExperimentEvaluation(UUIDPrimaryKey, Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class ScenarioThresholdVersion(UUIDPrimaryKey, Base):
+    """The success thresholds a scenario is judged by (Phase 80), versioned. A version is
+    proposed by one person and takes effect only when another, a risk approver, approves
+    it; approving supersedes the scenario's previous active version. Without an active
+    version the scenario's risk tier gives built-in defaults (`thresholds.TIERS`)."""
+
+    __tablename__ = "scenario_thresholds"
+    __table_args__ = (
+        UniqueConstraint("scenario_id", "version", name="uq_scenario_thresholds_version"),
+        CheckConstraint(
+            "status IN ('proposed', 'active', 'superseded', 'rejected')", name="status_valid"
+        ),
+        CheckConstraint(
+            "risk_tier IN ('critical', 'high', 'medium', 'low')", name="risk_tier_valid"
+        ),
+        CheckConstraint("decided_by IS NULL OR decided_by <> proposed_by", name="four_eyes"),
+        Index(
+            "uq_scenario_thresholds_one_active",
+            "scenario_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    scenario_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(nullable=False)
+    risk_tier: Mapped[str] = mapped_column(String(20), nullable=False)
+    thresholds: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    proposed_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    proposed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)

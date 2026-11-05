@@ -37,6 +37,42 @@ jobs:
       - run: ruff format --check .
       - run: pytest
 
+  security:
+    name: Security (dependencies, SAST, authorization matrix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend and scanners
+        working-directory: backend
+        run: pip install -e ".[dev]" pip-audit bandit
+      - name: Known vulnerabilities in Python dependencies (pip-audit)
+        working-directory: backend
+        # The project itself is installed editable and is not on PyPI: audit everything else.
+        run: |
+          pip freeze --exclude-editable > /tmp/installed.txt
+          pip-audit -r /tmp/installed.txt --no-deps --disable-pip --strict
+      - name: Static analysis of the backend (Bandit, medium severity and above)
+        working-directory: backend
+        run: bandit -r app -q -ll
+      - name: Every route's permission matches the reviewed authorization matrix
+        working-directory: backend
+        run: python -m app.cli authz-matrix
+      - name: Known vulnerabilities in npm dependencies (high and critical)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --audit-level=high
+
   performance:
     name: Performance (quick suite)
     runs-on: ubuntu-latest

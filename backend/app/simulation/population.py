@@ -74,11 +74,9 @@ def _person(seed: int, index: int, today: date) -> tuple[str, date, int]:
 
 
 def _numbers(db: Session, sequence: str, n: int) -> list[int]:
-    return list(
-        db.execute(
-            text(f"SELECT nextval('{sequence}') FROM generate_series(1, :n)"), {"n": n}
-        ).scalars()
-    )
+    # `sequence` is one of this module's sequence names, never input.
+    query = f"SELECT nextval('{sequence}') FROM generate_series(1, :n)"  # nosec B608
+    return list(db.execute(text(query), {"n": n}).scalars())
 
 
 def _copy(cursor, table: str, columns: str, rows) -> None:

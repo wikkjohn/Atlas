@@ -671,14 +671,14 @@ def _rows_per_run(db: Session) -> dict[uuid.UUID, dict[str, int]]:
     """Rows of simulation history per run and table (one grouped scan per table)."""
     executions = partition_name("workflow_executions", Realm.SIMULATION)
     queries = {
-        "workflow_executions": f"SELECT simulation_run_id, count(*) FROM {executions} GROUP BY 1",
+        "workflow_executions": f"SELECT simulation_run_id, count(*) FROM {executions} GROUP BY 1",  # nosec B608
         "ai_tool_invocations": "SELECT simulation_run_id, count(*) FROM ai_tool_invocations "
         "WHERE simulation_run_id IS NOT NULL GROUP BY 1",
     }
     for table in ("workflow_step_runs", "workflow_events"):
         partition = partition_name(table, Realm.SIMULATION)
         queries[table] = (
-            f"SELECT e.simulation_run_id, count(*) FROM {partition} t "
+            f"SELECT e.simulation_run_id, count(*) FROM {partition} t "  # nosec B608
             f"JOIN {executions} e ON e.id = t.execution_id GROUP BY 1"
         )
     per_run: dict[uuid.UUID, dict[str, int]] = {}

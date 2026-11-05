@@ -933,6 +933,40 @@ def _calibration_pilot(args: argparse.Namespace) -> int:
     return 0
 
 
+def _authz_matrix(args: argparse.Namespace) -> int:
+    """Phase 86: the authorization matrix read from the routes, against the reviewed copy."""
+    import json
+    from pathlib import Path
+
+    from app.main import create_app
+    from app.security import matrix
+
+    root = Path(__file__).resolve().parents[1]
+    snapshot = root / "tests" / "authorization_matrix.json"
+    document = root.parent / "docs" / "authorization-matrix.md"
+    current = matrix.routes(create_app())
+    if args.write:
+        snapshot.write_text(json.dumps(current, indent=1) + "\n")
+        document.write_text(matrix.markdown(current))
+        print(f"{len(current)} routes written to {snapshot.name} and {document.name}")
+        return 0
+    reviewed = json.loads(snapshot.read_text())
+    added = sorted(set(current) - set(reviewed))
+    removed = sorted(set(reviewed) - set(current))
+    changed = sorted(k for k in set(current) & set(reviewed) if current[k] != reviewed[k])
+    for key in added:
+        print(f"+ {key}: {current[key]}")
+    for key in removed:
+        print(f"- {key}: {reviewed[key]}")
+    for key in changed:
+        print(f"~ {key}: {reviewed[key]} -> {current[key]}")
+    if added or removed or changed:
+        print("The routes' requirements differ from the reviewed matrix: review, then --write.")
+        return 1
+    print(f"{len(current)} routes match the reviewed matrix.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1193,6 +1227,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Phase 83: generate the overdraft workflow's variant for every active country",
     )
     country_variants.set_defaults(handler=_country_variants)
+
+    authz = commands.add_parser(
+        "authz-matrix",
+        help="Compare every route's required permission with the reviewed matrix (Phase 86)",
+    )
+    authz.add_argument("--write", action="store_true", help="Regenerate the matrix and its doc")
+    authz.set_defaults(handler=_authz_matrix)
 
     calib = commands.add_parser(
         "calibration-pilot",

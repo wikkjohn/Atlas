@@ -132,7 +132,7 @@ def register_tool(db: Session, data: ToolCreate, actor_id: uuid.UUID | None) -> 
     bad_permissions = [p for p in data.permissions if p not in valid_permissions]
     if bad_permissions:
         raise BusinessRuleViolation("Unknown permissions.", {"permissions": bad_permissions})
-    workflows = store.workflow_ids(db)
+    workflows = store.workflow_ids(db) | _template_ids(db)
     unknown_workflows = [w for w in data.compatible_workflows if w not in workflows]
     if unknown_workflows:
         raise BusinessRuleViolation("Unknown workflows.", {"workflows": unknown_workflows})
@@ -237,6 +237,31 @@ def find_tool(db: Session, tool_id: str, version: str | None = None) -> AITool:
             + "."
         )
     return max(candidates, key=lambda t: _version_key(t.tool_version))
+
+
+def _template_ids(db: Session) -> set[str]:
+    """Templates a tool may name (Phase 83): compatible with every variant of it."""
+    from app.modules.workflows.models import WorkflowTemplateRecord as WorkflowTemplate
+
+    return set(db.execute(select(WorkflowTemplate.template_id).distinct()).scalars())
+
+
+def template_of(db: Session, workflow_id: str) -> str | None:
+    """The template a generated workflow is a variant of, if any."""
+    from app.modules.workflows.models import WorkflowVariant
+
+    return db.execute(
+        select(WorkflowVariant.template_id).where(WorkflowVariant.workflow_id == workflow_id)
+    ).scalar_one_or_none()
+
+
+def serves(db: Session, tool: AITool, workflow_id: str) -> bool:
+    """Whether the tool is declared for the workflow: by its id, or — for a workflow
+    generated from a template — by the template's id (Phase 83)."""
+    if workflow_id in tool.compatible_workflows:
+        return True
+    template = next((w for w in tool.compatible_workflows if w.startswith("TPL-")), None)
+    return template is not None and template_of(db, workflow_id) in tool.compatible_workflows
 
 
 def list_tools(

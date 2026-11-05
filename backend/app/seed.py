@@ -616,6 +616,7 @@ def seed_demo(db: Session, password: str, seed: int = DEFAULT_SEED) -> SeedRepor
     _import_examples(db, report, with_ai_steps=False)
     _register_ai_tools(db, report)
     _import_example_definitions(db, report)
+    _register_ai_tools(db, report, TEMPLATE_AI_TOOLS)  # they name templates (Phase 83)
     return report
 
 
@@ -1085,12 +1086,32 @@ for _spec in DEMO_AI_TOOLS:
         _spec.setdefault("family", REVIEW_FAMILY)
 
 
-def _register_ai_tools(db: Session, report: SeedReport) -> None:
+def _template_tools() -> list[dict]:
+    """Tools declared for a template's variants, registered once the templates exist."""
+    overdraft = next(
+        t for t in DEMO_AI_TOOLS if t["tool_id"] == "agb-overdraft-affordability-assistant"
+    )
+    return [
+        {
+            **overdraft,
+            "tool_version": "1.1.0",
+            "description": overdraft["description"]
+            + " Version 1.1.0: the same rules, declared for every country's variant of "
+            "TPL-OVERDRAFT-REQUEST (Phase 83).",
+            "compatible_workflows": ["WF-1003", "TPL-OVERDRAFT-REQUEST"],
+        }
+    ]
+
+
+TEMPLATE_AI_TOOLS = _template_tools()
+
+
+def _register_ai_tools(db: Session, report: SeedReport, specs: list[dict] | None = None) -> None:
     from app.modules.ai_tools.models import AITool
     from app.modules.ai_tools.schemas import ToolCreate
     from app.modules.ai_tools.service import register_tool
 
-    for spec in DEMO_AI_TOOLS:
+    for spec in DEMO_AI_TOOLS if specs is None else specs:
         exists = db.execute(
             select(AITool.id).where(
                 AITool.tool_id == spec["tool_id"], AITool.tool_version == spec["tool_version"]

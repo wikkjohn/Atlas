@@ -207,7 +207,11 @@ class PortfolioCreate(BaseModel):
     name: str = Field(min_length=3, max_length=200)
     family: str = Field(min_length=3, max_length=64)
     candidate_mode: Literal["ai_assisted", "ai_automated"] = "ai_assisted"
-    countries: list[str] = Field(min_length=1, max_length=10)
+    # Up to 150: a templated scenario runs each country's own workflow (Phase 83).
+    countries: list[str] = Field(min_length=1, max_length=150)
+    scenario_ids: list[str] | None = Field(
+        default=None, min_length=1, max_length=50, description="Only these scenarios"
+    )
     applications: int = Field(default=60, ge=5, le=MAX_CUSTOM_APPLICATIONS)
     employees: int = Field(default=12, ge=3, le=MAX_CUSTOM_EMPLOYEES)
     seed: int = Field(default=42, ge=0, le=MAX_SEED, description="The first seed of each cell")

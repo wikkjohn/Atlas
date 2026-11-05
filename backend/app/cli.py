@@ -868,6 +868,37 @@ def _country_sweep(args: argparse.Namespace) -> int:
     return 0 if summary["passed"] == summary["runs"] else 1
 
 
+def _country_variants(args: argparse.Namespace) -> int:
+    """Phase 83: one TPL-OVERDRAFT-REQUEST variant per active country (the Milestone G exit's
+    workflows), each with its own decision deadline of one to four days."""
+    import zlib
+
+    from sqlalchemy import select
+
+    from app.modules.countries.models import Country, OperationalStatus
+    from app.modules.identity.models import User
+    from app.modules.workflows import templates
+
+    with get_sessionmaker()() as db:
+        actor = db.execute(select(User.id).where(User.username == "admin")).scalar_one()
+        codes = sorted(
+            db.execute(
+                select(Country.iso_country_code).where(
+                    Country.operational_status == OperationalStatus.ACTIVE
+                )
+            ).scalars()
+        )
+        params = [
+            {"country_code": c, "decision_seconds": 86_400 * (1 + zlib.crc32(c.encode()) % 4)}
+            for c in codes
+        ]
+        report = templates.generate(db, "TPL-OVERDRAFT-REQUEST", params, actor)
+        db.commit()
+        counts = {k: report.count(k) for k in ("created", "unchanged", "invalid")}
+        print(f"{len(codes)} countries: {counts}")
+    return 0 if report.valid else 1
+
+
 def _calibration_pilot(args: argparse.Namespace) -> int:
     """Phase 82: record a calibration from a SYNTHETIC pilot study of known parameters."""
     from sqlalchemy import select
@@ -1156,6 +1187,12 @@ def main(argv: list[str] | None = None) -> int:
     country_sweep.add_argument("--seed", type=int, default=2028)
     country_sweep.add_argument("--output", help="Write the JSON report here")
     country_sweep.set_defaults(handler=_country_sweep)
+
+    country_variants = commands.add_parser(
+        "country-variants",
+        help="Phase 83: generate the overdraft workflow's variant for every active country",
+    )
+    country_variants.set_defaults(handler=_country_variants)
 
     calib = commands.add_parser(
         "calibration-pilot",

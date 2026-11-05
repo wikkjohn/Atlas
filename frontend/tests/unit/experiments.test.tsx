@@ -675,6 +675,8 @@ describe("Repeated-seed series", () => {
   it("reads reviews as JSON or comma-separated lines", () => {
     expect(parseObservations('[{"minutes":3,"truth":"approve","decision":"reject","ai_recommendation":null}]')).toHaveLength(1);
     expect(() => parseObservations("5,maybe,approve")).toThrow("Not approve/reject");
+    // A mistyped recommendation is refused, never read as "no advice shown".
+    expect(() => parseObservations("14.5,approve,reject,rejet")).toThrow("Not an AI recommendation");
   });
 });
 

@@ -104,6 +104,31 @@ def _hash(value: Any) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+def _variant(db: Session, scenario: Scenario, countries: list[str] | None):
+    """The workflow variant a templated scenario runs in a country (Phase 83)."""
+    if scenario.workflow_template is None:
+        return None
+    from app.modules.workflows.models import WorkflowVariant
+
+    if not countries or len(countries) != 1:
+        raise SimulationSetupError(
+            f"Scenario {scenario.scenario_id} runs one country's {scenario.workflow_template} "
+            "variant: choose exactly one country."
+        )
+    found = [
+        v
+        for v in db.execute(
+            select(WorkflowVariant).where(WorkflowVariant.template_id == scenario.workflow_template)
+        ).scalars()
+        if v.params.get("country_code") == countries[0]
+    ]
+    if not found:
+        raise SimulationSetupError(
+            f"No {scenario.workflow_template} variant for {countries[0]}: generate it first."
+        )
+    return max(found, key=lambda v: (v.template_version, v.definition_version))
+
+
 def resolve_config(
     db: Session,
     scenario: Scenario,
@@ -121,11 +146,18 @@ def resolve_config(
     """The complete configuration of a run; stored with it and hashed to compare runs.
     `countries` limits the dataset to some active countries (Phase 28); staff are then hired
     in the first of them."""
-    # Code workflows, or stored ones such as WF-1003 v2 (Phase 30).
-    definition = store.resolve(db, scenario.workflow_id, scenario.workflow_version)
+    # Code workflows, or stored ones such as WF-1003 v2 (Phase 30), or — for a templated
+    # scenario (Phase 83) — the template's variant for the run's one country.
+    variant = _variant(db, scenario, countries)
+    if variant is not None:
+        definition = store.resolve(db, variant.workflow_id, variant.definition_version)
+    else:
+        definition = store.resolve(db, scenario.workflow_id, scenario.workflow_version)
     if definition is None:
         raise SimulationSetupError(
-            f"Workflow {scenario.workflow_id} v{scenario.workflow_version} is not registered."
+            f"Workflow {variant.workflow_id if variant else scenario.workflow_id} "
+            f"v{variant.definition_version if variant else scenario.workflow_version} "
+            "is not registered."
         )
     if mode not in MODES:
         raise SimulationSetupError(f"Unknown mode '{mode}'.")
@@ -180,6 +212,12 @@ def resolve_config(
         # The dataset the run draws on: active countries decide where applicants live.
         "dataset": dataset,
     }
+    if variant is not None:
+        config["workflow_variant"] = {
+            "template_id": variant.template_id,
+            "template_version": variant.template_version,
+            "country_code": variant.params.get("country_code"),
+        }
     if calibration is not None:
         # Calibrated reviewers (Phase 82): the simulated behaviour itself, so it is part of
         # the scenario configuration (and the hash): a calibrated run is a different model.
@@ -408,6 +446,8 @@ class _Simulation:
             else None
         )
         self.workflow_version = run.workflow_version
+        # The workflow the run executes: the scenario's, or its country's variant (Phase 83).
+        self.workflow_id = run.workflow_id
         self.clock = SimulationClock(scenario.simulated_start)
         self.applications = run.config["applications"]
         self.employees = run.config["employees"]
@@ -737,7 +777,7 @@ class _Simulation:
             teller = self.tellers[case.app.index % len(self.tellers)]
             execution, _ = engine.start(
                 self.db,
-                workflow_id=self.scenario.workflow_id,
+                workflow_id=self.workflow_id,
                 version=self.workflow_version,
                 payload=case.app.payload,
                 initiator=teller.principal,
@@ -1296,9 +1336,9 @@ def execute_run(session_factory: sessionmaker[Session], run_id: uuid.UUID) -> li
             raise SimulationSetupError(
                 f"Scenario {run.scenario_id} v{run.scenario_version} is not registered."
             )
-        if store.resolve(db, scenario.workflow_id, run.workflow_version) is None:
+        if store.resolve(db, run.workflow_id, run.workflow_version) is None:
             raise SimulationSetupError(
-                f"{scenario.workflow_id} v{run.workflow_version} is no longer registered."
+                f"{run.workflow_id} v{run.workflow_version} is no longer registered."
             )
         run.status = SimulationStatus.RUNNING.value
         run.started_at = run.heartbeat_at = datetime.now(UTC)

@@ -39,6 +39,8 @@ MIN_PER_SIDE = 10  # should-approve / should-reject cases needed to fit each acc
 MIN_ASSISTED = 30  # reviews with a recommendation needed to fit the AI's effect
 MIN_AI_WRONG = 5  # of them, with a wrong recommendation, to fit automation bias
 MAX_OBSERVATIONS = 20_000
+MAX_SIGMA = 2.0  # ReviewerModel.sigma's bound
+TIME_FACTOR_RANGE = (0.05, 10.0)  # within AIAssistanceModel.review_time_factor's bound
 CONFIDENCE = 0.95
 _Z = NormalDist().inv_cdf(0.5 + CONFIDENCE / 2)
 
@@ -103,6 +105,12 @@ def fit(observations: list[dict[str, Any]], *, ai_capable: bool) -> dict[str, An
         )
     notes: list[str] = []
     times = lognormal([o["minutes"] for o in plain])
+    if times["_s"] > MAX_SIGMA:
+        # Never silently simulate something other than what was fitted.
+        raise ValueError(
+            f"The review times spread more widely (sigma {times['_s']:.2f}) than the "
+            f"simulation supports ({MAX_SIGMA}): check the minutes, or split the step."
+        )
     approve = [o for o in plain if o["truth"] == "approve"]
     reject = [o for o in plain if o["truth"] == "reject"]
     if len(approve) >= MIN_PER_SIDE and len(reject) >= MIN_PER_SIDE:
@@ -153,14 +161,26 @@ def fit(observations: list[dict[str, Any]], *, ai_capable: bool) -> dict[str, An
     se = math.hypot(with_ai["_log_mean_se"], times["_log_mean_se"])
     right = [o for o in assisted if o["ai_recommendation"] == o["truth"]]
     wrong = [o for o in assisted if o["ai_recommendation"] != o["truth"]]
+    low_bound, high_bound = TIME_FACTOR_RANGE
+    if not low_bound <= math.exp(log_ratio) <= high_bound:
+        raise ValueError(
+            f"Reviews with AI advice took {math.exp(log_ratio):.2f} times as long as those "
+            f"without, outside what the simulation supports ({low_bound}–{high_bound})."
+        )
     ai = {
         "review_time_factor": {"estimate": _r(math.exp(log_ratio)),
                                "low": _r(math.exp(log_ratio - _Z * se)),
                                "high": _r(math.exp(log_ratio + _Z * se))},
-        "accuracy_when_ai_correct": wilson(sum(map(_correct, right)), len(right)),
+        "accuracy_when_ai_correct": wilson(sum(map(_correct, right)), len(right))
+        if len(right) >= MIN_AI_WRONG else None,
         "accuracy_when_ai_wrong": wilson(sum(map(_correct, wrong)), len(wrong))
         if len(wrong) >= MIN_AI_WRONG else None,
     }  # fmt: skip
+    if ai["accuracy_when_ai_correct"] is None:
+        notes.append(
+            f"{len(right)} reviews with a right recommendation (at least {MIN_AI_WRONG} "
+            "needed): accuracy with right advice stays the scenario's assumption."
+        )
     if ai["accuracy_when_ai_wrong"] is None:
         notes.append(
             f"{len(wrong)} reviews with a wrong recommendation (at least {MIN_AI_WRONG} needed): "
@@ -169,6 +189,10 @@ def fit(observations: list[dict[str, Any]], *, ai_capable: bool) -> dict[str, An
     out["ai_assistance"] = ai
     out["_draw"]["log_ratio"] = log_ratio
     out["_draw"]["log_ratio_se"] = se
+    # The assisted mean on its own, so a draw derives the ratio from the drawn unassisted
+    # mean instead of counting its uncertainty twice.
+    out["_draw"]["log_mean_ai"] = with_ai["_log_mean"]
+    out["_draw"]["log_mean_ai_se"] = with_ai["_log_mean_se"]
     return out
 
 
@@ -218,19 +242,21 @@ def parameters(fitted: dict[str, Any], rng: random.Random | None) -> dict[str, A
     out: dict[str, Any] = {"reviewer": reviewer, "ai_assistance": None}
     ai = fitted.get("ai_assistance")
     if ai:
+        # Unfitted proportions stay None (the scenario's assumption), drawn or not.
+        right_fit, wrong_fit = ai["accuracy_when_ai_correct"], ai["accuracy_when_ai_wrong"]
         if rng is None:
             factor = ai["review_time_factor"]["estimate"]
-            right = ai["accuracy_when_ai_correct"]["estimate"]
-            wrong = (
-                ai["accuracy_when_ai_wrong"]["estimate"] if ai["accuracy_when_ai_wrong"] else None
-            )
+            right = right_fit["estimate"] if right_fit else None
+            wrong = wrong_fit["estimate"] if wrong_fit else None
         else:
-            factor = math.exp(rng.gauss(d["log_ratio"], d["log_ratio_se"]))
-            right = _beta(rng, ai["accuracy_when_ai_correct"])
-            wrong = (
-                _beta(rng, ai["accuracy_when_ai_wrong"]) if ai["accuracy_when_ai_wrong"] else None
-            )
-        out["ai_assistance"] = {"review_time_factor": _r(_clamp(factor, 0.01, 2.0)),
+            if "log_mean_ai" in d:
+                # The assisted mean drawn on its own, over the unassisted mean drawn above.
+                factor = math.exp(rng.gauss(d["log_mean_ai"], d["log_mean_ai_se"]) - log_mean)
+            else:  # calibrations recorded before the joint draw
+                factor = math.exp(rng.gauss(d["log_ratio"], d["log_ratio_se"]))
+            right = _beta(rng, right_fit) if right_fit else None
+            wrong = _beta(rng, wrong_fit) if wrong_fit else None
+        out["ai_assistance"] = {"review_time_factor": _r(_clamp(factor, *TIME_FACTOR_RANGE)),
                                 "accuracy_when_ai_correct": _r(right),
                                 "accuracy_when_ai_wrong": _r(wrong)}  # fmt: skip
     return out
@@ -263,6 +289,12 @@ def for_run(
         records = [db.get(ReviewerCalibration, i) for i in ids]
         if any(r is None for r in records):
             raise ValueError("A calibration the run used no longer exists.")
+        foreign = [r.calibration_number for r in records if r.scenario_id != scenario.scenario_id]
+        if foreign:
+            raise ValueError(
+                f"Calibration(s) {', '.join(map(str, foreign))} belong to another scenario, "
+                f"not {scenario.scenario_id}."
+            )
     elif calibrated:
         records = active(db, scenario.scenario_id)
     else:

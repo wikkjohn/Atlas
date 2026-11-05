@@ -29,6 +29,7 @@ from app.modules.employees.router import router as employees_router
 from app.modules.events.router import router as events_router
 from app.modules.experiments.router import (
     benchmarks_router,
+    comparison_router,
     experiments_router,
     portfolio_router,
     series_router,
@@ -117,6 +118,7 @@ for module_router in (
     portfolio_router,
     thresholds_router,
     benchmarks_router,
+    comparison_router,
     analytics_router,
     audit_router,
     jobs_router,

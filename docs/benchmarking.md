@@ -150,6 +150,71 @@ criterion. Two findings:
   requests averages 8.2 % false approvals, inside the low tier's 10 %, yet two of its three
   seeds land at 11.1 % and 13.6 %, and a cell needs every seed to pass.
 
+## Tool comparison across all benchmarks (Phase 81)
+
+The leaderboard (*All experiments by tool* on the Benchmarking page) summarises each
+tool's experiments against their own baselines, whatever their workloads: it describes a
+tool, it does not compare two. `app/modules/experiments/comparison.py` compares them.
+
+- **Benchmarks.** A benchmark is a scenario version and a candidate mode. Every completed
+  experiment of a tool belongs to one.
+- **Matched workloads.** Two tools are compared only on workloads they share: experiments
+  whose workload is identical (scenario version, seed, sizes, dataset, scenario
+  configuration such as the country, software version), whose baselines processed the
+  same cases (the case fingerprint) and that assumed the same costs. Then the tool is the
+  only difference. The latest experiment of a tool on a workload stands for it. Two
+  versions of one tool are two tools.
+- **Head-to-head.** For each pair and each metric with a direction, the differences of
+  the candidates' values across the matched workloads get a paired t-test (95 %
+  interval), with Holm's adjustment across metrics. The pair's outcome: a tool is
+  **preferred** when it is significantly better on at least one metric and worse on none;
+  a **trade-off** when each is better on something; **identical** when every value on
+  every workload matched; otherwise **no significant difference**, or **too few matched
+  workloads** (under 2).
+- **Ranking.** Per benchmark, by the share of experiments successful under the scenario's
+  thresholds in force now (Phase 80; tools evaluated at different times meet the same
+  standard), then by head-to-heads won and lost. Tools nothing separates share a rank:
+  averages over unmatched workloads never decide.
+- **Scoreboard.** Per tool across benchmarks: benchmarks, times ranked first, successful
+  experiments, and its head-to-heads preferred, beaten, trade-off, no difference and
+  identical.
+- **Running one.** `POST /api/v1/tool-comparison/runs` (or *Compare tools* on the
+  Benchmarking page) starts one repeated-seed series per tool (2 to 5 tools, two versions
+  of one tool allowed) on the same scenario, seeds, sizes and costs, in one background
+  job, so every pair is matched on every seed. Any series that happen to share workloads
+  are compared too.
+
+Everything is derived on request (`GET /api/v1/tool-comparison?scenario_id=&tool=`);
+nothing is stored. Comparing every benchmark on the development database takes 0.3 s.
+
+**Measured** on the development database: the KYC assistant 1.0.0; a tuned 1.1.0
+(escalates expected deposits above 20,000 instead of 50,000 and treats one edit, not two,
+as a typo in a name); and the KYC fault injector (a test double that fails, times out or
+answers out of schema on 20 % of calls) — retail onboarding v2, AI-assisted, 40 cases and
+20 staff, seeds 81–85: 30 runs in 321 s.
+
+| Rank | Tool | Successful (critical thresholds) | Head-to-heads |
+| --- | --- | --- | --- |
+| 1 | KYC assistant 1.0.0 | 19 of 19 (its 14 earlier experiments included) | preferred over the fault injector; identical to 1.1.0 |
+| 1 | KYC assistant 1.1.0 | 5 of 5 | preferred over the fault injector; identical to 1.0.0 |
+| 3 | KYC fault injector | 0 of 5 | beaten by both |
+
+- **The tuning changed nothing.** 1.0.0 and 1.1.0 gave the same value on every metric on
+  all five seeds, and the same recommendations (169 approve, 8 escalate, 15 reject of 192
+  calls each): no application's expected deposits fell between 20,000 and 50,000 (the
+  highest was 120,000, above both limits), and the stricter name rule changed no
+  recommendation. A
+  version that the benchmarks cannot tell apart is not evidence of an improvement; it
+  needs cases that reach the changed rule.
+- **Against the fault injector** (both versions alike): cost per completed case 29.3 %
+  lower, labour 12.4 % lower (0.47 to 1.23 hours a run less), errors 0 against 9.2 a run;
+  Holm-adjusted p 0.026 to 0.033. Accuracy, false approvals and false rejections were the
+  same: in the assisted mode people still decide, so the injected failures cost time and
+  money, not correctness.
+- **The old leaderboard would have ranked them by unmatched averages:** 1.0.0's mean
+  labour change (−35.1 %) mixes 19 experiments of different sizes and seeds with 1.1.0's
+  five (−37.0 %), which is why ranks no longer use it.
+
 ## Reproducibility
 
 The evaluation is deterministic: `evaluation_digest` is a hash of the derived results.

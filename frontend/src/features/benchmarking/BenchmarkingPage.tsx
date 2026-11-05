@@ -14,6 +14,7 @@ import {
   QualityIndicators,
   VerdictPill,
 } from "@/features/experiments/ExperimentResults";
+import { ToolComparisonPanel } from "@/features/benchmarking/ToolComparisonPanel";
 import { useBenchmarks, useExperiment, useExperiments } from "@/services/experiments";
 
 const CHANGE_COLUMNS = [
@@ -155,7 +156,8 @@ export function BenchmarkingPage() {
         description="Baseline versus AI-supported performance: processing time, cost, quality, compliance and conclusions."
         actions={<SyntheticDataBadge />}
       />
-      <Panel title="Tools compared" subtitle="All completed experiments, by tool version and configuration">
+      <ToolComparisonPanel />
+      <Panel title="All experiments by tool" subtitle="Every completed experiment, by tool version and configuration — not matched, so not a comparison">
         <Leaderboard />
       </Panel>
       <Panel

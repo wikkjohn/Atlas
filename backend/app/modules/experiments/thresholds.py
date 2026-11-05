@@ -112,13 +112,14 @@ def tier_of(scenario_id: str) -> tuple[str, str]:
     return DEFAULT_TIER, "No tier assigned: the bank's default thresholds."
 
 
-def active(db: Session, scenario_id: str) -> ScenarioThresholdVersion | None:
-    return db.execute(
-        select(ScenarioThresholdVersion).where(
-            ScenarioThresholdVersion.scenario_id == scenario_id,
-            ScenarioThresholdVersion.status == "active",
-        )
-    ).scalar_one_or_none()
+def active(db: Session, scenario_id: str, *, lock: bool = False) -> ScenarioThresholdVersion | None:
+    query = select(ScenarioThresholdVersion).where(
+        ScenarioThresholdVersion.scenario_id == scenario_id,
+        ScenarioThresholdVersion.status == "active",
+    )
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    return db.execute(query).scalar_one_or_none()
 
 
 def resolve(db: Session, scenario_id: str) -> tuple[SuccessThresholds, dict[str, Any]]:
@@ -154,8 +155,13 @@ def thresholds_for(
 # --- Proposals and decisions -------------------------------------------------------------------
 
 
-def get(db: Session, record_id: uuid.UUID) -> ScenarioThresholdVersion:
-    record = db.get(ScenarioThresholdVersion, record_id)
+def get(db: Session, record_id: uuid.UUID, *, lock: bool = False) -> ScenarioThresholdVersion:
+    """One version; `lock` takes a row lock and re-reads it, so two people deciding on the
+    same proposal at once are serialised and the second sees the first's decision."""
+    query = select(ScenarioThresholdVersion).where(ScenarioThresholdVersion.id == record_id)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    record = db.execute(query).scalar_one_or_none()
     if record is None:
         raise NotFoundError("Threshold version not found.")
     return record
@@ -227,7 +233,7 @@ def _decide(
             "Thresholds need a second person: the proposer cannot decide on them."
         )
     if status == "active":
-        previous = active(db, record.scenario_id)
+        previous = active(db, record.scenario_id, lock=True)
         if previous is not None:
             previous.status = "superseded"
             db.flush()  # the partial unique index allows one active version
@@ -250,13 +256,13 @@ def _decide(
 
 
 def approve(db: Session, record_id: uuid.UUID, actor_id: uuid.UUID, note: str = ""):
-    return _decide(db, get(db, record_id), actor_id, "active", note)
+    return _decide(db, get(db, record_id, lock=True), actor_id, "active", note)
 
 
 def reject(db: Session, record_id: uuid.UUID, actor_id: uuid.UUID, note: str):
     if len(note.strip()) < 5:
         raise BusinessRuleViolation("Say why the thresholds are rejected.")
-    return _decide(db, get(db, record_id), actor_id, "rejected", note)
+    return _decide(db, get(db, record_id, lock=True), actor_id, "rejected", note)
 
 
 # --- Reading -----------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Implementation status
 
-Last updated: Phase 80.
+Last updated: Phase 81.
 
 | Phase | Name | Status |
 | --- | --- | --- |
@@ -85,6 +85,52 @@ Last updated: Phase 80.
 | 78 | AI laboratory, step 3: experiment portfolios across workflows, departments and countries ([benchmarking.md](benchmarking.md)) | **Complete** |
 | 79 | AI laboratory, step 4: guardrails — record audit, drift and bias across segments ([ai-testing.md](ai-testing.md)) | **Complete** |
 | 80 | AI laboratory, step 5: scenario-specific success thresholds ([benchmarking.md](benchmarking.md)) | **Complete** |
+| 81 | AI laboratory, step 6: tool comparison across all benchmarks ([benchmarking.md](benchmarking.md)) | **Complete** |
+
+## Phase 81: what exists
+
+- **Matched comparison** (`experiments/comparison.py`): every completed tool experiment
+  grouped by benchmark (scenario version and mode); two tools compared only on workloads
+  they share (workload, baseline cases and cost assumptions), with a paired t-test per
+  metric and Holm's adjustment; outcomes preferred, trade-off, no difference, identical,
+  too few matched.
+- **Ranks and scoreboard:** per benchmark by the share successful under the scenario's
+  thresholds now, then head-to-heads; ties share a rank; a scoreboard across benchmarks.
+- **Running a comparison:** one repeated-seed series per tool on the same seeds, sizes and
+  costs, in one job (`tool_comparison.execute`).
+- **API and page:** `GET /api/v1/tool-comparison`, `POST /api/v1/tool-comparison/runs`;
+  *Head-to-head* on the Benchmarking page (scoreboard, rankings, each pair's metrics,
+  *Compare tools*); the old leaderboard is now *All experiments by tool*, marked as not a
+  comparison.
+- **Two review findings on PR #71 (Phase 80), fixed here:** a decision on proposed
+  thresholds now locks and re-reads the proposal (and the active version it supersedes),
+  so two approvers acting at once cannot both decide it, nor an approval racing a
+  rejection leave the scenario with no active version; and the approver now sees every
+  proposed limit beside the one in force, instead of only the limits in force. CI on
+  PR #71 passed on the first run.
+
+## Phase 81: verified results
+
+| Check | Result |
+| --- | --- |
+| Backend pytest (real PostgreSQL) | 817 passed (run before the PR #71 review fixes; their tests, 4 threshold tests including the new lock test, passed after them). New: 4 tests covering: a tool better on every seed is preferred, with the mean difference and adjusted p; better on one metric and worse on another is a trade-off; noise is no difference and an unmatched workload decides nothing; a comparison through the API runs KYC 1.0.0, a tuned 1.1.0 and the fault injector on the same seeds, finds the versions identical (rank 1, shared) and ranks the injector 3, with the scoreboard, filters and refusals |
+| Generated workflow tests | 115 workflows, 1,482 cases, 0 failed (1,198.7 s, alongside the backend suite) |
+| Frontend Vitest / typecheck / build | 180 passed (new: the scoreboard, tie-aware ranks, a pair's outcome and per-metric findings; starting a comparison needs 2 to 5 tools and sends their versions) / clean / built |
+| Playwright on a fresh database | 75 passed (new: a researcher compares the KYC assistant and the fault injector on the same seeds and the head-to-head and scoreboard appear) |
+| KYC 1.0.0, a tuned 1.1.0 and the fault injector, retail onboarding, 5 matched seeds (development database, 30 runs in 321 s) | 1.0.0 and 1.1.0 identical on every metric and seed (rank 1, shared); both preferred over the fault injector (cost per case −29.3 %, labour −12.4 %, errors 0 vs 9.2 a run; adjusted p 0.026–0.033), which ranks 3 with 0 of 5 successful |
+
+## Phase 81: known limitations
+
+- **Only one benchmark has rival tools:** each workflow has one assistant, plus the KYC
+  fault injector and the versions registered for comparison; the Claude leave assistant
+  needs credentials to run.
+- **Baselines are run once per tool:** a comparison of three tools runs the same baseline
+  three times (identical, by the seed); sharing one baseline would cut a third of the runs.
+- **Matching is exact:** experiments that differ only in cost assumptions or software
+  version are not matched, though their behaviour may be.
+- **A tuned version is only as visible as the cases that exercise it:** the KYC 1.1.0
+  change was never reached by the generated cases.
+- **Computed on request,** not stored or tracked over time.
 
 ## Phase 80: what exists
 

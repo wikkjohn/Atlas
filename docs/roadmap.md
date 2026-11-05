@@ -333,7 +333,11 @@ for the factory, a simulation workload and at least one AI tool candidate.
       observed reviews with intervals; runs simulate the active calibration and record it;
       series can draw each seed's reviewers from the fit's uncertainty; intervals cover
       the truth 95–97 % of the time on synthetic pilots; see `simulation.md`)
-- [ ] **Exit:** one tool evaluated across 100+ workflows with statistical confidence
+- [x] **Exit:** one tool evaluated across 100+ workflows with statistical confidence
+      (Phase 83: the overdraft assistant evaluated in all 120 countries' generated variants
+      of WF-1003, 720 runs: labour −40.0 % in every workflow, false approvals doubled, not
+      successful; the variants are near-copies, so the agreement reflects one process —
+      Milestone G done)
 
 ## Milestone H — Platform hardening (alongside the others)
 
@@ -430,4 +434,5 @@ multiplier: after it, the workflow count grows by generating variants, not by ha
 | Phase 80 (G5) | Milestone G, step 5: scenario-specific success thresholds — risk tiers, approved versions with four eyes, provenance on every experiment, stored results re-judged; the Phase 78 portfolio measured under them | complete |
 | Phase 81 (G6) | Milestone G, step 6: tool comparison across all benchmarks — matched workloads, paired head-to-heads, tie-aware ranks under the scenario's thresholds, a scoreboard; comparisons run on the same seeds; KYC versions and the fault injector measured | complete |
 | Phase 82 (G7) | Milestone G, step 7: reviewer behaviour calibrated from observed reviews — fitted parameters with intervals, runs that record them, per-seed draws; coverage checked on synthetic pilots; the KYC effect measured assumed and calibrated | complete |
-| Phase 83 (G8, proposed) | Milestone G exit: one tool evaluated across 100+ workflows with statistical confidence | next |
+| Phase 83 (G8) | Milestone G exit: tools declared for a template serve its variants; templated scenarios run each country's variant; the overdraft assistant evaluated across 120 country workflows (720 runs) — Milestone G done | complete |
+| Phase 84 (H1, proposed) | Milestone H, step 1: simulated SSO, MFA, session management, permissions scoped by country and department | next |
